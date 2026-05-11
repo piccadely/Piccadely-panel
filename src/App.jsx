@@ -80,11 +80,13 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [tab, setTab] = useState("retiro-at");
-  const [vista, setVista] = useState("panel"); // "panel" | "caja" | "finalizados"
+  const [vista, setVista] = useState("panel");
   const [filtroFecha, setFiltroFecha] = useState("");
   const [filtroZona, setFiltroZona] = useState("");
   const [expandido, setExpandido] = useState(null);
   const [menuAbierto, setMenuAbierto] = useState(false);
+  const [filtroFinDesde, setFiltroFinDesde] = useState("");
+  const [filtroFinHasta, setFiltroFinHasta] = useState("");
   const menuRef = useRef(null);
 
   const [productos, setProductos] = useState([]);
@@ -128,7 +130,6 @@ export default function App() {
     }
   }, [tab]);
 
-  // Cerrar menú al click afuera
   useEffect(() => {
     function handleClick(e) {
       if (menuRef.current && !menuRef.current.contains(e.target)) setMenuAbierto(false);
@@ -175,7 +176,6 @@ export default function App() {
     }),
   ];
 
-  // Pedidos activos: hoy en adelante o sin fecha, y no entregados
   const pedidosActivos = pedidosProcesados.filter(p => {
     const estado = pedidosLocales[p.id]?.estado || p.estado;
     if (estado === "Entregado") return false;
@@ -183,7 +183,6 @@ export default function App() {
     return p.fechaDisplay >= HOY;
   });
 
-  // Pedidos finalizados: estado Entregado
   const pedidosFinalizados = pedidosProcesados.filter(p => {
     const estado = pedidosLocales[p.id]?.estado || p.estado;
     return estado === "Entregado";
@@ -370,15 +369,9 @@ export default function App() {
           </button>
           {menuAbierto && (
             <div style={s.dropdown}>
-              <button style={s.dropItem} onClick={() => { setVista("caja"); setMenuAbierto(false); }}>
-                💰 Caja
-              </button>
-              <button style={s.dropItem} onClick={() => { setVista("finalizados"); setMenuAbierto(false); }}>
-                📋 Pedidos finalizados
-              </button>
-              <button style={{ ...s.dropItem, borderTop: "1px solid #eee", color: "#888" }} onClick={() => { setVista("panel"); setMenuAbierto(false); }}>
-                ← Volver al panel
-              </button>
+              <button style={s.dropItem} onClick={() => { setVista("caja"); setMenuAbierto(false); }}>💰 Caja</button>
+              <button style={s.dropItem} onClick={() => { setVista("finalizados"); setMenuAbierto(false); }}>📋 Pedidos finalizados</button>
+              <button style={{ ...s.dropItem, borderTop: "1px solid #eee", color: "#888" }} onClick={() => { setVista("panel"); setMenuAbierto(false); }}>← Volver al panel</button>
             </div>
           )}
         </div>
@@ -446,20 +439,38 @@ export default function App() {
 
   // VISTA PEDIDOS FINALIZADOS
   if (vista === "finalizados") {
-    const finalizadosOrdenados = [...pedidosFinalizados].sort((a, b) => {
-      if (!a.fechaDisplay) return 1;
-      if (!b.fechaDisplay) return -1;
-      return b.fechaDisplay.localeCompare(a.fechaDisplay);
-    });
+    const finalizadosOrdenados = [...pedidosFinalizados]
+      .filter(p => {
+        if (filtroFinDesde && p.fechaDisplay && p.fechaDisplay < filtroFinDesde) return false;
+        if (filtroFinHasta && p.fechaDisplay && p.fechaDisplay > filtroFinHasta) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        if (!a.fechaDisplay) return 1;
+        if (!b.fechaDisplay) return -1;
+        return b.fechaDisplay.localeCompare(a.fechaDisplay);
+      });
+
     return (
       <div style={s.wrap}>
         <Header />
         <div style={{ padding: "24px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
             <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
             <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>
               📋 Pedidos finalizados <span style={{ fontSize: 13, color: "#aaa", fontWeight: 400 }}>({finalizadosOrdenados.length})</span>
             </h2>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
+              <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={filtroFinDesde} onChange={e => setFiltroFinDesde(e.target.value)} />
+              <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
+              <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={filtroFinHasta} onChange={e => setFiltroFinHasta(e.target.value)} />
+              {(filtroFinDesde || filtroFinHasta) && (
+                <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setFiltroFinDesde(""); setFiltroFinHasta(""); }}>
+                  ✕ Limpiar
+                </button>
+              )}
+            </div>
           </div>
           <div style={s.lista}>
             <div style={s.cabecera}>
@@ -473,7 +484,7 @@ export default function App() {
               <span style={{ ...s.col, flex: 0.8, textAlign: "center" }}>Fecha</span>
               <span style={{ ...s.col, flex: 0.7, textAlign: "center" }}>Local</span>
             </div>
-            {finalizadosOrdenados.length === 0 && <div style={s.empty}>No hay pedidos finalizados.</div>}
+            {finalizadosOrdenados.length === 0 && <div style={s.empty}>No hay pedidos finalizados en ese rango.</div>}
             {finalizadosOrdenados.map(p => (
               <div key={p.id} style={{ ...s.fila, ...(expandido === p.id ? s.filaAbierta : {}) }}>
                 <div style={s.filaTop} onClick={() => toggleExpandido(p.id)}>
