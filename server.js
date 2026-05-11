@@ -50,6 +50,6 @@ app.get("/api/categories", async (req, res) => {
     res.status(500).json({ error: "Error trayendo categorías" });
   }
 });
-    app.listen(3001, () => {
-    console.log("Servidor corriendo en http://localhost:3001");
-    });
+    app.listen(process.env.PORT || 3001, () => {
+  console.log("Servidor corriendo");
+});
