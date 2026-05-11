@@ -1,0 +1,742 @@
+import { useState, useEffect } from "react";
+import axios from "axios";
+
+function parsearFranja(ownerNote) {
+  if (!ownerNote) return { fecha: null, franja: null };
+  const match = ownerNote.match(/(\d+\/\d+\/\d+), entre las (\d+:\d+) y las (\d+:\d+)/);
+  if (!match) return { fecha: null, franja: null };
+  const [, fecha, inicio, fin] = match;
+  const [dia, mes, anio] = fecha.split("/");
+  return {
+    fecha: `${anio}-${mes.padStart(2,"0")}-${dia.padStart(2,"0")}`,
+    franja: `${inicio} – ${fin}`
+  };
+}
+
+function nextEstado(e) {
+  const seq = ["Por empaquetar", "Listo", "En camino", "Entregado"];
+  const i = seq.indexOf(e);
+  return i < seq.length - 1 ? seq[i + 1] : e;
+}
+
+const ESTADO_COLORS = {
+  "Por empaquetar": { bg: "#f0f0e8", text: "#555" },
+  "Listo":          { bg: "#faeeda", text: "#633806" },
+  "En camino":      { bg: "#e6f1fb", text: "#0c447c" },
+  "Entregado":      { bg: "#eaf3de", text: "#27500a" },
+};
+
+const REPARTIDORES = ["Sin asignar", "Rodrigo", "Lucía", "Martín", "Sofía", "Diego", "Cabify"];
+const MEDIOS_PAGO = ["Mercado Pago", "Efectivo", "Transferencia", "Rappi", "Pedidos Ya", "Otro"];
+
+const TABS = [
+  { id: "retiro-at",    label: "🏪 Retiro A. Thomas" },
+  { id: "retiro-fr",   label: "🏪 Retiro French" },
+  { id: "delivery-at", label: "🚚 Delivery A. Thomas" },
+  { id: "delivery-fr", label: "🚚 Delivery French" },
+  { id: "caja",        label: "💰 Caja" },
+  { id: "nuevo",       label: "➕ Nuevo pedido" },
+];
+
+function clasificarPedido(p) {
+  const location = p.fulfillments?.[0]?.assigned_location?.name || "";
+  const tipo = p.fulfillments?.[0]?.shipping?.type || "";
+  const esPickup = tipo === "pickup";
+  const esAT = location === "Recoleta";
+  const esFR = location === "Villa Ortuzar";
+  if (esPickup && esAT) return "retiro-at";
+  if (esPickup && esFR) return "retiro-fr";
+  if (!esPickup && esAT) return "delivery-at";
+  if (!esPickup && esFR) return "delivery-fr";
+  return "delivery-at";
+}
+
+function medioPagoLabel(gateway) {
+  if (!gateway) return "Otro";
+  if (gateway.includes("mercado-pago")) return "Mercado Pago";
+  if (gateway.includes("offline") || gateway.includes("efectivo")) return "Efectivo";
+  if (gateway.includes("transfer")) return "Transferencia";
+  if (gateway === "not-provided") return "Efectivo";
+  return "Otro";
+}
+
+function localLabel(tabActual) {
+  if (tabActual === "retiro-at" || tabActual === "delivery-at") return "A. Thomas";
+  if (tabActual === "retiro-fr" || tabActual === "delivery-fr") return "French";
+  return "—";
+}
+
+const FORM_INICIAL = {
+  cliente: "", telefono: "", direccion: "", barrio: "", zona: "",
+  fecha: "", franja: "", nota: "", medioPago: "Mercado Pago",
+  seccion: "delivery-at", cobrar: false, entreCalles: "",
+};
+
+export default function App() {
+  const [pedidosRaw, setPedidosRaw] = useState([]);
+  const [pedidosLocales, setPedidosLocales] = useState({});
+  const [pedidosManuales, setPedidosManuales] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [tab, setTab] = useState("retiro-at");
+  const [filtroFecha, setFiltroFecha] = useState("");
+  const [filtroZona, setFiltroZona] = useState("");
+  const [expandido, setExpandido] = useState(null);
+
+  // Nuevo pedido
+  const [productos, setProductos] = useState([]);
+  const [categorias, setCategorias] = useState([]);
+  const [loadingProductos, setLoadingProductos] = useState(false);
+  const [busqueda, setBusqueda] = useState("");
+  const [categoriaFiltro, setCategoriaFiltro] = useState("");
+  const [carrito, setCarrito] = useState([]);
+  const [form, setForm] = useState(FORM_INICIAL);
+  const [pedidoCreado, setPedidoCreado] = useState(false);
+
+  useEffect(() => {
+    axios.get("http://localhost:3001/api/orders")
+      .then(res => {
+        setPedidosRaw(res.data);
+        const locales = {};
+        res.data.forEach(p => {
+          locales[p.id] = {
+            estado: "Por empaquetar", repartidor: "Sin asignar",
+            tabManual: null, fechaManual: null, franjaManual: null,
+            cobrar: p.payment_status !== "paid",
+          };
+        });
+        setPedidosLocales(locales);
+        setLoading(false);
+      })
+      .catch(() => { setError("Error conectando con Tienda Nube"); setLoading(false); });
+  }, []);
+
+  useEffect(() => {
+    if (tab === "nuevo" && productos.length === 0) {
+      setLoadingProductos(true);
+      Promise.all([
+        axios.get("http://localhost:3001/api/products"),
+        axios.get("http://localhost:3001/api/categories"),
+      ]).then(([resP, resC]) => {
+        setProductos(resP.data.filter(p => p.variants?.[0]?.price));
+        setCategorias(resC.data.filter(c => c.parent === null));
+        setLoadingProductos(false);
+      }).catch(() => setLoadingProductos(false));
+    }
+  }, [tab]);
+
+  const pedidosProcesados = [
+    ...pedidosRaw.map(p => {
+      const zona = p.fulfillments?.[0]?.shipping?.option?.name || "Sin zona";
+      const { fecha, franja } = parsearFranja(p.owner_note);
+      const prods = p.products.map(pr => `${pr.name} x${pr.quantity}`).join(", ");
+      const local = pedidosLocales[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: false };
+      const tabAuto = clasificarPedido(p);
+      const tabActual = local.tabManual || tabAuto;
+      const fechaDisplay = local.fechaManual || fecha;
+      const franjaDisplay = local.franjaManual || franja || "Sin franja";
+      const medioPago = medioPagoLabel(p.gateway);
+      return {
+        id: p.id, numero: `#${p.number}`, cliente: p.contact_name, telefono: p.contact_phone,
+        direccion: `${p.shipping_address?.address || ""} ${p.shipping_address?.number || ""}${p.shipping_address?.floor ? ` ${p.shipping_address.floor}` : ""}`.trim(),
+        barrio: p.shipping_address?.locality || p.shipping_address?.city || "",
+        zona, fecha, franja, fechaDisplay, franjaDisplay,
+        productos: prods, totalNum: Number(p.total),
+        total: `$${Number(p.total).toLocaleString("es-AR")}`,
+        pago: p.payment_status === "paid" ? "Pagado" : "Pendiente",
+        medioPago, gateway: p.gateway,
+        esTakeaway: p.fulfillments?.[0]?.shipping?.type === "pickup",
+        estado: local.estado, repartidor: local.repartidor, cobrar: local.cobrar,
+        tabActual, local: localLabel(tabActual), nota: p.note || "", esManual: false,
+      };
+    }),
+    ...pedidosManuales.map(p => {
+      const local = pedidosLocales[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.cobrar };
+      const tabActual = local.tabManual || p.tabActual;
+      return {
+        ...p, estado: local.estado, repartidor: local.repartidor,
+        cobrar: local.cobrar !== undefined ? local.cobrar : p.cobrar,
+        tabActual, local: localLabel(tabActual),
+        fechaDisplay: local.fechaManual || p.fecha,
+        franjaDisplay: local.franjaManual || p.franja || "Sin franja",
+      };
+    }),
+  ];
+
+  const fechas = [...new Set(pedidosProcesados.filter(p => p.fechaDisplay).map(p => p.fechaDisplay))].sort();
+  const zonas = [...new Set(pedidosProcesados.map(p => p.zona))].sort();
+
+  const filtrados = pedidosProcesados.filter(p => {
+    if (p.tabActual !== tab) return false;
+    if (filtroFecha && p.fechaDisplay !== filtroFecha) return false;
+    if (filtroZona && p.zona !== filtroZona) return false;
+    return true;
+  });
+
+  const porFranja = {};
+  filtrados.forEach(p => {
+    const key = p.fechaDisplay ? `${p.fechaDisplay}|${p.franjaDisplay}` : `sin-fecha|${p.franjaDisplay}`;
+    if (!porFranja[key]) porFranja[key] = [];
+    porFranja[key].push(p);
+  });
+  const franjas = Object.keys(porFranja).sort();
+
+  const entregados = pedidosProcesados.filter(p => pedidosLocales[p.id]?.estado === "Entregado");
+
+  const cajaData = {
+    "A. Thomas": {
+      "Mercado Pago": entregados.filter(p => p.local === "A. Thomas" && p.medioPago === "Mercado Pago"),
+      "Efectivo":     entregados.filter(p => p.local === "A. Thomas" && p.medioPago === "Efectivo"),
+      "Transferencia":entregados.filter(p => p.local === "A. Thomas" && p.medioPago === "Transferencia"),
+      "Rappi":        entregados.filter(p => p.local === "A. Thomas" && p.medioPago === "Rappi"),
+      "Pedidos Ya":   entregados.filter(p => p.local === "A. Thomas" && p.medioPago === "Pedidos Ya"),
+      "Otro":         entregados.filter(p => p.local === "A. Thomas" && p.medioPago === "Otro"),
+    },
+    "French": {
+      "Mercado Pago": entregados.filter(p => p.local === "French" && p.medioPago === "Mercado Pago"),
+      "Efectivo":     entregados.filter(p => p.local === "French" && p.medioPago === "Efectivo"),
+      "Transferencia":entregados.filter(p => p.local === "French" && p.medioPago === "Transferencia"),
+      "Rappi":        entregados.filter(p => p.local === "French" && p.medioPago === "Rappi"),
+      "Pedidos Ya":   entregados.filter(p => p.local === "French" && p.medioPago === "Pedidos Ya"),
+      "Otro":         entregados.filter(p => p.local === "French" && p.medioPago === "Otro"),
+    },
+  };
+
+  function sumar(arr) { return arr.reduce((a, p) => a + p.totalNum, 0); }
+  function fmt(n) { return `$${n.toLocaleString("es-AR")}`; }
+
+  function cambiarEstado(id, e) {
+    e.stopPropagation();
+    setPedidosLocales(prev => ({ ...prev, [id]: { ...prev[id], estado: nextEstado(prev[id]?.estado || "Por empaquetar") } }));
+  }
+  function cambiarRepartidor(id, valor) { setPedidosLocales(prev => ({ ...prev, [id]: { ...prev[id], repartidor: valor } })); }
+  function cambiarTab(id, valor) { setPedidosLocales(prev => ({ ...prev, [id]: { ...prev[id], tabManual: valor } })); }
+  function cambiarFecha(id, valor) { setPedidosLocales(prev => ({ ...prev, [id]: { ...prev[id], fechaManual: valor } })); }
+  function cambiarFranja(id, valor) { setPedidosLocales(prev => ({ ...prev, [id]: { ...prev[id], franjaManual: valor } })); }
+  function toggleExpandido(id) { setExpandido(prev => prev === id ? null : id); }
+
+  // Carrito
+  function agregarAlCarrito(prod) {
+    const precio = Number(prod.variants[0].price);
+    const variantId = prod.variants[0].id;
+    setCarrito(prev => {
+      const existe = prev.find(i => i.variantId === variantId);
+      if (existe) return prev.map(i => i.variantId === variantId ? { ...i, cantidad: i.cantidad + 1 } : i);
+      return [...prev, { id: prod.id, variantId, nombre: prod.name.es, precio, cantidad: 1 }];
+    });
+  }
+  function cambiarCantidad(variantId, delta) {
+    setCarrito(prev => prev.map(i => i.variantId === variantId ? { ...i, cantidad: Math.max(1, i.cantidad + delta) } : i));
+  }
+  function quitarDelCarrito(variantId) {
+    setCarrito(prev => prev.filter(i => i.variantId !== variantId));
+  }
+  const totalCarrito = carrito.reduce((a, i) => a + i.precio * i.cantidad, 0);
+
+  function crearPedido() {
+    if (!form.cliente || carrito.length === 0) return;
+    const id = `manual-${Date.now()}`;
+    const productosStr = carrito.map(i => `${i.nombre} x${i.cantidad}`).join(", ");
+    const nuevoPedido = {
+      id, numero: `#M${Date.now().toString().slice(-4)}`,
+      cliente: form.cliente, telefono: form.telefono,
+      direccion: form.direccion, barrio: form.barrio,
+      zona: form.zona || "Sin zona", fecha: form.fecha, franja: form.franja,
+      fechaDisplay: form.fecha, franjaDisplay: form.franja || "Sin franja",
+      productos: productosStr, totalNum: totalCarrito,
+      total: `$${totalCarrito.toLocaleString("es-AR")}`,
+      pago: form.medioPago === "Efectivo" ? "Pendiente" : "Pagado",
+      medioPago: form.medioPago, cobrar: form.cobrar,
+      tabActual: form.seccion, local: localLabel(form.seccion),
+nota: form.nota, entreCalles: form.entreCalles || "", esManual: true, estado: "Por empaquetar", repartidor: "Sin asignar",    };
+    setPedidosManuales(prev => [...prev, nuevoPedido]);
+    setPedidosLocales(prev => ({
+      ...prev,
+      [id]: { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: form.fecha, franjaManual: form.franja, cobrar: form.cobrar }
+    }));
+    setCarrito([]);
+    setForm(FORM_INICIAL);
+    setPedidoCreado(true);
+    setTimeout(() => setPedidoCreado(false), 3000);
+  }
+
+  // Productos filtrados
+  const productosFiltrados = productos.filter(p => {
+    const nombre = p.name?.es?.toLowerCase() || "";
+    const matchBusqueda = !busqueda || nombre.includes(busqueda.toLowerCase());
+    const matchCategoria = !categoriaFiltro || p.categories?.some(c => c.id === Number(categoriaFiltro) || c.parent === Number(categoriaFiltro));
+    return matchBusqueda && matchCategoria;
+  });
+
+  function imprimirComanda(p) {
+    const ventana = window.open("", "_blank", "width=400,height=600");
+    const estadoActual = pedidosLocales[p.id]?.estado || "Por empaquetar";
+    const repartidorActual = pedidosLocales[p.id]?.repartidor || "Sin asignar";
+    const cobrar = pedidosLocales[p.id]?.cobrar;
+    ventana.document.write(`
+      <!DOCTYPE html><html><head><meta charset="utf-8"><title>Comanda ${p.numero}</title>
+      <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Courier New',monospace; font-size:12px; width:80mm; padding:4mm; color:#000; }
+        .centro { text-align:center; }
+        .titulo { font-size:18px; font-weight:bold; margin-bottom:2px; }
+        .subtitulo { font-size:11px; color:#555; margin-bottom:6px; }
+        .linea { border-top:1px dashed #000; margin:6px 0; }
+        .fila { display:flex; justify-content:space-between; margin:2px 0; }
+        .label { font-weight:bold; font-size:10px; text-transform:uppercase; color:#555; margin-top:6px; margin-bottom:1px; }
+        .valor { font-size:12px; }
+        .producto { padding:2px 0; }
+        .total { font-size:15px; font-weight:bold; text-align:right; margin-top:4px; }
+        .cobrar { text-align:center; font-size:16px; font-weight:bold; border:2px solid #000; padding:6px; margin:8px 0; letter-spacing:2px; }
+        .estado { text-align:center; font-size:11px; margin-top:6px; padding:3px; border:1px solid #000; }
+        .nota { font-style:italic; font-size:11px; color:#333; }
+        @media print { body { width:80mm; } @page { margin:0; size:80mm auto; } }
+      </style></head><body>
+      <div class="centro"><div class="titulo">Piccadely</div><div class="subtitulo">comanda de pedido</div></div>
+      <div class="linea"></div>
+      <div class="fila"><span><b>${p.numero}</b></span><span>${p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"long"}) : "—"}</span></div>
+      <div class="fila"><span>${p.franjaDisplay}</span><span>${p.zona}</span></div>
+      <div class="linea"></div>
+      <div class="label">Cliente</div><div class="valor">${p.cliente}</div><div class="valor">${p.telefono}</div>
+     <div class="label">Dirección</div><div class="valor">${p.direccion}${p.barrio ? `, ${p.barrio}` : ""}</div>${p.entreCalles ? `<div class="valor" style="font-style:italic;color:#555;">${p.entreCalles}</div>` : ""}
+      <div class="linea"></div>
+      <div class="label">Productos</div>
+      ${p.productos.split(", ").map(pr => `<div class="producto">• ${pr}</div>`).join("")}
+      ${p.nota ? `<div class="linea"></div><div class="label">Nota</div><div class="nota">${p.nota}</div>` : ""}
+      <div class="linea"></div>
+      <div class="fila"><span class="label">Medio de pago</span><span class="valor">${p.medioPago}</span></div>
+      <div class="total">${p.total}</div>
+      ${cobrar ? `<div class="cobrar">★ COBRAR ★</div>` : ""}
+      <div class="linea"></div>
+      <div class="fila"><span class="label">Repartidor</span><span class="valor">${repartidorActual}</span></div>
+      <div class="estado">${estadoActual}</div>
+      <div class="linea"></div>
+      <div class="centro" style="font-size:10px;color:#888;margin-top:4px;">Piccadely — juntadely</div>
+      <script>window.onload=function(){window.print();}</script>
+      </body></html>
+    `);
+    ventana.document.close();
+  }
+
+  const conteos = {};
+  TABS.forEach(t => { conteos[t.id] = pedidosProcesados.filter(p => p.tabActual === t.id).length; });
+  conteos["caja"] = entregados.length;
+  conteos["nuevo"] = pedidosManuales.length;
+
+  const totalFiltrados = filtrados.length;
+  const totalEntregados = filtrados.filter(p => pedidosLocales[p.id]?.estado === "Entregado").length;
+  const totalEnCamino = filtrados.filter(p => pedidosLocales[p.id]?.estado === "En camino").length;
+  const totalPendientes = filtrados.filter(p => pedidosLocales[p.id]?.estado !== "Entregado").length;
+
+  if (loading) return <div style={s.loading}>Cargando pedidos...</div>;
+  if (error) return <div style={s.error}>{error}</div>;
+
+  const Header = () => (
+    <div style={s.header}>
+      <div style={s.brand}><div style={s.dot} /><span style={s.brandName}>Piccadely — panel operativo</span></div>
+      <span style={s.fechaHoy}>{new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}</span>
+    </div>
+  );
+
+  const TabBar = ({ onChange }) => (
+    <div style={s.tabs}>
+      {TABS.map(t => (
+        <button key={t.id} style={{ ...s.tab, ...(tab === t.id ? s.tabActive : {}) }}
+          onClick={() => { setTab(t.id); setFiltroFecha(""); setFiltroZona(""); onChange && onChange(t.id); }}>
+          {t.label}
+          <span style={{ ...s.tabCount, ...(tab === t.id ? s.tabCountActive : {}) }}>{conteos[t.id] || 0}</span>
+        </button>
+      ))}
+    </div>
+  );
+
+  // VISTA CAJA
+  if (tab === "caja") {
+    return (
+      <div style={s.wrap}>
+        <Header />
+        <TabBar />
+        <div style={{ padding: "24px" }}>
+          <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", marginBottom: 20 }}>💰 Resumen de caja — pedidos entregados hoy</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+            {["A. Thomas", "French"].map(local => {
+              const medios = cajaData[local];
+              const totalLocal = Object.values(medios).reduce((a, arr) => a + sumar(arr), 0);
+              return (
+                <div key={local} style={s.cajaCard}>
+                  <div style={s.cajaTitulo}>📍 {local}</div>
+                  <div style={s.cajaTotal}>Total: {fmt(totalLocal)}</div>
+                  <div style={s.cajaLinea} />
+                  {Object.entries(medios).map(([medio, pedidos]) => {
+                    if (pedidos.length === 0) return null;
+                    return (
+                      <div key={medio} style={s.cajaFila}>
+                        <div style={s.cajaMedio}>
+                          <span style={s.cajaMedioNombre}>{medio}</span>
+                          <span style={s.cajaMedioCount}>{pedidos.length} pedido{pedidos.length > 1 ? "s" : ""}</span>
+                        </div>
+                        <span style={s.cajaMonto}>{fmt(sumar(pedidos))}</span>
+                      </div>
+                    );
+                  })}
+                  {Object.values(medios).every(arr => arr.length === 0) && <div style={{ fontSize: 12, color: "#aaa", padding: "8px 0" }}>Sin pedidos entregados</div>}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ ...s.cajaCard, marginTop: 20, background: "#f0f8f0", borderColor: "#2a7a4b" }}>
+            <div style={{ ...s.cajaTitulo, color: "#2a7a4b" }}>🏆 Total general</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: "#2a7a4b", marginTop: 8 }}>{fmt(entregados.reduce((a, p) => a + p.totalNum, 0))}</div>
+            <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>{entregados.length} pedidos entregados</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // VISTA NUEVO PEDIDO
+  if (tab === "nuevo") {
+    return (
+      <div style={s.wrap}>
+        <Header />
+        <TabBar />
+        <div style={{ padding: 24, display: "grid", gridTemplateColumns: "1fr 380px", gap: 20, alignItems: "start" }}>
+
+          {/* COLUMNA IZQUIERDA: datos + productos */}
+          <div>
+            {pedidoCreado && (
+              <div style={{ background: "#eaf3de", border: "1px solid #2a7a4b", borderRadius: 8, padding: "12px 16px", marginBottom: 16, color: "#27500a", fontWeight: 600, fontSize: 13 }}>
+                ✅ Pedido creado correctamente
+              </div>
+            )}
+
+            {/* Datos del cliente */}
+            <div style={s.formCard}>
+              <div style={s.formCardTitle}>👤 Datos del cliente</div>
+              <div style={s.formGrid}>
+                <div style={s.formBloque}>
+                  <label style={s.formLabel}>Nombre *</label>
+                  <input style={s.formInput} value={form.cliente} onChange={e => setForm(f => ({...f, cliente: e.target.value}))} placeholder="Nombre completo" />
+                </div>
+                <div style={s.formBloque}>
+                  <label style={s.formLabel}>Teléfono</label>
+                  <input style={s.formInput} value={form.telefono} onChange={e => setForm(f => ({...f, telefono: e.target.value}))} placeholder="+54 11..." />
+                </div>
+                <div style={{ ...s.formBloque, gridColumn: "span 2" }}>
+                  <label style={s.formLabel}>Dirección</label>
+                  <input style={s.formInput} value={form.direccion} onChange={e => setForm(f => ({...f, direccion: e.target.value}))} placeholder="Calle y número" />
+                </div>
+                <div style={{ ...s.formBloque, gridColumn: "span 2" }}>
+                  <label style={s.formLabel}>Entre calles</label>
+                  <input style={s.formInput} value={form.entreCalles || ""} onChange={e => setForm(f => ({...f, entreCalles: e.target.value}))} placeholder="ej: Entre Gorriti y Cabrera" />
+                </div>
+                <div style={s.formBloque}>
+                  <label style={s.formLabel}>Barrio</label>
+                  <input style={s.formInput} value={form.barrio} onChange={e => setForm(f => ({...f, barrio: e.target.value}))} placeholder="Barrio" />
+                </div>
+                <div style={s.formBloque}>
+                  <label style={s.formLabel}>Zona de entrega</label>
+                  <input style={s.formInput} value={form.zona} onChange={e => setForm(f => ({...f, zona: e.target.value}))} placeholder="ej: CABA, Zona Norte 1..." />
+                </div>
+                <div style={s.formBloque}>
+                  <label style={s.formLabel}>Fecha de entrega</label>
+                  <input type="date" style={s.formInput} value={form.fecha} onChange={e => setForm(f => ({...f, fecha: e.target.value}))} />
+                </div>
+                <div style={s.formBloque}>
+                  <label style={s.formLabel}>Horario</label>
+                  <input style={s.formInput} value={form.franja} onChange={e => setForm(f => ({...f, franja: e.target.value}))} placeholder="ej: 14:00 – 16:00" />
+                </div>
+                <div style={s.formBloque}>
+                  <label style={s.formLabel}>Medio de pago</label>
+                  <select style={s.formInput} value={form.medioPago} onChange={e => setForm(f => ({...f, medioPago: e.target.value}))}>
+                    {MEDIOS_PAGO.map(m => <option key={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div style={s.formBloque}>
+                  <label style={s.formLabel}>Sección</label>
+                  <select style={s.formInput} value={form.seccion} onChange={e => setForm(f => ({...f, seccion: e.target.value}))}>
+                    {TABS.filter(t => t.id !== "caja" && t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}
+                  </select>
+                </div>
+                <div style={{ ...s.formBloque, gridColumn: "span 2" }}>
+                  <label style={s.formLabel}>Nota</label>
+                  <textarea style={{ ...s.formInput, height: 60, resize: "vertical" }} value={form.nota} onChange={e => setForm(f => ({...f, nota: e.target.value}))} placeholder="Nota adicional..." />
+                </div>
+                <div style={{ ...s.formBloque, gridColumn: "span 2" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12 }}>
+                    <input type="checkbox" checked={form.cobrar} onChange={e => setForm(f => ({...f, cobrar: e.target.checked}))} />
+                    <span style={{ color: form.cobrar ? "#c0392b" : "#666", fontWeight: form.cobrar ? 600 : 400 }}>
+                      {form.cobrar ? "⚠️ Marcar como COBRAR en entrega" : "Cobrar en entrega"}
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* Catálogo de productos */}
+            <div style={{ ...s.formCard, marginTop: 16 }}>
+              <div style={s.formCardTitle}>🛒 Catálogo de productos</div>
+              {loadingProductos ? (
+                <div style={{ padding: "20px 0", color: "#888", fontSize: 13 }}>Cargando productos...</div>
+              ) : (
+                <>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                    <input
+                      style={{ ...s.formInput, flex: 1 }}
+                      placeholder="Buscar producto..."
+                      value={busqueda}
+                      onChange={e => setBusqueda(e.target.value)}
+                    />
+                    <select style={{ ...s.formInput, width: 180 }} value={categoriaFiltro} onChange={e => setCategoriaFiltro(e.target.value)}>
+                      <option value="">Todas las categorías</option>
+                      {categorias.map(c => <option key={c.id} value={c.id}>{c.name?.es}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ maxHeight: 400, overflowY: "auto", border: "1px solid #eee", borderRadius: 8 }}>
+                    {productosFiltrados.slice(0, 50).map(prod => {
+                      const precio = Number(prod.variants[0].price);
+                      const cat = prod.categories?.[prod.categories.length - 1]?.name?.es || "";
+                      return (
+                        <div key={prod.id} style={s.prodFila}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 12, fontWeight: 500, color: "#333" }}>{prod.name?.es}</div>
+                            {cat && <div style={{ fontSize: 11, color: "#aaa" }}>{cat}</div>}
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: "#333", marginRight: 10 }}>${precio.toLocaleString("es-AR")}</span>
+                          <button style={s.btnAgregar} onClick={() => agregarAlCarrito(prod)}>+ Agregar</button>
+                        </div>
+                      );
+                    })}
+                    {productosFiltrados.length === 0 && <div style={{ padding: 16, color: "#aaa", fontSize: 13 }}>Sin resultados</div>}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* COLUMNA DERECHA: carrito */}
+          <div style={{ ...s.formCard, position: "sticky", top: 20 }}>
+            <div style={s.formCardTitle}>🧾 Pedido</div>
+            {carrito.length === 0 ? (
+              <div style={{ color: "#aaa", fontSize: 13, padding: "16px 0" }}>Agregá productos del catálogo</div>
+            ) : (
+              <>
+                {carrito.map(item => (
+                  <div key={item.variantId} style={s.carritoFila}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, color: "#333" }}>{item.nombre}</div>
+                      <div style={{ fontSize: 11, color: "#888" }}>${item.precio.toLocaleString("es-AR")} c/u</div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <button style={s.btnCant} onClick={() => cambiarCantidad(item.variantId, -1)}>−</button>
+                      <span style={{ fontSize: 12, minWidth: 20, textAlign: "center" }}>{item.cantidad}</span>
+                      <button style={s.btnCant} onClick={() => cambiarCantidad(item.variantId, 1)}>+</button>
+                      <button style={{ ...s.btnCant, color: "#c0392b", marginLeft: 4 }} onClick={() => quitarDelCarrito(item.variantId)}>✕</button>
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 600, marginLeft: 8, minWidth: 70, textAlign: "right" }}>${(item.precio * item.cantidad).toLocaleString("es-AR")}</span>
+                  </div>
+                ))}
+                <div style={{ borderTop: "1px solid #eee", marginTop: 10, paddingTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>Total</span>
+                  <span style={{ fontSize: 16, fontWeight: 700, color: "#2a7a4b" }}>${totalCarrito.toLocaleString("es-AR")}</span>
+                </div>
+              </>
+            )}
+            <button
+              style={{ ...s.btnCrear, opacity: (!form.cliente || carrito.length === 0) ? 0.4 : 1 }}
+              disabled={!form.cliente || carrito.length === 0}
+              onClick={crearPedido}
+            >
+              ✅ Crear pedido
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // VISTA PRINCIPAL
+  return (
+    <div style={s.wrap}>
+      <Header />
+      <TabBar />
+      <div style={s.stats}>
+        {[["Total", totalFiltrados, "#333"], ["Pendientes", totalPendientes, "#333"], ["En camino", totalEnCamino, "#0c447c"], ["Entregados", totalEntregados, "#2a7a4b"]].map(([label, val, color]) => (
+          <div key={label} style={s.stat}>
+            <div style={s.statLabel}>{label}</div>
+            <div style={{ ...s.statVal, color }}>{val}</div>
+          </div>
+        ))}
+      </div>
+      <div style={s.filters}>
+        <select style={s.select} value={filtroFecha} onChange={e => setFiltroFecha(e.target.value)}>
+          <option value="">Todas las fechas</option>
+          {fechas.map(f => <option key={f} value={f}>{new Date(f+"T12:00:00").toLocaleDateString("es-AR",{weekday:"short",day:"numeric",month:"short"})}</option>)}
+        </select>
+        <select style={s.select} value={filtroZona} onChange={e => setFiltroZona(e.target.value)}>
+          <option value="">Todas las zonas</option>
+          {zonas.map(z => <option key={z} value={z}>{z}</option>)}
+        </select>
+      </div>
+      <div style={s.lista}>
+        <div style={s.cabecera}>
+          <span style={{ ...s.col, flex: 1.2 }}>Cliente</span>
+          <span style={{ ...s.col, flex: 1 }}>Teléfono</span>
+          <span style={{ ...s.col, flex: 2 }}>Dirección</span>
+          <span style={{ ...s.col, flex: 1 }}>Barrio</span>
+          <span style={{ ...s.col, flex: 1.2 }}>Zona</span>
+          <span style={{ ...s.col, flex: 0.8, textAlign: "right" }}>Monto</span>
+          <span style={{ ...s.col, flex: 1, textAlign: "center" }}>Fecha</span>
+          <span style={{ ...s.col, flex: 0.9, textAlign: "center" }}>Horario</span>
+          <span style={{ ...s.col, flex: 0.8, textAlign: "center" }}>Estado</span>
+        </div>
+        {franjas.length === 0 && <div style={s.empty}>No hay pedidos en esta sección.</div>}
+        {franjas.map(key => {
+          const [fecha] = key.split("|");
+          const grupo = porFranja[key];
+          const fechaLabel = fecha !== "sin-fecha" ? new Date(fecha+"T12:00:00").toLocaleDateString("es-AR",{weekday:"long",day:"numeric",month:"long"}) : "Sin fecha";
+          return (
+            <div key={key}>
+              <div style={s.franjaHeader}>
+                <span style={s.franjaFecha}>{fechaLabel}</span>
+                <span style={s.franjaHora}>{key.split("|")[1]}</span>
+                <span style={s.franjaCount}>{grupo.length} pedido{grupo.length > 1 ? "s" : ""}</span>
+              </div>
+              {grupo.map(p => {
+                const estadoActual = pedidosLocales[p.id]?.estado || "Por empaquetar";
+                const repartidorActual = pedidosLocales[p.id]?.repartidor || "Sin asignar";
+                const tabActual = pedidosLocales[p.id]?.tabManual || p.tabActual;
+                const fechaManual = pedidosLocales[p.id]?.fechaManual || p.fecha || "";
+                const franjaManual = pedidosLocales[p.id]?.franjaManual || p.franja || "";
+                const cobrar = pedidosLocales[p.id]?.cobrar;
+                const abierto = expandido === p.id;
+                const ec = ESTADO_COLORS[estadoActual];
+                return (
+                  <div key={p.id} style={{ ...s.fila, ...(abierto ? s.filaAbierta : {}) }}>
+                    <div style={s.filaTop} onClick={() => toggleExpandido(p.id)}>
+                      <span style={{ ...s.cel, flex: 1.2 }}>
+                        <span style={s.numero}>{p.numero}</span> {p.cliente}
+                        {cobrar && <span style={s.cobrarBadge}>COBRAR</span>}
+                        {p.esManual && <span style={{ ...s.cobrarBadge, background: "#7c3aed" }}>MANUAL</span>}
+                      </span>
+                      <span style={{ ...s.cel, flex: 1, color: "#555" }}>{p.telefono}</span>
+                      <span style={{ ...s.cel, flex: 2 }}>{p.direccion}</span>
+                      <span style={{ ...s.cel, flex: 1, color: "#666" }}>{p.barrio}</span>
+                      <span style={{ ...s.cel, flex: 1.2 }}><span style={s.zonaTag}>{p.zona}</span></span>
+                      <span style={{ ...s.cel, flex: 0.8, textAlign: "right", fontWeight: 600 }}>{p.total}</span>
+                      <span style={{ ...s.cel, flex: 1, textAlign: "center", color: "#555" }}>
+                        {p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"short"}) : "—"}
+                      </span>
+                      <span style={{ ...s.cel, flex: 0.9, textAlign: "center" }}><span style={s.franjaTag}>{p.franjaDisplay}</span></span>
+                      <span style={{ ...s.cel, flex: 0.8, textAlign: "center" }}>
+                        <span style={{ ...s.estadoTag, background: ec.bg, color: ec.text }}>{estadoActual}</span>
+                      </span>
+                      <span style={s.chevron}>{abierto ? "▲" : "▼"}</span>
+                    </div>
+                    {abierto && (
+                      <div style={s.detalle}>
+                        <div style={s.detalleGrid}>
+                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Productos</div><div style={s.detalleVal}>{p.productos}</div></div>
+                          {p.nota && <div style={s.detalleBloque}><div style={s.detalleLabel}>Nota</div><div style={{ ...s.detalleVal, color: "#666", fontStyle: "italic" }}>{p.nota}</div></div>}
+                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Medio de pago</div><div style={s.detalleVal}>{p.medioPago}</div></div>
+                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Pago</div><div style={{ ...s.detalleVal, color: p.pago === "Pagado" ? "#2a7a4b" : "#c0392b", fontWeight: 600 }}>{p.pago}</div></div>
+                          <div style={s.detalleBloque}>
+                            <div style={s.detalleLabel}>Cobrar en entrega</div>
+                            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                              <input type="checkbox" checked={!!cobrar} onChange={e => setPedidosLocales(prev => ({ ...prev, [p.id]: { ...prev[p.id], cobrar: e.target.checked } }))} onClick={e => e.stopPropagation()} />
+                              <span style={{ fontSize: 12, color: cobrar ? "#c0392b" : "#888", fontWeight: cobrar ? 600 : 400 }}>{cobrar ? "⚠️ COBRAR" : "Ya cobrado"}</span>
+                            </label>
+                          </div>
+                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Repartidor</div><select style={s.inputField} value={repartidorActual} onChange={e => cambiarRepartidor(p.id, e.target.value)}>{REPARTIDORES.map(r => <option key={r}>{r}</option>)}</select></div>
+                          <div style={s.detalleBloque}>
+                            <div style={s.detalleLabel}>Estado</div>
+                            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                              <span style={{ ...s.estadoTag, background: ec.bg, color: ec.text }}>{estadoActual}</span>
+                              {estadoActual !== "Entregado" && <button style={s.btnEstado} onClick={e => cambiarEstado(p.id, e)}>→ {nextEstado(estadoActual)}</button>}
+                            </div>
+                          </div>
+                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Fecha de entrega</div><input type="date" style={s.inputField} value={fechaManual} onChange={e => cambiarFecha(p.id, e.target.value)} onClick={e => e.stopPropagation()} /></div>
+                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Horario de entrega</div><input type="text" placeholder="ej: 14:00 – 16:00" style={s.inputField} value={franjaManual} onChange={e => cambiarFranja(p.id, e.target.value)} onClick={e => e.stopPropagation()} /></div>
+                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Mover a sección</div><select style={s.inputField} value={tabActual} onChange={e => cambiarTab(p.id, e.target.value)}>{TABS.filter(t => t.id !== "caja" && t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}</select></div>
+                        </div>
+                        <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>🖨️ Imprimir comanda</button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const s = {
+  wrap: { fontFamily: "system-ui, sans-serif", minHeight: "100vh", background: "#f7f7f5" },
+  loading: { padding: 40, textAlign: "center", color: "#666" },
+  error: { padding: 40, textAlign: "center", color: "red" },
+  header: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 24px", background: "#fff", borderBottom: "1px solid #eee" },
+  brand: { display: "flex", alignItems: "center", gap: 8 },
+  dot: { width: 9, height: 9, borderRadius: "50%", background: "#2a7a4b" },
+  brandName: { fontWeight: 600, fontSize: 14 },
+  fechaHoy: { fontSize: 13, color: "#888", textTransform: "capitalize" },
+  tabs: { display: "flex", padding: "0 24px", background: "#fff", borderBottom: "1px solid #eee", gap: 4, overflowX: "auto" },
+  tab: { padding: "10px 14px", border: "none", background: "none", cursor: "pointer", fontSize: 12, color: "#888", borderBottom: "2px solid transparent", marginBottom: -1, display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" },
+  tabActive: { color: "#2a7a4b", borderBottomColor: "#2a7a4b", fontWeight: 600 },
+  tabCount: { fontSize: 11, background: "#eee", color: "#888", padding: "1px 7px", borderRadius: 99, fontWeight: 600 },
+  tabCountActive: { background: "#2a7a4b", color: "#fff" },
+  stats: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, padding: "14px 24px", background: "#f7f7f5" },
+  stat: { background: "#fff", borderRadius: 8, padding: "10px 14px", border: "1px solid #eee" },
+  statLabel: { fontSize: 11, color: "#aaa", marginBottom: 2 },
+  statVal: { fontSize: 20, fontWeight: 600 },
+  filters: { display: "flex", gap: 8, padding: "0 24px 14px", background: "#f7f7f5" },
+  select: { fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer" },
+  lista: { margin: "0 24px 24px", background: "#fff", borderRadius: 10, border: "1px solid #eee", overflow: "hidden" },
+  cabecera: { display: "flex", alignItems: "center", padding: "8px 14px", background: "#f0f0ee", borderBottom: "1px solid #e5e5e3" },
+  col: { fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em" },
+  franjaHeader: { display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "#f9f9f7", borderTop: "1px solid #eee", borderBottom: "1px solid #eee" },
+  franjaFecha: { fontSize: 12, fontWeight: 600, color: "#333", textTransform: "capitalize" },
+  franjaHora: { fontSize: 11, background: "#faeeda", color: "#633806", padding: "2px 8px", borderRadius: 4, fontWeight: 500 },
+  franjaCount: { fontSize: 11, background: "#ebebeb", color: "#888", padding: "2px 8px", borderRadius: 99 },
+  fila: { borderBottom: "1px solid #f0f0ee" },
+  filaAbierta: { background: "#fafaf8" },
+  filaTop: { display: "flex", alignItems: "center", padding: "9px 14px", cursor: "pointer" },
+  cel: { fontSize: 12, color: "#333", paddingRight: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  numero: { fontWeight: 600, color: "#2a7a4b", marginRight: 4 },
+  cobrarBadge: { fontSize: 10, background: "#c0392b", color: "#fff", padding: "1px 6px", borderRadius: 4, marginLeft: 6, fontWeight: 600 },
+  zonaTag: { fontSize: 11, background: "#e6f1fb", color: "#0c447c", padding: "2px 7px", borderRadius: 4 },
+  franjaTag: { fontSize: 11, background: "#faeeda", color: "#633806", padding: "2px 7px", borderRadius: 4 },
+  estadoTag: { fontSize: 11, padding: "2px 8px", borderRadius: 4, fontWeight: 500, whiteSpace: "nowrap" },
+  chevron: { fontSize: 10, color: "#bbb", marginLeft: 8, flexShrink: 0 },
+  detalle: { padding: "12px 14px 14px", borderTop: "1px solid #ebebeb", background: "#fafaf8" },
+  detalleGrid: { display: "flex", gap: 24, flexWrap: "wrap" },
+  detalleBloque: { minWidth: 160 },
+  detalleLabel: { fontSize: 10, fontWeight: 600, color: "#aaa", textTransform: "uppercase", marginBottom: 4 },
+  detalleVal: { fontSize: 13, color: "#333" },
+  inputField: { fontSize: 12, padding: "5px 8px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#333", width: "100%" },
+  btnEstado: { fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", color: "#333" },
+  btnImprimir: { marginTop: 12, padding: "7px 14px", fontSize: 12, borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", color: "#333" },
+  empty: { padding: "20px 14px", color: "#aaa", fontSize: 13 },
+  cajaCard: { background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "16px 20px" },
+  cajaTitulo: { fontSize: 14, fontWeight: 600, color: "#333", marginBottom: 4 },
+  cajaTotal: { fontSize: 13, color: "#888", marginBottom: 10 },
+  cajaLinea: { borderTop: "1px solid #eee", marginBottom: 10 },
+  cajaFila: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #f5f5f5" },
+  cajaMedio: { display: "flex", flexDirection: "column" },
+  cajaMedioNombre: { fontSize: 13, color: "#333", fontWeight: 500 },
+  cajaMedioCount: { fontSize: 11, color: "#aaa" },
+  cajaMonto: { fontSize: 14, fontWeight: 600, color: "#2a7a4b" },
+  formCard: { background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "16px 20px" },
+  formCardTitle: { fontSize: 14, fontWeight: 600, color: "#333", marginBottom: 14 },
+  formGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 },
+  formBloque: {},
+  formLabel: { fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", display: "block", marginBottom: 4 },
+  formInput: { fontSize: 12, padding: "7px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#333", width: "100%", boxSizing: "border-box" },
+  prodFila: { display: "flex", alignItems: "center", padding: "8px 12px", borderBottom: "1px solid #f5f5f5" },
+  btnAgregar: { fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #2a7a4b", background: "#2a7a4b", color: "#fff", cursor: "pointer", whiteSpace: "nowrap" },
+  carritoFila: { display: "flex", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #f5f5f5" },
+  btnCant: { fontSize: 12, width: 24, height: 24, borderRadius: 4, border: "1px solid #ddd", background: "#f9f9f7", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#333" },
+  btnCrear: { marginTop: 16, padding: "10px", fontSize: 13, borderRadius: 8, border: "none", background: "#2a7a4b", color: "#fff", cursor: "pointer", width: "100%", fontWeight: 600 },
+};
