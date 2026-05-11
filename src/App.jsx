@@ -353,11 +353,10 @@ export default function App() {
   if (loading) return <div style={s.loading}>Cargando pedidos...</div>;
   if (error) return <div style={s.error}>{error}</div>;
 
-  const Header = () => (
+ const Header = () => (
     <div style={s.header}>
       <div style={s.brand}>
-        <div style={s.dot} />
-        <span style={s.brandName}>Piccadely — panel operativo</span>
+<img src="/Piccadely_Logotipo-Centrado-Negro.svg" alt="Piccadely" style={{ height: 36, objectFit: "contain" }} />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <span style={s.fechaHoy}>{new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}</span>
