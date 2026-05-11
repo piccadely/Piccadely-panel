@@ -26,7 +26,7 @@ const ESTADO_COLORS = {
   "Entregado":      { bg: "#eaf3de", text: "#27500a" },
 };
 
-const REPARTIDORES = ["Sin asignar", "Rodrigo", "Lucía", "Martín", "Sofía", "Diego", "Cabify"];
+const REPARTIDORES = ["Sin asignar", "Carlessy", "Paul", "Julio", "Ramón", "eventual", "Cabify"];
 const MEDIOS_PAGO = ["Mercado Pago", "Efectivo", "Transferencia", "Rappi", "Pedidos Ya", "Otro"];
 
 const TABS = [
