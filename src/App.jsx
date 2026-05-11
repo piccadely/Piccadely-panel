@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 
 function parsearFranja(ownerNote) {
@@ -34,7 +34,6 @@ const TABS = [
   { id: "retiro-fr",   label: "🏪 Retiro French" },
   { id: "delivery-at", label: "🚚 Delivery A. Thomas" },
   { id: "delivery-fr", label: "🚚 Delivery French" },
-  { id: "caja",        label: "💰 Caja" },
   { id: "nuevo",       label: "➕ Nuevo pedido" },
 ];
 
@@ -67,10 +66,12 @@ function localLabel(tabActual) {
 }
 
 const FORM_INICIAL = {
-  cliente: "", telefono: "", direccion: "", barrio: "", zona: "",
+  cliente: "", telefono: "", direccion: "", entreCalles: "", barrio: "", zona: "",
   fecha: "", franja: "", nota: "", medioPago: "Mercado Pago",
-  seccion: "delivery-at", cobrar: false, entreCalles: "",
+  seccion: "delivery-at", cobrar: false,
 };
+
+const HOY = new Date().toISOString().split("T")[0];
 
 export default function App() {
   const [pedidosRaw, setPedidosRaw] = useState([]);
@@ -79,11 +80,13 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [tab, setTab] = useState("retiro-at");
+  const [vista, setVista] = useState("panel"); // "panel" | "caja" | "finalizados"
   const [filtroFecha, setFiltroFecha] = useState("");
   const [filtroZona, setFiltroZona] = useState("");
   const [expandido, setExpandido] = useState(null);
+  const [menuAbierto, setMenuAbierto] = useState(false);
+  const menuRef = useRef(null);
 
-  // Nuevo pedido
   const [productos, setProductos] = useState([]);
   const [categorias, setCategorias] = useState([]);
   const [loadingProductos, setLoadingProductos] = useState(false);
@@ -94,7 +97,7 @@ export default function App() {
   const [pedidoCreado, setPedidoCreado] = useState(false);
 
   useEffect(() => {
-    axios.get("http://localhost:3001/api/orders")
+    axios.get("https://piccadely-panel-production.up.railway.app/api/orders")
       .then(res => {
         setPedidosRaw(res.data);
         const locales = {};
@@ -115,8 +118,8 @@ export default function App() {
     if (tab === "nuevo" && productos.length === 0) {
       setLoadingProductos(true);
       Promise.all([
-        axios.get("http://localhost:3001/api/products"),
-        axios.get("http://localhost:3001/api/categories"),
+        axios.get("https://piccadely-panel-production.up.railway.app/api/products"),
+        axios.get("https://piccadely-panel-production.up.railway.app/api/categories"),
       ]).then(([resP, resC]) => {
         setProductos(resP.data.filter(p => p.variants?.[0]?.price));
         setCategorias(resC.data.filter(c => c.parent === null));
@@ -124,6 +127,15 @@ export default function App() {
       }).catch(() => setLoadingProductos(false));
     }
   }, [tab]);
+
+  // Cerrar menú al click afuera
+  useEffect(() => {
+    function handleClick(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuAbierto(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   const pedidosProcesados = [
     ...pedidosRaw.map(p => {
@@ -147,7 +159,7 @@ export default function App() {
         medioPago, gateway: p.gateway,
         esTakeaway: p.fulfillments?.[0]?.shipping?.type === "pickup",
         estado: local.estado, repartidor: local.repartidor, cobrar: local.cobrar,
-        tabActual, local: localLabel(tabActual), nota: p.note || "", esManual: false,
+        tabActual, local: localLabel(tabActual), nota: p.note || "", esManual: false, entreCalles: "",
       };
     }),
     ...pedidosManuales.map(p => {
@@ -163,10 +175,24 @@ export default function App() {
     }),
   ];
 
-  const fechas = [...new Set(pedidosProcesados.filter(p => p.fechaDisplay).map(p => p.fechaDisplay))].sort();
-  const zonas = [...new Set(pedidosProcesados.map(p => p.zona))].sort();
+  // Pedidos activos: hoy en adelante o sin fecha, y no entregados
+  const pedidosActivos = pedidosProcesados.filter(p => {
+    const estado = pedidosLocales[p.id]?.estado || p.estado;
+    if (estado === "Entregado") return false;
+    if (!p.fechaDisplay) return true;
+    return p.fechaDisplay >= HOY;
+  });
 
-  const filtrados = pedidosProcesados.filter(p => {
+  // Pedidos finalizados: estado Entregado
+  const pedidosFinalizados = pedidosProcesados.filter(p => {
+    const estado = pedidosLocales[p.id]?.estado || p.estado;
+    return estado === "Entregado";
+  });
+
+  const fechas = [...new Set(pedidosActivos.filter(p => p.fechaDisplay).map(p => p.fechaDisplay))].sort();
+  const zonas = [...new Set(pedidosActivos.map(p => p.zona))].sort();
+
+  const filtrados = pedidosActivos.filter(p => {
     if (p.tabActual !== tab) return false;
     if (filtroFecha && p.fechaDisplay !== filtroFecha) return false;
     if (filtroZona && p.zona !== filtroZona) return false;
@@ -181,7 +207,7 @@ export default function App() {
   });
   const franjas = Object.keys(porFranja).sort();
 
-  const entregados = pedidosProcesados.filter(p => pedidosLocales[p.id]?.estado === "Entregado");
+  const entregados = pedidosFinalizados;
 
   const cajaData = {
     "A. Thomas": {
@@ -215,7 +241,6 @@ export default function App() {
   function cambiarFranja(id, valor) { setPedidosLocales(prev => ({ ...prev, [id]: { ...prev[id], franjaManual: valor } })); }
   function toggleExpandido(id) { setExpandido(prev => prev === id ? null : id); }
 
-  // Carrito
   function agregarAlCarrito(prod) {
     const precio = Number(prod.variants[0].price);
     const variantId = prod.variants[0].id;
@@ -240,7 +265,7 @@ export default function App() {
     const nuevoPedido = {
       id, numero: `#M${Date.now().toString().slice(-4)}`,
       cliente: form.cliente, telefono: form.telefono,
-      direccion: form.direccion, barrio: form.barrio,
+      direccion: form.direccion, barrio: form.barrio, entreCalles: form.entreCalles || "",
       zona: form.zona || "Sin zona", fecha: form.fecha, franja: form.franja,
       fechaDisplay: form.fecha, franjaDisplay: form.franja || "Sin franja",
       productos: productosStr, totalNum: totalCarrito,
@@ -248,7 +273,8 @@ export default function App() {
       pago: form.medioPago === "Efectivo" ? "Pendiente" : "Pagado",
       medioPago: form.medioPago, cobrar: form.cobrar,
       tabActual: form.seccion, local: localLabel(form.seccion),
-nota: form.nota, entreCalles: form.entreCalles || "", esManual: true, estado: "Por empaquetar", repartidor: "Sin asignar",    };
+      nota: form.nota, esManual: true, estado: "Por empaquetar", repartidor: "Sin asignar",
+    };
     setPedidosManuales(prev => [...prev, nuevoPedido]);
     setPedidosLocales(prev => ({
       ...prev,
@@ -260,7 +286,6 @@ nota: form.nota, entreCalles: form.entreCalles || "", esManual: true, estado: "P
     setTimeout(() => setPedidoCreado(false), 3000);
   }
 
-  // Productos filtrados
   const productosFiltrados = productos.filter(p => {
     const nombre = p.name?.es?.toLowerCase() || "";
     const matchBusqueda = !busqueda || nombre.includes(busqueda.toLowerCase());
@@ -298,7 +323,7 @@ nota: form.nota, entreCalles: form.entreCalles || "", esManual: true, estado: "P
       <div class="fila"><span>${p.franjaDisplay}</span><span>${p.zona}</span></div>
       <div class="linea"></div>
       <div class="label">Cliente</div><div class="valor">${p.cliente}</div><div class="valor">${p.telefono}</div>
-     <div class="label">Dirección</div><div class="valor">${p.direccion}${p.barrio ? `, ${p.barrio}` : ""}</div>${p.entreCalles ? `<div class="valor" style="font-style:italic;color:#555;">${p.entreCalles}</div>` : ""}
+      <div class="label">Dirección</div><div class="valor">${p.direccion}${p.barrio ? `, ${p.barrio}` : ""}</div>${p.entreCalles ? `<div class="valor" style="font-style:italic;color:#555;">${p.entreCalles}</div>` : ""}
       <div class="linea"></div>
       <div class="label">Productos</div>
       ${p.productos.split(", ").map(pr => `<div class="producto">• ${pr}</div>`).join("")}
@@ -319,30 +344,53 @@ nota: form.nota, entreCalles: form.entreCalles || "", esManual: true, estado: "P
   }
 
   const conteos = {};
-  TABS.forEach(t => { conteos[t.id] = pedidosProcesados.filter(p => p.tabActual === t.id).length; });
-  conteos["caja"] = entregados.length;
-  conteos["nuevo"] = pedidosManuales.length;
+  TABS.forEach(t => { conteos[t.id] = pedidosActivos.filter(p => p.tabActual === t.id).length; });
 
   const totalFiltrados = filtrados.length;
-  const totalEntregados = filtrados.filter(p => pedidosLocales[p.id]?.estado === "Entregado").length;
-  const totalEnCamino = filtrados.filter(p => pedidosLocales[p.id]?.estado === "En camino").length;
-  const totalPendientes = filtrados.filter(p => pedidosLocales[p.id]?.estado !== "Entregado").length;
+  const totalEnCamino = filtrados.filter(p => (pedidosLocales[p.id]?.estado || p.estado) === "En camino").length;
+  const totalPendientes = filtrados.filter(p => (pedidosLocales[p.id]?.estado || p.estado) !== "Entregado").length;
+  const totalListos = filtrados.filter(p => (pedidosLocales[p.id]?.estado || p.estado) === "Listo").length;
 
   if (loading) return <div style={s.loading}>Cargando pedidos...</div>;
   if (error) return <div style={s.error}>{error}</div>;
 
   const Header = () => (
     <div style={s.header}>
-      <div style={s.brand}><div style={s.dot} /><span style={s.brandName}>Piccadely — panel operativo</span></div>
-      <span style={s.fechaHoy}>{new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}</span>
+      <div style={s.brand}>
+        <div style={s.dot} />
+        <span style={s.brandName}>Piccadely — panel operativo</span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <span style={s.fechaHoy}>{new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}</span>
+        <div style={{ position: "relative" }} ref={menuRef}>
+          <button style={s.hamburger} onClick={() => setMenuAbierto(m => !m)}>
+            <div style={s.hambLine} />
+            <div style={s.hambLine} />
+            <div style={s.hambLine} />
+          </button>
+          {menuAbierto && (
+            <div style={s.dropdown}>
+              <button style={s.dropItem} onClick={() => { setVista("caja"); setMenuAbierto(false); }}>
+                💰 Caja
+              </button>
+              <button style={s.dropItem} onClick={() => { setVista("finalizados"); setMenuAbierto(false); }}>
+                📋 Pedidos finalizados
+              </button>
+              <button style={{ ...s.dropItem, borderTop: "1px solid #eee", color: "#888" }} onClick={() => { setVista("panel"); setMenuAbierto(false); }}>
+                ← Volver al panel
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 
-  const TabBar = ({ onChange }) => (
+  const TabBar = () => (
     <div style={s.tabs}>
       {TABS.map(t => (
         <button key={t.id} style={{ ...s.tab, ...(tab === t.id ? s.tabActive : {}) }}
-          onClick={() => { setTab(t.id); setFiltroFecha(""); setFiltroZona(""); onChange && onChange(t.id); }}>
+          onClick={() => { setTab(t.id); setVista("panel"); setFiltroFecha(""); setFiltroZona(""); }}>
           {t.label}
           <span style={{ ...s.tabCount, ...(tab === t.id ? s.tabCountActive : {}) }}>{conteos[t.id] || 0}</span>
         </button>
@@ -351,13 +399,15 @@ nota: form.nota, entreCalles: form.entreCalles || "", esManual: true, estado: "P
   );
 
   // VISTA CAJA
-  if (tab === "caja") {
+  if (vista === "caja") {
     return (
       <div style={s.wrap}>
         <Header />
-        <TabBar />
         <div style={{ padding: "24px" }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", marginBottom: 20 }}>💰 Resumen de caja — pedidos entregados hoy</h2>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+            <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
+            <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>💰 Resumen de caja — pedidos entregados</h2>
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
             {["A. Thomas", "French"].map(local => {
               const medios = cajaData[local];
@@ -394,6 +444,75 @@ nota: form.nota, entreCalles: form.entreCalles || "", esManual: true, estado: "P
     );
   }
 
+  // VISTA PEDIDOS FINALIZADOS
+  if (vista === "finalizados") {
+    const finalizadosOrdenados = [...pedidosFinalizados].sort((a, b) => {
+      if (!a.fechaDisplay) return 1;
+      if (!b.fechaDisplay) return -1;
+      return b.fechaDisplay.localeCompare(a.fechaDisplay);
+    });
+    return (
+      <div style={s.wrap}>
+        <Header />
+        <div style={{ padding: "24px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+            <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
+            <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>
+              📋 Pedidos finalizados <span style={{ fontSize: 13, color: "#aaa", fontWeight: 400 }}>({finalizadosOrdenados.length})</span>
+            </h2>
+          </div>
+          <div style={s.lista}>
+            <div style={s.cabecera}>
+              <span style={{ ...s.col, flex: 0.6 }}>Nº</span>
+              <span style={{ ...s.col, flex: 1.2 }}>Cliente</span>
+              <span style={{ ...s.col, flex: 1 }}>Teléfono</span>
+              <span style={{ ...s.col, flex: 1.5 }}>Dirección</span>
+              <span style={{ ...s.col, flex: 1 }}>Productos</span>
+              <span style={{ ...s.col, flex: 0.8 }}>Medio pago</span>
+              <span style={{ ...s.col, flex: 0.7, textAlign: "right" }}>Total</span>
+              <span style={{ ...s.col, flex: 0.8, textAlign: "center" }}>Fecha</span>
+              <span style={{ ...s.col, flex: 0.7, textAlign: "center" }}>Local</span>
+            </div>
+            {finalizadosOrdenados.length === 0 && <div style={s.empty}>No hay pedidos finalizados.</div>}
+            {finalizadosOrdenados.map(p => (
+              <div key={p.id} style={{ ...s.fila, ...(expandido === p.id ? s.filaAbierta : {}) }}>
+                <div style={s.filaTop} onClick={() => toggleExpandido(p.id)}>
+                  <span style={{ ...s.cel, flex: 0.6 }}><span style={s.numero}>{p.numero}</span></span>
+                  <span style={{ ...s.cel, flex: 1.2 }}>{p.cliente}{p.esManual && <span style={{ ...s.cobrarBadge, background: "#7c3aed", marginLeft: 6 }}>MANUAL</span>}</span>
+                  <span style={{ ...s.cel, flex: 1, color: "#555" }}>{p.telefono}</span>
+                  <span style={{ ...s.cel, flex: 1.5 }}>{p.direccion}</span>
+                  <span style={{ ...s.cel, flex: 1, color: "#666" }}>{p.productos}</span>
+                  <span style={{ ...s.cel, flex: 0.8 }}>{p.medioPago}</span>
+                  <span style={{ ...s.cel, flex: 0.7, textAlign: "right", fontWeight: 600 }}>{p.total}</span>
+                  <span style={{ ...s.cel, flex: 0.8, textAlign: "center", color: "#555" }}>
+                    {p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"short"}) : "—"}
+                  </span>
+                  <span style={{ ...s.cel, flex: 0.7, textAlign: "center" }}>
+                    <span style={{ fontSize: 11, background: "#eaf3de", color: "#27500a", padding: "2px 7px", borderRadius: 4 }}>{p.local}</span>
+                  </span>
+                  <span style={s.chevron}>{expandido === p.id ? "▲" : "▼"}</span>
+                </div>
+                {expandido === p.id && (
+                  <div style={s.detalle}>
+                    <div style={s.detalleGrid}>
+                      <div style={s.detalleBloque}><div style={s.detalleLabel}>Productos</div><div style={s.detalleVal}>{p.productos}</div></div>
+                      {p.nota && <div style={s.detalleBloque}><div style={s.detalleLabel}>Nota</div><div style={{ ...s.detalleVal, color: "#666", fontStyle: "italic" }}>{p.nota}</div></div>}
+                      <div style={s.detalleBloque}><div style={s.detalleLabel}>Dirección completa</div><div style={s.detalleVal}>{p.direccion}{p.barrio ? `, ${p.barrio}` : ""}{p.entreCalles ? ` (${p.entreCalles})` : ""}</div></div>
+                      <div style={s.detalleBloque}><div style={s.detalleLabel}>Zona</div><div style={s.detalleVal}>{p.zona}</div></div>
+                      <div style={s.detalleBloque}><div style={s.detalleLabel}>Horario</div><div style={s.detalleVal}>{p.franjaDisplay}</div></div>
+                      <div style={s.detalleBloque}><div style={s.detalleLabel}>Repartidor</div><div style={s.detalleVal}>{pedidosLocales[p.id]?.repartidor || "Sin asignar"}</div></div>
+                    </div>
+                    <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>🖨️ Imprimir comanda</button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // VISTA NUEVO PEDIDO
   if (tab === "nuevo") {
     return (
@@ -401,16 +520,12 @@ nota: form.nota, entreCalles: form.entreCalles || "", esManual: true, estado: "P
         <Header />
         <TabBar />
         <div style={{ padding: 24, display: "grid", gridTemplateColumns: "1fr 380px", gap: 20, alignItems: "start" }}>
-
-          {/* COLUMNA IZQUIERDA: datos + productos */}
           <div>
             {pedidoCreado && (
               <div style={{ background: "#eaf3de", border: "1px solid #2a7a4b", borderRadius: 8, padding: "12px 16px", marginBottom: 16, color: "#27500a", fontWeight: 600, fontSize: 13 }}>
                 ✅ Pedido creado correctamente
               </div>
             )}
-
-            {/* Datos del cliente */}
             <div style={s.formCard}>
               <div style={s.formCardTitle}>👤 Datos del cliente</div>
               <div style={s.formGrid}>
@@ -455,7 +570,7 @@ nota: form.nota, entreCalles: form.entreCalles || "", esManual: true, estado: "P
                 <div style={s.formBloque}>
                   <label style={s.formLabel}>Sección</label>
                   <select style={s.formInput} value={form.seccion} onChange={e => setForm(f => ({...f, seccion: e.target.value}))}>
-                    {TABS.filter(t => t.id !== "caja" && t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}
+                    {TABS.filter(t => t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}
                   </select>
                 </div>
                 <div style={{ ...s.formBloque, gridColumn: "span 2" }}>
@@ -472,8 +587,6 @@ nota: form.nota, entreCalles: form.entreCalles || "", esManual: true, estado: "P
                 </div>
               </div>
             </div>
-
-            {/* Catálogo de productos */}
             <div style={{ ...s.formCard, marginTop: 16 }}>
               <div style={s.formCardTitle}>🛒 Catálogo de productos</div>
               {loadingProductos ? (
@@ -481,12 +594,7 @@ nota: form.nota, entreCalles: form.entreCalles || "", esManual: true, estado: "P
               ) : (
                 <>
                   <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-                    <input
-                      style={{ ...s.formInput, flex: 1 }}
-                      placeholder="Buscar producto..."
-                      value={busqueda}
-                      onChange={e => setBusqueda(e.target.value)}
-                    />
+                    <input style={{ ...s.formInput, flex: 1 }} placeholder="Buscar producto..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
                     <select style={{ ...s.formInput, width: 180 }} value={categoriaFiltro} onChange={e => setCategoriaFiltro(e.target.value)}>
                       <option value="">Todas las categorías</option>
                       {categorias.map(c => <option key={c.id} value={c.id}>{c.name?.es}</option>)}
@@ -513,8 +621,6 @@ nota: form.nota, entreCalles: form.entreCalles || "", esManual: true, estado: "P
               )}
             </div>
           </div>
-
-          {/* COLUMNA DERECHA: carrito */}
           <div style={{ ...s.formCard, position: "sticky", top: 20 }}>
             <div style={s.formCardTitle}>🧾 Pedido</div>
             {carrito.length === 0 ? (
@@ -542,11 +648,7 @@ nota: form.nota, entreCalles: form.entreCalles || "", esManual: true, estado: "P
                 </div>
               </>
             )}
-            <button
-              style={{ ...s.btnCrear, opacity: (!form.cliente || carrito.length === 0) ? 0.4 : 1 }}
-              disabled={!form.cliente || carrito.length === 0}
-              onClick={crearPedido}
-            >
+            <button style={{ ...s.btnCrear, opacity: (!form.cliente || carrito.length === 0) ? 0.4 : 1 }} disabled={!form.cliente || carrito.length === 0} onClick={crearPedido}>
               ✅ Crear pedido
             </button>
           </div>
@@ -561,7 +663,7 @@ nota: form.nota, entreCalles: form.entreCalles || "", esManual: true, estado: "P
       <Header />
       <TabBar />
       <div style={s.stats}>
-        {[["Total", totalFiltrados, "#333"], ["Pendientes", totalPendientes, "#333"], ["En camino", totalEnCamino, "#0c447c"], ["Entregados", totalEntregados, "#2a7a4b"]].map(([label, val, color]) => (
+        {[["Total", totalFiltrados, "#333"], ["Pendientes", totalPendientes, "#333"], ["En camino", totalEnCamino, "#0c447c"], ["Listos", totalListos, "#633806"]].map(([label, val, color]) => (
           <div key={label} style={s.stat}>
             <div style={s.statLabel}>{label}</div>
             <div style={{ ...s.statVal, color }}>{val}</div>
@@ -657,7 +759,7 @@ nota: form.nota, entreCalles: form.entreCalles || "", esManual: true, estado: "P
                           </div>
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Fecha de entrega</div><input type="date" style={s.inputField} value={fechaManual} onChange={e => cambiarFecha(p.id, e.target.value)} onClick={e => e.stopPropagation()} /></div>
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Horario de entrega</div><input type="text" placeholder="ej: 14:00 – 16:00" style={s.inputField} value={franjaManual} onChange={e => cambiarFranja(p.id, e.target.value)} onClick={e => e.stopPropagation()} /></div>
-                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Mover a sección</div><select style={s.inputField} value={tabActual} onChange={e => cambiarTab(p.id, e.target.value)}>{TABS.filter(t => t.id !== "caja" && t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}</select></div>
+                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Mover a sección</div><select style={s.inputField} value={tabActual} onChange={e => cambiarTab(p.id, e.target.value)}>{TABS.filter(t => t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}</select></div>
                         </div>
                         <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>🖨️ Imprimir comanda</button>
                       </div>
@@ -682,6 +784,11 @@ const s = {
   dot: { width: 9, height: 9, borderRadius: "50%", background: "#2a7a4b" },
   brandName: { fontWeight: 600, fontSize: 14 },
   fechaHoy: { fontSize: 13, color: "#888", textTransform: "capitalize" },
+  hamburger: { background: "none", border: "1px solid #ddd", borderRadius: 6, padding: "6px 8px", cursor: "pointer", display: "flex", flexDirection: "column", gap: 4 },
+  hambLine: { width: 18, height: 2, background: "#555", borderRadius: 2 },
+  dropdown: { position: "absolute", right: 0, top: "calc(100% + 8px)", background: "#fff", border: "1px solid #eee", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.1)", zIndex: 100, minWidth: 200, overflow: "hidden" },
+  dropItem: { display: "block", width: "100%", padding: "11px 16px", border: "none", background: "none", cursor: "pointer", textAlign: "left", fontSize: 13, color: "#333" },
+  btnVolver: { fontSize: 12, padding: "6px 12px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", color: "#555" },
   tabs: { display: "flex", padding: "0 24px", background: "#fff", borderBottom: "1px solid #eee", gap: 4, overflowX: "auto" },
   tab: { padding: "10px 14px", border: "none", background: "none", cursor: "pointer", fontSize: 12, color: "#888", borderBottom: "2px solid transparent", marginBottom: -1, display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" },
   tabActive: { color: "#2a7a4b", borderBottomColor: "#2a7a4b", fontWeight: 600 },
