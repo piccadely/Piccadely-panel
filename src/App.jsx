@@ -84,11 +84,10 @@ function sumar(arr) { return arr.reduce((a, p) => a + p.totalNum, 0); }
 
 // ─── MODAL FACTURACIÓN ───────────────────────────────────────────────
 function ModalFacturacion({ p, onCerrar }) {
- const docRaw = p.identificacion || "";
-const docSinFormato = docRaw.replace(/[-\s]/g, "");
-const esCuit = docSinFormato.length > 8;
-const docLimpio = docSinFormato;
-const esFacturaA = tipo === "FACTURA A";
+  const docRaw = p.identificacion || "";
+  const docSinFormato = docRaw.replace(/[-\s]/g, "");
+  const esCuit = docSinFormato.length > 8;
+  const docLimpio = docSinFormato;
 
   const [tipo, setTipo] = useState(esCuit ? "FACTURA A" : "FACTURA B");
   const [docTipo, setDocTipo] = useState(esCuit ? "CUIT" : "DNI");
@@ -101,9 +100,12 @@ const esFacturaA = tipo === "FACTURA A";
   const [facturas, setFacturas] = useState([]);
   const [loadingFacturas, setLoadingFacturas] = useState(true);
 
+  const esFacturaA = tipo === "FACTURA A";
+
   useEffect(() => {
     cargarFacturas();
   }, []);
+
 
   async function cargarFacturas() {
     try {
