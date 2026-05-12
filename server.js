@@ -28,9 +28,7 @@ async function initDB() {
       id TEXT PRIMARY KEY,
       estado TEXT DEFAULT 'Por empaquetar',
       repartidor TEXT DEFAULT 'Sin asignar',
-      tab_manual TEXT,
-      fecha_manual TEXT,
-      franja_manual TEXT,
+      tab_manual TEXT, fecha_manual TEXT, franja_manual TEXT,
       cobrar BOOLEAN DEFAULT false,
       updated_at TIMESTAMP DEFAULT NOW()
     );
@@ -71,29 +69,20 @@ initDB().catch(console.error);
 
 function fechaHoy() {
   const hoy = new Date();
-  const dd = String(hoy.getDate()).padStart(2, "0");
-  const mm = String(hoy.getMonth() + 1).padStart(2, "0");
-  const aaaa = hoy.getFullYear();
-  return `${dd}/${mm}/${aaaa}`;
+  return `${String(hoy.getDate()).padStart(2,"0")}/${String(hoy.getMonth()+1).padStart(2,"0")}/${hoy.getFullYear()}`;
 }
 
-function fechaVencimiento(diasExtra = 30) {
+function fechaVencimiento(dias = 30) {
   const d = new Date();
-  d.setDate(d.getDate() + diasExtra);
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const aaaa = d.getFullYear();
-  return `${dd}/${mm}/${aaaa}`;
+  d.setDate(d.getDate() + dias);
+  return `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;
 }
 
-// ─── TIENDA NUBE ─────────────────────────────────────────────────────
+// TIENDA NUBE
 app.get("/api/orders", async (req, res) => {
   try {
-    const response = await axios.get(
-      `https://api.tiendanube.com/2025-03/${STORE_ID}/orders`,
-      { headers }
-    );
-    res.json(response.data);
+    const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/orders`, { headers });
+    res.json(r.data);
   } catch (err) {
     console.error(err.response?.data || err.message);
     res.status(500).json({ error: "Error conectando con Tienda Nube" });
@@ -102,11 +91,8 @@ app.get("/api/orders", async (req, res) => {
 
 app.get("/api/products", async (req, res) => {
   try {
-    const response = await axios.get(
-      `https://api.tiendanube.com/2025-03/${STORE_ID}/products?per_page=200`,
-      { headers }
-    );
-    res.json(response.data);
+    const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/products?per_page=200`, { headers });
+    res.json(r.data);
   } catch (err) {
     res.status(500).json({ error: "Error trayendo productos" });
   }
@@ -114,17 +100,14 @@ app.get("/api/products", async (req, res) => {
 
 app.get("/api/categories", async (req, res) => {
   try {
-    const response = await axios.get(
-      `https://api.tiendanube.com/2025-03/${STORE_ID}/categories`,
-      { headers }
-    );
-    res.json(response.data);
+    const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/categories`, { headers });
+    res.json(r.data);
   } catch (err) {
     res.status(500).json({ error: "Error trayendo categorías" });
   }
 });
 
-// ─── ESTADOS ─────────────────────────────────────────────────────────
+// ESTADOS
 app.get("/api/estados", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM pedidos_estados");
@@ -160,7 +143,7 @@ app.post("/api/estados/:id", async (req, res) => {
   }
 });
 
-// ─── PEDIDOS MANUALES ────────────────────────────────────────────────
+// PEDIDOS MANUALES
 app.get("/api/pedidos-manuales", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM pedidos_manuales ORDER BY created_at DESC");
@@ -194,7 +177,7 @@ app.post("/api/pedidos-manuales", async (req, res) => {
   }
 });
 
-// ─── CAJA ────────────────────────────────────────────────────────────
+// CAJA
 app.post("/api/caja/apertura", async (req, res) => {
   const { local, fecha, montoInicial } = req.body;
   try {
@@ -240,7 +223,7 @@ app.post("/api/caja/cierre", async (req, res) => {
   }
 });
 
-// ─── FACTURACIÓN ─────────────────────────────────────────────────────
+// FACTURACIÓN
 const TF_APIKEY = "72026";
 const TF_APITOKEN = "f3e0ae8012f40c58d93b5c0333ae634b";
 const TF_USERTOKEN = "686753022f9690813f6166450767316fffb6b8c1867cf5db2b3ba5f7211d5d84";
@@ -249,73 +232,75 @@ const TF_PDV = "00007";
 app.post("/api/facturar", async (req, res) => {
   const { pedidoId, tipo, cliente, documentoTipo, documentoNro, razonSocial, domicilio, email, total, productos } = req.body;
 
-  const condicionCliente = documentoTipo === "CUIT" ? "RI" : "CF";
+  const esFacturaA = tipo === "FACTURA A";
+  const esExento = tipo === "FACTURA B EXENTO";
+  const esTicket = tipo === "TICKET X";
+  const sinDatos = !documentoNro || documentoNro.trim() === "";
 
   let tipoComprobante;
-  if (tipo === "FACTURA A") tipoComprobante = "FACTURA A";
-  else if (tipo === "FACTURA B") tipoComprobante = "FACTURA B";
-  else if (tipo === "FACTURA B EXENTO") tipoComprobante = "FACTURA B";
-  else if (tipo === "TICKET X") tipoComprobante = "TICKET";
+  if (esFacturaA) tipoComprobante = "FACTURA A";
+  else if (esExento) tipoComprobante = "FACTURA B";
+  else if (esTicket) tipoComprobante = "TICKET";
   else tipoComprobante = "FACTURA B";
 
   const totalNum = Number(total);
-  const esExento = tipo === "FACTURA B EXENTO";
   const alicuota = esExento ? 0 : 21;
-  const fechaFormateada = fechaHoy();
-  const venc = fechaVencimiento(30);
+
+  const clienteObj = (sinDatos && !esFacturaA) ? {
+    documento_tipo: "DNI", documento_nro: "0",
+    razon_social: "Consumidor Final", email: "",
+    domicilio: "Sin domicilio", provincia: "2",
+    condicion_pago: "201", condicion_iva: "CF", condicion_iva_operacion: "CF",
+    envia_por_mail: "N", reclama_deuda: "N",
+  } : {
+    documento_tipo: documentoTipo, documento_nro: documentoNro || "0",
+    razon_social: razonSocial || cliente, email: email || "",
+    domicilio: domicilio || "Sin domicilio", provincia: "2",
+    condicion_pago: "201",
+    condicion_iva: esFacturaA ? "RI" : "CF",
+    condicion_iva_operacion: esFacturaA ? "RI" : "CF",
+    envia_por_mail: email ? "S" : "N", reclama_deuda: "N",
+  };
+
+  const detalleProductos = productos.map((p, i) => {
+    const proporcion = p.precioTotal / totalNum;
+    const precioTotalProd = Number((totalNum * proporcion).toFixed(2));
+    const precioUnitarioSinIva = esExento
+      ? Number((precioTotalProd / p.cantidad).toFixed(2))
+      : Number((precioTotalProd / 1.21 / p.cantidad).toFixed(2));
+    return {
+      cantidad: p.cantidad,
+      bonificacion_porcentaje: 0,
+      afecta_stock: "N",
+      producto: {
+        descripcion: p.descripcion,
+        codigo: p.codigo || `P${i+1}`,
+        lista_precios: "standard",
+        leyenda: "", unidad_bulto: 1,
+        alicuota,
+        precio_unitario_sin_iva: precioUnitarioSinIva,
+        actualiza_precio: "S",
+      },
+    };
+  });
 
   const body = {
-    apitoken: TF_APITOKEN,
-    usertoken: TF_USERTOKEN,
-    apikey: TF_APIKEY,
-    cliente: {
-      documento_tipo: documentoTipo,
-      documento_nro: documentoNro || "0",
-      razon_social: razonSocial || cliente,
-      email: email || "",
-      domicilio: domicilio || "Sin domicilio",
-      provincia: "2",
-      condicion_pago: "201",
-      condicion_iva: condicionCliente,
-      condicion_iva_operacion: condicionCliente,
-      envia_por_mail: email ? "S" : "N",
-      reclama_deuda: "N",
-    },
+    apitoken: TF_APITOKEN, usertoken: TF_USERTOKEN, apikey: TF_APIKEY,
+    cliente: clienteObj,
     comprobante: {
-      fecha: fechaFormateada,
-      vencimiento: venc,
-      tipo: tipoComprobante,
-      operacion: "V",
-      moneda: "PES",
-      cotizacion: 1,
-      punto_venta: TF_PDV,
-      rubro: "Alimentos y bebidas",
-      rubro_grupo_contable: "Alimentos",
-      bonificacion: 0,
+      fecha: fechaHoy(), vencimiento: fechaVencimiento(30),
+      tipo: tipoComprobante, operacion: "V", moneda: "PES", cotizacion: 1,
+      punto_venta: TF_PDV, rubro: "Alimentos y bebidas",
+      rubro_grupo_contable: "Alimentos", bonificacion: 0,
       external_reference: pedidoId || `pedido-${Date.now()}`,
-      detalle: productos.map((p, i) => ({
-        cantidad: p.cantidad,
-        bonificacion_porcentaje: 0,
-        afecta_stock: "N",
-        producto: {
-          descripcion: p.descripcion,
-          codigo: p.codigo || `P${i+1}`,
-          lista_precios: "standard",
-          leyenda: "",
-          unidad_bulto: 1,
-          alicuota,
-          precio_unitario_sin_iva: Number((p.precioTotal / p.cantidad / (esExento ? 1 : 1.21)).toFixed(2)),
-          actualiza_precio: "S",
-        },
-      })),
+      detalle: detalleProductos,
     },
   };
 
   try {
     const response = await axios.post(
       "https://www.tusfacturas.app/app/api/v2/facturacion/nuevo",
-      body,
-      { headers: { "Content-Type": "application/json" } }
+      body, { headers: { "Content-Type": "application/json" } }
     );
     const data = response.data;
     if (data.error === "N") {
@@ -323,8 +308,8 @@ app.post("/api/facturar", async (req, res) => {
         INSERT INTO facturas (pedido_id, tipo, numero, cae, vencimiento_cae, cliente, documento_tipo, documento_nro, total, pdf_url, fecha, datos_raw)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
       `, [pedidoId, tipo, data.comprobante_nro, data.cae, data.vencimiento_cae,
-          razonSocial || cliente, documentoTipo, documentoNro, totalNum,
-          data.comprobante_pdf_url || "", fechaFormateada, JSON.stringify(data)]);
+          clienteObj.razon_social, clienteObj.documento_tipo, clienteObj.documento_nro,
+          totalNum, data.comprobante_pdf_url || "", fechaHoy(), JSON.stringify(data)]);
       res.json({ ok: true, data });
     } else {
       res.json({ ok: false, error: data.errores || data });
@@ -350,56 +335,33 @@ app.post("/api/nota-credito", async (req, res) => {
     const result = await pool.query("SELECT * FROM facturas WHERE id=$1", [facturaId]);
     if (result.rows.length === 0) return res.status(404).json({ error: "Factura no encontrada" });
     const factura = result.rows[0];
-
     const tipoNC = factura.tipo === "FACTURA A" ? "NOTA DE CREDITO A" : "NOTA DE CREDITO B";
-    const fechaNC = fechaHoy();
-    const vencNC = fechaVencimiento(30);
 
     const body = {
-      apitoken: TF_APITOKEN,
-      usertoken: TF_USERTOKEN,
-      apikey: TF_APIKEY,
+      apitoken: TF_APITOKEN, usertoken: TF_USERTOKEN, apikey: TF_APIKEY,
       cliente: {
-        documento_tipo: factura.documento_tipo,
-        documento_nro: factura.documento_nro,
-        razon_social: factura.cliente,
-        domicilio: "Sin domicilio",
-        provincia: "2",
+        documento_tipo: factura.documento_tipo, documento_nro: factura.documento_nro,
+        razon_social: factura.cliente, domicilio: "Sin domicilio", provincia: "2",
         condicion_pago: "201",
         condicion_iva: factura.documento_tipo === "CUIT" ? "RI" : "CF",
         condicion_iva_operacion: factura.documento_tipo === "CUIT" ? "RI" : "CF",
-        envia_por_mail: "N",
-        reclama_deuda: "N",
+        envia_por_mail: "N", reclama_deuda: "N",
       },
       comprobante: {
-        fecha: fechaNC,
-        vencimiento: vencNC,
-        tipo: tipoNC,
-        operacion: "V",
-        moneda: "PES",
-        cotizacion: 1,
-        punto_venta: TF_PDV,
-        rubro: "Alimentos y bebidas",
-        rubro_grupo_contable: "Alimentos",
-        bonificacion: 0,
+        fecha: fechaHoy(), vencimiento: fechaVencimiento(30),
+        tipo: tipoNC, operacion: "V", moneda: "PES", cotizacion: 1,
+        punto_venta: TF_PDV, rubro: "Alimentos y bebidas",
+        rubro_grupo_contable: "Alimentos", bonificacion: 0,
         external_reference: `NC-${pedidoId}-${Date.now()}`,
         comprobantes_asociados: [{
-          tipo_comprobante: factura.tipo,
-          punto_venta: TF_PDV,
-          numero: factura.numero,
-          cae: factura.cae,
-          fecha: factura.fecha,
+          tipo_comprobante: factura.tipo, punto_venta: TF_PDV,
+          numero: factura.numero, cae: factura.cae, fecha: factura.fecha,
         }],
         detalle: [{
-          cantidad: 1,
-          bonificacion_porcentaje: 0,
-          afecta_stock: "N",
+          cantidad: 1, bonificacion_porcentaje: 0, afecta_stock: "N",
           producto: {
-            descripcion: "Anulación de comprobante",
-            codigo: "NC001",
-            lista_precios: "standard",
-            leyenda: "",
-            unidad_bulto: 1,
+            descripcion: "Anulación de comprobante", codigo: "NC001",
+            lista_precios: "standard", leyenda: "", unidad_bulto: 1,
             alicuota: 21,
             precio_unitario_sin_iva: Number((Number(factura.total) / 1.21).toFixed(2)),
             actualiza_precio: "N",
@@ -410,8 +372,7 @@ app.post("/api/nota-credito", async (req, res) => {
 
     const response = await axios.post(
       "https://www.tusfacturas.app/app/api/v2/facturacion/nuevo",
-      body,
-      { headers: { "Content-Type": "application/json" } }
+      body, { headers: { "Content-Type": "application/json" } }
     );
     const data = response.data;
     if (data.error === "N") {
@@ -420,7 +381,7 @@ app.post("/api/nota-credito", async (req, res) => {
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
       `, [pedidoId, tipoNC, data.comprobante_nro, data.cae, data.vencimiento_cae,
           factura.cliente, factura.documento_tipo, factura.documento_nro, -Number(factura.total),
-          data.comprobante_pdf_url || "", fechaNC, JSON.stringify(data)]);
+          data.comprobante_pdf_url || "", fechaHoy(), JSON.stringify(data)]);
       res.json({ ok: true, data });
     } else {
       res.json({ ok: false, error: data.errores || data });
