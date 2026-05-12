@@ -84,9 +84,11 @@ function sumar(arr) { return arr.reduce((a, p) => a + p.totalNum, 0); }
 
 // ─── MODAL FACTURACIÓN ───────────────────────────────────────────────
 function ModalFacturacion({ p, onCerrar }) {
-  const docRaw = p.identificacion || "";
-  const esCuit = docRaw.replace(/[-\s]/g, "").length > 8;
-  const docLimpio = docRaw.replace(/[-\s]/g, "");
+ const docRaw = p.identificacion || "";
+const docSinFormato = docRaw.replace(/[-\s]/g, "");
+const esCuit = docSinFormato.length > 8;
+const docLimpio = docSinFormato;
+const esFacturaA = tipo === "FACTURA A";
 
   const [tipo, setTipo] = useState(esCuit ? "FACTURA A" : "FACTURA B");
   const [docTipo, setDocTipo] = useState(esCuit ? "CUIT" : "DNI");
@@ -122,23 +124,23 @@ function ModalFacturacion({ p, onCerrar }) {
     return { descripcion, cantidad, codigo: `PROD${i+1}`, precioTotal: Number(p.totalNum) * (cantidad / cantTotal) };
   });
 
-  async function emitir() {
-    if (!docNro) { alert("Ingresá el documento del cliente"); return; }
-    setEmitiendo(true);
-    setResultado(null);
-    try {
-      const res = await axios.post(`${API}/api/facturar`, {
-        pedidoId: p.id, tipo, cliente: p.cliente,
-        documentoTipo: docTipo, documentoNro: docNro,
-        razonSocial, domicilio, email,
-        total: p.totalNum, productos: productosFactura,
-        fecha: new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }),
-      });
-      setResultado(res.data);
-      if (res.data.ok) await cargarFacturas();
-    } catch (e) { setResultado({ ok: false, error: e.message }); }
-    setEmitiendo(false);
-  }
+async function emitir() {
+  if (esFacturaA && !docNro) { alert("Para Factura A es obligatorio el CUIT"); return; }
+  setEmitiendo(true);
+  setResultado(null);
+  try {
+    const res = await axios.post(`${API}/api/facturar`, {
+      pedidoId: p.id, tipo, cliente: p.cliente,
+      documentoTipo: docTipo,
+      documentoNro: (tipo === "FACTURA B" || tipo === "TICKET X") ? (docNro || "") : docNro,
+      razonSocial, domicilio, email,
+      total: p.totalNum, productos: productosFactura,
+    });
+    setResultado(res.data);
+    if (res.data.ok) await cargarFacturas();
+  } catch (e) { setResultado({ ok: false, error: e.message }); }
+  setEmitiendo(false);
+}
 
   async function emitirNC(facturaId) {
     if (!window.confirm("¿Emitir nota de crédito para anular este comprobante?")) return;

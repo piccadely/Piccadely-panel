@@ -262,27 +262,34 @@ app.post("/api/facturar", async (req, res) => {
     envia_por_mail: email ? "S" : "N", reclama_deuda: "N",
   };
 
-  const detalleProductos = productos.map((p, i) => {
-    const proporcion = p.precioTotal / totalNum;
-    const precioTotalProd = Number((totalNum * proporcion).toFixed(2));
-    const precioUnitarioSinIva = esExento
-      ? Number((precioTotalProd / p.cantidad).toFixed(2))
-      : Number((precioTotalProd / 1.21 / p.cantidad).toFixed(2));
-    return {
-      cantidad: p.cantidad,
-      bonificacion_porcentaje: 0,
-      afecta_stock: "N",
-      producto: {
-        descripcion: p.descripcion,
-        codigo: p.codigo || `P${i+1}`,
-        lista_precios: "standard",
-        leyenda: "", unidad_bulto: 1,
-        alicuota,
-        precio_unitario_sin_iva: precioUnitarioSinIva,
-        actualiza_precio: "S",
-      },
-    };
-  });
+ // Calcular detalle con totales exactos
+let sumaVerificacion = 0;
+const detalleProductos = productos.map((p, i) => {
+  const proporcion = totalNum > 0 ? p.precioTotal / totalNum : 1 / productos.length;
+  const precioTotalProd = i === productos.length - 1
+    ? totalNum - sumaVerificacion  // el último absorbe el redondeo
+    : Number((totalNum * proporcion).toFixed(2));
+  sumaVerificacion += precioTotalProd;
+
+  const precioUnitarioSinIva = esExento
+    ? Number((precioTotalProd / p.cantidad).toFixed(2))
+    : Number((precioTotalProd / 1.21 / p.cantidad).toFixed(4));
+
+  return {
+    cantidad: p.cantidad,
+    bonificacion_porcentaje: 0,
+    afecta_stock: "N",
+    producto: {
+      descripcion: p.descripcion,
+      codigo: p.codigo || `P${i+1}`,
+      lista_precios: "standard",
+      leyenda: "", unidad_bulto: 1,
+      alicuota,
+      precio_unitario_sin_iva: precioUnitarioSinIva,
+      actualiza_precio: "S",
+    },
+  };
+});
 
   const body = {
     apitoken: TF_APITOKEN, usertoken: TF_USERTOKEN, apikey: TF_APIKEY,
