@@ -345,8 +345,11 @@ app.post("/api/facturar", async (req, res) => {
   const alicuota = esExento ? 0 : 21;
   const precioSinIva = esExento ? totalNum : Number((totalNum / 1.21).toFixed(2));
 
-  const fechaFormateada = fecha || new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "/");
-
+  const hoy = new Date();
+const dd = String(hoy.getDate()).padStart(2, "0");
+const mm = String(hoy.getMonth() + 1).padStart(2, "0");
+const aaaa = hoy.getFullYear();
+const fechaFormateada = fecha || `${dd}/${mm}/${aaaa}`;
   const body = {
     apitoken: TF_APITOKEN,
     usertoken: TF_USERTOKEN,
@@ -364,7 +367,9 @@ app.post("/api/facturar", async (req, res) => {
       envia_por_mail: email ? "S" : "N",
       reclama_deuda: "N",
     },
-    comprobante: {
+    comprobante: {const vencimiento = new Date(hoy);
+vencimiento.setDate(vencimiento.getDate() + 30);
+const venc = `${String(vencimiento.getDate()).padStart(2,"0")}/${String(vencimiento.getMonth()+1).padStart(2,"0")}/${vencimiento.getFullYear()}`;
       fecha: fechaFormateada,
       tipo: tipoComprobante,
       operacion: "V",
@@ -460,9 +465,9 @@ app.post("/api/nota-credito", async (req, res) => {
         envia_por_mail: "N",
         reclama_deuda: "N",
       },
-      comprobante: {
-        fecha: new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "/"),
-        tipo: tipoNC,
+      comprobante: {vencimiento: venc,
+  
+fecha: `${String(new Date().getDate()).padStart(2,"0")}/${String(new Date().getMonth()+1).padStart(2,"0")}/${new Date().getFullYear()}`,        tipo: tipoNC,
         operacion: "V",
         moneda: "PES",
         cotizacion: 1,
