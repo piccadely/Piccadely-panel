@@ -295,6 +295,232 @@ app.post("/api/caja/cierre", async (req, res) => {
     res.status(500).json({ error: "Error en cierre de caja" });
   }
 });
+// FACTURACIÓN
+const TF_APIKEY = "72026";
+const TF_APITOKEN = "f3e0ae8012f40c58d93b5c0333ae634b";
+const TF_USERTOKEN = "686753022f9690813f6166450767316fffb6b8c1867cf5db2b3ba5f7211d5d84";
+const TF_PDV = "00007";
+const TF_CUIT = "30712271503";
+
+// Tabla para guardar comprobantes emitidos
+async function initFacturas() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS facturas (
+      id SERIAL PRIMARY KEY,
+      pedido_id TEXT,
+      tipo TEXT,
+      numero TEXT,
+      cae TEXT,
+      vencimiento_cae TEXT,
+      cliente TEXT,
+      documento_tipo TEXT,
+      documento_nro TEXT,
+      total NUMERIC,
+      pdf_url TEXT,
+      fecha TEXT,
+      datos_raw JSONB,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+  `);
+}
+initFacturas().catch(console.error);
+
+app.post("/api/facturar", async (req, res) => {
+  const { pedidoId, tipo, cliente, documentoTipo, documentoNro, razonSocial, domicilio, email, total, productos, fecha } = req.body;
+
+  // Determinar condición IVA del cliente
+  const condicionCliente = documentoTipo === "CUIT" ? "RI" : "CF";
+
+  // Determinar tipo de comprobante TusFacturas
+  let tipoComprobante;
+  if (tipo === "FACTURA A") tipoComprobante = "FACTURA A";
+  else if (tipo === "FACTURA B") tipoComprobante = "FACTURA B";
+  else if (tipo === "FACTURA B EXENTO") tipoComprobante = "FACTURA B";
+  else if (tipo === "TICKET X") tipoComprobante = "TICKET";
+  else tipoComprobante = "FACTURA B";
+
+  // Calcular precio sin IVA (precio con IVA / 1.21)
+  const totalNum = Number(total);
+  const esExento = tipo === "FACTURA B EXENTO";
+  const alicuota = esExento ? 0 : 21;
+  const precioSinIva = esExento ? totalNum : Number((totalNum / 1.21).toFixed(2));
+
+  const fechaFormateada = fecha || new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "/");
+
+  const body = {
+    apitoken: TF_APITOKEN,
+    usertoken: TF_USERTOKEN,
+    apikey: TF_APIKEY,
+    cliente: {
+      documento_tipo: documentoTipo,
+      documento_nro: documentoNro || "0",
+      razon_social: razonSocial || cliente,
+      email: email || "",
+      domicilio: domicilio || "Sin domicilio",
+      provincia: "2",
+      condicion_pago: "201",
+      condicion_iva: condicionCliente,
+      condicion_iva_operacion: condicionCliente,
+      envia_por_mail: email ? "S" : "N",
+      reclama_deuda: "N",
+    },
+    comprobante: {
+      fecha: fechaFormateada,
+      tipo: tipoComprobante,
+      operacion: "V",
+      moneda: "PES",
+      cotizacion: 1,
+      punto_venta: TF_PDV,
+      rubro: "Alimentos y bebidas",
+      rubro_grupo_contable: "Alimentos",
+      detalle: productos.map(p => ({
+        cantidad: p.cantidad,
+        producto: {
+          descripcion: p.descripcion,
+          codigo: p.codigo || "001",
+          lista_precios: "standard",
+          leyenda: "",
+          unidad_bulto: 1,
+          alicuota,
+          precio_unitario_sin_iva: Number((p.precioTotal / p.cantidad / (esExento ? 1 : 1.21)).toFixed(2)),
+          actualiza_precio: "S",
+        },
+        bonificacion_porcentaje: 0,
+        afecta_stock: "N",
+      })),
+      bonificacion: 0,
+      external_reference: pedidoId || `pedido-${Date.now()}`,
+    },
+  };
+
+  try {
+    const response = await axios.post(
+      "https://www.tusfacturas.app/app/api/v2/facturacion/nuevo",
+      body,
+      { headers: { "Content-Type": "application/json" } }
+    );
+
+    const data = response.data;
+
+    if (data.error === "N") {
+      // Guardar en DB
+      await pool.query(`
+        INSERT INTO facturas (pedido_id, tipo, numero, cae, vencimiento_cae, cliente, documento_tipo, documento_nro, total, pdf_url, fecha, datos_raw)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      `, [
+        pedidoId, tipo, data.comprobante_nro, data.cae, data.vencimiento_cae,
+        razonSocial || cliente, documentoTipo, documentoNro, totalNum,
+        data.comprobante_pdf_url || "", fechaFormateada, JSON.stringify(data)
+      ]);
+      res.json({ ok: true, data });
+    } else {
+      res.json({ ok: false, error: data.errores || data });
+    }
+  } catch (err) {
+    console.error(err.response?.data || err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get("/api/facturas/:pedidoId", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM facturas WHERE pedido_id=$1 ORDER BY created_at DESC",
+      [req.params.pedidoId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: "Error trayendo facturas" });
+  }
+});
+
+app.post("/api/nota-credito", async (req, res) => {
+  const { facturaId, pedidoId } = req.body;
+  try {
+    const result = await pool.query("SELECT * FROM facturas WHERE id=$1", [facturaId]);
+    if (result.rows.length === 0) return res.status(404).json({ error: "Factura no encontrada" });
+    const factura = result.rows[0];
+    const datosOriginales = factura.datos_raw;
+
+    const tipoNC = factura.tipo === "FACTURA A" ? "NOTA DE CREDITO A" : "NOTA DE CREDITO B";
+
+    const body = {
+      apitoken: TF_APITOKEN,
+      usertoken: TF_USERTOKEN,
+      apikey: TF_APIKEY,
+      cliente: {
+        documento_tipo: factura.documento_tipo,
+        documento_nro: factura.documento_nro,
+        razon_social: factura.cliente,
+        domicilio: "Sin domicilio",
+        provincia: "2",
+        condicion_pago: "201",
+        condicion_iva: factura.documento_tipo === "CUIT" ? "RI" : "CF",
+        condicion_iva_operacion: factura.documento_tipo === "CUIT" ? "RI" : "CF",
+        envia_por_mail: "N",
+        reclama_deuda: "N",
+      },
+      comprobante: {
+        fecha: new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "/"),
+        tipo: tipoNC,
+        operacion: "V",
+        moneda: "PES",
+        cotizacion: 1,
+        punto_venta: TF_PDV,
+        rubro: "Alimentos y bebidas",
+        rubro_grupo_contable: "Alimentos",
+        comprobantes_asociados: [{
+          tipo_comprobante: factura.tipo,
+          punto_venta: TF_PDV,
+          numero: factura.numero,
+          cae: factura.cae,
+          fecha: factura.fecha,
+        }],
+        detalle: datosOriginales?.detalle || [{
+          cantidad: 1,
+          producto: {
+            descripcion: "Anulación de comprobante",
+            codigo: "NC001",
+            lista_precios: "standard",
+            leyenda: "",
+            unidad_bulto: 1,
+            alicuota: 21,
+            precio_unitario_sin_iva: Number((Number(factura.total) / 1.21).toFixed(2)),
+            actualiza_precio: "N",
+          },
+          bonificacion_porcentaje: 0,
+          afecta_stock: "N",
+        }],
+        bonificacion: 0,
+        external_reference: `NC-${pedidoId}-${Date.now()}`,
+      },
+    };
+
+    const response = await axios.post(
+      "https://www.tusfacturas.app/app/api/v2/facturacion/nuevo",
+      body,
+      { headers: { "Content-Type": "application/json" } }
+    );
+
+    const data = response.data;
+    if (data.error === "N") {
+      await pool.query(`
+        INSERT INTO facturas (pedido_id, tipo, numero, cae, vencimiento_cae, cliente, documento_tipo, documento_nro, total, pdf_url, fecha, datos_raw)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      `, [
+        pedidoId, tipoNC, data.comprobante_nro, data.cae, data.vencimiento_cae,
+        factura.cliente, factura.documento_tipo, factura.documento_nro, -Number(factura.total),
+        data.comprobante_pdf_url || "", new Date().toLocaleDateString("es-AR"), JSON.stringify(data)
+      ]);
+      res.json({ ok: true, data });
+    } else {
+      res.json({ ok: false, error: data.errores || data });
+    }
+  } catch (err) {
+    console.error(err.response?.data || err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 app.listen(process.env.PORT || 3001, () => {
   console.log("Servidor corriendo");
 });
