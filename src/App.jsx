@@ -82,7 +82,239 @@ function guardarEstadoDB(id, estado) {
 function fmt(n) { return `$${Number(n).toLocaleString("es-AR")}`; }
 function sumar(arr) { return arr.reduce((a, p) => a + p.totalNum, 0); }
 
-// ─── COMPONENTE CAJA ────────────────────────────────────────────────
+// ─── MODAL FACTURACIÓN ───────────────────────────────────────────────
+function ModalFacturacion({ p, onCerrar }) {
+  const docRaw = p.identificacion || "";
+  const esCuit = docRaw.replace(/[-\s]/g, "").length > 8;
+  const docLimpio = docRaw.replace(/[-\s]/g, "");
+
+  const [tipo, setTipo] = useState(esCuit ? "FACTURA A" : "FACTURA B");
+  const [docTipo, setDocTipo] = useState(esCuit ? "CUIT" : "DNI");
+  const [docNro, setDocNro] = useState(docLimpio);
+  const [razonSocial, setRazonSocial] = useState(p.cliente || "");
+  const [email, setEmail] = useState(p.email || "");
+  const [domicilio, setDomicilio] = useState(p.direccion || "");
+  const [emitiendo, setEmitiendo] = useState(false);
+  const [resultado, setResultado] = useState(null);
+  const [facturas, setFacturas] = useState([]);
+  const [loadingFacturas, setLoadingFacturas] = useState(true);
+
+  useEffect(() => {
+    cargarFacturas();
+  }, []);
+
+  async function cargarFacturas() {
+    try {
+      const res = await axios.get(`${API}/api/facturas/${p.id}`);
+      setFacturas(res.data);
+    } catch(e) {}
+    setLoadingFacturas(false);
+  }
+
+  const productosFactura = p.productos.split(", ").map((prod, i) => {
+    const match = prod.match(/^(.+) x(\d+)$/);
+    const descripcion = match ? match[1] : prod;
+    const cantidad = match ? Number(match[2]) : 1;
+    const cantTotal = p.productos.split(", ").reduce((a, pr) => {
+      const m = pr.match(/^(.+) x(\d+)$/);
+      return a + (m ? Number(m[2]) : 1);
+    }, 0);
+    return { descripcion, cantidad, codigo: `PROD${i+1}`, precioTotal: Number(p.totalNum) * (cantidad / cantTotal) };
+  });
+
+  async function emitir() {
+    if (!docNro) { alert("Ingresá el documento del cliente"); return; }
+    setEmitiendo(true);
+    setResultado(null);
+    try {
+      const res = await axios.post(`${API}/api/facturar`, {
+        pedidoId: p.id, tipo, cliente: p.cliente,
+        documentoTipo: docTipo, documentoNro: docNro,
+        razonSocial, domicilio, email,
+        total: p.totalNum, productos: productosFactura,
+        fecha: new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }),
+      });
+      setResultado(res.data);
+      if (res.data.ok) await cargarFacturas();
+    } catch (e) { setResultado({ ok: false, error: e.message }); }
+    setEmitiendo(false);
+  }
+
+  async function emitirNC(facturaId) {
+    if (!window.confirm("¿Emitir nota de crédito para anular este comprobante?")) return;
+    setEmitiendo(true);
+    try {
+      const res = await axios.post(`${API}/api/nota-credito`, { facturaId, pedidoId: p.id });
+      if (res.data.ok) {
+        await cargarFacturas();
+        setResultado({ ok: true, data: res.data.data, esNC: true });
+      } else {
+        setResultado({ ok: false, error: res.data.error });
+      }
+    } catch (e) { setResultado({ ok: false, error: e.message }); }
+    setEmitiendo(false);
+  }
+
+  // Facturas activas (no anuladas por NC)
+  const facturasActivas = facturas.filter(f => !f.tipo.includes("NOTA DE CREDITO"));
+  const notasCredito = facturas.filter(f => f.tipo.includes("NOTA DE CREDITO"));
+  const tieneFacturaActiva = facturasActivas.length > 0 && facturasActivas.length > notasCredito.length;
+
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 540, maxHeight: "92vh", overflowY: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.25)" }}>
+
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#333" }}>🧾 Facturación</div>
+            <div style={{ fontSize: 12, color: "#888" }}>{p.numero} — {p.cliente} — {p.total}</div>
+          </div>
+          <button style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#aaa", lineHeight: 1 }} onClick={onCerrar}>✕</button>
+        </div>
+
+        {/* Alerta CUIT */}
+        {esCuit && (
+          <div style={{ background: "#fef9e7", border: "1px solid #f39c12", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: "#856404" }}>
+            ⚠️ Este cliente tiene <strong>CUIT</strong> registrado en Tienda Nube — se sugiere emitir <strong>Factura A</strong>
+          </div>
+        )}
+
+        {/* Comprobantes ya emitidos */}
+        {!loadingFacturas && facturas.length > 0 && (
+          <div style={{ background: "#f9f9f7", borderRadius: 8, padding: 14, marginBottom: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#555", textTransform: "uppercase", marginBottom: 8 }}>Comprobantes emitidos</div>
+            {facturas.map(f => {
+              const esNC = f.tipo.includes("NOTA DE CREDITO");
+              return (
+                <div key={f.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: "1px solid #eee" }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: esNC ? "#c0392b" : "#333" }}>
+                      {esNC ? "✖ " : "✔ "}{f.tipo} Nº {f.numero}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#aaa" }}>{f.fecha} · CAE: {f.cae}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: esNC ? "#c0392b" : "#2a7a4b" }}>{esNC ? "-" : ""}{fmt(Math.abs(f.total))}</span>
+                    {f.pdf_url && (
+                      <a href={f.pdf_url} target="_blank" rel="noreferrer"
+                        style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, border: "1px solid #2a7a4b", color: "#2a7a4b", textDecoration: "none", background: "#eaf3de" }}>
+                        📄 PDF
+                      </a>
+                    )}
+                    {!esNC && (
+                      <button onClick={() => emitirNC(f.id)} disabled={emitiendo}
+                        style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, border: "1px solid #c0392b", background: "none", color: "#c0392b", cursor: "pointer" }}>
+                        Anular (NC)
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Resultado última operación */}
+        {resultado && (
+          <div style={{ borderRadius: 8, padding: "10px 14px", marginBottom: 14, background: resultado.ok ? "#eaf3de" : "#fdecea", border: `1px solid ${resultado.ok ? "#2a7a4b" : "#c0392b"}` }}>
+            {resultado.ok ? (
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#2a7a4b" }}>
+                  ✅ {resultado.esNC ? "Nota de crédito emitida" : "Comprobante emitido"}
+                </div>
+                <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Nº {resultado.data?.comprobante_nro} — CAE: {resultado.data?.cae}</div>
+                {resultado.data?.comprobante_pdf_url && (
+                  <a href={resultado.data.comprobante_pdf_url} target="_blank" rel="noreferrer"
+                    style={{ fontSize: 12, color: "#2a7a4b", textDecoration: "underline", display: "block", marginTop: 4 }}>
+                    📄 Descargar PDF
+                  </a>
+                )}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: "#c0392b" }}>❌ Error: {typeof resultado.error === "string" ? resultado.error : JSON.stringify(resultado.error)}</div>
+            )}
+          </div>
+        )}
+
+        {/* Formulario nueva factura */}
+        <div style={{ borderTop: tieneFacturaActiva ? "2px dashed #eee" : "none", paddingTop: tieneFacturaActiva ? 14 : 0 }}>
+          {tieneFacturaActiva && (
+            <div style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>
+              Ya hay un comprobante emitido. Para volver a facturar primero anulá el anterior con NC.
+            </div>
+          )}
+
+          {/* Tipo de comprobante */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Tipo de comprobante</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {["FACTURA B", "FACTURA A", "FACTURA B EXENTO", "TICKET X"].map(t => (
+                <button key={t} onClick={() => { setTipo(t); setDocTipo(t === "FACTURA A" ? "CUIT" : docTipo); }}
+                  style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid", cursor: "pointer",
+                    borderColor: tipo === t ? "#2a7a4b" : "#ddd",
+                    background: tipo === t ? "#eaf3de" : "#fff",
+                    color: tipo === t ? "#2a7a4b" : "#555",
+                    fontWeight: tipo === t ? 600 : 400 }}>
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Datos del cliente */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Documento</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <select style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: 72 }}
+                  value={docTipo} onChange={e => setDocTipo(e.target.value)}>
+                  <option>DNI</option>
+                  <option>CUIT</option>
+                </select>
+                <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", flex: 1 }}
+                  value={docNro} onChange={e => setDocNro(e.target.value)} placeholder="Número" />
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Nombre / Razón social</div>
+              <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }}
+                value={razonSocial} onChange={e => setRazonSocial(e.target.value)} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Email (opcional)</div>
+              <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }}
+                value={email} onChange={e => setEmail(e.target.value)} placeholder="cliente@email.com" />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Domicilio</div>
+              <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }}
+                value={domicilio} onChange={e => setDomicilio(e.target.value)} />
+            </div>
+          </div>
+
+          {/* Total */}
+          <div style={{ background: "#f9f9f7", borderRadius: 8, padding: "10px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 13, color: "#666" }}>Total a facturar</span>
+            <span style={{ fontSize: 16, fontWeight: 700, color: "#2a7a4b" }}>{p.total}</span>
+          </div>
+
+          <button
+            style={{ width: "100%", padding: 11, borderRadius: 8, border: "none",
+              background: emitiendo || tieneFacturaActiva ? "#ccc" : "#2a7a4b",
+              color: "#fff", fontSize: 13, fontWeight: 600,
+              cursor: emitiendo || tieneFacturaActiva ? "default" : "pointer" }}
+            onClick={emitir}
+            disabled={emitiendo || tieneFacturaActiva}>
+            {emitiendo ? "Emitiendo..." : `Emitir ${tipo}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── COMPONENTE CAJA ─────────────────────────────────────────────────
 function VistaCaja({ pedidosFinalizados, onVolver }) {
   const [localSeleccionado, setLocalSeleccionado] = useState("A. Thomas");
   const [estadoCaja, setEstadoCaja] = useState(null);
@@ -91,9 +323,7 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
   const [ajuste, setAjuste] = useState({ tipo: "entrada", concepto: "", monto: "" });
   const [montoCierre, setMontoCierre] = useState("");
   const [mostrarAjuste, setMostrarAjuste] = useState(false);
-  const [mostrarCierre, setMostrarCierre] = useState(false);
   const [guardando, setGuardando] = useState(false);
-const [facturando, setFacturando] = useState(null); // pedido que se está facturando
 
   async function cargarEstado() {
     setLoadingCaja(true);
@@ -131,26 +361,18 @@ const [facturando, setFacturando] = useState(null); // pedido que se está factu
     setGuardando(true);
     await axios.post(`${API}/api/caja/cierre`, { local: localSeleccionado, fecha: HOY, montoCierre: Number(montoCierre) });
     setMontoCierre("");
-    setMostrarCierre(false);
     await cargarEstado();
     setGuardando(false);
   }
 
-  // Ventas del día por medio de pago
   const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado);
-  const ventasPorMedio = MEDIOS_PAGO.reduce((acc, m) => {
-    acc[m] = ventasLocal.filter(p => p.medioPago === m);
-    return acc;
-  }, {});
+  const ventasPorMedio = MEDIOS_PAGO.reduce((acc, m) => { acc[m] = ventasLocal.filter(p => p.medioPago === m); return acc; }, {});
   const totalVentas = sumar(ventasLocal);
   const totalEfectivo = sumar(ventasPorMedio["Efectivo"] || []);
-
-  // Saldo esperado en caja
   const montoInicial = estadoCaja?.apertura?.monto_inicial || 0;
   const ajustes = estadoCaja?.movimientos?.filter(m => m.tipo === "entrada" || m.tipo === "salida") || [];
   const totalAjustes = ajustes.reduce((a, m) => a + Number(m.monto), 0);
   const saldoEsperado = Number(montoInicial) + totalEfectivo + totalAjustes;
-
   const cerrada = estadoCaja?.apertura?.cerrada;
 
   return (
@@ -172,12 +394,9 @@ const [facturando, setFacturando] = useState(null); // pedido que se está factu
           ))}
         </div>
       </div>
-
       <div style={{ padding: 24 }}>
-        {loadingCaja ? (
-          <div style={{ color: "#aaa", fontSize: 13 }}>Cargando caja...</div>
-        ) : !estadoCaja?.apertura ? (
-          // SIN APERTURA
+        {loadingCaja ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando caja...</div>
+        : !estadoCaja?.apertura ? (
           <div style={{ maxWidth: 400 }}>
             <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 24 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: "#333", marginBottom: 16 }}>🔓 Apertura de caja — {localSeleccionado}</div>
@@ -185,16 +404,11 @@ const [facturando, setFacturando] = useState(null); // pedido que se está factu
               <input type="number" style={{ fontSize: 14, padding: "8px 12px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 12 }}
                 placeholder="$0" value={montoApertura} onChange={e => setMontoApertura(e.target.value)} />
               <button style={{ width: "100%", padding: 10, borderRadius: 8, border: "none", background: "#2a7a4b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-                onClick={abrirCaja} disabled={guardando}>
-                {guardando ? "Abriendo..." : "Abrir caja"}
-              </button>
+                onClick={abrirCaja} disabled={guardando}>{guardando ? "Abriendo..." : "Abrir caja"}</button>
             </div>
           </div>
         ) : (
-          // CAJA ABIERTA
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-
-            {/* Ventas del día */}
             <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: "#333", marginBottom: 14 }}>📊 Ventas del día — {localSeleccionado}</div>
               {MEDIOS_PAGO.map(medio => {
@@ -202,10 +416,7 @@ const [facturando, setFacturando] = useState(null); // pedido que se está factu
                 if (pedidos.length === 0) return null;
                 return (
                   <div key={medio} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #f5f5f5" }}>
-                    <div>
-                      <div style={{ fontSize: 13, color: "#333", fontWeight: 500 }}>{medio}</div>
-                      <div style={{ fontSize: 11, color: "#aaa" }}>{pedidos.length} pedido{pedidos.length > 1 ? "s" : ""}</div>
-                    </div>
+                    <div><div style={{ fontSize: 13, color: "#333", fontWeight: 500 }}>{medio}</div><div style={{ fontSize: 11, color: "#aaa" }}>{pedidos.length} pedido{pedidos.length > 1 ? "s" : ""}</div></div>
                     <span style={{ fontSize: 14, fontWeight: 600, color: "#2a7a4b" }}>{fmt(sumar(pedidos))}</span>
                   </div>
                 );
@@ -216,26 +427,15 @@ const [facturando, setFacturando] = useState(null); // pedido que se está factu
                 <span style={{ fontSize: 16, fontWeight: 700, color: "#2a7a4b" }}>{fmt(totalVentas)}</span>
               </div>
             </div>
-
-            {/* Estado de caja */}
             <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: "#333", marginBottom: 14 }}>
-                🏦 Estado de caja
-                {cerrada && <span style={{ fontSize: 11, background: "#c0392b", color: "#fff", padding: "2px 8px", borderRadius: 4, marginLeft: 8 }}>CERRADA</span>}
+                🏦 Estado de caja {cerrada && <span style={{ fontSize: 11, background: "#c0392b", color: "#fff", padding: "2px 8px", borderRadius: 4, marginLeft: 8 }}>CERRADA</span>}
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}>
-                <span style={{ fontSize: 13, color: "#666" }}>Monto inicial</span>
-                <span style={{ fontSize: 13, fontWeight: 500 }}>{fmt(montoInicial)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}>
-                <span style={{ fontSize: 13, color: "#666" }}>Ventas efectivo</span>
-                <span style={{ fontSize: 13, fontWeight: 500 }}>{fmt(totalEfectivo)}</span>
-              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}><span style={{ fontSize: 13, color: "#666" }}>Monto inicial</span><span style={{ fontSize: 13, fontWeight: 500 }}>{fmt(montoInicial)}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}><span style={{ fontSize: 13, color: "#666" }}>Ventas efectivo</span><span style={{ fontSize: 13, fontWeight: 500 }}>{fmt(totalEfectivo)}</span></div>
               {ajustes.map((a, i) => (
                 <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}>
-                  <span style={{ fontSize: 12, color: Number(a.monto) >= 0 ? "#2a7a4b" : "#c0392b" }}>
-                    {Number(a.monto) >= 0 ? "↑" : "↓"} {a.concepto}
-                  </span>
+                  <span style={{ fontSize: 12, color: Number(a.monto) >= 0 ? "#2a7a4b" : "#c0392b" }}>{Number(a.monto) >= 0 ? "↑" : "↓"} {a.concepto}</span>
                   <span style={{ fontSize: 12, fontWeight: 500, color: Number(a.monto) >= 0 ? "#2a7a4b" : "#c0392b" }}>{fmt(Math.abs(a.monto))}</span>
                 </div>
               ))}
@@ -245,86 +445,43 @@ const [facturando, setFacturando] = useState(null); // pedido que se está factu
               </div>
               {cerrada && estadoCaja.apertura.monto_cierre !== null && (
                 <div style={{ background: "#f9f9f7", borderRadius: 8, padding: 12, marginTop: 10 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                    <span style={{ fontSize: 13, color: "#666" }}>Efectivo contado al cierre</span>
-                    <span style={{ fontSize: 13, fontWeight: 600 }}>{fmt(estadoCaja.apertura.monto_cierre)}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: 13, color: "#666" }}>Diferencia</span>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: (estadoCaja.apertura.monto_cierre - saldoEsperado) >= 0 ? "#2a7a4b" : "#c0392b" }}>
-                      {fmt(estadoCaja.apertura.monto_cierre - saldoEsperado)}
-                    </span>
-                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 13, color: "#666" }}>Efectivo contado al cierre</span><span style={{ fontSize: 13, fontWeight: 600 }}>{fmt(estadoCaja.apertura.monto_cierre)}</span></div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 13, color: "#666" }}>Diferencia</span><span style={{ fontSize: 13, fontWeight: 600, color: (estadoCaja.apertura.monto_cierre - saldoEsperado) >= 0 ? "#2a7a4b" : "#c0392b" }}>{fmt(estadoCaja.apertura.monto_cierre - saldoEsperado)}</span></div>
                 </div>
               )}
             </div>
-
-            {/* Movimientos */}
             <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>📋 Movimientos del día</div>
-                {!cerrada && (
-                  <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #2a7a4b", background: "none", color: "#2a7a4b", cursor: "pointer" }}
-                    onClick={() => setMostrarAjuste(m => !m)}>
-                    + Ajuste
-                  </button>
-                )}
+                {!cerrada && <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #2a7a4b", background: "none", color: "#2a7a4b", cursor: "pointer" }} onClick={() => setMostrarAjuste(m => !m)}>+ Ajuste</button>}
               </div>
               {mostrarAjuste && !cerrada && (
                 <div style={{ background: "#f9f9f7", borderRadius: 8, padding: 12, marginBottom: 12 }}>
                   <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                    <button onClick={() => setAjuste(a => ({...a, tipo: "entrada"}))}
-                      style={{ flex: 1, padding: "6px", borderRadius: 6, border: "1px solid", cursor: "pointer", fontSize: 12,
-                        borderColor: ajuste.tipo === "entrada" ? "#2a7a4b" : "#ddd",
-                        background: ajuste.tipo === "entrada" ? "#eaf3de" : "#fff",
-                        color: ajuste.tipo === "entrada" ? "#2a7a4b" : "#555" }}>↑ Entrada</button>
-                    <button onClick={() => setAjuste(a => ({...a, tipo: "salida"}))}
-                      style={{ flex: 1, padding: "6px", borderRadius: 6, border: "1px solid", cursor: "pointer", fontSize: 12,
-                        borderColor: ajuste.tipo === "salida" ? "#c0392b" : "#ddd",
-                        background: ajuste.tipo === "salida" ? "#fdecea" : "#fff",
-                        color: ajuste.tipo === "salida" ? "#c0392b" : "#555" }}>↓ Salida</button>
+                    <button onClick={() => setAjuste(a => ({...a, tipo: "entrada"}))} style={{ flex: 1, padding: "6px", borderRadius: 6, border: "1px solid", cursor: "pointer", fontSize: 12, borderColor: ajuste.tipo === "entrada" ? "#2a7a4b" : "#ddd", background: ajuste.tipo === "entrada" ? "#eaf3de" : "#fff", color: ajuste.tipo === "entrada" ? "#2a7a4b" : "#555" }}>↑ Entrada</button>
+                    <button onClick={() => setAjuste(a => ({...a, tipo: "salida"}))} style={{ flex: 1, padding: "6px", borderRadius: 6, border: "1px solid", cursor: "pointer", fontSize: 12, borderColor: ajuste.tipo === "salida" ? "#c0392b" : "#ddd", background: ajuste.tipo === "salida" ? "#fdecea" : "#fff", color: ajuste.tipo === "salida" ? "#c0392b" : "#555" }}>↓ Salida</button>
                   </div>
-                  <input style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 6 }}
-                    placeholder="Concepto (ej: Pago proveedor)" value={ajuste.concepto} onChange={e => setAjuste(a => ({...a, concepto: e.target.value}))} />
-                  <input type="number" style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 8 }}
-                    placeholder="Monto" value={ajuste.monto} onChange={e => setAjuste(a => ({...a, monto: e.target.value}))} />
-                  <button style={{ width: "100%", padding: "7px", borderRadius: 6, border: "none", background: "#333", color: "#fff", fontSize: 12, cursor: "pointer" }}
-                    onClick={registrarAjuste} disabled={guardando}>Registrar ajuste</button>
+                  <input style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 6 }} placeholder="Concepto" value={ajuste.concepto} onChange={e => setAjuste(a => ({...a, concepto: e.target.value}))} />
+                  <input type="number" style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 8 }} placeholder="Monto" value={ajuste.monto} onChange={e => setAjuste(a => ({...a, monto: e.target.value}))} />
+                  <button style={{ width: "100%", padding: "7px", borderRadius: 6, border: "none", background: "#333", color: "#fff", fontSize: 12, cursor: "pointer" }} onClick={registrarAjuste} disabled={guardando}>Registrar ajuste</button>
                 </div>
               )}
               {estadoCaja?.movimientos?.length === 0 && <div style={{ fontSize: 12, color: "#aaa" }}>Sin movimientos</div>}
               {estadoCaja?.movimientos?.map((m, i) => (
                 <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}>
-                  <div>
-                    <div style={{ fontSize: 12, color: "#333" }}>{m.concepto}</div>
-                    <div style={{ fontSize: 11, color: "#aaa" }}>{new Date(m.created_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</div>
-                  </div>
-                  <span style={{ fontSize: 13, fontWeight: 500, color: m.tipo === "salida" ? "#c0392b" : "#2a7a4b" }}>
-                    {m.tipo === "salida" ? "-" : "+"}{fmt(Math.abs(m.monto))}
-                  </span>
+                  <div><div style={{ fontSize: 12, color: "#333" }}>{m.concepto}</div><div style={{ fontSize: 11, color: "#aaa" }}>{new Date(m.created_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</div></div>
+                  <span style={{ fontSize: 13, fontWeight: 500, color: m.tipo === "salida" ? "#c0392b" : "#2a7a4b" }}>{m.tipo === "salida" ? "-" : "+"}{fmt(Math.abs(m.monto))}</span>
                 </div>
               ))}
             </div>
-
-            {/* Cierre Z */}
             {!cerrada && (
               <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: "#333", marginBottom: 14 }}>🔒 Cierre Z</div>
-                <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>Saldo esperado en caja: <strong>{fmt(saldoEsperado)}</strong></div>
+                <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>Saldo esperado: <strong>{fmt(saldoEsperado)}</strong></div>
                 <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>EFECTIVO CONTADO AL CIERRE</div>
-                <input type="number" style={{ fontSize: 14, padding: "8px 12px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 10 }}
-                  placeholder="$0" value={montoCierre} onChange={e => setMontoCierre(e.target.value)} />
-                {montoCierre && (
-                  <div style={{ background: "#f9f9f7", borderRadius: 6, padding: "8px 12px", marginBottom: 10, fontSize: 12 }}>
-                    Diferencia: <strong style={{ color: (Number(montoCierre) - saldoEsperado) >= 0 ? "#2a7a4b" : "#c0392b" }}>
-                      {fmt(Number(montoCierre) - saldoEsperado)}
-                    </strong>
-                  </div>
-                )}
-                <button style={{ width: "100%", padding: 10, borderRadius: 8, border: "none", background: "#c0392b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-                  onClick={cerrarCaja} disabled={guardando || !montoCierre}>
-                  {guardando ? "Cerrando..." : "Ejecutar cierre Z"}
-                </button>
+                <input type="number" style={{ fontSize: 14, padding: "8px 12px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 10 }} placeholder="$0" value={montoCierre} onChange={e => setMontoCierre(e.target.value)} />
+                {montoCierre && <div style={{ background: "#f9f9f7", borderRadius: 6, padding: "8px 12px", marginBottom: 10, fontSize: 12 }}>Diferencia: <strong style={{ color: (Number(montoCierre) - saldoEsperado) >= 0 ? "#2a7a4b" : "#c0392b" }}>{fmt(Number(montoCierre) - saldoEsperado)}</strong></div>}
+                <button style={{ width: "100%", padding: 10, borderRadius: 8, border: "none", background: "#c0392b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }} onClick={cerrarCaja} disabled={guardando || !montoCierre}>{guardando ? "Cerrando..." : "Ejecutar cierre Z"}</button>
               </div>
             )}
           </div>
@@ -349,6 +506,7 @@ export default function App() {
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [filtroFinDesde, setFiltroFinDesde] = useState("");
   const [filtroFinHasta, setFiltroFinHasta] = useState("");
+  const [facturando, setFacturando] = useState(null);
   const menuRef = useRef(null);
 
   const [productos, setProductos] = useState([]);
@@ -431,8 +589,9 @@ export default function App() {
         medioPago, gateway: p.gateway,
         esTakeaway: p.fulfillments?.[0]?.shipping?.type === "pickup",
         estado: local.estado, repartidor: local.repartidor, cobrar: local.cobrar,
-        tabActual, local: localLabel(tabActual), nota: p.note || "", esManual: false, entreCalles: "", identificacion: p.identification?.number || "",
-email: p.contact_email || "",
+        tabActual, local: localLabel(tabActual), nota: p.note || "", esManual: false, entreCalles: "",
+        identificacion: p.identification?.number || "",
+        email: p.contact_email || "",
       };
     }),
     ...pedidosManuales.map(p => {
@@ -444,6 +603,8 @@ email: p.contact_email || "",
         tabActual, local: localLabel(tabActual),
         fechaDisplay: local.fechaManual || p.fecha,
         franjaDisplay: local.franjaManual || p.franja || "Sin franja",
+        identificacion: p.identificacion || "",
+        email: p.email || "",
       };
     }),
   ];
@@ -554,198 +715,7 @@ email: p.contact_email || "",
     const matchCategoria = !categoriaFiltro || p.categories?.some(c => c.id === Number(categoriaFiltro) || c.parent === Number(categoriaFiltro));
     return matchBusqueda && matchCategoria;
   });
-// ─── COMPONENTE FACTURACIÓN ──────────────────────────────────────
-function VistaFacturacion({ p, onCerrar }) {
-  const docRaw = p.identificacion || "";
-  const esCuit = docRaw.replace(/[-\s]/g, "").length > 8;
-  const docLimpio = docRaw.replace(/[-\s]/g, "");
 
-  const [tipo, setTipo] = useState(esCuit ? "FACTURA A" : "FACTURA B");
-  const [docTipo, setDocTipo] = useState(esCuit ? "CUIT" : "DNI");
-  const [docNro, setDocNro] = useState(docLimpio);
-  const [razonSocial, setRazonSocial] = useState(p.cliente || "");
-  const [email, setEmail] = useState(p.email || "");
-  const [domicilio, setDomicilio] = useState(p.direccion || "");
-  const [emitiendo, setEmitiendo] = useState(false);
-  const [resultado, setResultado] = useState(null);
-  const [facturas, setFacturas] = useState([]);
-  const [loadingFacturas, setLoadingFacturas] = useState(true);
-  const [notaCredito, setNotaCredito] = useState(null);
-
-  useEffect(() => {
-    axios.get(`${API}/api/facturas/${p.id}`)
-      .then(res => { setFacturas(res.data); setLoadingFacturas(false); })
-      .catch(() => setLoadingFacturas(false));
-  }, []);
-
-  const productosFactura = p.productos.split(", ").map((prod, i) => {
-    const match = prod.match(/^(.+) x(\d+)$/);
-    const descripcion = match ? match[1] : prod;
-    const cantidad = match ? Number(match[2]) : 1;
-    return { descripcion, cantidad, codigo: `PROD${i+1}`, precioTotal: Number(p.totalNum) / (p.productos.split(", ").length) };
-  });
-
-  async function emitir() {
-    if (!docNro) return alert("Ingresá el documento del cliente");
-    setEmitiendo(true);
-    setResultado(null);
-    try {
-      const res = await axios.post(`${API}/api/facturar`, {
-        pedidoId: p.id,
-        tipo,
-        cliente: p.cliente,
-        documentoTipo: docTipo,
-        documentoNro: docNro,
-        razonSocial,
-        domicilio,
-        email,
-        total: p.totalNum,
-        productos: productosFactura,
-        fecha: new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }),
-      });
-      setResultado(res.data);
-      if (res.data.ok) {
-        const res2 = await axios.get(`${API}/api/facturas/${p.id}`);
-        setFacturas(res2.data);
-      }
-    } catch (e) {
-      setResultado({ ok: false, error: e.message });
-    }
-    setEmitiendo(false);
-  }
-
-  async function emitirNC(facturaId) {
-    if (!window.confirm("¿Confirmar emisión de nota de crédito?")) return;
-    setEmitiendo(true);
-    try {
-      const res = await axios.post(`${API}/api/nota-credito`, { facturaId, pedidoId: p.id });
-      setNotaCredito(res.data);
-      const res2 = await axios.get(`${API}/api/facturas/${p.id}`);
-      setFacturas(res2.data);
-    } catch (e) { alert("Error: " + e.message); }
-    setEmitiendo(false);
-  }
-
-  return (
-    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 520, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div style={{ fontSize: 15, fontWeight: 600, color: "#333" }}>🧾 Facturación — {p.numero}</div>
-          <button style={{ border: "none", background: "none", fontSize: 18, cursor: "pointer", color: "#888" }} onClick={onCerrar}>✕</button>
-        </div>
-
-        {esCuit && (
-          <div style={{ background: "#fef9e7", border: "1px solid #f39c12", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: "#856404" }}>
-            ⚠️ El cliente tiene CUIT registrado — se sugiere <strong>Factura A</strong>
-          </div>
-        )}
-
-        {/* Tipo de comprobante */}
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Tipo de comprobante</div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {["FACTURA B", "FACTURA A", "FACTURA B EXENTO", "TICKET X"].map(t => (
-              <button key={t} onClick={() => { setTipo(t); setDocTipo(t === "FACTURA A" ? "CUIT" : "DNI"); }}
-                style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid", cursor: "pointer",
-                  borderColor: tipo === t ? "#2a7a4b" : "#ddd",
-                  background: tipo === t ? "#eaf3de" : "#fff",
-                  color: tipo === t ? "#2a7a4b" : "#555",
-                  fontWeight: tipo === t ? 600 : 400 }}>
-                {t}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Datos del cliente */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Documento</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <select style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: 70 }}
-                value={docTipo} onChange={e => setDocTipo(e.target.value)}>
-                <option>DNI</option>
-                <option>CUIT</option>
-              </select>
-              <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", flex: 1 }}
-                value={docNro} onChange={e => setDocNro(e.target.value)} placeholder="Nro documento" />
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Nombre / Razón social</div>
-            <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }}
-              value={razonSocial} onChange={e => setRazonSocial(e.target.value)} />
-          </div>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Email (opcional)</div>
-            <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }}
-              value={email} onChange={e => setEmail(e.target.value)} placeholder="cliente@email.com" />
-          </div>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Domicilio</div>
-            <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }}
-              value={domicilio} onChange={e => setDomicilio(e.target.value)} />
-          </div>
-        </div>
-
-        {/* Total */}
-        <div style={{ background: "#f9f9f7", borderRadius: 8, padding: "10px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between" }}>
-          <span style={{ fontSize: 13, color: "#666" }}>Total a facturar</span>
-          <span style={{ fontSize: 15, fontWeight: 700, color: "#2a7a4b" }}>{p.total}</span>
-        </div>
-
-        {/* Resultado */}
-        {resultado && (
-          <div style={{ borderRadius: 8, padding: "10px 14px", marginBottom: 14, background: resultado.ok ? "#eaf3de" : "#fdecea", border: `1px solid ${resultado.ok ? "#2a7a4b" : "#c0392b"}` }}>
-            {resultado.ok ? (
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#2a7a4b", marginBottom: 4 }}>✅ Comprobante emitido</div>
-                <div style={{ fontSize: 12, color: "#555" }}>Nº {resultado.data?.comprobante_nro} — CAE: {resultado.data?.cae}</div>
-                {resultado.data?.comprobante_pdf_url && (
-                  <a href={resultado.data.comprobante_pdf_url} target="_blank" rel="noreferrer"
-                    style={{ fontSize: 12, color: "#2a7a4b", textDecoration: "underline", display: "block", marginTop: 4 }}>
-                    📄 Descargar PDF
-                  </a>
-                )}
-              </div>
-            ) : (
-              <div style={{ fontSize: 12, color: "#c0392b" }}>❌ Error: {JSON.stringify(resultado.error)}</div>
-            )}
-          </div>
-        )}
-
-        <button style={{ width: "100%", padding: 10, borderRadius: 8, border: "none", background: emitiendo ? "#aaa" : "#2a7a4b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: emitiendo ? "default" : "pointer", marginBottom: 16 }}
-          onClick={emitir} disabled={emitiendo}>
-          {emitiendo ? "Emitiendo..." : `Emitir ${tipo}`}
-        </button>
-
-        {/* Historial de comprobantes */}
-        {!loadingFacturas && facturas.length > 0 && (
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 8 }}>Comprobantes emitidos</div>
-            {facturas.map(f => (
-              <div key={f.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: "1px solid #f0f0ee" }}>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: "#333" }}>{f.tipo} Nº {f.numero}</div>
-                  <div style={{ fontSize: 11, color: "#aaa" }}>{f.fecha} — CAE: {f.cae}</div>
-                  {f.pdf_url && <a href={f.pdf_url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#2a7a4b" }}>📄 PDF</a>}
-                </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <span style={{ fontSize: 13, fontWeight: 600 }}>{fmt(Math.abs(f.total))}</span>
-                  {!f.tipo.includes("NOTA DE CREDITO") && (
-                    <button onClick={() => emitirNC(f.id)} style={{ fontSize: 10, padding: "3px 8px", borderRadius: 4, border: "1px solid #c0392b", background: "none", color: "#c0392b", cursor: "pointer" }}>
-                      NC
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
   function imprimirComanda(p) {
     const ventana = window.open("", "_blank", "width=400,height=600");
     const estadoActual = pedidosLocales[p.id]?.estado || "Por empaquetar";
@@ -787,6 +757,14 @@ function VistaFacturacion({ p, onCerrar }) {
   if (loading) return <div style={s.loading}>Cargando pedidos...</div>;
   if (error) return <div style={s.error}>{error}</div>;
 
+  // Botón facturar reutilizable
+  const BtnFacturar = ({ p }) => (
+    <button style={{ ...s.btnImprimir, marginLeft: 8, borderColor: "#2a7a4b", color: "#2a7a4b", background: "#f0faf4" }}
+      onClick={e => { e.stopPropagation(); setFacturando(p); }}>
+      🧾 Facturar
+    </button>
+  );
+
   const Header = () => (
     <div style={s.header}>
       <div style={s.brand}>
@@ -822,7 +800,6 @@ function VistaFacturacion({ p, onCerrar }) {
     </div>
   );
 
-  // VISTA CAJA
   if (vista === "caja") {
     return (
       <div style={s.wrap}>
@@ -832,7 +809,6 @@ function VistaFacturacion({ p, onCerrar }) {
     );
   }
 
-  // VISTA PEDIDOS FINALIZADOS
   if (vista === "finalizados") {
     const finalizadosOrdenados = [...pedidosFinalizados]
       .filter(p => {
@@ -849,6 +825,7 @@ function VistaFacturacion({ p, onCerrar }) {
     return (
       <div style={s.wrap}>
         <Header />
+        {facturando && <ModalFacturacion p={facturando} onCerrar={() => setFacturando(null)} />}
         <div style={{ padding: "24px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
             <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -896,10 +873,7 @@ function VistaFacturacion({ p, onCerrar }) {
                   </span>
                   <span style={s.chevron}>{expandido === p.id ? "▲" : "▼"}</span>
                 </div>
-                {expandido === p.id && (<button style={{ ...s.btnImprimir, marginLeft: 8, borderColor: "#2a7a4b", color: "#2a7a4b" }} 
-  onClick={e => { e.stopPropagation(); setFacturando(p); }}>
-  🧾 Facturar
-</button>
+                {expandido === p.id && (
                   <div style={s.detalle}>
                     <div style={s.detalleGrid}>
                       <div style={s.detalleBloque}><div style={s.detalleLabel}>Productos</div><div style={s.detalleVal}>{p.productos}</div></div>
@@ -909,7 +883,10 @@ function VistaFacturacion({ p, onCerrar }) {
                       <div style={s.detalleBloque}><div style={s.detalleLabel}>Horario</div><div style={s.detalleVal}>{p.franjaDisplay}</div></div>
                       <div style={s.detalleBloque}><div style={s.detalleLabel}>Repartidor</div><div style={s.detalleVal}>{pedidosLocales[p.id]?.repartidor || "Sin asignar"}</div></div>
                     </div>
-                    <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>🖨️ Imprimir comanda</button>
+                    <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                      <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>🖨️ Imprimir comanda</button>
+                      <BtnFacturar p={p} />
+                    </div>
                   </div>
                 )}
               </div>
@@ -920,7 +897,6 @@ function VistaFacturacion({ p, onCerrar }) {
     );
   }
 
-  // VISTA NUEVO PEDIDO
   if (tab === "nuevo") {
     return (
       <div style={s.wrap}>
@@ -1018,11 +994,11 @@ function VistaFacturacion({ p, onCerrar }) {
       </div>
     );
   }
-{facturando && <VistaFacturacion p={facturando} onCerrar={() => setFacturando(null)} />}
 
   // VISTA PRINCIPAL
   return (
     <div style={s.wrap}>
+      {facturando && <ModalFacturacion p={facturando} onCerrar={() => setFacturando(null)} />}
       <Header />
       <TabBar />
       <div style={s.stats}>
@@ -1124,7 +1100,10 @@ function VistaFacturacion({ p, onCerrar }) {
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Horario de entrega</div><input type="text" placeholder="ej: 14:00 – 16:00" style={s.inputField} value={franjaManual} onChange={e => cambiarFranja(p.id, e.target.value)} onClick={e => e.stopPropagation()} /></div>
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Mover a sección</div><select style={s.inputField} value={tabActual} onChange={e => cambiarTab(p.id, e.target.value)}>{TABS.filter(t => t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}</select></div>
                         </div>
-                        <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>🖨️ Imprimir comanda</button>
+                        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                          <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>🖨️ Imprimir comanda</button>
+                          <BtnFacturar p={p} />
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1187,7 +1166,7 @@ const s = {
   detalleVal: { fontSize: 13, color: "#333" },
   inputField: { fontSize: 12, padding: "5px 8px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#333", width: "100%" },
   btnEstado: { fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", color: "#333" },
-  btnImprimir: { marginTop: 12, padding: "7px 14px", fontSize: 12, borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", color: "#333" },
+  btnImprimir: { marginTop: 0, padding: "7px 14px", fontSize: 12, borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", color: "#333" },
   empty: { padding: "20px 14px", color: "#aaa", fontSize: 13 },
   cajaCard: { background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "16px 20px" },
   cajaTitulo: { fontSize: 14, fontWeight: 600, color: "#333", marginBottom: 4 },
