@@ -1,5 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import axios from "axios";
+
+const API = "https://piccadely-panel-production.up.railway.app";
 
 function parsearFranja(ownerNote) {
   if (!ownerNote) return { fecha: null, franja: null };
@@ -73,6 +75,10 @@ const FORM_INICIAL = {
 
 const HOY = new Date().toISOString().split("T")[0];
 
+function guardarEstadoDB(id, estado) {
+  axios.post(`${API}/api/estados/${id}`, estado).catch(console.error);
+}
+
 export default function App() {
   const [pedidosRaw, setPedidosRaw] = useState([]);
   const [pedidosLocales, setPedidosLocales] = useState({});
@@ -98,30 +104,50 @@ export default function App() {
   const [form, setForm] = useState(FORM_INICIAL);
   const [pedidoCreado, setPedidoCreado] = useState(false);
 
+  // Cargar todo al inicio
   useEffect(() => {
-    axios.get("https://piccadely-panel-production.up.railway.app/api/orders")
-      .then(res => {
-        setPedidosRaw(res.data);
-        const locales = {};
-        res.data.forEach(p => {
+    Promise.all([
+      axios.get(`${API}/api/orders`),
+      axios.get(`${API}/api/estados`),
+      axios.get(`${API}/api/pedidos-manuales`),
+    ]).then(([resOrders, resEstados, resManuales]) => {
+      setPedidosRaw(resOrders.data);
+      const locales = {};
+      resOrders.data.forEach(p => {
+        if (resEstados.data[p.id]) {
+          locales[p.id] = resEstados.data[p.id];
+        } else {
           locales[p.id] = {
             estado: "Por empaquetar", repartidor: "Sin asignar",
             tabManual: null, fechaManual: null, franjaManual: null,
             cobrar: p.payment_status !== "paid",
           };
-        });
-        setPedidosLocales(locales);
-        setLoading(false);
-      })
-      .catch(() => { setError("Error conectando con Tienda Nube"); setLoading(false); });
+        }
+      });
+      // Estados de pedidos manuales
+      resManuales.data.forEach(p => {
+        if (resEstados.data[p.id]) {
+          locales[p.id] = resEstados.data[p.id];
+        } else {
+          locales[p.id] = {
+            estado: "Por empaquetar", repartidor: "Sin asignar",
+            tabManual: null, fechaManual: null, franjaManual: null,
+            cobrar: p.cobrar,
+          };
+        }
+      });
+      setPedidosLocales(locales);
+      setPedidosManuales(resManuales.data);
+      setLoading(false);
+    }).catch(() => { setError("Error conectando con Tienda Nube"); setLoading(false); });
   }, []);
 
   useEffect(() => {
     if (tab === "nuevo" && productos.length === 0) {
       setLoadingProductos(true);
       Promise.all([
-        axios.get("https://piccadely-panel-production.up.railway.app/api/products"),
-        axios.get("https://piccadely-panel-production.up.railway.app/api/categories"),
+        axios.get(`${API}/api/products`),
+        axios.get(`${API}/api/categories`),
       ]).then(([resP, resC]) => {
         setProductos(resP.data.filter(p => p.variants?.[0]?.price));
         setCategorias(resC.data.filter(c => c.parent === null));
@@ -230,14 +256,29 @@ export default function App() {
   function sumar(arr) { return arr.reduce((a, p) => a + p.totalNum, 0); }
   function fmt(n) { return `$${n.toLocaleString("es-AR")}`; }
 
+  function actualizarLocal(id, cambios) {
+    setPedidosLocales(prev => {
+      const nuevo = { ...prev, [id]: { ...prev[id], ...cambios } };
+      guardarEstadoDB(id, nuevo[id]);
+      return nuevo;
+    });
+  }
+
   function cambiarEstado(id, e) {
     e.stopPropagation();
-    setPedidosLocales(prev => ({ ...prev, [id]: { ...prev[id], estado: nextEstado(prev[id]?.estado || "Por empaquetar") } }));
+    setPedidosLocales(prev => {
+      const estadoActual = prev[id]?.estado || "Por empaquetar";
+      const nuevoEstado = nextEstado(estadoActual);
+      const nuevo = { ...prev, [id]: { ...prev[id], estado: nuevoEstado } };
+      guardarEstadoDB(id, nuevo[id]);
+      return nuevo;
+    });
   }
-  function cambiarRepartidor(id, valor) { setPedidosLocales(prev => ({ ...prev, [id]: { ...prev[id], repartidor: valor } })); }
-  function cambiarTab(id, valor) { setPedidosLocales(prev => ({ ...prev, [id]: { ...prev[id], tabManual: valor } })); }
-  function cambiarFecha(id, valor) { setPedidosLocales(prev => ({ ...prev, [id]: { ...prev[id], fechaManual: valor } })); }
-  function cambiarFranja(id, valor) { setPedidosLocales(prev => ({ ...prev, [id]: { ...prev[id], franjaManual: valor } })); }
+  function cambiarRepartidor(id, valor) { actualizarLocal(id, { repartidor: valor }); }
+  function cambiarTab(id, valor) { actualizarLocal(id, { tabManual: valor }); }
+  function cambiarFecha(id, valor) { actualizarLocal(id, { fechaManual: valor }); }
+  function cambiarFranja(id, valor) { actualizarLocal(id, { franjaManual: valor }); }
+  function cambiarCobrar(id, valor) { actualizarLocal(id, { cobrar: valor }); }
   function toggleExpandido(id) { setExpandido(prev => prev === id ? null : id); }
 
   function agregarAlCarrito(prod) {
@@ -257,7 +298,7 @@ export default function App() {
   }
   const totalCarrito = carrito.reduce((a, i) => a + i.precio * i.cantidad, 0);
 
-  function crearPedido() {
+  async function crearPedido() {
     if (!form.cliente || carrito.length === 0) return;
     const id = `manual-${Date.now()}`;
     const productosStr = carrito.map(i => `${i.nombre} x${i.cantidad}`).join(", ");
@@ -274,11 +315,13 @@ export default function App() {
       tabActual: form.seccion, local: localLabel(form.seccion),
       nota: form.nota, esManual: true, estado: "Por empaquetar", repartidor: "Sin asignar",
     };
+    // Guardar en DB
+    await axios.post(`${API}/api/pedidos-manuales`, nuevoPedido).catch(console.error);
+    const estadoInicial = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: form.fecha, franjaManual: form.franja, cobrar: form.cobrar };
+    await axios.post(`${API}/api/estados/${id}`, estadoInicial).catch(console.error);
+
     setPedidosManuales(prev => [...prev, nuevoPedido]);
-    setPedidosLocales(prev => ({
-      ...prev,
-      [id]: { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: form.fecha, franjaManual: form.franja, cobrar: form.cobrar }
-    }));
+    setPedidosLocales(prev => ({ ...prev, [id]: estadoInicial }));
     setCarrito([]);
     setForm(FORM_INICIAL);
     setPedidoCreado(true);
@@ -353,10 +396,10 @@ export default function App() {
   if (loading) return <div style={s.loading}>Cargando pedidos...</div>;
   if (error) return <div style={s.error}>{error}</div>;
 
- const Header = () => (
+  const Header = () => (
     <div style={s.header}>
       <div style={s.brand}>
-<img src="/Piccadely_Logotipo-Centrado-Negro.svg" alt="Piccadely" style={{ height: 36, objectFit: "contain" }} />
+        <img src="/Piccadely_Logotipo-Centrado-Negro.svg" alt="Piccadely" style={{ height: 36, objectFit: "contain" }} />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <span style={s.fechaHoy}>{new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}</span>
@@ -465,9 +508,7 @@ export default function App() {
               <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
               <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={filtroFinHasta} onChange={e => setFiltroFinHasta(e.target.value)} />
               {(filtroFinDesde || filtroFinHasta) && (
-                <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setFiltroFinDesde(""); setFiltroFinHasta(""); }}>
-                  ✕ Limpiar
-                </button>
+                <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setFiltroFinDesde(""); setFiltroFinHasta(""); }}>✕ Limpiar</button>
               )}
             </div>
           </div>
@@ -755,7 +796,7 @@ export default function App() {
                           <div style={s.detalleBloque}>
                             <div style={s.detalleLabel}>Cobrar en entrega</div>
                             <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                              <input type="checkbox" checked={!!cobrar} onChange={e => setPedidosLocales(prev => ({ ...prev, [p.id]: { ...prev[p.id], cobrar: e.target.checked } }))} onClick={e => e.stopPropagation()} />
+                              <input type="checkbox" checked={!!cobrar} onChange={e => cambiarCobrar(p.id, e.target.checked)} onClick={e => e.stopPropagation()} />
                               <span style={{ fontSize: 12, color: cobrar ? "#c0392b" : "#888", fontWeight: cobrar ? 600 : 400 }}>{cobrar ? "⚠️ COBRAR" : "Ya cobrado"}</span>
                             </label>
                           </div>
