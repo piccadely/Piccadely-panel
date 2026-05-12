@@ -93,6 +93,7 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
   const [mostrarAjuste, setMostrarAjuste] = useState(false);
   const [mostrarCierre, setMostrarCierre] = useState(false);
   const [guardando, setGuardando] = useState(false);
+const [facturando, setFacturando] = useState(null); // pedido que se está facturando
 
   async function cargarEstado() {
     setLoadingCaja(true);
@@ -430,7 +431,8 @@ export default function App() {
         medioPago, gateway: p.gateway,
         esTakeaway: p.fulfillments?.[0]?.shipping?.type === "pickup",
         estado: local.estado, repartidor: local.repartidor, cobrar: local.cobrar,
-        tabActual, local: localLabel(tabActual), nota: p.note || "", esManual: false, entreCalles: "",
+        tabActual, local: localLabel(tabActual), nota: p.note || "", esManual: false, entreCalles: "", identificacion: p.identification?.number || "",
+email: p.contact_email || "",
       };
     }),
     ...pedidosManuales.map(p => {
@@ -552,7 +554,198 @@ export default function App() {
     const matchCategoria = !categoriaFiltro || p.categories?.some(c => c.id === Number(categoriaFiltro) || c.parent === Number(categoriaFiltro));
     return matchBusqueda && matchCategoria;
   });
+// ─── COMPONENTE FACTURACIÓN ──────────────────────────────────────
+function VistaFacturacion({ p, onCerrar }) {
+  const docRaw = p.identificacion || "";
+  const esCuit = docRaw.replace(/[-\s]/g, "").length > 8;
+  const docLimpio = docRaw.replace(/[-\s]/g, "");
 
+  const [tipo, setTipo] = useState(esCuit ? "FACTURA A" : "FACTURA B");
+  const [docTipo, setDocTipo] = useState(esCuit ? "CUIT" : "DNI");
+  const [docNro, setDocNro] = useState(docLimpio);
+  const [razonSocial, setRazonSocial] = useState(p.cliente || "");
+  const [email, setEmail] = useState(p.email || "");
+  const [domicilio, setDomicilio] = useState(p.direccion || "");
+  const [emitiendo, setEmitiendo] = useState(false);
+  const [resultado, setResultado] = useState(null);
+  const [facturas, setFacturas] = useState([]);
+  const [loadingFacturas, setLoadingFacturas] = useState(true);
+  const [notaCredito, setNotaCredito] = useState(null);
+
+  useEffect(() => {
+    axios.get(`${API}/api/facturas/${p.id}`)
+      .then(res => { setFacturas(res.data); setLoadingFacturas(false); })
+      .catch(() => setLoadingFacturas(false));
+  }, []);
+
+  const productosFactura = p.productos.split(", ").map((prod, i) => {
+    const match = prod.match(/^(.+) x(\d+)$/);
+    const descripcion = match ? match[1] : prod;
+    const cantidad = match ? Number(match[2]) : 1;
+    return { descripcion, cantidad, codigo: `PROD${i+1}`, precioTotal: Number(p.totalNum) / (p.productos.split(", ").length) };
+  });
+
+  async function emitir() {
+    if (!docNro) return alert("Ingresá el documento del cliente");
+    setEmitiendo(true);
+    setResultado(null);
+    try {
+      const res = await axios.post(`${API}/api/facturar`, {
+        pedidoId: p.id,
+        tipo,
+        cliente: p.cliente,
+        documentoTipo: docTipo,
+        documentoNro: docNro,
+        razonSocial,
+        domicilio,
+        email,
+        total: p.totalNum,
+        productos: productosFactura,
+        fecha: new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }),
+      });
+      setResultado(res.data);
+      if (res.data.ok) {
+        const res2 = await axios.get(`${API}/api/facturas/${p.id}`);
+        setFacturas(res2.data);
+      }
+    } catch (e) {
+      setResultado({ ok: false, error: e.message });
+    }
+    setEmitiendo(false);
+  }
+
+  async function emitirNC(facturaId) {
+    if (!window.confirm("¿Confirmar emisión de nota de crédito?")) return;
+    setEmitiendo(true);
+    try {
+      const res = await axios.post(`${API}/api/nota-credito`, { facturaId, pedidoId: p.id });
+      setNotaCredito(res.data);
+      const res2 = await axios.get(`${API}/api/facturas/${p.id}`);
+      setFacturas(res2.data);
+    } catch (e) { alert("Error: " + e.message); }
+    setEmitiendo(false);
+  }
+
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 520, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: "#333" }}>🧾 Facturación — {p.numero}</div>
+          <button style={{ border: "none", background: "none", fontSize: 18, cursor: "pointer", color: "#888" }} onClick={onCerrar}>✕</button>
+        </div>
+
+        {esCuit && (
+          <div style={{ background: "#fef9e7", border: "1px solid #f39c12", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: "#856404" }}>
+            ⚠️ El cliente tiene CUIT registrado — se sugiere <strong>Factura A</strong>
+          </div>
+        )}
+
+        {/* Tipo de comprobante */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Tipo de comprobante</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {["FACTURA B", "FACTURA A", "FACTURA B EXENTO", "TICKET X"].map(t => (
+              <button key={t} onClick={() => { setTipo(t); setDocTipo(t === "FACTURA A" ? "CUIT" : "DNI"); }}
+                style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid", cursor: "pointer",
+                  borderColor: tipo === t ? "#2a7a4b" : "#ddd",
+                  background: tipo === t ? "#eaf3de" : "#fff",
+                  color: tipo === t ? "#2a7a4b" : "#555",
+                  fontWeight: tipo === t ? 600 : 400 }}>
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Datos del cliente */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Documento</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <select style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: 70 }}
+                value={docTipo} onChange={e => setDocTipo(e.target.value)}>
+                <option>DNI</option>
+                <option>CUIT</option>
+              </select>
+              <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", flex: 1 }}
+                value={docNro} onChange={e => setDocNro(e.target.value)} placeholder="Nro documento" />
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Nombre / Razón social</div>
+            <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }}
+              value={razonSocial} onChange={e => setRazonSocial(e.target.value)} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Email (opcional)</div>
+            <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }}
+              value={email} onChange={e => setEmail(e.target.value)} placeholder="cliente@email.com" />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Domicilio</div>
+            <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }}
+              value={domicilio} onChange={e => setDomicilio(e.target.value)} />
+          </div>
+        </div>
+
+        {/* Total */}
+        <div style={{ background: "#f9f9f7", borderRadius: 8, padding: "10px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 13, color: "#666" }}>Total a facturar</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: "#2a7a4b" }}>{p.total}</span>
+        </div>
+
+        {/* Resultado */}
+        {resultado && (
+          <div style={{ borderRadius: 8, padding: "10px 14px", marginBottom: 14, background: resultado.ok ? "#eaf3de" : "#fdecea", border: `1px solid ${resultado.ok ? "#2a7a4b" : "#c0392b"}` }}>
+            {resultado.ok ? (
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#2a7a4b", marginBottom: 4 }}>✅ Comprobante emitido</div>
+                <div style={{ fontSize: 12, color: "#555" }}>Nº {resultado.data?.comprobante_nro} — CAE: {resultado.data?.cae}</div>
+                {resultado.data?.comprobante_pdf_url && (
+                  <a href={resultado.data.comprobante_pdf_url} target="_blank" rel="noreferrer"
+                    style={{ fontSize: 12, color: "#2a7a4b", textDecoration: "underline", display: "block", marginTop: 4 }}>
+                    📄 Descargar PDF
+                  </a>
+                )}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: "#c0392b" }}>❌ Error: {JSON.stringify(resultado.error)}</div>
+            )}
+          </div>
+        )}
+
+        <button style={{ width: "100%", padding: 10, borderRadius: 8, border: "none", background: emitiendo ? "#aaa" : "#2a7a4b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: emitiendo ? "default" : "pointer", marginBottom: 16 }}
+          onClick={emitir} disabled={emitiendo}>
+          {emitiendo ? "Emitiendo..." : `Emitir ${tipo}`}
+        </button>
+
+        {/* Historial de comprobantes */}
+        {!loadingFacturas && facturas.length > 0 && (
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 8 }}>Comprobantes emitidos</div>
+            {facturas.map(f => (
+              <div key={f.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: "1px solid #f0f0ee" }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: "#333" }}>{f.tipo} Nº {f.numero}</div>
+                  <div style={{ fontSize: 11, color: "#aaa" }}>{f.fecha} — CAE: {f.cae}</div>
+                  {f.pdf_url && <a href={f.pdf_url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#2a7a4b" }}>📄 PDF</a>}
+                </div>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>{fmt(Math.abs(f.total))}</span>
+                  {!f.tipo.includes("NOTA DE CREDITO") && (
+                    <button onClick={() => emitirNC(f.id)} style={{ fontSize: 10, padding: "3px 8px", borderRadius: 4, border: "1px solid #c0392b", background: "none", color: "#c0392b", cursor: "pointer" }}>
+                      NC
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
   function imprimirComanda(p) {
     const ventana = window.open("", "_blank", "width=400,height=600");
     const estadoActual = pedidosLocales[p.id]?.estado || "Por empaquetar";
@@ -703,7 +896,10 @@ export default function App() {
                   </span>
                   <span style={s.chevron}>{expandido === p.id ? "▲" : "▼"}</span>
                 </div>
-                {expandido === p.id && (
+                {expandido === p.id && (<button style={{ ...s.btnImprimir, marginLeft: 8, borderColor: "#2a7a4b", color: "#2a7a4b" }} 
+  onClick={e => { e.stopPropagation(); setFacturando(p); }}>
+  🧾 Facturar
+</button>
                   <div style={s.detalle}>
                     <div style={s.detalleGrid}>
                       <div style={s.detalleBloque}><div style={s.detalleLabel}>Productos</div><div style={s.detalleVal}>{p.productos}</div></div>
@@ -822,6 +1018,7 @@ export default function App() {
       </div>
     );
   }
+{facturando && <VistaFacturacion p={facturando} onCerrar={() => setFacturando(null)} />}
 
   // VISTA PRINCIPAL
   return (
