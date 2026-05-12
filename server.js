@@ -58,6 +58,25 @@ async function initDB() {
       nota TEXT,
       created_at TIMESTAMP DEFAULT NOW()
     );
+  CREATE TABLE IF NOT EXISTS caja_movimientos (
+      id SERIAL PRIMARY KEY,
+      local TEXT NOT NULL,
+      tipo TEXT NOT NULL,
+      concepto TEXT,
+      monto NUMERIC NOT NULL,
+      fecha TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS caja_aperturas (
+      id SERIAL PRIMARY KEY,
+      local TEXT NOT NULL,
+      fecha TEXT NOT NULL,
+      monto_inicial NUMERIC DEFAULT 0,
+      cerrada BOOLEAN DEFAULT false,
+      monto_cierre NUMERIC,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
   `);
   console.log("DB inicializada");
 }
@@ -198,7 +217,84 @@ app.post("/api/pedidos-manuales", async (req, res) => {
     res.status(500).json({ error: "Error guardando pedido manual" });
   }
 });
+// CAJA - Apertura
+app.post("/api/caja/apertura", async (req, res) => {
+  const { local, fecha, montoInicial } = req.body;
+  try {
+    const existe = await pool.query(
+      "SELECT id FROM caja_aperturas WHERE local=$1 AND fecha=$2",
+      [local, fecha]
+    );
+    if (existe.rows.length > 0) {
+      return res.json({ ok: true, yaExiste: true });
+    }
+    await pool.query(
+      "INSERT INTO caja_aperturas (local, fecha, monto_inicial) VALUES ($1,$2,$3)",
+      [local, fecha, montoInicial]
+    );
+    await pool.query(
+      "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'apertura','Apertura de caja',$2,$3)",
+      [local, montoInicial, fecha]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error en apertura de caja" });
+  }
+});
 
+// CAJA - Estado del día
+app.get("/api/caja/estado/:local/:fecha", async (req, res) => {
+  const { local, fecha } = req.params;
+  try {
+    const apertura = await pool.query(
+      "SELECT * FROM caja_aperturas WHERE local=$1 AND fecha=$2",
+      [local, fecha]
+    );
+    const movimientos = await pool.query(
+      "SELECT * FROM caja_movimientos WHERE local=$1 AND fecha=$2 ORDER BY created_at ASC",
+      [local, fecha]
+    );
+    res.json({
+      apertura: apertura.rows[0] || null,
+      movimientos: movimientos.rows,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Error trayendo estado de caja" });
+  }
+});
+
+// CAJA - Ajuste
+app.post("/api/caja/ajuste", async (req, res) => {
+  const { local, fecha, tipo, concepto, monto } = req.body;
+  try {
+    await pool.query(
+      "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,$2,$3,$4,$5)",
+      [local, tipo, concepto, monto, fecha]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: "Error registrando ajuste" });
+  }
+});
+
+// CAJA - Cierre Z
+app.post("/api/caja/cierre", async (req, res) => {
+  const { local, fecha, montoCierre } = req.body;
+  try {
+    await pool.query(
+      "UPDATE caja_aperturas SET cerrada=true, monto_cierre=$1 WHERE local=$2 AND fecha=$3",
+      [montoCierre, local, fecha]
+    );
+    await pool.query(
+      "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'cierre','Cierre Z',$2,$3)",
+      [local, montoCierre, fecha]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: "Error en cierre de caja" });
+  }
+});
 app.listen(process.env.PORT || 3001, () => {
   console.log("Servidor corriendo");
 });
