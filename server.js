@@ -228,7 +228,6 @@ const TF_APIKEY = "72026";
 const TF_APITOKEN = "f3e0ae8012f40c58d93b5c0333ae634b";
 const TF_USERTOKEN = "686753022f9690813f6166450767316fffb6b8c1867cf5db2b3ba5f7211d5d84";
 const TF_PDV = "00007";
-
 app.post("/api/facturar", async (req, res) => {
   const { pedidoId, tipo, cliente, documentoTipo, documentoNro, razonSocial, domicilio, email, total, productos } = req.body;
 
@@ -257,41 +256,55 @@ app.post("/api/facturar", async (req, res) => {
 
   const descripcion = productos.map(p => p.descripcion).join(", ").substring(0, 200);
 
-  let detalle;
+  // Calcular precio sin IVA que al multiplicar por 1.21 dé exactamente el total
+  // Usamos centavos para evitar decimales flotantes
+  let precioSinIva;
+  let alicuota;
+
   if (esExento) {
-    detalle = [{
-      cantidad: 1,
-      bonificacion_porcentaje: 0,
-      afecta_stock: "N",
-      producto: {
-        descripcion,
-        codigo: "VENTA",
-        lista_precios: "standard",
-        leyenda: "",
-        unidad_bulto: 1,
-        alicuota: 0,
-        precio_unitario_sin_iva: totalNum,
-        actualiza_precio: "S",
-      },
-    }];
+    precioSinIva = totalNum;
+    alicuota = 0;
   } else {
-    detalle = [{
-      cantidad: 1,
-      bonificacion_porcentaje: 0,
-      afecta_stock: "N",
-      iva_incluido: "S",
-      producto: {
-        descripcion,
-        codigo: "VENTA",
-        lista_precios: "standard",
-        leyenda: "",
-        unidad_bulto: 1,
-        alicuota: 21,
-        precio_unitario_sin_iva: totalNum,
-        actualiza_precio: "S",
-      },
-    }];
+    alicuota = 21;
+    // Buscar el precio sin IVA más cercano que * 1.21 = totalNum exacto
+    // precioSinIva = round(totalNum * 100 / 121) / 100
+    const centavosSinIva = Math.round(totalNum * 100 / 1.21) / 100;
+    // Verificar
+    const verificacion = Math.round(centavosSinIva * 121) / 100;
+    if (verificacion === totalNum) {
+      precioSinIva = centavosSinIva;
+    } else {
+      // Ajuste fino: probar con 2 decimales alrededor
+      let mejor = centavosSinIva;
+      let menorDif = Math.abs(Math.round(centavosSinIva * 121) / 100 - totalNum);
+      for (let delta = -5; delta <= 5; delta++) {
+        const candidato = Math.round(centavosSinIva * 100 + delta) / 100;
+        const resultado = Math.round(candidato * 121) / 100;
+        const dif = Math.abs(resultado - totalNum);
+        if (dif < menorDif) {
+          menorDif = dif;
+          mejor = candidato;
+        }
+      }
+      precioSinIva = mejor;
+    }
   }
+
+  const detalle = [{
+    cantidad: 1,
+    bonificacion_porcentaje: 0,
+    afecta_stock: "N",
+    producto: {
+      descripcion,
+      codigo: "VENTA",
+      lista_precios: "standard",
+      leyenda: "",
+      unidad_bulto: 1,
+      alicuota,
+      precio_unitario_sin_iva: precioSinIva,
+      actualiza_precio: "S",
+    },
+  }];
 
   const body = {
     apitoken: TF_APITOKEN, usertoken: TF_USERTOKEN, apikey: TF_APIKEY,
@@ -312,12 +325,15 @@ app.post("/api/facturar", async (req, res) => {
     },
   };
 
+  console.log("TF request:", JSON.stringify({ totalNum, precioSinIva, verificacion: Math.round(precioSinIva * 121) / 100 }));
+
   try {
     const response = await axios.post(
       "https://www.tusfacturas.app/app/api/v2/facturacion/nuevo",
       body, { headers: { "Content-Type": "application/json" } }
     );
     const data = response.data;
+    console.log("TF response:", JSON.stringify(data));
     if (data.error === "N") {
       await pool.query(`
         INSERT INTO facturas (pedido_id, tipo, numero, cae, vencimiento_cae, cliente, documento_tipo, documento_nro, total, pdf_url, fecha, datos_raw)
