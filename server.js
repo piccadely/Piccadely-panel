@@ -234,17 +234,14 @@ app.post("/api/facturar", async (req, res) => {
 
   const esFacturaA = tipo === "FACTURA A";
   const esExento = tipo === "FACTURA B EXENTO";
-  const esTicket = tipo === "TICKET X";
   const sinDatos = !documentoNro || documentoNro.trim() === "";
 
+  // Ticket X → Factura B sin datos de cliente
   let tipoComprobante;
   if (esFacturaA) tipoComprobante = "FACTURA A";
-  else if (esExento) tipoComprobante = "FACTURA B";
-  else if (esTicket) tipoComprobante = "TICKET";
   else tipoComprobante = "FACTURA B";
 
   const totalNum = Number(total);
-  const alicuota = esExento ? 0 : 21;
 
   const clienteObj = (sinDatos && !esFacturaA) ? {
     documento_tipo: "DNI", documento_nro: "0",
@@ -262,45 +259,64 @@ app.post("/api/facturar", async (req, res) => {
     envia_por_mail: email ? "S" : "N", reclama_deuda: "N",
   };
 
- // Calcular detalle con totales exactos
-let sumaVerificacion = 0;
-const detalleProductos = productos.map((p, i) => {
-  const proporcion = totalNum > 0 ? p.precioTotal / totalNum : 1 / productos.length;
-  const precioTotalProd = i === productos.length - 1
-    ? totalNum - sumaVerificacion  // el último absorbe el redondeo
-    : Number((totalNum * proporcion).toFixed(2));
-  sumaVerificacion += precioTotalProd;
+  // Un solo ítem con el total completo para evitar problemas de redondeo
+  const descripcion = productos.map(p => p.descripcion).join(", ").substring(0, 200);
 
-  const precioUnitarioSinIva = esExento
-    ? Number((precioTotalProd / p.cantidad).toFixed(2))
-    : Number((precioTotalProd / 1.21 / p.cantidad).toFixed(4));
-
-  return {
-    cantidad: p.cantidad,
-    bonificacion_porcentaje: 0,
-    afecta_stock: "N",
-    producto: {
-      descripcion: p.descripcion,
-      codigo: p.codigo || `P${i+1}`,
-      lista_precios: "standard",
-      leyenda: "", unidad_bulto: 1,
-      alicuota,
-      precio_unitario_sin_iva: precioUnitarioSinIva,
-      actualiza_precio: "S",
-    },
-  };
-});
+  let detalle;
+  if (esExento) {
+    // Exento: alicuota 0, precio = total completo
+    detalle = [{
+      cantidad: 1,
+      bonificacion_porcentaje: 0,
+      afecta_stock: "N",
+      producto: {
+        descripcion,
+        codigo: "VENTA",
+        lista_precios: "standard",
+        leyenda: "",
+        unidad_bulto: 1,
+        alicuota: 0,
+        precio_unitario_sin_iva: totalNum,
+        actualiza_precio: "S",
+      },
+    }];
+  } else {
+    // Con IVA 21%: precio sin IVA * 1.21 debe dar exactamente el total
+    // Usamos 4 decimales para evitar diferencias de centavos
+    const precioSinIva = Number((totalNum / 1.21).toFixed(4));
+    detalle = [{
+      cantidad: 1,
+      bonificacion_porcentaje: 0,
+      afecta_stock: "N",
+      producto: {
+        descripcion,
+        codigo: "VENTA",
+        lista_precios: "standard",
+        leyenda: "",
+        unidad_bulto: 1,
+        alicuota: 21,
+        precio_unitario_sin_iva: precioSinIva,
+        actualiza_precio: "S",
+      },
+    }];
+  }
 
   const body = {
     apitoken: TF_APITOKEN, usertoken: TF_USERTOKEN, apikey: TF_APIKEY,
     cliente: clienteObj,
     comprobante: {
-      fecha: fechaHoy(), vencimiento: fechaVencimiento(30),
-      tipo: tipoComprobante, operacion: "V", moneda: "PES", cotizacion: 1,
-      punto_venta: TF_PDV, rubro: "Alimentos y bebidas",
-      rubro_grupo_contable: "Alimentos", bonificacion: 0,
+      fecha: fechaHoy(),
+      vencimiento: fechaVencimiento(30),
+      tipo: tipoComprobante,
+      operacion: "V",
+      moneda: "PES",
+      cotizacion: 1,
+      punto_venta: TF_PDV,
+      rubro: "Alimentos y bebidas",
+      rubro_grupo_contable: "Alimentos",
+      bonificacion: 0,
       external_reference: pedidoId || `pedido-${Date.now()}`,
-      detalle: detalleProductos,
+      detalle,
     },
   };
 
@@ -344,6 +360,11 @@ app.post("/api/nota-credito", async (req, res) => {
     const factura = result.rows[0];
     const tipoNC = factura.tipo === "FACTURA A" ? "NOTA DE CREDITO A" : "NOTA DE CREDITO B";
 
+    const esExentoNC = factura.tipo === "FACTURA B EXENTO";
+    const precioSinIvaNC = esExentoNC
+      ? Number(factura.total)
+      : Number((Number(factura.total) / 1.21).toFixed(4));
+
     const body = {
       apitoken: TF_APITOKEN, usertoken: TF_USERTOKEN, apikey: TF_APIKEY,
       cliente: {
@@ -355,22 +376,36 @@ app.post("/api/nota-credito", async (req, res) => {
         envia_por_mail: "N", reclama_deuda: "N",
       },
       comprobante: {
-        fecha: fechaHoy(), vencimiento: fechaVencimiento(30),
-        tipo: tipoNC, operacion: "V", moneda: "PES", cotizacion: 1,
-        punto_venta: TF_PDV, rubro: "Alimentos y bebidas",
-        rubro_grupo_contable: "Alimentos", bonificacion: 0,
+        fecha: fechaHoy(),
+        vencimiento: fechaVencimiento(30),
+        tipo: tipoNC,
+        operacion: "V",
+        moneda: "PES",
+        cotizacion: 1,
+        punto_venta: TF_PDV,
+        rubro: "Alimentos y bebidas",
+        rubro_grupo_contable: "Alimentos",
+        bonificacion: 0,
         external_reference: `NC-${pedidoId}-${Date.now()}`,
         comprobantes_asociados: [{
-          tipo_comprobante: factura.tipo, punto_venta: TF_PDV,
-          numero: factura.numero, cae: factura.cae, fecha: factura.fecha,
+          tipo_comprobante: factura.tipo === "FACTURA B EXENTO" ? "FACTURA B" : factura.tipo,
+          punto_venta: TF_PDV,
+          numero: factura.numero,
+          cae: factura.cae,
+          fecha: factura.fecha,
         }],
         detalle: [{
-          cantidad: 1, bonificacion_porcentaje: 0, afecta_stock: "N",
+          cantidad: 1,
+          bonificacion_porcentaje: 0,
+          afecta_stock: "N",
           producto: {
-            descripcion: "Anulación de comprobante", codigo: "NC001",
-            lista_precios: "standard", leyenda: "", unidad_bulto: 1,
-            alicuota: 21,
-            precio_unitario_sin_iva: Number((Number(factura.total) / 1.21).toFixed(2)),
+            descripcion: "Anulación de comprobante",
+            codigo: "NC001",
+            lista_precios: "standard",
+            leyenda: "",
+            unidad_bulto: 1,
+            alicuota: esExentoNC ? 0 : 21,
+            precio_unitario_sin_iva: precioSinIvaNC,
             actualiza_precio: "N",
           },
         }],
