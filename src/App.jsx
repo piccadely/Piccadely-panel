@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 
 const API = "https://piccadely-panel-production.up.railway.app";
@@ -79,6 +79,261 @@ function guardarEstadoDB(id, estado) {
   axios.post(`${API}/api/estados/${id}`, estado).catch(console.error);
 }
 
+function fmt(n) { return `$${Number(n).toLocaleString("es-AR")}`; }
+function sumar(arr) { return arr.reduce((a, p) => a + p.totalNum, 0); }
+
+// ─── COMPONENTE CAJA ────────────────────────────────────────────────
+function VistaCaja({ pedidosFinalizados, onVolver }) {
+  const [localSeleccionado, setLocalSeleccionado] = useState("A. Thomas");
+  const [estadoCaja, setEstadoCaja] = useState(null);
+  const [loadingCaja, setLoadingCaja] = useState(false);
+  const [montoApertura, setMontoApertura] = useState("");
+  const [ajuste, setAjuste] = useState({ tipo: "entrada", concepto: "", monto: "" });
+  const [montoCierre, setMontoCierre] = useState("");
+  const [mostrarAjuste, setMostrarAjuste] = useState(false);
+  const [mostrarCierre, setMostrarCierre] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+
+  async function cargarEstado() {
+    setLoadingCaja(true);
+    try {
+      const res = await axios.get(`${API}/api/caja/estado/${encodeURIComponent(localSeleccionado)}/${HOY}`);
+      setEstadoCaja(res.data);
+    } catch (e) { console.error(e); }
+    setLoadingCaja(false);
+  }
+
+  useEffect(() => { cargarEstado(); }, [localSeleccionado]);
+
+  async function abrirCaja() {
+    if (!montoApertura) return;
+    setGuardando(true);
+    await axios.post(`${API}/api/caja/apertura`, { local: localSeleccionado, fecha: HOY, montoInicial: Number(montoApertura) });
+    setMontoApertura("");
+    await cargarEstado();
+    setGuardando(false);
+  }
+
+  async function registrarAjuste() {
+    if (!ajuste.concepto || !ajuste.monto) return;
+    setGuardando(true);
+    const monto = ajuste.tipo === "salida" ? -Math.abs(Number(ajuste.monto)) : Math.abs(Number(ajuste.monto));
+    await axios.post(`${API}/api/caja/ajuste`, { local: localSeleccionado, fecha: HOY, tipo: ajuste.tipo, concepto: ajuste.concepto, monto });
+    setAjuste({ tipo: "entrada", concepto: "", monto: "" });
+    setMostrarAjuste(false);
+    await cargarEstado();
+    setGuardando(false);
+  }
+
+  async function cerrarCaja() {
+    if (!montoCierre) return;
+    setGuardando(true);
+    await axios.post(`${API}/api/caja/cierre`, { local: localSeleccionado, fecha: HOY, montoCierre: Number(montoCierre) });
+    setMontoCierre("");
+    setMostrarCierre(false);
+    await cargarEstado();
+    setGuardando(false);
+  }
+
+  // Ventas del día por medio de pago
+  const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado);
+  const ventasPorMedio = MEDIOS_PAGO.reduce((acc, m) => {
+    acc[m] = ventasLocal.filter(p => p.medioPago === m);
+    return acc;
+  }, {});
+  const totalVentas = sumar(ventasLocal);
+  const totalEfectivo = sumar(ventasPorMedio["Efectivo"] || []);
+
+  // Saldo esperado en caja
+  const montoInicial = estadoCaja?.apertura?.monto_inicial || 0;
+  const ajustes = estadoCaja?.movimientos?.filter(m => m.tipo === "entrada" || m.tipo === "salida") || [];
+  const totalAjustes = ajustes.reduce((a, m) => a + Number(m.monto), 0);
+  const saldoEsperado = Number(montoInicial) + totalEfectivo + totalAjustes;
+
+  const cerrada = estadoCaja?.apertura?.cerrada;
+
+  return (
+    <div style={{ fontFamily: "system-ui, sans-serif", minHeight: "100vh", background: "#f7f7f5" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 24px", background: "#fff", borderBottom: "1px solid #eee" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button style={{ fontSize: 12, padding: "6px 12px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", color: "#555" }} onClick={onVolver}>← Volver</button>
+          <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>💰 Caja</h2>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {["A. Thomas", "French"].map(l => (
+            <button key={l} onClick={() => setLocalSeleccionado(l)}
+              style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer",
+                borderColor: localSeleccionado === l ? "#2a7a4b" : "#ddd",
+                background: localSeleccionado === l ? "#2a7a4b" : "#fff",
+                color: localSeleccionado === l ? "#fff" : "#555", fontWeight: localSeleccionado === l ? 600 : 400 }}>
+              📍 {l}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ padding: 24 }}>
+        {loadingCaja ? (
+          <div style={{ color: "#aaa", fontSize: 13 }}>Cargando caja...</div>
+        ) : !estadoCaja?.apertura ? (
+          // SIN APERTURA
+          <div style={{ maxWidth: 400 }}>
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 24 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: "#333", marginBottom: 16 }}>🔓 Apertura de caja — {localSeleccionado}</div>
+              <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>EFECTIVO INICIAL EN CAJA</div>
+              <input type="number" style={{ fontSize: 14, padding: "8px 12px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 12 }}
+                placeholder="$0" value={montoApertura} onChange={e => setMontoApertura(e.target.value)} />
+              <button style={{ width: "100%", padding: 10, borderRadius: 8, border: "none", background: "#2a7a4b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                onClick={abrirCaja} disabled={guardando}>
+                {guardando ? "Abriendo..." : "Abrir caja"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          // CAJA ABIERTA
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+
+            {/* Ventas del día */}
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#333", marginBottom: 14 }}>📊 Ventas del día — {localSeleccionado}</div>
+              {MEDIOS_PAGO.map(medio => {
+                const pedidos = ventasPorMedio[medio] || [];
+                if (pedidos.length === 0) return null;
+                return (
+                  <div key={medio} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #f5f5f5" }}>
+                    <div>
+                      <div style={{ fontSize: 13, color: "#333", fontWeight: 500 }}>{medio}</div>
+                      <div style={{ fontSize: 11, color: "#aaa" }}>{pedidos.length} pedido{pedidos.length > 1 ? "s" : ""}</div>
+                    </div>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: "#2a7a4b" }}>{fmt(sumar(pedidos))}</span>
+                  </div>
+                );
+              })}
+              {ventasLocal.length === 0 && <div style={{ fontSize: 12, color: "#aaa" }}>Sin ventas registradas</div>}
+              <div style={{ borderTop: "2px solid #eee", marginTop: 10, paddingTop: 10, display: "flex", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 14, fontWeight: 600 }}>Total ventas</span>
+                <span style={{ fontSize: 16, fontWeight: 700, color: "#2a7a4b" }}>{fmt(totalVentas)}</span>
+              </div>
+            </div>
+
+            {/* Estado de caja */}
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#333", marginBottom: 14 }}>
+                🏦 Estado de caja
+                {cerrada && <span style={{ fontSize: 11, background: "#c0392b", color: "#fff", padding: "2px 8px", borderRadius: 4, marginLeft: 8 }}>CERRADA</span>}
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}>
+                <span style={{ fontSize: 13, color: "#666" }}>Monto inicial</span>
+                <span style={{ fontSize: 13, fontWeight: 500 }}>{fmt(montoInicial)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}>
+                <span style={{ fontSize: 13, color: "#666" }}>Ventas efectivo</span>
+                <span style={{ fontSize: 13, fontWeight: 500 }}>{fmt(totalEfectivo)}</span>
+              </div>
+              {ajustes.map((a, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}>
+                  <span style={{ fontSize: 12, color: Number(a.monto) >= 0 ? "#2a7a4b" : "#c0392b" }}>
+                    {Number(a.monto) >= 0 ? "↑" : "↓"} {a.concepto}
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: Number(a.monto) >= 0 ? "#2a7a4b" : "#c0392b" }}>{fmt(Math.abs(a.monto))}</span>
+                </div>
+              ))}
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0 6px", borderTop: "2px solid #eee", marginTop: 4 }}>
+                <span style={{ fontSize: 14, fontWeight: 600 }}>Saldo esperado</span>
+                <span style={{ fontSize: 16, fontWeight: 700, color: "#2a7a4b" }}>{fmt(saldoEsperado)}</span>
+              </div>
+              {cerrada && estadoCaja.apertura.monto_cierre !== null && (
+                <div style={{ background: "#f9f9f7", borderRadius: 8, padding: 12, marginTop: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontSize: 13, color: "#666" }}>Efectivo contado al cierre</span>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{fmt(estadoCaja.apertura.monto_cierre)}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 13, color: "#666" }}>Diferencia</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: (estadoCaja.apertura.monto_cierre - saldoEsperado) >= 0 ? "#2a7a4b" : "#c0392b" }}>
+                      {fmt(estadoCaja.apertura.monto_cierre - saldoEsperado)}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Movimientos */}
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>📋 Movimientos del día</div>
+                {!cerrada && (
+                  <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #2a7a4b", background: "none", color: "#2a7a4b", cursor: "pointer" }}
+                    onClick={() => setMostrarAjuste(m => !m)}>
+                    + Ajuste
+                  </button>
+                )}
+              </div>
+              {mostrarAjuste && !cerrada && (
+                <div style={{ background: "#f9f9f7", borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                    <button onClick={() => setAjuste(a => ({...a, tipo: "entrada"}))}
+                      style={{ flex: 1, padding: "6px", borderRadius: 6, border: "1px solid", cursor: "pointer", fontSize: 12,
+                        borderColor: ajuste.tipo === "entrada" ? "#2a7a4b" : "#ddd",
+                        background: ajuste.tipo === "entrada" ? "#eaf3de" : "#fff",
+                        color: ajuste.tipo === "entrada" ? "#2a7a4b" : "#555" }}>↑ Entrada</button>
+                    <button onClick={() => setAjuste(a => ({...a, tipo: "salida"}))}
+                      style={{ flex: 1, padding: "6px", borderRadius: 6, border: "1px solid", cursor: "pointer", fontSize: 12,
+                        borderColor: ajuste.tipo === "salida" ? "#c0392b" : "#ddd",
+                        background: ajuste.tipo === "salida" ? "#fdecea" : "#fff",
+                        color: ajuste.tipo === "salida" ? "#c0392b" : "#555" }}>↓ Salida</button>
+                  </div>
+                  <input style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 6 }}
+                    placeholder="Concepto (ej: Pago proveedor)" value={ajuste.concepto} onChange={e => setAjuste(a => ({...a, concepto: e.target.value}))} />
+                  <input type="number" style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 8 }}
+                    placeholder="Monto" value={ajuste.monto} onChange={e => setAjuste(a => ({...a, monto: e.target.value}))} />
+                  <button style={{ width: "100%", padding: "7px", borderRadius: 6, border: "none", background: "#333", color: "#fff", fontSize: 12, cursor: "pointer" }}
+                    onClick={registrarAjuste} disabled={guardando}>Registrar ajuste</button>
+                </div>
+              )}
+              {estadoCaja?.movimientos?.length === 0 && <div style={{ fontSize: 12, color: "#aaa" }}>Sin movimientos</div>}
+              {estadoCaja?.movimientos?.map((m, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}>
+                  <div>
+                    <div style={{ fontSize: 12, color: "#333" }}>{m.concepto}</div>
+                    <div style={{ fontSize: 11, color: "#aaa" }}>{new Date(m.created_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</div>
+                  </div>
+                  <span style={{ fontSize: 13, fontWeight: 500, color: m.tipo === "salida" ? "#c0392b" : "#2a7a4b" }}>
+                    {m.tipo === "salida" ? "-" : "+"}{fmt(Math.abs(m.monto))}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Cierre Z */}
+            {!cerrada && (
+              <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#333", marginBottom: 14 }}>🔒 Cierre Z</div>
+                <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>Saldo esperado en caja: <strong>{fmt(saldoEsperado)}</strong></div>
+                <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>EFECTIVO CONTADO AL CIERRE</div>
+                <input type="number" style={{ fontSize: 14, padding: "8px 12px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 10 }}
+                  placeholder="$0" value={montoCierre} onChange={e => setMontoCierre(e.target.value)} />
+                {montoCierre && (
+                  <div style={{ background: "#f9f9f7", borderRadius: 6, padding: "8px 12px", marginBottom: 10, fontSize: 12 }}>
+                    Diferencia: <strong style={{ color: (Number(montoCierre) - saldoEsperado) >= 0 ? "#2a7a4b" : "#c0392b" }}>
+                      {fmt(Number(montoCierre) - saldoEsperado)}
+                    </strong>
+                  </div>
+                )}
+                <button style={{ width: "100%", padding: 10, borderRadius: 8, border: "none", background: "#c0392b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                  onClick={cerrarCaja} disabled={guardando || !montoCierre}>
+                  {guardando ? "Cerrando..." : "Ejecutar cierre Z"}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── APP PRINCIPAL ───────────────────────────────────────────────────
 export default function App() {
   const [pedidosRaw, setPedidosRaw] = useState([]);
   const [pedidosLocales, setPedidosLocales] = useState({});
@@ -104,7 +359,6 @@ export default function App() {
   const [form, setForm] = useState(FORM_INICIAL);
   const [pedidoCreado, setPedidoCreado] = useState(false);
 
-  // Cargar todo al inicio
   useEffect(() => {
     Promise.all([
       axios.get(`${API}/api/orders`),
@@ -114,27 +368,17 @@ export default function App() {
       setPedidosRaw(resOrders.data);
       const locales = {};
       resOrders.data.forEach(p => {
-        if (resEstados.data[p.id]) {
-          locales[p.id] = resEstados.data[p.id];
-        } else {
-          locales[p.id] = {
-            estado: "Por empaquetar", repartidor: "Sin asignar",
-            tabManual: null, fechaManual: null, franjaManual: null,
-            cobrar: p.payment_status !== "paid",
-          };
-        }
+        locales[p.id] = resEstados.data[p.id] || {
+          estado: "Por empaquetar", repartidor: "Sin asignar",
+          tabManual: null, fechaManual: null, franjaManual: null,
+          cobrar: p.payment_status !== "paid",
+        };
       });
-      // Estados de pedidos manuales
       resManuales.data.forEach(p => {
-        if (resEstados.data[p.id]) {
-          locales[p.id] = resEstados.data[p.id];
-        } else {
-          locales[p.id] = {
-            estado: "Por empaquetar", repartidor: "Sin asignar",
-            tabManual: null, fechaManual: null, franjaManual: null,
-            cobrar: p.cobrar,
-          };
-        }
+        locales[p.id] = resEstados.data[p.id] || {
+          estado: "Por empaquetar", repartidor: "Sin asignar",
+          tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.cobrar,
+        };
       });
       setPedidosLocales(locales);
       setPedidosManuales(resManuales.data);
@@ -232,30 +476,6 @@ export default function App() {
   });
   const franjas = Object.keys(porFranja).sort();
 
-  const entregados = pedidosFinalizados;
-
-  const cajaData = {
-    "A. Thomas": {
-      "Mercado Pago": entregados.filter(p => p.local === "A. Thomas" && p.medioPago === "Mercado Pago"),
-      "Efectivo":     entregados.filter(p => p.local === "A. Thomas" && p.medioPago === "Efectivo"),
-      "Transferencia":entregados.filter(p => p.local === "A. Thomas" && p.medioPago === "Transferencia"),
-      "Rappi":        entregados.filter(p => p.local === "A. Thomas" && p.medioPago === "Rappi"),
-      "Pedidos Ya":   entregados.filter(p => p.local === "A. Thomas" && p.medioPago === "Pedidos Ya"),
-      "Otro":         entregados.filter(p => p.local === "A. Thomas" && p.medioPago === "Otro"),
-    },
-    "French": {
-      "Mercado Pago": entregados.filter(p => p.local === "French" && p.medioPago === "Mercado Pago"),
-      "Efectivo":     entregados.filter(p => p.local === "French" && p.medioPago === "Efectivo"),
-      "Transferencia":entregados.filter(p => p.local === "French" && p.medioPago === "Transferencia"),
-      "Rappi":        entregados.filter(p => p.local === "French" && p.medioPago === "Rappi"),
-      "Pedidos Ya":   entregados.filter(p => p.local === "French" && p.medioPago === "Pedidos Ya"),
-      "Otro":         entregados.filter(p => p.local === "French" && p.medioPago === "Otro"),
-    },
-  };
-
-  function sumar(arr) { return arr.reduce((a, p) => a + p.totalNum, 0); }
-  function fmt(n) { return `$${n.toLocaleString("es-AR")}`; }
-
   function actualizarLocal(id, cambios) {
     setPedidosLocales(prev => {
       const nuevo = { ...prev, [id]: { ...prev[id], ...cambios } };
@@ -315,11 +535,9 @@ export default function App() {
       tabActual: form.seccion, local: localLabel(form.seccion),
       nota: form.nota, esManual: true, estado: "Por empaquetar", repartidor: "Sin asignar",
     };
-    // Guardar en DB
     await axios.post(`${API}/api/pedidos-manuales`, nuevoPedido).catch(console.error);
     const estadoInicial = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: form.fecha, franjaManual: form.franja, cobrar: form.cobrar };
     await axios.post(`${API}/api/estados/${id}`, estadoInicial).catch(console.error);
-
     setPedidosManuales(prev => [...prev, nuevoPedido]);
     setPedidosLocales(prev => ({ ...prev, [id]: estadoInicial }));
     setCarrito([]);
@@ -340,25 +558,8 @@ export default function App() {
     const estadoActual = pedidosLocales[p.id]?.estado || "Por empaquetar";
     const repartidorActual = pedidosLocales[p.id]?.repartidor || "Sin asignar";
     const cobrar = pedidosLocales[p.id]?.cobrar;
-    ventana.document.write(`
-      <!DOCTYPE html><html><head><meta charset="utf-8"><title>Comanda ${p.numero}</title>
-      <style>
-        * { margin:0; padding:0; box-sizing:border-box; }
-        body { font-family:'Courier New',monospace; font-size:12px; width:80mm; padding:4mm; color:#000; }
-        .centro { text-align:center; }
-        .titulo { font-size:18px; font-weight:bold; margin-bottom:2px; }
-        .subtitulo { font-size:11px; color:#555; margin-bottom:6px; }
-        .linea { border-top:1px dashed #000; margin:6px 0; }
-        .fila { display:flex; justify-content:space-between; margin:2px 0; }
-        .label { font-weight:bold; font-size:10px; text-transform:uppercase; color:#555; margin-top:6px; margin-bottom:1px; }
-        .valor { font-size:12px; }
-        .producto { padding:2px 0; }
-        .total { font-size:15px; font-weight:bold; text-align:right; margin-top:4px; }
-        .cobrar { text-align:center; font-size:16px; font-weight:bold; border:2px solid #000; padding:6px; margin:8px 0; letter-spacing:2px; }
-        .estado { text-align:center; font-size:11px; margin-top:6px; padding:3px; border:1px solid #000; }
-        .nota { font-style:italic; font-size:11px; color:#333; }
-        @media print { body { width:80mm; } @page { margin:0; size:80mm auto; } }
-      </style></head><body>
+    ventana.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Comanda ${p.numero}</title>
+      <style>* { margin:0; padding:0; box-sizing:border-box; } body { font-family:'Courier New',monospace; font-size:12px; width:80mm; padding:4mm; color:#000; } .centro { text-align:center; } .titulo { font-size:18px; font-weight:bold; margin-bottom:2px; } .subtitulo { font-size:11px; color:#555; margin-bottom:6px; } .linea { border-top:1px dashed #000; margin:6px 0; } .fila { display:flex; justify-content:space-between; margin:2px 0; } .label { font-weight:bold; font-size:10px; text-transform:uppercase; color:#555; margin-top:6px; margin-bottom:1px; } .valor { font-size:12px; } .producto { padding:2px 0; } .total { font-size:15px; font-weight:bold; text-align:right; margin-top:4px; } .cobrar { text-align:center; font-size:16px; font-weight:bold; border:2px solid #000; padding:6px; margin:8px 0; letter-spacing:2px; } .estado { text-align:center; font-size:11px; margin-top:6px; padding:3px; border:1px solid #000; } .nota { font-style:italic; font-size:11px; color:#333; } @media print { body { width:80mm; } @page { margin:0; size:80mm auto; } }</style></head><body>
       <div class="centro"><div class="titulo">Piccadely</div><div class="subtitulo">comanda de pedido</div></div>
       <div class="linea"></div>
       <div class="fila"><span><b>${p.numero}</b></span><span>${p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"long"}) : "—"}</span></div>
@@ -367,8 +568,7 @@ export default function App() {
       <div class="label">Cliente</div><div class="valor">${p.cliente}</div><div class="valor">${p.telefono}</div>
       <div class="label">Dirección</div><div class="valor">${p.direccion}${p.barrio ? `, ${p.barrio}` : ""}</div>${p.entreCalles ? `<div class="valor" style="font-style:italic;color:#555;">${p.entreCalles}</div>` : ""}
       <div class="linea"></div>
-      <div class="label">Productos</div>
-      ${p.productos.split(", ").map(pr => `<div class="producto">• ${pr}</div>`).join("")}
+      <div class="label">Productos</div>${p.productos.split(", ").map(pr => `<div class="producto">• ${pr}</div>`).join("")}
       ${p.nota ? `<div class="linea"></div><div class="label">Nota</div><div class="nota">${p.nota}</div>` : ""}
       <div class="linea"></div>
       <div class="fila"><span class="label">Medio de pago</span><span class="valor">${p.medioPago}</span></div>
@@ -379,9 +579,7 @@ export default function App() {
       <div class="estado">${estadoActual}</div>
       <div class="linea"></div>
       <div class="centro" style="font-size:10px;color:#888;margin-top:4px;">Piccadely — juntadely</div>
-      <script>window.onload=function(){window.print();}</script>
-      </body></html>
-    `);
+      <script>window.onload=function(){window.print();}</script></body></html>`);
     ventana.document.close();
   }
 
@@ -405,9 +603,7 @@ export default function App() {
         <span style={s.fechaHoy}>{new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}</span>
         <div style={{ position: "relative" }} ref={menuRef}>
           <button style={s.hamburger} onClick={() => setMenuAbierto(m => !m)}>
-            <div style={s.hambLine} />
-            <div style={s.hambLine} />
-            <div style={s.hambLine} />
+            <div style={s.hambLine} /><div style={s.hambLine} /><div style={s.hambLine} />
           </button>
           {menuAbierto && (
             <div style={s.dropdown}>
@@ -438,43 +634,7 @@ export default function App() {
     return (
       <div style={s.wrap}>
         <Header />
-        <div style={{ padding: "24px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-            <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
-            <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>💰 Resumen de caja — pedidos entregados</h2>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-            {["A. Thomas", "French"].map(local => {
-              const medios = cajaData[local];
-              const totalLocal = Object.values(medios).reduce((a, arr) => a + sumar(arr), 0);
-              return (
-                <div key={local} style={s.cajaCard}>
-                  <div style={s.cajaTitulo}>📍 {local}</div>
-                  <div style={s.cajaTotal}>Total: {fmt(totalLocal)}</div>
-                  <div style={s.cajaLinea} />
-                  {Object.entries(medios).map(([medio, pedidos]) => {
-                    if (pedidos.length === 0) return null;
-                    return (
-                      <div key={medio} style={s.cajaFila}>
-                        <div style={s.cajaMedio}>
-                          <span style={s.cajaMedioNombre}>{medio}</span>
-                          <span style={s.cajaMedioCount}>{pedidos.length} pedido{pedidos.length > 1 ? "s" : ""}</span>
-                        </div>
-                        <span style={s.cajaMonto}>{fmt(sumar(pedidos))}</span>
-                      </div>
-                    );
-                  })}
-                  {Object.values(medios).every(arr => arr.length === 0) && <div style={{ fontSize: 12, color: "#aaa", padding: "8px 0" }}>Sin pedidos entregados</div>}
-                </div>
-              );
-            })}
-          </div>
-          <div style={{ ...s.cajaCard, marginTop: 20, background: "#f0f8f0", borderColor: "#2a7a4b" }}>
-            <div style={{ ...s.cajaTitulo, color: "#2a7a4b" }}>🏆 Total general</div>
-            <div style={{ fontSize: 28, fontWeight: 700, color: "#2a7a4b", marginTop: 8 }}>{fmt(entregados.reduce((a, p) => a + p.totalNum, 0))}</div>
-            <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>{entregados.length} pedidos entregados</div>
-          </div>
-        </div>
+        <VistaCaja pedidosFinalizados={pedidosFinalizados} onVolver={() => setVista("panel")} />
       </div>
     );
   }
@@ -580,69 +740,28 @@ export default function App() {
             <div style={s.formCard}>
               <div style={s.formCardTitle}>👤 Datos del cliente</div>
               <div style={s.formGrid}>
-                <div style={s.formBloque}>
-                  <label style={s.formLabel}>Nombre *</label>
-                  <input style={s.formInput} value={form.cliente} onChange={e => setForm(f => ({...f, cliente: e.target.value}))} placeholder="Nombre completo" />
-                </div>
-                <div style={s.formBloque}>
-                  <label style={s.formLabel}>Teléfono</label>
-                  <input style={s.formInput} value={form.telefono} onChange={e => setForm(f => ({...f, telefono: e.target.value}))} placeholder="+54 11..." />
-                </div>
-                <div style={{ ...s.formBloque, gridColumn: "span 2" }}>
-                  <label style={s.formLabel}>Dirección</label>
-                  <input style={s.formInput} value={form.direccion} onChange={e => setForm(f => ({...f, direccion: e.target.value}))} placeholder="Calle y número" />
-                </div>
-                <div style={{ ...s.formBloque, gridColumn: "span 2" }}>
-                  <label style={s.formLabel}>Entre calles</label>
-                  <input style={s.formInput} value={form.entreCalles || ""} onChange={e => setForm(f => ({...f, entreCalles: e.target.value}))} placeholder="ej: Entre Gorriti y Cabrera" />
-                </div>
-                <div style={s.formBloque}>
-                  <label style={s.formLabel}>Barrio</label>
-                  <input style={s.formInput} value={form.barrio} onChange={e => setForm(f => ({...f, barrio: e.target.value}))} placeholder="Barrio" />
-                </div>
-                <div style={s.formBloque}>
-                  <label style={s.formLabel}>Zona de entrega</label>
-                  <input style={s.formInput} value={form.zona} onChange={e => setForm(f => ({...f, zona: e.target.value}))} placeholder="ej: CABA, Zona Norte 1..." />
-                </div>
-                <div style={s.formBloque}>
-                  <label style={s.formLabel}>Fecha de entrega</label>
-                  <input type="date" style={s.formInput} value={form.fecha} onChange={e => setForm(f => ({...f, fecha: e.target.value}))} />
-                </div>
-                <div style={s.formBloque}>
-                  <label style={s.formLabel}>Horario</label>
-                  <input style={s.formInput} value={form.franja} onChange={e => setForm(f => ({...f, franja: e.target.value}))} placeholder="ej: 14:00 – 16:00" />
-                </div>
-                <div style={s.formBloque}>
-                  <label style={s.formLabel}>Medio de pago</label>
-                  <select style={s.formInput} value={form.medioPago} onChange={e => setForm(f => ({...f, medioPago: e.target.value}))}>
-                    {MEDIOS_PAGO.map(m => <option key={m}>{m}</option>)}
-                  </select>
-                </div>
-                <div style={s.formBloque}>
-                  <label style={s.formLabel}>Sección</label>
-                  <select style={s.formInput} value={form.seccion} onChange={e => setForm(f => ({...f, seccion: e.target.value}))}>
-                    {TABS.filter(t => t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}
-                  </select>
-                </div>
-                <div style={{ ...s.formBloque, gridColumn: "span 2" }}>
-                  <label style={s.formLabel}>Nota</label>
-                  <textarea style={{ ...s.formInput, height: 60, resize: "vertical" }} value={form.nota} onChange={e => setForm(f => ({...f, nota: e.target.value}))} placeholder="Nota adicional..." />
-                </div>
+                <div style={s.formBloque}><label style={s.formLabel}>Nombre *</label><input style={s.formInput} value={form.cliente} onChange={e => setForm(f => ({...f, cliente: e.target.value}))} placeholder="Nombre completo" /></div>
+                <div style={s.formBloque}><label style={s.formLabel}>Teléfono</label><input style={s.formInput} value={form.telefono} onChange={e => setForm(f => ({...f, telefono: e.target.value}))} placeholder="+54 11..." /></div>
+                <div style={{ ...s.formBloque, gridColumn: "span 2" }}><label style={s.formLabel}>Dirección</label><input style={s.formInput} value={form.direccion} onChange={e => setForm(f => ({...f, direccion: e.target.value}))} placeholder="Calle y número" /></div>
+                <div style={{ ...s.formBloque, gridColumn: "span 2" }}><label style={s.formLabel}>Entre calles</label><input style={s.formInput} value={form.entreCalles || ""} onChange={e => setForm(f => ({...f, entreCalles: e.target.value}))} placeholder="ej: Entre Gorriti y Cabrera" /></div>
+                <div style={s.formBloque}><label style={s.formLabel}>Barrio</label><input style={s.formInput} value={form.barrio} onChange={e => setForm(f => ({...f, barrio: e.target.value}))} placeholder="Barrio" /></div>
+                <div style={s.formBloque}><label style={s.formLabel}>Zona de entrega</label><input style={s.formInput} value={form.zona} onChange={e => setForm(f => ({...f, zona: e.target.value}))} placeholder="ej: CABA, Zona Norte 1..." /></div>
+                <div style={s.formBloque}><label style={s.formLabel}>Fecha de entrega</label><input type="date" style={s.formInput} value={form.fecha} onChange={e => setForm(f => ({...f, fecha: e.target.value}))} /></div>
+                <div style={s.formBloque}><label style={s.formLabel}>Horario</label><input style={s.formInput} value={form.franja} onChange={e => setForm(f => ({...f, franja: e.target.value}))} placeholder="ej: 14:00 – 16:00" /></div>
+                <div style={s.formBloque}><label style={s.formLabel}>Medio de pago</label><select style={s.formInput} value={form.medioPago} onChange={e => setForm(f => ({...f, medioPago: e.target.value}))}>{MEDIOS_PAGO.map(m => <option key={m}>{m}</option>)}</select></div>
+                <div style={s.formBloque}><label style={s.formLabel}>Sección</label><select style={s.formInput} value={form.seccion} onChange={e => setForm(f => ({...f, seccion: e.target.value}))}>{TABS.filter(t => t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}</select></div>
+                <div style={{ ...s.formBloque, gridColumn: "span 2" }}><label style={s.formLabel}>Nota</label><textarea style={{ ...s.formInput, height: 60, resize: "vertical" }} value={form.nota} onChange={e => setForm(f => ({...f, nota: e.target.value}))} placeholder="Nota adicional..." /></div>
                 <div style={{ ...s.formBloque, gridColumn: "span 2" }}>
                   <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12 }}>
                     <input type="checkbox" checked={form.cobrar} onChange={e => setForm(f => ({...f, cobrar: e.target.checked}))} />
-                    <span style={{ color: form.cobrar ? "#c0392b" : "#666", fontWeight: form.cobrar ? 600 : 400 }}>
-                      {form.cobrar ? "⚠️ Marcar como COBRAR en entrega" : "Cobrar en entrega"}
-                    </span>
+                    <span style={{ color: form.cobrar ? "#c0392b" : "#666", fontWeight: form.cobrar ? 600 : 400 }}>{form.cobrar ? "⚠️ Marcar como COBRAR en entrega" : "Cobrar en entrega"}</span>
                   </label>
                 </div>
               </div>
             </div>
             <div style={{ ...s.formCard, marginTop: 16 }}>
               <div style={s.formCardTitle}>🛒 Catálogo de productos</div>
-              {loadingProductos ? (
-                <div style={{ padding: "20px 0", color: "#888", fontSize: 13 }}>Cargando productos...</div>
-              ) : (
+              {loadingProductos ? <div style={{ padding: "20px 0", color: "#888", fontSize: 13 }}>Cargando productos...</div> : (
                 <>
                   <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
                     <input style={{ ...s.formInput, flex: 1 }} placeholder="Buscar producto..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
@@ -674,9 +793,7 @@ export default function App() {
           </div>
           <div style={{ ...s.formCard, position: "sticky", top: 20 }}>
             <div style={s.formCardTitle}>🧾 Pedido</div>
-            {carrito.length === 0 ? (
-              <div style={{ color: "#aaa", fontSize: 13, padding: "16px 0" }}>Agregá productos del catálogo</div>
-            ) : (
+            {carrito.length === 0 ? <div style={{ color: "#aaa", fontSize: 13, padding: "16px 0" }}>Agregá productos del catálogo</div> : (
               <>
                 {carrito.map(item => (
                   <div key={item.variantId} style={s.carritoFila}>
@@ -699,9 +816,7 @@ export default function App() {
                 </div>
               </>
             )}
-            <button style={{ ...s.btnCrear, opacity: (!form.cliente || carrito.length === 0) ? 0.4 : 1 }} disabled={!form.cliente || carrito.length === 0} onClick={crearPedido}>
-              ✅ Crear pedido
-            </button>
+            <button style={{ ...s.btnCrear, opacity: (!form.cliente || carrito.length === 0) ? 0.4 : 1 }} disabled={!form.cliente || carrito.length === 0} onClick={crearPedido}>✅ Crear pedido</button>
           </div>
         </div>
       </div>
