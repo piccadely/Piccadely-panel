@@ -235,13 +235,9 @@ app.post("/api/facturar", async (req, res) => {
   const esFacturaA = tipo === "FACTURA A";
   const esExento = tipo === "FACTURA B EXENTO";
   const sinDatos = !documentoNro || documentoNro.trim() === "";
-
-  // Ticket X → Factura B sin datos de cliente
-  let tipoComprobante;
-  if (esFacturaA) tipoComprobante = "FACTURA A";
-  else tipoComprobante = "FACTURA B";
-
   const totalNum = Number(total);
+
+  const tipoComprobante = esFacturaA ? "FACTURA A" : "FACTURA B";
 
   const clienteObj = (sinDatos && !esFacturaA) ? {
     documento_tipo: "DNI", documento_nro: "0",
@@ -259,12 +255,10 @@ app.post("/api/facturar", async (req, res) => {
     envia_por_mail: email ? "S" : "N", reclama_deuda: "N",
   };
 
-  // Un solo ítem con el total completo para evitar problemas de redondeo
   const descripcion = productos.map(p => p.descripcion).join(", ").substring(0, 200);
 
   let detalle;
   if (esExento) {
-    // Exento: alicuota 0, precio = total completo
     detalle = [{
       cantidad: 1,
       bonificacion_porcentaje: 0,
@@ -281,13 +275,11 @@ app.post("/api/facturar", async (req, res) => {
       },
     }];
   } else {
-    // Con IVA 21%: precio sin IVA * 1.21 debe dar exactamente el total
-    // Usamos 4 decimales para evitar diferencias de centavos
-    const precioSinIva = Number((totalNum / 1.21).toFixed(4));
     detalle = [{
       cantidad: 1,
       bonificacion_porcentaje: 0,
       afecta_stock: "N",
+      iva_incluido: "S",
       producto: {
         descripcion,
         codigo: "VENTA",
@@ -295,7 +287,7 @@ app.post("/api/facturar", async (req, res) => {
         leyenda: "",
         unidad_bulto: 1,
         alicuota: 21,
-        precio_unitario_sin_iva: precioSinIva,
+        precio_unitario_sin_iva: totalNum,
         actualiza_precio: "S",
       },
     }];
@@ -359,11 +351,7 @@ app.post("/api/nota-credito", async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: "Factura no encontrada" });
     const factura = result.rows[0];
     const tipoNC = factura.tipo === "FACTURA A" ? "NOTA DE CREDITO A" : "NOTA DE CREDITO B";
-
     const esExentoNC = factura.tipo === "FACTURA B EXENTO";
-    const precioSinIvaNC = esExentoNC
-      ? Number(factura.total)
-      : Number((Number(factura.total) / 1.21).toFixed(4));
 
     const body = {
       apitoken: TF_APITOKEN, usertoken: TF_USERTOKEN, apikey: TF_APIKEY,
@@ -388,7 +376,7 @@ app.post("/api/nota-credito", async (req, res) => {
         bonificacion: 0,
         external_reference: `NC-${pedidoId}-${Date.now()}`,
         comprobantes_asociados: [{
-          tipo_comprobante: factura.tipo === "FACTURA B EXENTO" ? "FACTURA B" : factura.tipo,
+          tipo_comprobante: esExentoNC ? "FACTURA B" : factura.tipo,
           punto_venta: TF_PDV,
           numero: factura.numero,
           cae: factura.cae,
@@ -398,6 +386,7 @@ app.post("/api/nota-credito", async (req, res) => {
           cantidad: 1,
           bonificacion_porcentaje: 0,
           afecta_stock: "N",
+          iva_incluido: esExentoNC ? "N" : "S",
           producto: {
             descripcion: "Anulación de comprobante",
             codigo: "NC001",
@@ -405,7 +394,7 @@ app.post("/api/nota-credito", async (req, res) => {
             leyenda: "",
             unidad_bulto: 1,
             alicuota: esExentoNC ? 0 : 21,
-            precio_unitario_sin_iva: precioSinIvaNC,
+            precio_unitario_sin_iva: Number(factura.total),
             actualiza_precio: "N",
           },
         }],
