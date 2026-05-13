@@ -266,22 +266,23 @@ const totalNum = (() => {
 
   const descripcion = productos.map(p => p.descripcion).join(", ").substring(0, 200);
 
-  const detalle = [{
-    cantidad: 1,
-    bonificacion_porcentaje: 0,
-    afecta_stock: "N",
-    iva_incluido: esExento ? "N" : "S",
-    producto: {
-      descripcion,
-      codigo: "VENTA",
-      lista_precios: "standard",
-      leyenda: "",
-      unidad_bulto: 1,
-      alicuota: esExento ? 0 : 21,
-      precio_unitario_sin_iva: totalNum,
-      actualiza_precio: "S",
-    },
-  }];
+ const precioSinIva = esExento ? totalNum : Math.round((totalNum / 1.21) * 100) / 100;
+
+const detalle = [{
+  cantidad: 1,
+  bonificacion_porcentaje: 0,
+  afecta_stock: "N",
+  producto: {
+    descripcion,
+    codigo: "VENTA",
+    lista_precios: "standard",
+    leyenda: "",
+    unidad_bulto: 1,
+    alicuota: esExento ? 0 : 21,
+    precio_unitario_sin_iva: precioSinIva,
+    actualiza_precio: "S",
+  },
+}];
 
   const body = {
     apitoken: TF_APITOKEN, usertoken: TF_USERTOKEN, apikey: TF_APIKEY,
