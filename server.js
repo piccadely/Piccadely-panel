@@ -235,8 +235,11 @@ app.post("/api/facturar", async (req, res) => {
   const esFacturaA = tipo === "FACTURA A";
   const esExento = tipo === "FACTURA B EXENTO";
   const sinDatos = !documentoNro || String(documentoNro).trim() === "";
-  const totalNum = Number(total);
-
+const totalNum = (() => {
+  const raw = String(total).trim();
+  if (/^\d+(\.\d+)?$/.test(raw)) return Number(raw);
+  return Number(raw.replace(/[$\s]/g, "").replace(/\./g, "").replace(",", "."));
+})();
   console.log("FACTURAR:", { tipo, totalNum, documentoNro, sinDatos });
 
   if (!totalNum || totalNum <= 0) {
