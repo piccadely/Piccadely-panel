@@ -800,12 +800,34 @@ export default function App() {
   if (loading) return <div style={s.loading}>Cargando pedidos...</div>;
   if (error) return <div style={s.error}>{error}</div>;
 
-  const BtnFacturar = ({ p }) => (
-    <button style={{ ...s.btnImprimir, marginLeft: 8, borderColor: "#2a7a4b", color: "#2a7a4b", background: "#f0faf4" }}
+ const BtnFacturar = ({ p }) => {
+  const [tieneFactura, setTieneFactura] = useState(null);
+
+  useEffect(() => {
+    axios.get(`${API}/api/facturas/${p.id}`)
+      .then(res => {
+        const activas = res.data.filter(f => !f.tipo.includes("NOTA DE CREDITO"));
+        const ncs = res.data.filter(f => f.tipo.includes("NOTA DE CREDITO"));
+        setTieneFactura(activas.length > ncs.length);
+      })
+      .catch(() => setTieneFactura(false));
+  }, [p.id]);
+
+  return (
+    <button
+      style={{
+        ...s.btnImprimir,
+        marginLeft: 8,
+        borderColor: tieneFactura ? "#f39c12" : "#2a7a4b",
+        color: tieneFactura ? "#f39c12" : "#2a7a4b",
+        background: tieneFactura ? "#fef9e7" : "#f0faf4",
+        fontWeight: 600,
+      }}
       onClick={e => { e.stopPropagation(); setFacturando(p); }}>
-      🧾 Facturar
+      {tieneFactura ? "🧾 Ver / Anular factura" : "🧾 Facturar"}
     </button>
   );
+};
 
   const Header = () => (
     <div style={s.header}>
