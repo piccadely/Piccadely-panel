@@ -82,6 +82,55 @@ function guardarEstadoDB(id, estado) {
 function fmt(n) { return `$${Number(n).toLocaleString("es-AR")}`; }
 function sumar(arr) { return arr.reduce((a, p) => a + p.totalNum, 0); }
 
+// ─── BTN FACTURAR — fuera de App para que React no lo destruya en cada render ──
+function BtnFacturar({ p, version, onAbrir }) {
+  const [tieneFactura, setTieneFactura] = useState(null);
+  const [pdfUrl, setPdfUrl] = useState(null);
+
+  useEffect(() => {
+    axios.get(`${API}/api/facturas/${p.id}`)
+      .then(res => {
+        const activas = res.data.filter(f => !f.tipo.includes("NOTA DE CREDITO"));
+        const ncs = res.data.filter(f => f.tipo.includes("NOTA DE CREDITO"));
+        const hayFactura = activas.length > ncs.length;
+        setTieneFactura(hayFactura);
+        setPdfUrl(hayFactura ? (activas[activas.length - 1]?.pdf_url || null) : null);
+      })
+      .catch(() => setTieneFactura(false));
+  }, [p.id, version]);
+
+  if (tieneFactura === null) return null;
+
+  const btnBase = { marginTop: 0, padding: "7px 14px", fontSize: 12, borderRadius: 6, cursor: "pointer" };
+
+  return (
+    <div style={{ display: "flex", gap: 6, marginLeft: 8 }}>
+      {tieneFactura ? (
+        <>
+          {pdfUrl && (
+            <a href={pdfUrl} target="_blank" rel="noreferrer"
+              onClick={e => e.stopPropagation()}
+              style={{ ...btnBase, border: "1px solid #2a7a4b", color: "#2a7a4b", background: "#eaf3de", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+              📄 PDF
+            </a>
+          )}
+          <button
+            style={{ ...btnBase, border: "1px solid #c0392b", color: "#c0392b", background: "#fdecea" }}
+            onClick={e => { e.stopPropagation(); onAbrir(p); }}>
+            🗑 Anular factura
+          </button>
+        </>
+      ) : (
+        <button
+          style={{ ...btnBase, border: "1px solid #2a7a4b", color: "#2a7a4b", background: "#f0faf4", fontWeight: 600 }}
+          onClick={e => { e.stopPropagation(); onAbrir(p); }}>
+          🧾 Facturar
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ─── MODAL FACTURACIÓN ───────────────────────────────────────────────
 function ModalFacturacion({ p, onCerrar }) {
   const docRaw = p.identificacion || "";
@@ -129,14 +178,8 @@ function ModalFacturacion({ p, onCerrar }) {
   })();
 
   async function emitir() {
-    if (requiereDoc && !docNro.trim()) {
-      alert("Para Factura A es obligatorio el CUIT");
-      return;
-    }
-    if (!totalLimpio || totalLimpio <= 0) {
-      alert("Error: no se pudo determinar el total del pedido");
-      return;
-    }
+    if (requiereDoc && !docNro.trim()) { alert("Para Factura A es obligatorio el CUIT"); return; }
+    if (!totalLimpio || totalLimpio <= 0) { alert("Error: no se pudo determinar el total del pedido"); return; }
     setEmitiendo(true);
     setResultado(null);
     try {
@@ -148,9 +191,7 @@ function ModalFacturacion({ p, onCerrar }) {
       });
       setResultado(res.data);
       if (res.data.ok) await cargarFacturas();
-    } catch (e) {
-      setResultado({ ok: false, error: e.message });
-    }
+    } catch (e) { setResultado({ ok: false, error: e.message }); }
     setEmitiendo(false);
   }
 
@@ -192,16 +233,11 @@ function ModalFacturacion({ p, onCerrar }) {
           </div>
         )}
 
-        {/* Si hay factura activa, mostrar estado prominente */}
         {!loadingFacturas && tieneFacturaActiva && facturaActiva && (
           <div style={{ background: "#eaf3de", border: "2px solid #2a7a4b", borderRadius: 10, padding: 16, marginBottom: 16 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: "#2a7a4b", marginBottom: 8 }}>✅ Pedido facturado</div>
-            <div style={{ fontSize: 13, color: "#333", marginBottom: 4 }}>
-              {facturaActiva.tipo} Nº {facturaActiva.numero}
-            </div>
-            <div style={{ fontSize: 11, color: "#888", marginBottom: 12 }}>
-              {facturaActiva.fecha} · CAE: {facturaActiva.cae} · {fmt(facturaActiva.total)}
-            </div>
+            <div style={{ fontSize: 13, color: "#333", marginBottom: 4 }}>{facturaActiva.tipo} Nº {facturaActiva.numero}</div>
+            <div style={{ fontSize: 11, color: "#888", marginBottom: 12 }}>{facturaActiva.fecha} · CAE: {facturaActiva.cae} · {fmt(facturaActiva.total)}</div>
             <div style={{ display: "flex", gap: 10 }}>
               {facturaActiva.pdf_url && (
                 <a href={facturaActiva.pdf_url} target="_blank" rel="noreferrer"
@@ -217,8 +253,7 @@ function ModalFacturacion({ p, onCerrar }) {
           </div>
         )}
 
-        {/* Historial completo (notas de crédito y anteriores) */}
-        {!loadingFacturas && facturas.length > 0 && facturas.some(f => f.tipo.includes("NOTA DE CREDITO")) && (
+        {!loadingFacturas && facturas.some(f => f.tipo.includes("NOTA DE CREDITO")) && (
           <div style={{ background: "#f9f9f7", borderRadius: 8, padding: 14, marginBottom: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 8 }}>Historial</div>
             {facturas.map(f => {
@@ -248,7 +283,6 @@ function ModalFacturacion({ p, onCerrar }) {
           </div>
         )}
 
-        {/* Resultado última operación */}
         {resultado && (
           <div style={{ borderRadius: 8, padding: "10px 14px", marginBottom: 14, background: resultado.ok ? "#eaf3de" : "#fdecea", border: `1px solid ${resultado.ok ? "#2a7a4b" : "#c0392b"}` }}>
             {resultado.ok ? (
@@ -270,7 +304,6 @@ function ModalFacturacion({ p, onCerrar }) {
           </div>
         )}
 
-        {/* Formulario — solo si NO hay factura activa */}
         {!loadingFacturas && !tieneFacturaActiva && (
           <div>
             <div style={{ marginBottom: 12 }}>
@@ -278,22 +311,15 @@ function ModalFacturacion({ p, onCerrar }) {
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {["FACTURA B", "FACTURA A", "FACTURA B EXENTO", "TICKET X"].map(t => (
                   <button key={t}
-                    onClick={() => {
-                      setTipo(t);
-                      if (t === "FACTURA A") { setDocTipo("CUIT"); }
-                      else { setDocTipo("DNI"); setDocNro(""); }
-                    }}
+                    onClick={() => { setTipo(t); if (t === "FACTURA A") { setDocTipo("CUIT"); } else { setDocTipo("DNI"); setDocNro(""); } }}
                     style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid", cursor: "pointer",
-                      borderColor: tipo === t ? "#2a7a4b" : "#ddd",
-                      background: tipo === t ? "#eaf3de" : "#fff",
-                      color: tipo === t ? "#2a7a4b" : "#555",
-                      fontWeight: tipo === t ? 600 : 400 }}>
+                      borderColor: tipo === t ? "#2a7a4b" : "#ddd", background: tipo === t ? "#eaf3de" : "#fff",
+                      color: tipo === t ? "#2a7a4b" : "#555", fontWeight: tipo === t ? 600 : 400 }}>
                     {t}
                   </button>
                 ))}
               </div>
             </div>
-
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>
@@ -326,16 +352,13 @@ function ModalFacturacion({ p, onCerrar }) {
                   value={domicilio} onChange={e => setDomicilio(e.target.value)} />
               </div>
             </div>
-
             <div style={{ background: "#f9f9f7", borderRadius: 8, padding: "10px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontSize: 13, color: "#666" }}>Total a facturar</span>
               <span style={{ fontSize: 16, fontWeight: 700, color: "#2a7a4b" }}>{p.total}</span>
             </div>
-
             <button
               style={{ width: "100%", padding: 11, borderRadius: 8, border: "none",
-                background: emitiendo ? "#ccc" : "#2a7a4b",
-                color: "#fff", fontSize: 13, fontWeight: 600,
+                background: emitiendo ? "#ccc" : "#2a7a4b", color: "#fff", fontSize: 13, fontWeight: 600,
                 cursor: emitiendo ? "default" : "pointer" }}
               onClick={emitir} disabled={emitiendo}>
               {emitiendo ? "Emitiendo..." : `Emitir ${tipo}`}
@@ -792,55 +815,7 @@ export default function App() {
   if (loading) return <div style={s.loading}>Cargando pedidos...</div>;
   if (error) return <div style={s.error}>{error}</div>;
 
-  // BtnFacturar con version para forzar re-fetch al cerrar modal
-  const BtnFacturar = ({ p, version }) => {
-    const [tieneFactura, setTieneFactura] = useState(null);
-    const [pdfUrl, setPdfUrl] = useState(null);
-
-    useEffect(() => {
-      axios.get(`${API}/api/facturas/${p.id}`)
-        .then(res => {
-          const activas = res.data.filter(f => !f.tipo.includes("NOTA DE CREDITO"));
-          const ncs = res.data.filter(f => f.tipo.includes("NOTA DE CREDITO"));
-          const hayFactura = activas.length > ncs.length;
-          setTieneFactura(hayFactura);
-          if (hayFactura) {
-            const ultima = activas[activas.length - 1];
-            setPdfUrl(ultima?.pdf_url || null);
-          } else {
-            setPdfUrl(null);
-          }
-        })
-        .catch(() => setTieneFactura(false));
-    }, [p.id, version]);
-
-    if (tieneFactura === null) return null;
-
-    return (
-      <div style={{ display: "flex", gap: 6, marginLeft: 8 }}>
-        {tieneFactura ? (
-          <>
-            {pdfUrl && (
-              <a href={pdfUrl} target="_blank" rel="noreferrer"
-                onClick={e => e.stopPropagation()}
-                style={{ ...s.btnImprimir, borderColor: "#2a7a4b", color: "#2a7a4b", background: "#eaf3de", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
-                📄 PDF
-              </a>
-            )}
-            <button style={{ ...s.btnImprimir, borderColor: "#c0392b", color: "#c0392b", background: "#fdecea" }}
-              onClick={e => { e.stopPropagation(); setFacturando(p); }}>
-              🗑 Anular factura
-            </button>
-          </>
-        ) : (
-          <button style={{ ...s.btnImprimir, borderColor: "#2a7a4b", color: "#2a7a4b", background: "#f0faf4", fontWeight: 600 }}
-            onClick={e => { e.stopPropagation(); setFacturando(p); }}>
-            🧾 Facturar
-          </button>
-        )}
-      </div>
-    );
-  };
+  const cerrarModal = () => { setFacturando(null); setFacturaVersion(v => v + 1); };
 
   const Header = () => (
     <div style={s.header}>
@@ -876,8 +851,6 @@ export default function App() {
       ))}
     </div>
   );
-
-  const cerrarModal = () => { setFacturando(null); setFacturaVersion(v => v + 1); };
 
   if (vista === "caja") {
     return (
@@ -964,7 +937,7 @@ export default function App() {
                     </div>
                     <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                       <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>🖨️ Imprimir comanda</button>
-                      <BtnFacturar p={p} version={facturaVersion} />
+                      <BtnFacturar p={p} version={facturaVersion} onAbrir={setFacturando} />
                     </div>
                   </div>
                 )}
@@ -1180,7 +1153,7 @@ export default function App() {
                         </div>
                         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                           <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>🖨️ Imprimir comanda</button>
-                          <BtnFacturar p={p} version={facturaVersion} />
+                          <BtnFacturar p={p} version={facturaVersion} onAbrir={setFacturando} />
                         </div>
                       </div>
                     )}
