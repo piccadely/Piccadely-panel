@@ -82,6 +82,17 @@ function guardarEstadoDB(id, estado) {
 function fmt(n) { return `$${Number(n).toLocaleString("es-AR")}`; }
 function sumar(arr) { return arr.reduce((a, p) => a + p.totalNum, 0); }
 
+// Parsear total a número limpio desde cualquier formato
+function parsearTotal(totalNum, totalStr) {
+  if (typeof totalNum === "number" && totalNum > 0) return totalNum;
+  if (totalStr) {
+    const limpio = String(totalStr).replace(/[^0-9,]/g, "").replace(",", ".");
+    const n = parseFloat(limpio);
+    if (!isNaN(n) && n > 0) return n;
+  }
+  return 0;
+}
+
 // ─── MODAL FACTURACIÓN ───────────────────────────────────────────────
 function ModalFacturacion({ p, onCerrar }) {
   const docRaw = p.identificacion || "";
@@ -101,11 +112,9 @@ function ModalFacturacion({ p, onCerrar }) {
   const [loadingFacturas, setLoadingFacturas] = useState(true);
 
   const esFacturaA = tipo === "FACTURA A";
+  const requiereDoc = tipo === "FACTURA A";
 
-  useEffect(() => {
-    cargarFacturas();
-  }, []);
-
+  useEffect(() => { cargarFacturas(); }, []);
 
   async function cargarFacturas() {
     try {
@@ -119,30 +128,41 @@ function ModalFacturacion({ p, onCerrar }) {
     const match = prod.match(/^(.+) x(\d+)$/);
     const descripcion = match ? match[1] : prod;
     const cantidad = match ? Number(match[2]) : 1;
-    const cantTotal = p.productos.split(", ").reduce((a, pr) => {
-      const m = pr.match(/^(.+) x(\d+)$/);
-      return a + (m ? Number(m[2]) : 1);
-    }, 0);
-    return { descripcion, cantidad, codigo: `PROD${i+1}`, precioTotal: Number(p.totalNum) * (cantidad / cantTotal) };
+    return { descripcion, cantidad, codigo: `PROD${i+1}` };
   });
 
-async function emitir() {
-  if (esFacturaA && !docNro) { alert("Para Factura A es obligatorio el CUIT"); return; }
-  setEmitiendo(true);
-  setResultado(null);
-  try {
-    const res = await axios.post(`${API}/api/facturar`, {
-      pedidoId: p.id, tipo, cliente: p.cliente,
-      documentoTipo: docTipo,
-      documentoNro: (tipo === "FACTURA B" || tipo === "TICKET X") ? (docNro || "") : docNro,
-      razonSocial, domicilio, email,
-      total: p.totalNum, productos: productosFactura,
-    });
-    setResultado(res.data);
-    if (res.data.ok) await cargarFacturas();
-  } catch (e) { setResultado({ ok: false, error: e.message }); }
-  setEmitiendo(false);
-}
+  async function emitir() {
+    if (requiereDoc && !docNro.trim()) {
+      alert("Para Factura A es obligatorio el CUIT");
+      return;
+    }
+    const totalLimpio = parsearTotal(p.totalNum, p.total);
+    if (!totalLimpio || totalLimpio <= 0) {
+      alert("Error: no se pudo determinar el total del pedido");
+      return;
+    }
+    setEmitiendo(true);
+    setResultado(null);
+    try {
+      const res = await axios.post(`${API}/api/facturar`, {
+        pedidoId: p.id,
+        tipo,
+        cliente: p.cliente,
+        documentoTipo: docTipo,
+        documentoNro: docNro.trim(),
+        razonSocial,
+        domicilio,
+        email,
+        total: totalLimpio,
+        productos: productosFactura,
+      });
+      setResultado(res.data);
+      if (res.data.ok) await cargarFacturas();
+    } catch (e) {
+      setResultado({ ok: false, error: e.message });
+    }
+    setEmitiendo(false);
+  }
 
   async function emitirNC(facturaId) {
     if (!window.confirm("¿Emitir nota de crédito para anular este comprobante?")) return;
@@ -159,7 +179,6 @@ async function emitir() {
     setEmitiendo(false);
   }
 
-  // Facturas activas (no anuladas por NC)
   const facturasActivas = facturas.filter(f => !f.tipo.includes("NOTA DE CREDITO"));
   const notasCredito = facturas.filter(f => f.tipo.includes("NOTA DE CREDITO"));
   const tieneFacturaActiva = facturasActivas.length > 0 && facturasActivas.length > notasCredito.length;
@@ -167,8 +186,6 @@ async function emitir() {
   return (
     <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 540, maxHeight: "92vh", overflowY: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.25)" }}>
-
-        {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: "#333" }}>🧾 Facturación</div>
@@ -177,14 +194,12 @@ async function emitir() {
           <button style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#aaa", lineHeight: 1 }} onClick={onCerrar}>✕</button>
         </div>
 
-        {/* Alerta CUIT */}
         {esCuit && (
           <div style={{ background: "#fef9e7", border: "1px solid #f39c12", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: "#856404" }}>
             ⚠️ Este cliente tiene <strong>CUIT</strong> registrado en Tienda Nube — se sugiere emitir <strong>Factura A</strong>
           </div>
         )}
 
-        {/* Comprobantes ya emitidos */}
         {!loadingFacturas && facturas.length > 0 && (
           <div style={{ background: "#f9f9f7", borderRadius: 8, padding: 14, marginBottom: 16 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: "#555", textTransform: "uppercase", marginBottom: 8 }}>Comprobantes emitidos</div>
@@ -219,7 +234,6 @@ async function emitir() {
           </div>
         )}
 
-        {/* Resultado última operación */}
         {resultado && (
           <div style={{ borderRadius: 8, padding: "10px 14px", marginBottom: 14, background: resultado.ok ? "#eaf3de" : "#fdecea", border: `1px solid ${resultado.ok ? "#2a7a4b" : "#c0392b"}` }}>
             {resultado.ok ? (
@@ -241,7 +255,6 @@ async function emitir() {
           </div>
         )}
 
-        {/* Formulario nueva factura */}
         <div style={{ borderTop: tieneFacturaActiva ? "2px dashed #eee" : "none", paddingTop: tieneFacturaActiva ? 14 : 0 }}>
           {tieneFacturaActiva && (
             <div style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>
@@ -249,12 +262,20 @@ async function emitir() {
             </div>
           )}
 
-          {/* Tipo de comprobante */}
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Tipo de comprobante</div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {["FACTURA B", "FACTURA A", "FACTURA B EXENTO", "TICKET X"].map(t => (
-                <button key={t} onClick={() => { setTipo(t); setDocTipo(t === "FACTURA A" ? "CUIT" : docTipo); }}
+                <button key={t}
+                  onClick={() => {
+                    setTipo(t);
+                    if (t === "FACTURA A") {
+                      setDocTipo("CUIT");
+                    } else {
+                      setDocTipo("DNI");
+                      setDocNro("");
+                    }
+                  }}
                   style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid", cursor: "pointer",
                     borderColor: tipo === t ? "#2a7a4b" : "#ddd",
                     background: tipo === t ? "#eaf3de" : "#fff",
@@ -266,18 +287,24 @@ async function emitir() {
             </div>
           </div>
 
-          {/* Datos del cliente */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
             <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Documento</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>
+                Documento {!requiereDoc && <span style={{ fontWeight: 400, color: "#aaa" }}>(opcional)</span>}
+              </div>
               <div style={{ display: "flex", gap: 6 }}>
-                <select style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: 72 }}
-                  value={docTipo} onChange={e => setDocTipo(e.target.value)}>
-                  <option>DNI</option>
-                  <option>CUIT</option>
+                <select
+                  style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: 72 }}
+                  value={docTipo}
+                  onChange={e => setDocTipo(e.target.value)}>
+                  <option value="DNI">DNI</option>
+                  <option value="CUIT">CUIT</option>
                 </select>
-                <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", flex: 1 }}
-                  value={docNro} onChange={e => setDocNro(e.target.value)} placeholder="Número" />
+                <input
+                  style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", flex: 1 }}
+                  value={docNro}
+                  onChange={e => setDocNro(e.target.value)}
+                  placeholder={requiereDoc ? "Obligatorio" : "Opcional"} />
               </div>
             </div>
             <div>
@@ -297,7 +324,6 @@ async function emitir() {
             </div>
           </div>
 
-          {/* Total */}
           <div style={{ background: "#f9f9f7", borderRadius: 8, padding: "10px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 13, color: "#666" }}>Total a facturar</span>
             <span style={{ fontSize: 16, fontWeight: 700, color: "#2a7a4b" }}>{p.total}</span>
@@ -582,13 +608,15 @@ export default function App() {
       const fechaDisplay = local.fechaManual || fecha;
       const franjaDisplay = local.franjaManual || franja || "Sin franja";
       const medioPago = medioPagoLabel(p.gateway);
+      const totalNum = Number(p.total);
       return {
         id: p.id, numero: `#${p.number}`, cliente: p.contact_name, telefono: p.contact_phone,
         direccion: `${p.shipping_address?.address || ""} ${p.shipping_address?.number || ""}${p.shipping_address?.floor ? ` ${p.shipping_address.floor}` : ""}`.trim(),
         barrio: p.shipping_address?.locality || p.shipping_address?.city || "",
         zona, fecha, franja, fechaDisplay, franjaDisplay,
-        productos: prods, totalNum: Number(p.total),
-        total: `$${Number(p.total).toLocaleString("es-AR")}`,
+        productos: prods,
+        totalNum,
+        total: `$${totalNum.toLocaleString("es-AR")}`,
         pago: p.payment_status === "paid" ? "Pagado" : "Pendiente",
         medioPago, gateway: p.gateway,
         esTakeaway: p.fulfillments?.[0]?.shipping?.type === "pickup",
@@ -761,7 +789,6 @@ export default function App() {
   if (loading) return <div style={s.loading}>Cargando pedidos...</div>;
   if (error) return <div style={s.error}>{error}</div>;
 
-  // Botón facturar reutilizable
   const BtnFacturar = ({ p }) => (
     <button style={{ ...s.btnImprimir, marginLeft: 8, borderColor: "#2a7a4b", color: "#2a7a4b", background: "#f0faf4" }}
       onClick={e => { e.stopPropagation(); setFacturando(p); }}>
@@ -999,7 +1026,6 @@ export default function App() {
     );
   }
 
-  // VISTA PRINCIPAL
   return (
     <div style={s.wrap}>
       {facturando && <ModalFacturacion p={facturando} onCerrar={() => setFacturando(null)} />}
