@@ -235,12 +235,15 @@ app.post("/api/facturar", async (req, res) => {
   const esFacturaA = tipo === "FACTURA A";
   const esExento = tipo === "FACTURA B EXENTO";
   const sinDatos = !documentoNro || String(documentoNro).trim() === "";
-const totalNum = (() => {
-  const raw = String(total).trim();
-  if (/^\d+(\.\d+)?$/.test(raw)) return Number(raw);
-  return Number(raw.replace(/[$\s]/g, "").replace(/\./g, "").replace(",", "."));
-})();
-  console.log("FACTURAR:", { tipo, totalNum, documentoNro, sinDatos });
+
+  // Parsear total desde cualquier formato: "$43.140", "43140.00", 43140
+  const totalNum = (() => {
+    const raw = String(total).trim();
+    if (/^\d+(\.\d+)?$/.test(raw)) return Number(raw);
+    return Number(raw.replace(/[$\s]/g, "").replace(/\./g, "").replace(",", "."));
+  })();
+
+  console.log("FACTURAR:", { tipo, total, totalNum, documentoNro, sinDatos });
 
   if (!totalNum || totalNum <= 0) {
     return res.json({ ok: false, error: "Total inválido: " + total });
@@ -249,43 +252,54 @@ const totalNum = (() => {
   const tipoComprobante = esFacturaA ? "FACTURA A" : "FACTURA B";
 
   const clienteObj = (sinDatos && !esFacturaA) ? {
-    documento_tipo: "DNI", documento_nro: "0",
-    razon_social: "Consumidor Final", email: "",
-    domicilio: "Sin domicilio", provincia: "2",
-    condicion_pago: "201", condicion_iva: "CF", condicion_iva_operacion: "CF",
-    envia_por_mail: "N", reclama_deuda: "N",
+    documento_tipo: "DNI",
+    documento_nro: "0",
+    razon_social: "Consumidor Final",
+    email: "",
+    domicilio: "Sin domicilio",
+    provincia: "2",
+    condicion_pago: "201",
+    condicion_iva: "CF",
+    condicion_iva_operacion: "CF",
+    envia_por_mail: "N",
+    reclama_deuda: "N",
   } : {
-    documento_tipo: documentoTipo, documento_nro: String(documentoNro).trim() || "0",
-    razon_social: razonSocial || cliente, email: email || "",
-    domicilio: domicilio || "Sin domicilio", provincia: "2",
+    documento_tipo: documentoTipo,
+    documento_nro: String(documentoNro).trim() || "0",
+    razon_social: razonSocial || cliente,
+    email: email || "",
+    domicilio: domicilio || "Sin domicilio",
+    provincia: "2",
     condicion_pago: "201",
     condicion_iva: esFacturaA ? "RI" : "CF",
     condicion_iva_operacion: esFacturaA ? "RI" : "CF",
-    envia_por_mail: email ? "S" : "N", reclama_deuda: "N",
+    envia_por_mail: email ? "S" : "N",
+    reclama_deuda: "N",
   };
 
   const descripcion = productos.map(p => p.descripcion).join(", ").substring(0, 200);
+  const precioSinIva = esExento ? totalNum : Math.round((totalNum / 1.21) * 100) / 100;
 
- const precioSinIva = esExento ? totalNum : Math.round((totalNum / 1.21) * 100) / 100;
-
-const detalle = [{
-  cantidad: 1,
-  bonificacion_porcentaje: 0,
-  afecta_stock: "N",
-  producto: {
-    descripcion,
-    codigo: "VENTA",
-    lista_precios: "standard",
-    leyenda: "",
-    unidad_bulto: 1,
-    alicuota: esExento ? 0 : 21,
-    precio_unitario_sin_iva: precioSinIva,
-    actualiza_precio: "S",
-  },
-}];
+  const detalle = [{
+    cantidad: 1,
+    bonificacion_porcentaje: 0,
+    afecta_stock: "N",
+    producto: {
+      descripcion,
+      codigo: "VENTA",
+      lista_precios: "standard",
+      leyenda: "",
+      unidad_bulto: 1,
+      alicuota: esExento ? 0 : 21,
+      precio_unitario_sin_iva: precioSinIva,
+      actualiza_precio: "S",
+    },
+  }];
 
   const body = {
-    apitoken: TF_APITOKEN, usertoken: TF_USERTOKEN, apikey: TF_APIKEY,
+    apitoken: TF_APITOKEN,
+    usertoken: TF_USERTOKEN,
+    apikey: TF_APIKEY,
     cliente: clienteObj,
     comprobante: {
       fecha: fechaHoy(),
@@ -298,6 +312,7 @@ const detalle = [{
       rubro: "Alimentos y bebidas",
       rubro_grupo_contable: "Alimentos",
       bonificacion: 0,
+      total: totalNum,
       external_reference: String(pedidoId) || `pedido-${Date.now()}`,
       detalle,
     },
@@ -308,7 +323,8 @@ const detalle = [{
   try {
     const response = await axios.post(
       "https://www.tusfacturas.app/app/api/v2/facturacion/nuevo",
-      body, { headers: { "Content-Type": "application/json" } }
+      body,
+      { headers: { "Content-Type": "application/json" } }
     );
     const data = response.data;
     console.log("TF response:", JSON.stringify(data));
@@ -319,94 +335,6 @@ const detalle = [{
       `, [pedidoId, tipo, data.comprobante_nro, data.cae, data.vencimiento_cae,
           clienteObj.razon_social, clienteObj.documento_tipo, clienteObj.documento_nro,
           totalNum, data.comprobante_pdf_url || "", fechaHoy(), JSON.stringify(data)]);
-      res.json({ ok: true, data });
-    } else {
-      res.json({ ok: false, error: data.errores || data });
-    }
-  } catch (err) {
-    console.error(err.response?.data || err.message);
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
-app.get("/api/facturas/:pedidoId", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT * FROM facturas WHERE pedido_id=$1 ORDER BY created_at DESC", [req.params.pedidoId]);
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: "Error trayendo facturas" });
-  }
-});
-
-app.post("/api/nota-credito", async (req, res) => {
-  const { facturaId, pedidoId } = req.body;
-  try {
-    const result = await pool.query("SELECT * FROM facturas WHERE id=$1", [facturaId]);
-    if (result.rows.length === 0) return res.status(404).json({ error: "Factura no encontrada" });
-    const factura = result.rows[0];
-    const tipoNC = factura.tipo === "FACTURA A" ? "NOTA DE CREDITO A" : "NOTA DE CREDITO B";
-    const esExentoNC = factura.tipo === "FACTURA B EXENTO";
-
-    const body = {
-      apitoken: TF_APITOKEN, usertoken: TF_USERTOKEN, apikey: TF_APIKEY,
-      cliente: {
-        documento_tipo: factura.documento_tipo, documento_nro: factura.documento_nro,
-        razon_social: factura.cliente, domicilio: "Sin domicilio", provincia: "2",
-        condicion_pago: "201",
-        condicion_iva: factura.documento_tipo === "CUIT" ? "RI" : "CF",
-        condicion_iva_operacion: factura.documento_tipo === "CUIT" ? "RI" : "CF",
-        envia_por_mail: "N", reclama_deuda: "N",
-      },
-      comprobante: {
-        fecha: fechaHoy(),
-        vencimiento: fechaVencimiento(30),
-        tipo: tipoNC,
-        operacion: "V",
-        moneda: "PES",
-        cotizacion: 1,
-        punto_venta: TF_PDV,
-        rubro: "Alimentos y bebidas",
-        rubro_grupo_contable: "Alimentos",
-        bonificacion: 0,
-        external_reference: `NC-${pedidoId}-${Date.now()}`,
-        comprobantes_asociados: [{
-          tipo_comprobante: esExentoNC ? "FACTURA B" : factura.tipo,
-          punto_venta: TF_PDV,
-          numero: factura.numero,
-          cae: factura.cae,
-          fecha: factura.fecha,
-        }],
-        detalle: [{
-          cantidad: 1,
-          bonificacion_porcentaje: 0,
-          afecta_stock: "N",
-          iva_incluido: esExentoNC ? "N" : "S",
-          producto: {
-            descripcion: "Anulación de comprobante",
-            codigo: "NC001",
-            lista_precios: "standard",
-            leyenda: "",
-            unidad_bulto: 1,
-            alicuota: esExentoNC ? 0 : 21,
-            precio_unitario_sin_iva: Number(factura.total),
-            actualiza_precio: "N",
-          },
-        }],
-      },
-    };
-
-    const response = await axios.post(
-      "https://www.tusfacturas.app/app/api/v2/facturacion/nuevo",
-      body, { headers: { "Content-Type": "application/json" } }
-    );
-    const data = response.data;
-    if (data.error === "N") {
-      await pool.query(`
-        INSERT INTO facturas (pedido_id, tipo, numero, cae, vencimiento_cae, cliente, documento_tipo, documento_nro, total, pdf_url, fecha, datos_raw)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-      `, [pedidoId, tipoNC, data.comprobante_nro, data.cae, data.vencimiento_cae,
-          factura.cliente, factura.documento_tipo, factura.documento_nro, -Number(factura.total),
-          data.comprobante_pdf_url || "", fechaHoy(), JSON.stringify(data)]);
       res.json({ ok: true, data });
     } else {
       res.json({ ok: false, error: data.errores || data });
