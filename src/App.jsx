@@ -117,6 +117,7 @@ function ModalFacturacion({ p, onCerrar }) {
   useEffect(() => { cargarFacturas(); }, []);
 
   async function cargarFacturas() {
+    setLoadingFacturas(true);
     try {
       const res = await axios.get(`${API}/api/facturas/${p.id}`);
       setFacturas(res.data);
@@ -131,12 +132,19 @@ function ModalFacturacion({ p, onCerrar }) {
     return { descripcion, cantidad, codigo: `PROD${i+1}` };
   });
 
+  // Parsear total limpio
+  const totalLimpio = (() => {
+    const raw = String(p.totalNum).trim();
+    if (typeof p.totalNum === "number" && p.totalNum > 0) return p.totalNum;
+    if (/^\d+(\.\d+)?$/.test(raw)) return Number(raw);
+    return Number(raw.replace(/[$\s]/g, "").replace(/\./g, "").replace(",", "."));
+  })();
+
   async function emitir() {
     if (requiereDoc && !docNro.trim()) {
       alert("Para Factura A es obligatorio el CUIT");
       return;
     }
-    const totalLimpio = parsearTotal(p.totalNum, p.total);
     if (!totalLimpio || totalLimpio <= 0) {
       alert("Error: no se pudo determinar el total del pedido");
       return;
@@ -165,7 +173,7 @@ function ModalFacturacion({ p, onCerrar }) {
   }
 
   async function emitirNC(facturaId) {
-    if (!window.confirm("¿Emitir nota de crédito para anular este comprobante?")) return;
+    if (!window.confirm("¿Anular este comprobante con nota de crédito?")) return;
     setEmitiendo(true);
     try {
       const res = await axios.post(`${API}/api/nota-credito`, { facturaId, pedidoId: p.id });
@@ -181,11 +189,13 @@ function ModalFacturacion({ p, onCerrar }) {
 
   const facturasActivas = facturas.filter(f => !f.tipo.includes("NOTA DE CREDITO"));
   const notasCredito = facturas.filter(f => f.tipo.includes("NOTA DE CREDITO"));
-  const tieneFacturaActiva = facturasActivas.length > 0 && facturasActivas.length > notasCredito.length;
+  const tieneFacturaActiva = facturasActivas.length > notasCredito.length;
 
   return (
     <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 540, maxHeight: "92vh", overflowY: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.25)" }}>
+
+        {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: "#333" }}>🧾 Facturación</div>
@@ -194,37 +204,41 @@ function ModalFacturacion({ p, onCerrar }) {
           <button style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#aaa", lineHeight: 1 }} onClick={onCerrar}>✕</button>
         </div>
 
+        {/* Alerta CUIT */}
         {esCuit && (
           <div style={{ background: "#fef9e7", border: "1px solid #f39c12", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: "#856404" }}>
-            ⚠️ Este cliente tiene <strong>CUIT</strong> registrado en Tienda Nube — se sugiere emitir <strong>Factura A</strong>
+            ⚠️ Este cliente tiene <strong>CUIT</strong> registrado — se sugiere emitir <strong>Factura A</strong>
           </div>
         )}
 
+        {/* Comprobantes emitidos */}
         {!loadingFacturas && facturas.length > 0 && (
           <div style={{ background: "#f9f9f7", borderRadius: 8, padding: 14, marginBottom: 16 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: "#555", textTransform: "uppercase", marginBottom: 8 }}>Comprobantes emitidos</div>
             {facturas.map(f => {
               const esNC = f.tipo.includes("NOTA DE CREDITO");
               return (
-                <div key={f.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: "1px solid #eee" }}>
+                <div key={f.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #eee" }}>
                   <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: esNC ? "#c0392b" : "#333" }}>
-                      {esNC ? "✖ " : "✔ "}{f.tipo} Nº {f.numero}
+                    <div style={{ fontSize: 12, fontWeight: 600, color: esNC ? "#c0392b" : "#2a7a4b" }}>
+                      {esNC ? "✖ ANULADA — " : "✔ "}{f.tipo} Nº {f.numero}
                     </div>
                     <div style={{ fontSize: 11, color: "#aaa" }}>{f.fecha} · CAE: {f.cae}</div>
                   </div>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: esNC ? "#c0392b" : "#2a7a4b" }}>{esNC ? "-" : ""}{fmt(Math.abs(f.total))}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: esNC ? "#c0392b" : "#2a7a4b" }}>
+                      {esNC ? "-" : ""}{fmt(Math.abs(f.total))}
+                    </span>
                     {f.pdf_url && (
                       <a href={f.pdf_url} target="_blank" rel="noreferrer"
-                        style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, border: "1px solid #2a7a4b", color: "#2a7a4b", textDecoration: "none", background: "#eaf3de" }}>
+                        style={{ fontSize: 11, padding: "4px 10px", borderRadius: 4, border: "1px solid #2a7a4b", color: "#2a7a4b", textDecoration: "none", background: "#eaf3de", fontWeight: 600 }}>
                         📄 PDF
                       </a>
                     )}
                     {!esNC && (
                       <button onClick={() => emitirNC(f.id)} disabled={emitiendo}
-                        style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, border: "1px solid #c0392b", background: "none", color: "#c0392b", cursor: "pointer" }}>
-                        Anular (NC)
+                        style={{ fontSize: 11, padding: "4px 10px", borderRadius: 4, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer", fontWeight: 600 }}>
+                        🗑 Anular
                       </button>
                     )}
                   </div>
@@ -234,12 +248,20 @@ function ModalFacturacion({ p, onCerrar }) {
           </div>
         )}
 
+        {/* Alerta pedido ya facturado */}
+        {tieneFacturaActiva && (
+          <div style={{ background: "#eaf3de", border: "1px solid #2a7a4b", borderRadius: 8, padding: "12px 14px", marginBottom: 14, fontSize: 13, color: "#2a7a4b", fontWeight: 600, textAlign: "center" }}>
+            ✅ Este pedido ya está facturado — anulá la factura para volver a emitir
+          </div>
+        )}
+
+        {/* Resultado última operación */}
         {resultado && (
           <div style={{ borderRadius: 8, padding: "10px 14px", marginBottom: 14, background: resultado.ok ? "#eaf3de" : "#fdecea", border: `1px solid ${resultado.ok ? "#2a7a4b" : "#c0392b"}` }}>
             {resultado.ok ? (
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "#2a7a4b" }}>
-                  ✅ {resultado.esNC ? "Nota de crédito emitida" : "Comprobante emitido"}
+                  ✅ {resultado.esNC ? "Comprobante anulado" : "Comprobante emitido"}
                 </div>
                 <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Nº {resultado.data?.comprobante_nro} — CAE: {resultado.data?.cae}</div>
                 {resultado.data?.comprobante_pdf_url && (
@@ -255,90 +277,79 @@ function ModalFacturacion({ p, onCerrar }) {
           </div>
         )}
 
-        <div style={{ borderTop: tieneFacturaActiva ? "2px dashed #eee" : "none", paddingTop: tieneFacturaActiva ? 14 : 0 }}>
-          {tieneFacturaActiva && (
-            <div style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>
-              Ya hay un comprobante emitido. Para volver a facturar primero anulá el anterior con NC.
-            </div>
-          )}
-
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Tipo de comprobante</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {["FACTURA B", "FACTURA A", "FACTURA B EXENTO", "TICKET X"].map(t => (
-                <button key={t}
-                  onClick={() => {
-                    setTipo(t);
-                    if (t === "FACTURA A") {
-                      setDocTipo("CUIT");
-                    } else {
-                      setDocTipo("DNI");
-                      setDocNro("");
-                    }
-                  }}
-                  style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid", cursor: "pointer",
-                    borderColor: tipo === t ? "#2a7a4b" : "#ddd",
-                    background: tipo === t ? "#eaf3de" : "#fff",
-                    color: tipo === t ? "#2a7a4b" : "#555",
-                    fontWeight: tipo === t ? 600 : 400 }}>
-                  {t}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>
-                Documento {!requiereDoc && <span style={{ fontWeight: 400, color: "#aaa" }}>(opcional)</span>}
-              </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <select
-                  style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: 72 }}
-                  value={docTipo}
-                  onChange={e => setDocTipo(e.target.value)}>
-                  <option value="DNI">DNI</option>
-                  <option value="CUIT">CUIT</option>
-                </select>
-                <input
-                  style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", flex: 1 }}
-                  value={docNro}
-                  onChange={e => setDocNro(e.target.value)}
-                  placeholder={requiereDoc ? "Obligatorio" : "Opcional"} />
+        {/* Formulario — solo si no hay factura activa */}
+        {!tieneFacturaActiva && (
+          <div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Tipo de comprobante</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {["FACTURA B", "FACTURA A", "FACTURA B EXENTO", "TICKET X"].map(t => (
+                  <button key={t}
+                    onClick={() => {
+                      setTipo(t);
+                      if (t === "FACTURA A") { setDocTipo("CUIT"); }
+                      else { setDocTipo("DNI"); setDocNro(""); }
+                    }}
+                    style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid", cursor: "pointer",
+                      borderColor: tipo === t ? "#2a7a4b" : "#ddd",
+                      background: tipo === t ? "#eaf3de" : "#fff",
+                      color: tipo === t ? "#2a7a4b" : "#555",
+                      fontWeight: tipo === t ? 600 : 400 }}>
+                    {t}
+                  </button>
+                ))}
               </div>
             </div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Nombre / Razón social</div>
-              <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }}
-                value={razonSocial} onChange={e => setRazonSocial(e.target.value)} />
-            </div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Email (opcional)</div>
-              <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }}
-                value={email} onChange={e => setEmail(e.target.value)} placeholder="cliente@email.com" />
-            </div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Domicilio</div>
-              <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }}
-                value={domicilio} onChange={e => setDomicilio(e.target.value)} />
-            </div>
-          </div>
 
-          <div style={{ background: "#f9f9f7", borderRadius: 8, padding: "10px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: 13, color: "#666" }}>Total a facturar</span>
-            <span style={{ fontSize: 16, fontWeight: 700, color: "#2a7a4b" }}>{p.total}</span>
-          </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>
+                  Documento {!requiereDoc && <span style={{ fontWeight: 400, color: "#aaa" }}>(opcional)</span>}
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <select style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: 72 }}
+                    value={docTipo} onChange={e => setDocTipo(e.target.value)}>
+                    <option value="DNI">DNI</option>
+                    <option value="CUIT">CUIT</option>
+                  </select>
+                  <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", flex: 1 }}
+                    value={docNro} onChange={e => setDocNro(e.target.value)}
+                    placeholder={requiereDoc ? "Obligatorio" : "Opcional"} />
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Nombre / Razón social</div>
+                <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }}
+                  value={razonSocial} onChange={e => setRazonSocial(e.target.value)} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Email (opcional)</div>
+                <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }}
+                  value={email} onChange={e => setEmail(e.target.value)} placeholder="cliente@email.com" />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Domicilio</div>
+                <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }}
+                  value={domicilio} onChange={e => setDomicilio(e.target.value)} />
+              </div>
+            </div>
 
-          <button
-            style={{ width: "100%", padding: 11, borderRadius: 8, border: "none",
-              background: emitiendo || tieneFacturaActiva ? "#ccc" : "#2a7a4b",
-              color: "#fff", fontSize: 13, fontWeight: 600,
-              cursor: emitiendo || tieneFacturaActiva ? "default" : "pointer" }}
-            onClick={emitir}
-            disabled={emitiendo || tieneFacturaActiva}>
-            {emitiendo ? "Emitiendo..." : `Emitir ${tipo}`}
-          </button>
-        </div>
+            <div style={{ background: "#f9f9f7", borderRadius: 8, padding: "10px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 13, color: "#666" }}>Total a facturar</span>
+              <span style={{ fontSize: 16, fontWeight: 700, color: "#2a7a4b" }}>{p.total}</span>
+            </div>
+
+            <button
+              style={{ width: "100%", padding: 11, borderRadius: 8, border: "none",
+                background: emitiendo ? "#ccc" : "#2a7a4b",
+                color: "#fff", fontSize: 13, fontWeight: 600,
+                cursor: emitiendo ? "default" : "pointer" }}
+              onClick={emitir}
+              disabled={emitiendo}>
+              {emitiendo ? "Emitiendo..." : `Emitir ${tipo}`}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
