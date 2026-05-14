@@ -259,6 +259,19 @@ function puntoVentaDesdeNumero(numero) {
   }
   return String(Number(TF_PDV));
 }
+app.get("/api/facturas/:pedidoId", async (req, res) => {
+  const { pedidoId } = req.params;
+  try {
+    const result = await pool.query(
+      "SELECT * FROM facturas WHERE pedido_id=$1 ORDER BY created_at ASC",
+      [pedidoId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error trayendo facturas:", err.message);
+    res.status(500).json({ error: "Error trayendo facturas" });
+  }
+});
 app.post("/api/facturar", async (req, res) => {
   const { pedidoId, tipo, cliente, documentoTipo, documentoNro, razonSocial, domicilio, email, total, productos } = req.body;
 
