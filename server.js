@@ -228,7 +228,37 @@ const TF_APIKEY = "72026";
 const TF_APITOKEN = "f3e0ae8012f40c58d93b5c0333ae634b";
 const TF_USERTOKEN = "686753022f9690813f6166450767316fffb6b8c1867cf5db2b3ba5f7211d5d84";
 const TF_PDV = "00007";
+const TF_CUIT_EMISOR = process.env.TF_CUIT_EMISOR || "30712271503";
 
+function esNotaCredito(f) {
+  return String(f.tipo || "").toUpperCase().includes("NOTA DE CREDITO");
+}
+
+function obtenerFacturaActiva(facturas) {
+  const facturasEmitidas = facturas.filter(f => !esNotaCredito(f));
+  const notasCredito = facturas.filter(f => esNotaCredito(f));
+  if (facturasEmitidas.length > notasCredito.length) {
+    return facturasEmitidas[facturasEmitidas.length - 1];
+  }
+  return null;
+}
+
+function numeroSinPuntoVenta(numero) {
+  const s = String(numero || "");
+  if (s.includes("-")) {
+    const partes = s.split("-");
+    return partes[partes.length - 1].replace(/^0+/, "") || partes[partes.length - 1];
+  }
+  return s.replace(/^0+/, "") || s;
+}
+
+function puntoVentaDesdeNumero(numero) {
+  const s = String(numero || "");
+  if (s.includes("-")) {
+    return s.split("-")[0].replace(/^0+/, "") || String(Number(TF_PDV));
+  }
+  return String(Number(TF_PDV));
+}
 app.post("/api/facturar", async (req, res) => {
   const { pedidoId, tipo, cliente, documentoTipo, documentoNro, razonSocial, domicilio, email, total, productos } = req.body;
 
@@ -248,7 +278,25 @@ app.post("/api/facturar", async (req, res) => {
   if (!totalNum || totalNum <= 0) {
     return res.json({ ok: false, error: "Total inválido: " + total });
   }
-
+// Bloqueo de duplicados en backend
+  try {
+    const existentes = await pool.query(
+      "SELECT * FROM facturas WHERE pedido_id=$1 ORDER BY created_at ASC",
+      [pedidoId]
+    );
+    const facturaActiva = obtenerFacturaActiva(existentes.rows);
+    if (facturaActiva) {
+      return res.json({
+        ok: false,
+        yaFacturado: true,
+        error: "Este pedido ya tiene una factura activa. Primero anulala con nota de crédito.",
+        factura: facturaActiva,
+      });
+    }
+  } catch (err) {
+    console.error("Error validando factura existente:", err.message);
+    return res.status(500).json({ ok: false, error: "Error validando si el pedido ya estaba facturado" });
+  }
   const tipoComprobante = esFacturaA ? "FACTURA A" : "FACTURA B";
 
   const clienteObj = (sinDatos && !esFacturaA) ? {
@@ -344,7 +392,122 @@ app.post("/api/facturar", async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+app.post("/api/nota-credito", async (req, res) => {
+  const { facturaId, pedidoId } = req.body;
 
+  try {
+    const facturaRes = await pool.query(
+      "SELECT * FROM facturas WHERE id=$1 AND pedido_id=$2",
+      [facturaId, pedidoId]
+    );
+
+    if (facturaRes.rows.length === 0) {
+      return res.json({ ok: false, error: "Factura no encontrada para este pedido" });
+    }
+
+    const factura = facturaRes.rows[0];
+
+    const todasRes = await pool.query(
+      "SELECT * FROM facturas WHERE pedido_id=$1 ORDER BY created_at ASC",
+      [pedidoId]
+    );
+
+    const facturaActiva = obtenerFacturaActiva(todasRes.rows);
+
+    if (!facturaActiva || Number(facturaActiva.id) !== Number(factura.id)) {
+      return res.json({ ok: false, error: "Esta factura ya no está activa o ya fue anulada." });
+    }
+
+    const tipoFacturaOriginal = String(factura.tipo).includes("FACTURA A") ? "FACTURA A" : "FACTURA B";
+    const tipoNC = tipoFacturaOriginal === "FACTURA A" ? "NOTA DE CREDITO A" : "NOTA DE CREDITO B";
+    const totalNum = Number(factura.total);
+    const esExento = String(factura.tipo).includes("EXENTO");
+    const precioSinIva = esExento ? totalNum : Math.round((totalNum / 1.21) * 100) / 100;
+
+    const clienteObj = {
+      documento_tipo: factura.documento_tipo || "DNI",
+      documento_nro: factura.documento_nro || "0",
+      razon_social: factura.cliente || "Consumidor Final",
+      email: "",
+      domicilio: "Sin domicilio",
+      provincia: "2",
+      condicion_pago: "201",
+      condicion_iva: tipoFacturaOriginal === "FACTURA A" ? "RI" : "CF",
+      condicion_iva_operacion: tipoFacturaOriginal === "FACTURA A" ? "RI" : "CF",
+      envia_por_mail: "N",
+      reclama_deuda: "N",
+    };
+
+    const body = {
+      apitoken: TF_APITOKEN,
+      usertoken: TF_USERTOKEN,
+      apikey: TF_APIKEY,
+      cliente: clienteObj,
+      comprobante: {
+        fecha: fechaHoy(),
+        vencimiento: fechaVencimiento(30),
+        tipo: tipoNC,
+        operacion: "V",
+        moneda: "PES",
+        cotizacion: 1,
+        punto_venta: TF_PDV,
+        rubro: "Alimentos y bebidas",
+        rubro_grupo_contable: "Alimentos",
+        bonificacion: 0,
+        total: totalNum,
+        external_reference: `${pedidoId}-NC-${factura.id}`,
+        comprobantes_asociados: [{
+          tipo_comprobante: tipoFacturaOriginal,
+          punto_venta: puntoVentaDesdeNumero(factura.numero),
+          numero: numeroSinPuntoVenta(factura.numero),
+          comprobante_fecha: factura.fecha,
+          cuit: TF_CUIT_EMISOR,
+        }],
+        detalle: [{
+          cantidad: 1,
+          bonificacion_porcentaje: 0,
+          afecta_stock: "N",
+          producto: {
+            descripcion: `Anulación de ${tipoFacturaOriginal} Nº ${factura.numero}`,
+            codigo: "NC",
+            lista_precios: "standard",
+            leyenda: "",
+            unidad_bulto: 1,
+            alicuota: esExento ? 0 : 21,
+            precio_unitario_sin_iva: precioSinIva,
+            actualiza_precio: "N",
+          },
+        }],
+      },
+    };
+
+    const response = await axios.post(
+      "https://www.tusfacturas.app/app/api/v2/facturacion/nuevo",
+      body,
+      { headers: { "Content-Type": "application/json" } }
+    );
+
+    const data = response.data;
+
+    if (data.error === "N") {
+      await pool.query(`
+        INSERT INTO facturas (pedido_id, tipo, numero, cae, vencimiento_cae, cliente, documento_tipo, documento_nro, total, pdf_url, fecha, datos_raw)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      `, [
+        pedidoId, tipoNC, data.comprobante_nro, data.cae, data.vencimiento_cae,
+        clienteObj.razon_social, clienteObj.documento_tipo, clienteObj.documento_nro,
+        totalNum, data.comprobante_pdf_url || "", fechaHoy(), JSON.stringify(data),
+      ]);
+      return res.json({ ok: true, data });
+    }
+
+    return res.json({ ok: false, error: data.errores || data });
+
+  } catch (err) {
+    console.error("Error emitiendo nota de crédito:", err.response?.data || err.message);
+    res.status(500).json({ ok: false, error: err.response?.data || err.message });
+  }
+});
 app.listen(process.env.PORT || 3001, () => {
   console.log("Servidor corriendo");
 });
