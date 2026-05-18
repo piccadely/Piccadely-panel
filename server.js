@@ -62,11 +62,16 @@ async function initDB() {
       fecha TEXT, datos_raw JSONB,
       created_at TIMESTAMP DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS pedidos_productos (
+      pedido_id TEXT PRIMARY KEY,
+      productos TEXT NOT NULL,
+      total_num NUMERIC NOT NULL,
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
   `);
   console.log("DB inicializada");
 }
 initDB().catch(console.error);
-
 function fechaHoy() {
   const hoy = new Date();
   return `${String(hoy.getDate()).padStart(2,"0")}/${String(hoy.getMonth()+1).padStart(2,"0")}/${hoy.getFullYear()}`;
@@ -540,6 +545,31 @@ app.get("/api/caja/historial/:local", async (req, res) => {
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ error: "Error trayendo historial" });
+  }
+});
+app.post("/api/pedidos/productos/:id", async (req, res) => {
+  const { id } = req.params;
+  const { productos, totalNum } = req.body;
+  try {
+    await pool.query(
+      `INSERT INTO pedidos_productos (pedido_id, productos, total_num)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (pedido_id) DO UPDATE SET productos=$2, total_num=$3`,
+      [id, productos, totalNum]
+    );
+    res.json({ ok: true });
+  } catch(err) {
+    console.error(err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+app.get("/api/pedidos/productos/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query("SELECT * FROM pedidos_productos WHERE pedido_id=$1", [id]);
+    res.json(result.rows[0] || null);
+  } catch(err) {
+    res.status(500).json({ error: err.message });
   }
 });
 app.listen(process.env.PORT || 3001, () => {
