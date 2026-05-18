@@ -2,16 +2,18 @@ import express from "express";
 import cors from "cors";
 import axios from "axios";
 import pg from "pg";
+import crypto from "crypto";
 
 const { Pool } = pg;
 
 const app = express();
-app.use(cors({ origin: "*" }));
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => { req.rawBody = buf; }
+}));
 
 const STORE_ID = "7597872";
 const ACCESS_TOKEN = "657a5d5af8780cd0304f2652e5122b651c60b66c";
-
+const TN_CLIENT_SECRET = process.env.TN_CLIENT_SECRET || "";
 const headers = {
   Authentication: `bearer ${ACCESS_TOKEN}`,
   "User-Agent": "PiccadelyPanel (piccadely@gmail.com)",
@@ -592,6 +594,110 @@ app.get("/api/pedidos/productos/:id", async (req, res) => {
     const result = await pool.query("SELECT * FROM pedidos_productos WHERE pedido_id=$1", [id]);
     res.json(result.rows[0] || null);
   } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+// ============================
+// WEBHOOKS TIENDA NUBE
+// ============================
+
+function verifyTNSignature(rawBody, signature) {
+  if (!TN_CLIENT_SECRET || !signature || !rawBody) return false;
+  const expected = crypto
+    .createHmac("sha256", TN_CLIENT_SECRET)
+    .update(rawBody)
+    .digest("hex");
+  try {
+    const sigBuf = Buffer.from(signature, "utf8");
+    const expBuf = Buffer.from(expected, "utf8");
+    if (sigBuf.length !== expBuf.length) return false;
+    return crypto.timingSafeEqual(sigBuf, expBuf);
+  } catch {
+    return false;
+  }
+}
+
+async function upsertOrderFromTN(orderId) {
+  try {
+    const response = await axios.get(
+      `https://api.tiendanube.com/2025-03/${STORE_ID}/orders/${orderId}`,
+      { headers }
+    );
+    const o = response.data;
+    await pool.query(`
+      INSERT INTO pedidos_tn
+        (id, store_id, numero, estado_tn, payment_status, total,
+         contact_email, contact_name, contact_phone, data, tn_created_at, updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
+      ON CONFLICT (id) DO UPDATE SET
+        numero = EXCLUDED.numero,
+        estado_tn = EXCLUDED.estado_tn,
+        payment_status = EXCLUDED.payment_status,
+        total = EXCLUDED.total,
+        contact_email = EXCLUDED.contact_email,
+        contact_name = EXCLUDED.contact_name,
+        contact_phone = EXCLUDED.contact_phone,
+        data = EXCLUDED.data,
+        updated_at = NOW()
+    `, [
+      o.id, String(o.store_id || ""), o.number || null, o.status || null,
+      o.payment_status || null, parseFloat(o.total) || 0,
+      o.contact_email || null, o.contact_name || null, o.contact_phone || null,
+      JSON.stringify(o), o.created_at || null
+    ]);
+    console.log(`Pedido TN ${orderId} sincronizado`);
+  } catch (err) {
+    console.error(`Error sincronizando pedido ${orderId}:`, err.response?.data || err.message);
+  }
+}
+
+async function processWebhookEvent(event, resourceId) {
+  if (!event || !resourceId) return;
+  if (event === "order/cancelled" || event === "order/voided") {
+    await pool.query(
+      "UPDATE pedidos_tn SET estado_tn = 'cancelled', updated_at = NOW() WHERE id = $1",
+      [resourceId]
+    );
+    return;
+  }
+  if (event.startsWith("order/")) {
+    await upsertOrderFromTN(resourceId);
+  }
+}
+
+app.get("/api/webhooks/tiendanube", (req, res) => {
+  res.json({ ok: true, message: "Webhook endpoint activo" });
+});
+
+app.post("/api/webhooks/tiendanube", async (req, res) => {
+  try {
+    const signature = req.headers["x-linkedstore-hmac-sha256"];
+    if (!verifyTNSignature(req.rawBody, signature)) {
+      console.warn("Webhook con firma inválida");
+      return res.status(401).json({ error: "Invalid signature" });
+    }
+    const { event, id: resourceId } = req.body || {};
+    if (!event || !resourceId) {
+      return res.status(400).json({ error: "Payload inválido" });
+    }
+    try {
+      await pool.query(
+        `INSERT INTO webhook_events (event_type, resource_id, signature) VALUES ($1, $2, $3)`,
+        [event, resourceId, signature]
+      );
+    } catch (err) {
+      if (err.code === "23505") {
+        console.log(`Webhook duplicado ignorado: ${event} ${resourceId}`);
+        return res.json({ ok: true, duplicate: true });
+      }
+      throw err;
+    }
+    res.json({ ok: true });
+    processWebhookEvent(event, resourceId).catch(err => {
+      console.error("Error procesando webhook:", err);
+    });
+  } catch (err) {
+    console.error("Webhook error:", err);
     res.status(500).json({ error: err.message });
   }
 });
