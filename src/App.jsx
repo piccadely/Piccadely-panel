@@ -209,13 +209,11 @@ function ModalFacturacion({ p, onCerrar }) {
           </div>
           <button style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#aaa" }} onClick={onCerrar}>✕</button>
         </div>
-
         {esCuit && !tieneFacturaActiva && (
           <div style={{ background: "#fef9e7", border: "1px solid #f39c12", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: "#856404" }}>
             ⚠️ Este cliente tiene <strong>CUIT</strong> — se sugiere <strong>Factura A</strong>
           </div>
         )}
-
         {!loadingFacturas && tieneFacturaActiva && facturaActiva && (
           <div style={{ background: "#eaf3de", border: "2px solid #2a7a4b", borderRadius: 10, padding: 16, marginBottom: 16 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: "#2a7a4b", marginBottom: 8 }}>✅ Pedido facturado</div>
@@ -235,7 +233,6 @@ function ModalFacturacion({ p, onCerrar }) {
             </div>
           </div>
         )}
-
         {!loadingFacturas && facturas.some(f => f.tipo.includes("NOTA DE CREDITO")) && (
           <div style={{ background: "#f9f9f7", borderRadius: 8, padding: 14, marginBottom: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 8 }}>Historial</div>
@@ -256,7 +253,6 @@ function ModalFacturacion({ p, onCerrar }) {
             })}
           </div>
         )}
-
         {resultado && (
           <div style={{ borderRadius: 8, padding: "10px 14px", marginBottom: 14, background: resultado.ok ? "#eaf3de" : "#fdecea", border: `1px solid ${resultado.ok ? "#2a7a4b" : "#c0392b"}` }}>
             {resultado.ok ? (
@@ -270,7 +266,6 @@ function ModalFacturacion({ p, onCerrar }) {
             )}
           </div>
         )}
-
         {!loadingFacturas && !tieneFacturaActiva && (
           <div>
             <div style={{ marginBottom: 12 }}>
@@ -317,6 +312,146 @@ function ModalFacturacion({ p, onCerrar }) {
               onClick={emitir} disabled={emitiendo}>{emitiendo ? "Emitiendo..." : `Emitir ${tipo}`}</button>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── MODAL EDITAR PRODUCTOS ──────────────────────────────────────────
+function ModalEditarProductos({ p, productos, categorias, onGuardar, onCerrar }) {
+  const [carrito, setCarrito] = useState(() => {
+    return p.productos.split(", ").map(item => {
+      const match = item.match(/^(.+) x(\d+)$/);
+      if (!match) return null;
+      const nombre = match[1].trim();
+      const cantidad = Number(match[2]);
+      const prod = productos.find(pr => pr.name?.es?.toLowerCase() === nombre.toLowerCase());
+      const precio = prod ? Number(prod.variants[0].price) : 0;
+      return { id: nombre, variantId: nombre, nombre, precio, cantidad, esVariable: !prod };
+    }).filter(Boolean);
+  });
+  const [busqueda, setBusqueda] = useState("");
+  const [categoriaFiltro, setCategoriaFiltro] = useState("");
+  const [varNombre, setVarNombre] = useState("");
+  const [varPrecio, setVarPrecio] = useState("");
+  const [varCantidad, setVarCantidad] = useState("1");
+  const [guardando, setGuardando] = useState(false);
+
+  const total = carrito.reduce((a, i) => a + i.precio * i.cantidad, 0);
+
+  const productosFiltrados = productos.filter(pr => {
+    const nombre = pr.name?.es?.toLowerCase() || "";
+    return (!busqueda || nombre.includes(busqueda.toLowerCase())) &&
+      (!categoriaFiltro || pr.categories?.some(c => c.id === Number(categoriaFiltro) || c.parent === Number(categoriaFiltro)));
+  });
+
+  function agregar(prod) {
+    const precio = Number(prod.variants[0].price);
+    const variantId = String(prod.variants[0].id);
+    const nombre = prod.name?.es;
+    setCarrito(prev => {
+      const existe = prev.find(i => i.variantId === variantId);
+      if (existe) return prev.map(i => i.variantId === variantId ? { ...i, cantidad: i.cantidad + 1 } : i);
+      return [...prev, { id: variantId, variantId, nombre, precio, cantidad: 1 }];
+    });
+  }
+
+  async function guardar() {
+    setGuardando(true);
+    const productosStr = carrito.map(i => `${i.nombre} x${i.cantidad}`).join(", ");
+    await axios.post(`${API}/api/pedidos/productos/${p.id}`, { productos: productosStr, totalNum: total });
+    onGuardar(p.id, productosStr, total);
+    setGuardando(false);
+    onCerrar();
+  }
+
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 720, maxHeight: "92vh", overflowY: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.25)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#333" }}>✏️ Editar productos</div>
+            <div style={{ fontSize: 12, color: "#888" }}>{p.numero} — {p.cliente}</div>
+          </div>
+          <button style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#aaa" }} onClick={onCerrar}>✕</button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+          {/* Catálogo */}
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 8 }}>Catálogo</div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+              <input style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", flex: 1 }} placeholder="Buscar..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
+              <select style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd" }} value={categoriaFiltro} onChange={e => setCategoriaFiltro(e.target.value)}>
+                <option value="">Todas</option>
+                {categorias.map(c => <option key={c.id} value={c.id}>{c.name?.es}</option>)}
+              </select>
+            </div>
+            <div style={{ maxHeight: 280, overflowY: "auto", border: "1px solid #eee", borderRadius: 8, marginBottom: 12 }}>
+              {productosFiltrados.slice(0, 50).map(prod => (
+                <div key={prod.id} style={{ display: "flex", alignItems: "center", padding: "7px 10px", borderBottom: "1px solid #f5f5f5" }}>
+                  <div style={{ flex: 1, fontSize: 12 }}>{prod.name?.es}</div>
+                  <span style={{ fontSize: 12, fontWeight: 600, marginRight: 8, color: "#555" }}>${Number(prod.variants[0].price).toLocaleString("es-AR")}</span>
+                  <button style={{ fontSize: 11, padding: "3px 8px", borderRadius: 5, border: "1px solid #2a7a4b", background: "#2a7a4b", color: "#fff", cursor: "pointer" }} onClick={() => agregar(prod)}>+ Agregar</button>
+                </div>
+              ))}
+            </div>
+            {/* Variable */}
+            <div style={{ background: "#f9f9f7", borderRadius: 8, padding: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Producto variable</div>
+              <input style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 6 }} placeholder="Nombre" value={varNombre} onChange={e => setVarNombre(e.target.value)} />
+              <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                <input type="number" style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", flex: 1 }} placeholder="Precio" value={varPrecio} onChange={e => setVarPrecio(e.target.value)} />
+                <input type="number" style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", width: 60 }} placeholder="Cant" value={varCantidad} onChange={e => setVarCantidad(e.target.value)} />
+              </div>
+              <button style={{ width: "100%", padding: "6px", fontSize: 12, borderRadius: 6, border: "1px solid #2a7a4b", background: "#2a7a4b", color: "#fff", cursor: "pointer" }}
+                onClick={() => {
+                  if (!varNombre || !varPrecio) return;
+                  const variantId = `var-${Date.now()}`;
+                  setCarrito(prev => [...prev, { id: variantId, variantId, nombre: varNombre, precio: Number(varPrecio), cantidad: Number(varCantidad) || 1, esVariable: true }]);
+                  setVarNombre(""); setVarPrecio(""); setVarCantidad("1");
+                }}>
+                + Agregar variable
+              </button>
+            </div>
+          </div>
+          {/* Carrito actual */}
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 8 }}>Productos del pedido</div>
+            {carrito.length === 0 && <div style={{ fontSize: 12, color: "#aaa", padding: "16px 0" }}>Sin productos</div>}
+            {carrito.map((item, i) => (
+              <div key={item.variantId} style={{ display: "flex", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #f5f5f5", gap: 6 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, color: "#333" }}>{item.nombre}</div>
+                  <div style={{ fontSize: 11, color: item.precio === 0 ? "#c0392b" : "#888" }}>
+                    {item.precio === 0 ? "⚠️ Sin precio — editá manualmente" : `$${item.precio.toLocaleString("es-AR")} c/u`}
+                  </div>
+                  {item.precio === 0 && (
+                    <input type="number" style={{ fontSize: 11, padding: "3px 6px", borderRadius: 4, border: "1px solid #ddd", width: 100, marginTop: 2 }}
+                      placeholder="Precio" onChange={e => setCarrito(prev => prev.map((x, j) => j === i ? { ...x, precio: Number(e.target.value) } : x))} />
+                  )}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <button style={{ fontSize: 12, width: 22, height: 22, borderRadius: 4, border: "1px solid #ddd", background: "#f9f9f7", cursor: "pointer" }}
+                    onClick={() => setCarrito(prev => prev.map((x, j) => j === i ? { ...x, cantidad: Math.max(1, x.cantidad - 1) } : x))}>−</button>
+                  <span style={{ fontSize: 12, minWidth: 20, textAlign: "center" }}>{item.cantidad}</span>
+                  <button style={{ fontSize: 12, width: 22, height: 22, borderRadius: 4, border: "1px solid #ddd", background: "#f9f9f7", cursor: "pointer" }}
+                    onClick={() => setCarrito(prev => prev.map((x, j) => j === i ? { ...x, cantidad: x.cantidad + 1 } : x))}>+</button>
+                  <button style={{ fontSize: 12, width: 22, height: 22, borderRadius: 4, border: "1px solid #c0392b", background: "#fdecea", cursor: "pointer", color: "#c0392b" }}
+                    onClick={() => setCarrito(prev => prev.filter((_, j) => j !== i))}>✕</button>
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 600, minWidth: 70, textAlign: "right" }}>${(item.precio * item.cantidad).toLocaleString("es-AR")}</span>
+              </div>
+            ))}
+            <div style={{ borderTop: "2px solid #eee", marginTop: 8, paddingTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>Total</span>
+              <span style={{ fontSize: 16, fontWeight: 700, color: "#2a7a4b" }}>${total.toLocaleString("es-AR")}</span>
+            </div>
+            <button style={{ width: "100%", marginTop: 12, padding: 10, borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#2a7a4b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+              onClick={guardar} disabled={guardando || carrito.length === 0}>
+              {guardando ? "Guardando..." : "✅ Guardar cambios"}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -379,7 +514,7 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
     setMontoCierre(""); await cargarEstado(); await cargarHistorial(); setGuardando(false);
   }
 
-  const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado && (p.estado !== "Anulado"));
+  const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado");
   const ventasPorMedio = MEDIOS_PAGO.reduce((acc, m) => { acc[m] = ventasLocal.filter(p => p.medioPago === m); return acc; }, {});
   const totalVentas = sumar(ventasLocal);
   const totalEfectivo = sumar(ventasPorMedio["Efectivo"] || []);
@@ -497,7 +632,6 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
                 <button style={{ width: "100%", padding: 10, borderRadius: 8, border: "none", background: "#c0392b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }} onClick={cerrarCaja} disabled={guardando || !montoCierre}>{guardando ? "Cerrando..." : "Ejecutar cierre Z"}</button>
               </div>
             )}
-
             {/* Historial de cierres */}
             <div style={{ gridColumn: "span 2", marginTop: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
@@ -590,9 +724,12 @@ export default function App() {
   const [rvRepartidor, setRvRepartidor] = useState("");
   const [tabFin, setTabFin] = useState("entregados");
   const [rpDesde, setRpDesde] = useState("");
-const [rpHasta, setRpHasta] = useState("");
+  const [rpHasta, setRpHasta] = useState("");
+  const [prodFecha, setProdFecha] = useState(HOY);
+  const [editandoProductos, setEditandoProductos] = useState(null);
+  const [productosOverride, setProductosOverride] = useState({});
   const menuRef = useRef(null);
-const [prodFecha, setProdFecha] = useState(HOY);
+
   const [productos, setProductos] = useState([]);
   const [categorias, setCategorias] = useState([]);
   const [loadingProductos, setLoadingProductos] = useState(false);
@@ -602,6 +739,32 @@ const [prodFecha, setProdFecha] = useState(HOY);
   const [form, setForm] = useState(FORM_INICIAL);
   const [pedidoCreado, setPedidoCreado] = useState(false);
   const [comandasImpresas, setComandasImpresas] = useState({});
+  const [varNombre, setVarNombre] = useState("");
+  const [varPrecio, setVarPrecio] = useState("");
+  const [varCantidad, setVarCantidad] = useState("1");
+
+  async function cargarProductosOverride(ids) {
+    const overrides = {};
+    await Promise.all(ids.map(async id => {
+      try {
+        const res = await axios.get(`${API}/api/pedidos/productos/${id}`);
+        if (res.data) overrides[String(id)] = res.data;
+      } catch(e) {}
+    }));
+    setProductosOverride(overrides);
+  }
+
+  async function asegurarCatalogo() {
+    if (productos.length === 0) {
+      setLoadingProductos(true);
+      try {
+        const [resP, resC] = await Promise.all([axios.get(`${API}/api/products`), axios.get(`${API}/api/categories`)]);
+        setProductos(resP.data.filter(p => p.variants?.[0]?.price));
+        setCategorias(resC.data.filter(c => c.parent === null));
+      } catch(e) {}
+      setLoadingProductos(false);
+    }
+  }
 
   useEffect(() => {
     Promise.all([
@@ -620,6 +783,8 @@ const [prodFecha, setProdFecha] = useState(HOY);
       setPedidosLocales(locales);
       setPedidosManuales(resManuales.data);
       setLoading(false);
+      const ids = [...resOrders.data.map(p => String(p.id)), ...resManuales.data.map(p => p.id)];
+      cargarProductosOverride(ids);
     }).catch(() => { setError("Error conectando con Tienda Nube"); setLoading(false); });
   }, []);
 
@@ -649,12 +814,15 @@ const [prodFecha, setProdFecha] = useState(HOY);
       const tabAuto = clasificarPedido(p);
       const tabActual = local.tabManual || tabAuto;
       const totalNum = Number(p.total);
+      const ov = productosOverride[String(p.id)];
       return {
         id: p.id, numero: `#${p.number}`, cliente: p.contact_name, telefono: p.contact_phone,
         direccion: `${p.shipping_address?.address || ""} ${p.shipping_address?.number || ""}${p.shipping_address?.floor ? ` ${p.shipping_address.floor}` : ""}`.trim(),
         barrio: p.shipping_address?.locality || p.shipping_address?.city || "",
         zona, fecha, franja, fechaDisplay: local.fechaManual || fecha, franjaDisplay: local.franjaManual || franja || "Sin franja",
-        productos: prods, totalNum, total: `$${totalNum.toLocaleString("es-AR")}`,
+        productos: ov ? ov.productos : prods,
+        totalNum: ov ? Number(ov.total_num) : totalNum,
+        total: ov ? `$${Number(ov.total_num).toLocaleString("es-AR")}` : `$${totalNum.toLocaleString("es-AR")}`,
         pago: p.payment_status === "paid" ? "Pagado" : "Pendiente",
         medioPago: medioPagoLabel(p.gateway), gateway: p.gateway,
         esTakeaway: p.fulfillments?.[0]?.shipping?.type === "pickup",
@@ -666,12 +834,16 @@ const [prodFecha, setProdFecha] = useState(HOY);
     ...pedidosManuales.map(p => {
       const local = pedidosLocales[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.cobrar };
       const tabActual = local.tabManual || p.tabActual;
+      const ov = productosOverride[String(p.id)];
       return {
         ...p, estado: local.estado, repartidor: local.repartidor,
         cobrar: local.cobrar !== undefined ? local.cobrar : p.cobrar,
         tabActual, local: localLabel(tabActual),
         fechaDisplay: local.fechaManual || p.fecha, franjaDisplay: local.franjaManual || p.franja || "Sin franja",
         identificacion: p.identificacion || "", email: p.email || "",
+        productos: ov ? ov.productos : p.productos,
+        totalNum: ov ? Number(ov.total_num) : p.totalNum,
+        total: ov ? `$${Number(ov.total_num).toLocaleString("es-AR")}` : p.total,
       };
     }),
   ];
@@ -724,8 +896,7 @@ const [prodFecha, setProdFecha] = useState(HOY);
       const factRes = await axios.get(`${API}/api/facturas/${p.id}`);
       const activas = factRes.data.filter(f => !f.tipo.includes("NOTA DE CREDITO"));
       const ncs = factRes.data.filter(f => f.tipo.includes("NOTA DE CREDITO"));
-      const tieneFactura = activas.length > ncs.length;
-      if (tieneFactura) {
+      if (activas.length > ncs.length) {
         alert("⚠️ Este pedido tiene una factura activa. Primero anulá la factura con nota de crédito desde el botón 🧾 Facturar.");
         return;
       }
@@ -843,7 +1014,7 @@ const [prodFecha, setProdFecha] = useState(HOY);
               <button style={s.dropItem} onClick={() => { setVista("finalizados"); setMenuAbierto(false); }}>📋 Pedidos finalizados</button>
               <button style={s.dropItem} onClick={() => { setVista("reporteVentas"); setMenuAbierto(false); }}>📊 Reporte de ventas</button>
               <button style={s.dropItem} onClick={() => { setVista("reporteProductos"); setMenuAbierto(false); }}>📦 Productos vendidos</button>
-             <button style={s.dropItem} onClick={() => { setVista("produccion"); setMenuAbierto(false); }}>🔧 Análisis de producción</button>
+              <button style={s.dropItem} onClick={() => { setVista("produccion"); setMenuAbierto(false); }}>🔧 Análisis de producción</button>
               <button style={{ ...s.dropItem, borderTop: "1px solid #eee", color: "#888" }} onClick={() => { setVista("panel"); setMenuAbierto(false); }}>← Volver al panel</button>
             </div>
           )}
@@ -882,13 +1053,11 @@ const [prodFecha, setProdFecha] = useState(HOY);
       if (!b.fechaDisplay) return -1;
       return b.fechaDisplay.localeCompare(a.fechaDisplay);
     });
-
     const totalVentasRv = ventasFiltradas.reduce((acc, p) => acc + p.totalNum, 0);
     const porMedio = MEDIOS_PAGO.reduce((acc, m) => {
       acc[m] = ventasFiltradas.filter(p => p.medioPago === m).reduce((a, p) => a + p.totalNum, 0);
       return acc;
     }, {});
-
     return (
       <div style={s.wrap}>
         <Header />
@@ -915,7 +1084,6 @@ const [prodFecha, setProdFecha] = useState(HOY);
               )}
             </div>
           </div>
-
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
             {MEDIOS_PAGO.filter(m => porMedio[m] > 0).map(m => (
               <div key={m} style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
@@ -930,7 +1098,6 @@ const [prodFecha, setProdFecha] = useState(HOY);
               <div style={{ fontSize: 11, color: "#a8d5b5" }}>{ventasFiltradas.length} pedidos</div>
             </div>
           </div>
-
           <div style={s.lista}>
             <div style={s.cabecera}>
               <span style={{ ...s.col, flex: 0.6 }}>Nº</span>
@@ -969,228 +1136,206 @@ const [prodFecha, setProdFecha] = useState(HOY);
       </div>
     );
   }
-if (vista === "reporteProductos") {
-  const pedidosBase = pedidosFinalizados.filter(p => {
-    const est = pedidosLocales[p.id]?.estado || p.estado;
-    if (est === "Anulado") return false;
-    if (rpDesde && p.fechaDisplay && p.fechaDisplay < rpDesde) return false;
-    if (rpHasta && p.fechaDisplay && p.fechaDisplay > rpHasta) return false;
-    return true;
-  });
 
-  const productosMap = {};
-  pedidosBase.forEach(p => {
-    const precio = p.totalNum;
-    const items = p.productos.split(", ");
-    items.forEach(item => {
-      const match = item.match(/^(.+) x(\d+)$/);
-      if (!match) return;
-      const nombre = match[1].trim();
-      const cantidad = Number(match[2]);
-      const precioUnit = precio / items.reduce((a, i) => {
-        const m = i.match(/^(.+) x(\d+)$/);
-        return a + (m ? Number(m[2]) : 1);
-      }, 0);
-      if (!productosMap[nombre]) productosMap[nombre] = { nombre, cantidad: 0, totalUnidades: 0 };
-      productosMap[nombre].cantidad += cantidad;
-      productosMap[nombre].totalUnidades += cantidad;
+  if (vista === "reporteProductos") {
+    const pedidosBase = pedidosFinalizados.filter(p => {
+      const est = pedidosLocales[p.id]?.estado || p.estado;
+      if (est === "Anulado") return false;
+      if (rpDesde && p.fechaDisplay && p.fechaDisplay < rpDesde) return false;
+      if (rpHasta && p.fechaDisplay && p.fechaDisplay > rpHasta) return false;
+      return true;
     });
-  });
-
-  const listaProductos = Object.values(productosMap).sort((a, b) => b.cantidad - a.cantidad);
-  const totalUnidades = listaProductos.reduce((a, p) => a + p.cantidad, 0);
-
-  return (
-    <div style={s.wrap}>
-      <Header />
-      <div style={{ padding: 24 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
-          <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
-          <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>📦 Productos vendidos</h2>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
-            <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
-            <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rpDesde} onChange={e => setRpDesde(e.target.value)} />
-            <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
-            <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rpHasta} onChange={e => setRpHasta(e.target.value)} />
-            {(rpDesde || rpHasta) && (
-              <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }}
-                onClick={() => { setRpDesde(""); setRpHasta(""); }}>✕ Limpiar</button>
-            )}
-          </div>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
-          <div style={{ background: "#2a7a4b", border: "1px solid #2a7a4b", borderRadius: 8, padding: "12px 14px" }}>
-            <div style={{ fontSize: 11, color: "#a8d5b5", marginBottom: 4 }}>TOTAL UNIDADES</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: "#fff" }}>{totalUnidades}</div>
-            <div style={{ fontSize: 11, color: "#a8d5b5" }}>{pedidosBase.length} pedidos</div>
-          </div>
-          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
-            <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>PRODUCTOS DISTINTOS</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: "#333" }}>{listaProductos.length}</div>
-          </div>
-        </div>
-
-        <div style={s.lista}>
-          <div style={s.cabecera}>
-            <span style={{ ...s.col, flex: 0.5, textAlign: "center" }}>#</span>
-            <span style={{ ...s.col, flex: 3 }}>Producto</span>
-            <span style={{ ...s.col, flex: 1, textAlign: "center" }}>Unidades vendidas</span>
-            <span style={{ ...s.col, flex: 1, textAlign: "center" }}>% del total</span>
-          </div>
-          {listaProductos.length === 0 && <div style={s.empty}>No hay ventas en ese rango.</div>}
-          {listaProductos.map((prod, i) => (
-            <div key={prod.nombre} style={s.fila}>
-              <div style={{ ...s.filaTop, cursor: "default" }}>
-                <span style={{ ...s.cel, flex: 0.5, textAlign: "center", color: "#aaa", fontWeight: 600 }}>{i + 1}</span>
-                <span style={{ ...s.cel, flex: 3, fontWeight: i < 3 ? 600 : 400 }}>
-                  {i === 0 && <span style={{ marginRight: 6 }}>🥇</span>}
-                  {i === 1 && <span style={{ marginRight: 6 }}>🥈</span>}
-                  {i === 2 && <span style={{ marginRight: 6 }}>🥉</span>}
-                  {prod.nombre}
-                </span>
-                <span style={{ ...s.cel, flex: 1, textAlign: "center", fontWeight: 600, color: "#2a7a4b", fontSize: 14 }}>{prod.cantidad}</span>
-                <span style={{ ...s.cel, flex: 1, textAlign: "center" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
-                    <div style={{ width: 80, height: 6, background: "#eee", borderRadius: 3, overflow: "hidden" }}>
-                      <div style={{ width: `${Math.round((prod.cantidad / listaProductos[0].cantidad) * 100)}%`, height: "100%", background: "#2a7a4b", borderRadius: 3 }} />
-                    </div>
-                    <span style={{ fontSize: 11, color: "#888" }}>{Math.round((prod.cantidad / totalUnidades) * 100)}%</span>
-                  </div>
-                </span>
-              </div>
-            </div>
-          ))}
-          {listaProductos.length > 0 && (
-            <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#2a7a4b" }}>
-              Total unidades: {totalUnidades}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-if (vista === "produccion") {
-  const pedidosProduccion = pedidosProcesados.filter(p => {
-    const est = pedidosLocales[p.id]?.estado || p.estado;
-    if (est === "Entregado" || est === "Anulado") return false;
-    const fecha = p.fechaDisplay;
-    if (!fecha) return false;
-    return fecha === prodFecha;
-  });
-
-  const productosMap = {};
-  pedidosProduccion.forEach(p => {
-    const items = p.productos.split(", ");
-    items.forEach(item => {
-      const match = item.match(/^(.+) x(\d+)$/);
-      if (!match) return;
-      const nombre = match[1].trim();
-      const cantidad = Number(match[2]);
-      if (!productosMap[nombre]) productosMap[nombre] = { nombre, cantidad: 0, pedidos: [] };
-      productosMap[nombre].cantidad += cantidad;
-      productosMap[nombre].pedidos.push({ numero: p.numero, cliente: p.cliente, cantidad, franja: p.franjaDisplay });
+    const productosMap = {};
+    pedidosBase.forEach(p => {
+      const items = p.productos.split(", ");
+      items.forEach(item => {
+        const match = item.match(/^(.+) x(\d+)$/);
+        if (!match) return;
+        const nombre = match[1].trim();
+        const cantidad = Number(match[2]);
+        if (!productosMap[nombre]) productosMap[nombre] = { nombre, cantidad: 0 };
+        productosMap[nombre].cantidad += cantidad;
+      });
     });
-  });
-
-  const listaProduccion = Object.values(productosMap).sort((a, b) => b.cantidad - a.cantidad);
-  const totalUnidades = listaProduccion.reduce((a, p) => a + p.cantidad, 0);
-
-  // Fechas disponibles con pedidos activos
-  const fechasDisponibles = [...new Set(
-    pedidosProcesados
-      .filter(p => {
-        const est = pedidosLocales[p.id]?.estado || p.estado;
-        return est !== "Entregado" && est !== "Anulado" && p.fechaDisplay && p.fechaDisplay >= HOY;
-      })
-      .map(p => p.fechaDisplay)
-  )].sort();
-
-  return (
-    <div style={s.wrap}>
-      <Header />
-      <div style={{ padding: 24 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
-          <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
-          <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>🔧 Análisis de producción</h2>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
-            <span style={{ fontSize: 12, color: "#888" }}>Fecha</span>
-            <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={prodFecha} onChange={e => setProdFecha(e.target.value)} />
-            {fechasDisponibles.length > 0 && (
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {fechasDisponibles.map(f => (
-                  <button key={f} onClick={() => setProdFecha(f)}
-                    style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid", cursor: "pointer",
-                      borderColor: prodFecha === f ? "#2a7a4b" : "#ddd",
-                      background: prodFecha === f ? "#2a7a4b" : "#fff",
-                      color: prodFecha === f ? "#fff" : "#555" }}>
-                    {new Date(f + "T12:00:00").toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "short" })}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Resumen */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
-          <div style={{ background: "#2a7a4b", border: "1px solid #2a7a4b", borderRadius: 8, padding: "12px 14px" }}>
-            <div style={{ fontSize: 11, color: "#a8d5b5", marginBottom: 4 }}>UNIDADES A PRODUCIR</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: "#fff" }}>{totalUnidades}</div>
-            <div style={{ fontSize: 11, color: "#a8d5b5" }}>{pedidosProduccion.length} pedidos</div>
-          </div>
-          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
-            <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>PRODUCTOS DISTINTOS</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: "#333" }}>{listaProduccion.length}</div>
-          </div>
-          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
-            <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>FECHA</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#333", textTransform: "capitalize" }}>
-              {new Date(prodFecha + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}
+    const listaProductos = Object.values(productosMap).sort((a, b) => b.cantidad - a.cantidad);
+    const totalUnidades = listaProductos.reduce((a, p) => a + p.cantidad, 0);
+    return (
+      <div style={s.wrap}>
+        <Header />
+        <div style={{ padding: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+            <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
+            <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>📦 Productos vendidos</h2>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
+              <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rpDesde} onChange={e => setRpDesde(e.target.value)} />
+              <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
+              <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rpHasta} onChange={e => setRpHasta(e.target.value)} />
+              {(rpDesde || rpHasta) && (
+                <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }}
+                  onClick={() => { setRpDesde(""); setRpHasta(""); }}>✕ Limpiar</button>
+              )}
             </div>
           </div>
-        </div>
-
-        {pedidosProduccion.length === 0 ? (
-          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 40, textAlign: "center", color: "#aaa", fontSize: 13 }}>
-            No hay pedidos activos para esta fecha.
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
+            <div style={{ background: "#2a7a4b", border: "1px solid #2a7a4b", borderRadius: 8, padding: "12px 14px" }}>
+              <div style={{ fontSize: 11, color: "#a8d5b5", marginBottom: 4 }}>TOTAL UNIDADES</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#fff" }}>{totalUnidades}</div>
+              <div style={{ fontSize: 11, color: "#a8d5b5" }}>{pedidosBase.length} pedidos</div>
+            </div>
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
+              <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>PRODUCTOS DISTINTOS</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#333" }}>{listaProductos.length}</div>
+            </div>
           </div>
-        ) : (
           <div style={s.lista}>
             <div style={s.cabecera}>
               <span style={{ ...s.col, flex: 0.5, textAlign: "center" }}>#</span>
               <span style={{ ...s.col, flex: 3 }}>Producto</span>
-              <span style={{ ...s.col, flex: 0.8, textAlign: "center" }}>Total</span>
-              <span style={{ ...s.col, flex: 3 }}>Detalle por pedido</span>
+              <span style={{ ...s.col, flex: 1, textAlign: "center" }}>Unidades vendidas</span>
+              <span style={{ ...s.col, flex: 1, textAlign: "center" }}>% del total</span>
             </div>
-            {listaProduccion.map((prod, i) => (
+            {listaProductos.length === 0 && <div style={s.empty}>No hay ventas en ese rango.</div>}
+            {listaProductos.map((prod, i) => (
               <div key={prod.nombre} style={s.fila}>
-                <div style={{ ...s.filaTop, cursor: "default", alignItems: "flex-start", paddingTop: 10, paddingBottom: 10 }}>
-                  <span style={{ ...s.cel, flex: 0.5, textAlign: "center", color: "#aaa", fontWeight: 600, paddingTop: 2 }}>{i + 1}</span>
-                  <span style={{ ...s.cel, flex: 3, fontWeight: 600, paddingTop: 2 }}>{prod.nombre}</span>
-                  <span style={{ ...s.cel, flex: 0.8, textAlign: "center" }}>
-                    <span style={{ fontSize: 18, fontWeight: 700, color: "#2a7a4b" }}>{prod.cantidad}</span>
+                <div style={{ ...s.filaTop, cursor: "default" }}>
+                  <span style={{ ...s.cel, flex: 0.5, textAlign: "center", color: "#aaa", fontWeight: 600 }}>{i + 1}</span>
+                  <span style={{ ...s.cel, flex: 3, fontWeight: i < 3 ? 600 : 400 }}>
+                    {i === 0 && <span style={{ marginRight: 6 }}>🥇</span>}
+                    {i === 1 && <span style={{ marginRight: 6 }}>🥈</span>}
+                    {i === 2 && <span style={{ marginRight: 6 }}>🥉</span>}
+                    {prod.nombre}
                   </span>
-                  <div style={{ flex: 3, display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {prod.pedidos.map((pd, j) => (
-                      <span key={j} style={{ fontSize: 11, background: "#f0f0ee", color: "#555", padding: "2px 8px", borderRadius: 4, whiteSpace: "nowrap" }}>
-                        {pd.numero} · {pd.cliente} · x{pd.cantidad} · {pd.franja}
-                      </span>
-                    ))}
-                  </div>
+                  <span style={{ ...s.cel, flex: 1, textAlign: "center", fontWeight: 600, color: "#2a7a4b", fontSize: 14 }}>{prod.cantidad}</span>
+                  <span style={{ ...s.cel, flex: 1, textAlign: "center" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
+                      <div style={{ width: 80, height: 6, background: "#eee", borderRadius: 3, overflow: "hidden" }}>
+                        <div style={{ width: `${Math.round((prod.cantidad / listaProductos[0].cantidad) * 100)}%`, height: "100%", background: "#2a7a4b", borderRadius: 3 }} />
+                      </div>
+                      <span style={{ fontSize: 11, color: "#888" }}>{Math.round((prod.cantidad / totalUnidades) * 100)}%</span>
+                    </div>
+                  </span>
                 </div>
               </div>
             ))}
-            <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#2a7a4b" }}>
-              Total a producir: {totalUnidades} unidades
+            {listaProductos.length > 0 && (
+              <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#2a7a4b" }}>
+                Total unidades: {totalUnidades}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (vista === "produccion") {
+    const pedidosProduccion = pedidosProcesados.filter(p => {
+      const est = pedidosLocales[p.id]?.estado || p.estado;
+      if (est === "Entregado" || est === "Anulado") return false;
+      return p.fechaDisplay === prodFecha;
+    });
+    const productosMap = {};
+    pedidosProduccion.forEach(p => {
+      p.productos.split(", ").forEach(item => {
+        const match = item.match(/^(.+) x(\d+)$/);
+        if (!match) return;
+        const nombre = match[1].trim();
+        const cantidad = Number(match[2]);
+        if (!productosMap[nombre]) productosMap[nombre] = { nombre, cantidad: 0, pedidos: [] };
+        productosMap[nombre].cantidad += cantidad;
+        productosMap[nombre].pedidos.push({ numero: p.numero, cliente: p.cliente, cantidad, franja: p.franjaDisplay });
+      });
+    });
+    const listaProduccion = Object.values(productosMap).sort((a, b) => b.cantidad - a.cantidad);
+    const totalUnidades = listaProduccion.reduce((a, p) => a + p.cantidad, 0);
+    const fechasDisponibles = [...new Set(
+      pedidosProcesados.filter(p => {
+        const est = pedidosLocales[p.id]?.estado || p.estado;
+        return est !== "Entregado" && est !== "Anulado" && p.fechaDisplay && p.fechaDisplay >= HOY;
+      }).map(p => p.fechaDisplay)
+    )].sort();
+    return (
+      <div style={s.wrap}>
+        <Header />
+        <div style={{ padding: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+            <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
+            <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>🔧 Análisis de producción</h2>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, color: "#888" }}>Fecha</span>
+              <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={prodFecha} onChange={e => setProdFecha(e.target.value)} />
+              {fechasDisponibles.length > 0 && (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {fechasDisponibles.map(f => (
+                    <button key={f} onClick={() => setProdFecha(f)}
+                      style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid", cursor: "pointer",
+                        borderColor: prodFecha === f ? "#2a7a4b" : "#ddd", background: prodFecha === f ? "#2a7a4b" : "#fff",
+                        color: prodFecha === f ? "#fff" : "#555" }}>
+                      {new Date(f + "T12:00:00").toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "short" })}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
-        )}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
+            <div style={{ background: "#2a7a4b", border: "1px solid #2a7a4b", borderRadius: 8, padding: "12px 14px" }}>
+              <div style={{ fontSize: 11, color: "#a8d5b5", marginBottom: 4 }}>UNIDADES A PRODUCIR</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#fff" }}>{totalUnidades}</div>
+              <div style={{ fontSize: 11, color: "#a8d5b5" }}>{pedidosProduccion.length} pedidos</div>
+            </div>
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
+              <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>PRODUCTOS DISTINTOS</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#333" }}>{listaProduccion.length}</div>
+            </div>
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
+              <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>FECHA</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#333", textTransform: "capitalize" }}>
+                {new Date(prodFecha + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}
+              </div>
+            </div>
+          </div>
+          {pedidosProduccion.length === 0 ? (
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 40, textAlign: "center", color: "#aaa", fontSize: 13 }}>
+              No hay pedidos activos para esta fecha.
+            </div>
+          ) : (
+            <div style={s.lista}>
+              <div style={s.cabecera}>
+                <span style={{ ...s.col, flex: 0.5, textAlign: "center" }}>#</span>
+                <span style={{ ...s.col, flex: 3 }}>Producto</span>
+                <span style={{ ...s.col, flex: 0.8, textAlign: "center" }}>Total</span>
+                <span style={{ ...s.col, flex: 3 }}>Detalle por pedido</span>
+              </div>
+              {listaProduccion.map((prod, i) => (
+                <div key={prod.nombre} style={s.fila}>
+                  <div style={{ ...s.filaTop, cursor: "default", alignItems: "flex-start", paddingTop: 10, paddingBottom: 10 }}>
+                    <span style={{ ...s.cel, flex: 0.5, textAlign: "center", color: "#aaa", fontWeight: 600, paddingTop: 2 }}>{i + 1}</span>
+                    <span style={{ ...s.cel, flex: 3, fontWeight: 600, paddingTop: 2 }}>{prod.nombre}</span>
+                    <span style={{ ...s.cel, flex: 0.8, textAlign: "center" }}>
+                      <span style={{ fontSize: 18, fontWeight: 700, color: "#2a7a4b" }}>{prod.cantidad}</span>
+                    </span>
+                    <div style={{ flex: 3, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {prod.pedidos.map((pd, j) => (
+                        <span key={j} style={{ fontSize: 11, background: "#f0f0ee", color: "#555", padding: "2px 8px", borderRadius: 4, whiteSpace: "nowrap" }}>
+                          {pd.numero} · {pd.cliente} · x{pd.cantidad} · {pd.franja}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#2a7a4b" }}>
+                Total a producir: {totalUnidades} unidades
+              </div>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
+
   if (vista === "finalizados") {
     const finalizadosOrdenados = [...pedidosFinalizados]
       .filter(p => {
@@ -1204,11 +1349,9 @@ if (vista === "produccion") {
         if (!b.fechaDisplay) return -1;
         return b.fechaDisplay.localeCompare(a.fechaDisplay);
       });
-
     const entregados = finalizadosOrdenados.filter(p => (pedidosLocales[p.id]?.estado || p.estado) === "Entregado");
     const anulados = finalizadosOrdenados.filter(p => (pedidosLocales[p.id]?.estado || p.estado) === "Anulado");
     const listaMostrada = tabFin === "entregados" ? entregados : anulados;
-
     return (
       <div style={s.wrap}>
         <Header />
@@ -1231,25 +1374,20 @@ if (vista === "produccion") {
               )}
             </div>
           </div>
-
-          {/* Tabs entregados / anulados */}
           <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
             <button onClick={() => setTabFin("entregados")}
               style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer",
-                borderColor: tabFin === "entregados" ? "#2a7a4b" : "#ddd",
-                background: tabFin === "entregados" ? "#2a7a4b" : "#fff",
+                borderColor: tabFin === "entregados" ? "#2a7a4b" : "#ddd", background: tabFin === "entregados" ? "#2a7a4b" : "#fff",
                 color: tabFin === "entregados" ? "#fff" : "#555", fontWeight: tabFin === "entregados" ? 600 : 400 }}>
               ✅ Entregados ({entregados.length})
             </button>
             <button onClick={() => setTabFin("anulados")}
               style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer",
-                borderColor: tabFin === "anulados" ? "#c0392b" : "#ddd",
-                background: tabFin === "anulados" ? "#c0392b" : "#fff",
+                borderColor: tabFin === "anulados" ? "#c0392b" : "#ddd", background: tabFin === "anulados" ? "#c0392b" : "#fff",
                 color: tabFin === "anulados" ? "#fff" : "#555", fontWeight: tabFin === "anulados" ? 600 : 400 }}>
               🚫 Anulados ({anulados.length})
             </button>
           </div>
-
           <div style={s.lista}>
             <div style={s.cabecera}>
               <span style={{ ...s.col, flex: 0.6 }}>Nº</span>
@@ -1398,7 +1536,25 @@ if (vista === "produccion") {
                 </div>
               </>
             )}
-            <button style={{ ...s.btnCrear, opacity: (!form.cliente || carrito.length === 0) ? 0.4 : 1 }} disabled={!form.cliente || carrito.length === 0} onClick={crearPedido}>✅ Crear pedido</button>
+            {/* Producto variable */}
+            <div style={{ borderTop: "1px solid #eee", paddingTop: 12, marginTop: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 8 }}>+ Producto variable</div>
+              <input style={{ ...s.formInput, marginBottom: 6 }} placeholder="Nombre del producto" value={varNombre} onChange={e => setVarNombre(e.target.value)} />
+              <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                <input type="number" style={{ ...s.formInput, flex: 1 }} placeholder="Precio" value={varPrecio} onChange={e => setVarPrecio(e.target.value)} />
+                <input type="number" style={{ ...s.formInput, width: 60 }} placeholder="Cant" value={varCantidad} onChange={e => setVarCantidad(e.target.value)} />
+              </div>
+              <button style={{ ...s.btnAgregar, width: "100%", padding: "7px", fontSize: 12 }}
+                onClick={() => {
+                  if (!varNombre || !varPrecio) return;
+                  const variantId = `var-${Date.now()}`;
+                  setCarrito(prev => [...prev, { id: variantId, variantId, nombre: varNombre, precio: Number(varPrecio), cantidad: Number(varCantidad) || 1, esVariable: true }]);
+                  setVarNombre(""); setVarPrecio(""); setVarCantidad("1");
+                }}>
+                + Agregar variable
+              </button>
+            </div>
+            <button style={{ ...s.btnCrear, opacity: (!form.cliente || carrito.length === 0) ? 0.4 : 1, marginTop: 12 }} disabled={!form.cliente || carrito.length === 0} onClick={crearPedido}>✅ Crear pedido</button>
           </div>
         </div>
       </div>
@@ -1408,6 +1564,18 @@ if (vista === "produccion") {
   return (
     <div style={s.wrap}>
       {facturando && <ModalFacturacion p={facturando} onCerrar={cerrarModal} />}
+      {editandoProductos && productos.length > 0 && (
+        <ModalEditarProductos
+          p={editandoProductos}
+          productos={productos}
+          categorias={categorias}
+          onCerrar={() => setEditandoProductos(null)}
+          onGuardar={(id, productosStr, totalNum) => {
+            setProductosOverride(prev => ({ ...prev, [String(id)]: { productos: productosStr, total_num: totalNum } }));
+            setEditandoProductos(null);
+          }}
+        />
+      )}
       <Header />
       <TabBar />
       <div style={s.stats}>
@@ -1475,6 +1643,7 @@ if (vista === "produccion") {
                         <span style={s.numero}>{p.numero}</span> {p.cliente}
                         {cobrar && <span style={s.cobrarBadge}>COBRAR</span>}
                         {p.esManual && <span style={{ ...s.cobrarBadge, background: "#7c3aed" }}>MANUAL</span>}
+                        {productosOverride[String(p.id)] && <span style={{ ...s.cobrarBadge, background: "#7c3aed" }}>EDITADO</span>}
                       </span>
                       <span style={{ ...s.cel, flex: 1, color: "#555" }}>{p.telefono}</span>
                       <span style={{ ...s.cel, flex: 2 }}>{p.direccion}</span>
@@ -1519,6 +1688,10 @@ if (vista === "produccion") {
                         <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
                           <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>
                             🖨️ Imprimir comanda {comandasImpresas[p.id] ? <span style={{ marginLeft: 4, background: "#f39c12", color: "#fff", borderRadius: 99, fontSize: 10, padding: "1px 6px", fontWeight: 700 }}>{comandasImpresas[p.id]}</span> : null}
+                          </button>
+                          <button style={{ ...s.btnImprimir, borderColor: "#7c3aed", color: "#7c3aed", background: "#f5f3ff" }}
+                            onClick={async e => { e.stopPropagation(); await asegurarCatalogo(); setEditandoProductos(p); }}>
+                            ✏️ Editar productos
                           </button>
                           <BtnFacturar p={p} version={facturaVersion} onAbrir={setFacturando} />
                           <button style={{ ...s.btnImprimir, borderColor: "#c0392b", color: "#c0392b", background: "#fdecea" }}
