@@ -370,7 +370,6 @@ function ModalFacturacion({ p, onCerrar }) {
   );
 }
 
-// ─── COMPONENTE CAJA ─────────────────────────────────────────────────
 function VistaCaja({ pedidosFinalizados, onVolver }) {
   const [localSeleccionado, setLocalSeleccionado] = useState("A. Thomas");
   const [estadoCaja, setEstadoCaja] = useState(null);
@@ -380,6 +379,9 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
   const [montoCierre, setMontoCierre] = useState("");
   const [mostrarAjuste, setMostrarAjuste] = useState(false);
   const [guardando, setGuardando] = useState(false);
+  const [historial, setHistorial] = useState([]);
+  const [loadingHistorial, setLoadingHistorial] = useState(false);
+  const [diaExpandido, setDiaExpandido] = useState(null);
 
   async function cargarEstado() {
     setLoadingCaja(true);
@@ -390,7 +392,16 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
     setLoadingCaja(false);
   }
 
-  useEffect(() => { cargarEstado(); }, [localSeleccionado]);
+  async function cargarHistorial() {
+    setLoadingHistorial(true);
+    try {
+      const res = await axios.get(`${API}/api/caja/historial/${encodeURIComponent(localSeleccionado)}`);
+      setHistorial(res.data.filter(h => h.apertura.fecha !== HOY));
+    } catch(e) { console.error(e); }
+    setLoadingHistorial(false);
+  }
+
+  useEffect(() => { cargarEstado(); cargarHistorial(); }, [localSeleccionado]);
 
   async function abrirCaja() {
     if (!montoApertura) return;
@@ -418,6 +429,7 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
     await axios.post(`${API}/api/caja/cierre`, { local: localSeleccionado, fecha: HOY, montoCierre: Number(montoCierre) });
     setMontoCierre("");
     await cargarEstado();
+    await cargarHistorial();
     setGuardando(false);
   }
 
@@ -540,13 +552,78 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
                 <button style={{ width: "100%", padding: 10, borderRadius: 8, border: "none", background: "#c0392b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }} onClick={cerrarCaja} disabled={guardando || !montoCierre}>{guardando ? "Cerrando..." : "Ejecutar cierre Z"}</button>
               </div>
             )}
+
+            {/* Historial de cierres */}
+            <div style={{ gridColumn: "span 2", marginTop: 8 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#333", marginBottom: 12 }}>📅 Historial de cierres</div>
+              {loadingHistorial ? <div style={{ fontSize: 12, color: "#aaa" }}>Cargando historial...</div>
+              : historial.length === 0 ? <div style={{ fontSize: 12, color: "#aaa" }}>Sin cierres anteriores</div>
+              : historial.map(h => {
+                const a = h.apertura;
+                const movs = h.movimientos;
+                const ajustesH = movs.filter(m => m.tipo === "entrada" || m.tipo === "salida");
+                const totalAjustesH = ajustesH.reduce((acc, m) => acc + Number(m.monto), 0);
+                const saldoEsperadoH = Number(a.monto_inicial) + totalAjustesH;
+                const diferencia = a.monto_cierre !== null ? Number(a.monto_cierre) - saldoEsperadoH : null;
+                const abierto = diaExpandido === a.id;
+                const fechaLabel = new Date(a.fecha + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
+                return (
+                  <div key={a.id} style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, marginBottom: 8, overflow: "hidden" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", cursor: "pointer", background: abierto ? "#f9f9f7" : "#fff" }}
+                      onClick={() => setDiaExpandido(abierto ? null : a.id)}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: "#333", textTransform: "capitalize" }}>{fechaLabel}</span>
+                        {a.cerrada
+                          ? <span style={{ fontSize: 11, background: "#eaf3de", color: "#2a7a4b", padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>✓ Cerrada</span>
+                          : <span style={{ fontSize: 11, background: "#fef9e7", color: "#856404", padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>Sin cerrar</span>
+                        }
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+                        {diferencia !== null && (
+                          <span style={{ fontSize: 12, color: diferencia >= 0 ? "#2a7a4b" : "#c0392b", fontWeight: 600 }}>
+                            {diferencia >= 0 ? "+" : ""}{fmt(diferencia)} diferencia
+                          </span>
+                        )}
+                        <span style={{ fontSize: 14, fontWeight: 700, color: "#2a7a4b" }}>{fmt(a.monto_cierre || saldoEsperadoH)}</span>
+                        <span style={{ fontSize: 11, color: "#aaa" }}>{abierto ? "▲" : "▼"}</span>
+                      </div>
+                    </div>
+                    {abierto && (
+                      <div style={{ padding: "12px 16px", borderTop: "1px solid #eee", background: "#fafaf8" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 14 }}>
+                          <div><div style={{ fontSize: 10, color: "#aaa", textTransform: "uppercase", fontWeight: 600, marginBottom: 2 }}>Monto inicial</div><div style={{ fontSize: 13, fontWeight: 600 }}>{fmt(a.monto_inicial)}</div></div>
+                          <div><div style={{ fontSize: 10, color: "#aaa", textTransform: "uppercase", fontWeight: 600, marginBottom: 2 }}>Saldo esperado</div><div style={{ fontSize: 13, fontWeight: 600 }}>{fmt(saldoEsperadoH)}</div></div>
+                          {a.monto_cierre !== null && <>
+                            <div><div style={{ fontSize: 10, color: "#aaa", textTransform: "uppercase", fontWeight: 600, marginBottom: 2 }}>Efectivo contado</div><div style={{ fontSize: 13, fontWeight: 600 }}>{fmt(a.monto_cierre)}</div></div>
+                            <div><div style={{ fontSize: 10, color: "#aaa", textTransform: "uppercase", fontWeight: 600, marginBottom: 2 }}>Diferencia</div><div style={{ fontSize: 13, fontWeight: 600, color: diferencia >= 0 ? "#2a7a4b" : "#c0392b" }}>{diferencia >= 0 ? "+" : ""}{fmt(diferencia)}</div></div>
+                          </>}
+                        </div>
+                        {movs.length > 0 && (
+                          <div>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Movimientos</div>
+                            {movs.map((m, i) => (
+                              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: "1px solid #f0f0ee", fontSize: 12 }}>
+                                <div><span style={{ color: "#555" }}>{m.concepto}</span><span style={{ fontSize: 11, color: "#aaa", marginLeft: 8 }}>{new Date(m.created_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</span></div>
+                                <span style={{ fontWeight: 600, color: m.tipo === "salida" ? "#c0392b" : "#2a7a4b" }}>
+                                  {m.tipo === "salida" ? "-" : "+"}{fmt(Math.abs(m.monto))}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
           </div>
         )}
       </div>
     </div>
   );
 }
-
 // ─── APP PRINCIPAL ───────────────────────────────────────────────────
 export default function App() {
   const [pedidosRaw, setPedidosRaw] = useState([]);
