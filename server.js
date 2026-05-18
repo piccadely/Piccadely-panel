@@ -521,6 +521,27 @@ app.post("/api/nota-credito", async (req, res) => {
     res.status(500).json({ ok: false, error: err.response?.data || err.message });
   }
 });
+app.get("/api/caja/historial/:local", async (req, res) => {
+  const { local } = req.params;
+  try {
+    const aperturas = await pool.query(
+      "SELECT * FROM caja_aperturas WHERE local=$1 ORDER BY fecha DESC LIMIT 30",
+      [decodeURIComponent(local)]
+    );
+    const resultado = [];
+    for (const apertura of aperturas.rows) {
+      const movimientos = await pool.query(
+        "SELECT * FROM caja_movimientos WHERE local=$1 AND fecha=$2 ORDER BY created_at ASC",
+        [decodeURIComponent(local), apertura.fecha]
+      );
+      resultado.push({ apertura, movimientos: movimientos.rows });
+    }
+    res.json(resultado);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ error: "Error trayendo historial" });
+  }
+});
 app.listen(process.env.PORT || 3001, () => {
   console.log("Servidor corriendo");
 });
