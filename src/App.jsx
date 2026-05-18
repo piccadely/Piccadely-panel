@@ -589,6 +589,8 @@ export default function App() {
   const [rvMedio, setRvMedio] = useState("");
   const [rvRepartidor, setRvRepartidor] = useState("");
   const [tabFin, setTabFin] = useState("entregados");
+  const [rpDesde, setRpDesde] = useState("");
+const [rpHasta, setRpHasta] = useState("");
   const menuRef = useRef(null);
 
   const [productos, setProductos] = useState([]);
@@ -840,6 +842,7 @@ export default function App() {
               <button style={s.dropItem} onClick={() => { setVista("caja"); setMenuAbierto(false); }}>💰 Caja</button>
               <button style={s.dropItem} onClick={() => { setVista("finalizados"); setMenuAbierto(false); }}>📋 Pedidos finalizados</button>
               <button style={s.dropItem} onClick={() => { setVista("reporteVentas"); setMenuAbierto(false); }}>📊 Reporte de ventas</button>
+              <button style={s.dropItem} onClick={() => { setVista("reporteProductos"); setMenuAbierto(false); }}>📦 Productos vendidos</button>
               <button style={{ ...s.dropItem, borderTop: "1px solid #eee", color: "#888" }} onClick={() => { setVista("panel"); setMenuAbierto(false); }}>← Volver al panel</button>
             </div>
           )}
@@ -965,7 +968,108 @@ export default function App() {
       </div>
     );
   }
+if (vista === "reporteProductos") {
+  const pedidosBase = pedidosFinalizados.filter(p => {
+    const est = pedidosLocales[p.id]?.estado || p.estado;
+    if (est === "Anulado") return false;
+    if (rpDesde && p.fechaDisplay && p.fechaDisplay < rpDesde) return false;
+    if (rpHasta && p.fechaDisplay && p.fechaDisplay > rpHasta) return false;
+    return true;
+  });
 
+  const productosMap = {};
+  pedidosBase.forEach(p => {
+    const precio = p.totalNum;
+    const items = p.productos.split(", ");
+    items.forEach(item => {
+      const match = item.match(/^(.+) x(\d+)$/);
+      if (!match) return;
+      const nombre = match[1].trim();
+      const cantidad = Number(match[2]);
+      const precioUnit = precio / items.reduce((a, i) => {
+        const m = i.match(/^(.+) x(\d+)$/);
+        return a + (m ? Number(m[2]) : 1);
+      }, 0);
+      if (!productosMap[nombre]) productosMap[nombre] = { nombre, cantidad: 0, totalUnidades: 0 };
+      productosMap[nombre].cantidad += cantidad;
+      productosMap[nombre].totalUnidades += cantidad;
+    });
+  });
+
+  const listaProductos = Object.values(productosMap).sort((a, b) => b.cantidad - a.cantidad);
+  const totalUnidades = listaProductos.reduce((a, p) => a + p.cantidad, 0);
+
+  return (
+    <div style={s.wrap}>
+      <Header />
+      <div style={{ padding: 24 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+          <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
+          <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>📦 Productos vendidos</h2>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
+            <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rpDesde} onChange={e => setRpDesde(e.target.value)} />
+            <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
+            <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rpHasta} onChange={e => setRpHasta(e.target.value)} />
+            {(rpDesde || rpHasta) && (
+              <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }}
+                onClick={() => { setRpDesde(""); setRpHasta(""); }}>✕ Limpiar</button>
+            )}
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
+          <div style={{ background: "#2a7a4b", border: "1px solid #2a7a4b", borderRadius: 8, padding: "12px 14px" }}>
+            <div style={{ fontSize: 11, color: "#a8d5b5", marginBottom: 4 }}>TOTAL UNIDADES</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: "#fff" }}>{totalUnidades}</div>
+            <div style={{ fontSize: 11, color: "#a8d5b5" }}>{pedidosBase.length} pedidos</div>
+          </div>
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
+            <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>PRODUCTOS DISTINTOS</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: "#333" }}>{listaProductos.length}</div>
+          </div>
+        </div>
+
+        <div style={s.lista}>
+          <div style={s.cabecera}>
+            <span style={{ ...s.col, flex: 0.5, textAlign: "center" }}>#</span>
+            <span style={{ ...s.col, flex: 3 }}>Producto</span>
+            <span style={{ ...s.col, flex: 1, textAlign: "center" }}>Unidades vendidas</span>
+            <span style={{ ...s.col, flex: 1, textAlign: "center" }}>% del total</span>
+          </div>
+          {listaProductos.length === 0 && <div style={s.empty}>No hay ventas en ese rango.</div>}
+          {listaProductos.map((prod, i) => (
+            <div key={prod.nombre} style={s.fila}>
+              <div style={{ ...s.filaTop, cursor: "default" }}>
+                <span style={{ ...s.cel, flex: 0.5, textAlign: "center", color: "#aaa", fontWeight: 600 }}>{i + 1}</span>
+                <span style={{ ...s.cel, flex: 3, fontWeight: i < 3 ? 600 : 400 }}>
+                  {i === 0 && <span style={{ marginRight: 6 }}>🥇</span>}
+                  {i === 1 && <span style={{ marginRight: 6 }}>🥈</span>}
+                  {i === 2 && <span style={{ marginRight: 6 }}>🥉</span>}
+                  {prod.nombre}
+                </span>
+                <span style={{ ...s.cel, flex: 1, textAlign: "center", fontWeight: 600, color: "#2a7a4b", fontSize: 14 }}>{prod.cantidad}</span>
+                <span style={{ ...s.cel, flex: 1, textAlign: "center" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
+                    <div style={{ width: 80, height: 6, background: "#eee", borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ width: `${Math.round((prod.cantidad / listaProductos[0].cantidad) * 100)}%`, height: "100%", background: "#2a7a4b", borderRadius: 3 }} />
+                    </div>
+                    <span style={{ fontSize: 11, color: "#888" }}>{Math.round((prod.cantidad / totalUnidades) * 100)}%</span>
+                  </div>
+                </span>
+              </div>
+            </div>
+          ))}
+          {listaProductos.length > 0 && (
+            <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#2a7a4b" }}>
+              Total unidades: {totalUnidades}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
   if (vista === "finalizados") {
     const finalizadosOrdenados = [...pedidosFinalizados]
       .filter(p => {
