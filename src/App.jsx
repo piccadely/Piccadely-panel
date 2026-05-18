@@ -555,11 +555,21 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
 
             {/* Historial de cierres */}
             <div style={{ gridColumn: "span 2", marginTop: 8 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: "#333", marginBottom: 12 }}>📅 Historial de cierres</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+  <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>📅 Historial de cierres</div>
+  <input type="date" 
+    style={{ fontSize: 12, padding: "5px 8px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }}
+    value={filtroHistorial}
+    onChange={e => setFiltroHistorial(e.target.value)}
+  />
+  {filtroHistorial && (
+    <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", color: "#888" }}
+      onClick={() => setFiltroHistorial("")}>✕ Limpiar</button>
+  )}
+</div>
               {loadingHistorial ? <div style={{ fontSize: 12, color: "#aaa" }}>Cargando historial...</div>
               : historial.length === 0 ? <div style={{ fontSize: 12, color: "#aaa" }}>Sin cierres anteriores</div>
-              : historial.map(h => {
-                const a = h.apertura;
+: historial.filter(h => !filtroHistorial || h.apertura.fecha === filtroHistorial).map(h => {                const a = h.apertura;
                 const movs = h.movimientos;
                 const ajustesH = movs.filter(m => m.tipo === "entrada" || m.tipo === "salida");
                 const totalAjustesH = ajustesH.reduce((acc, m) => acc + Number(m.monto), 0);
@@ -932,6 +942,8 @@ const [comandasImpresas, setComandasImpresas] = useState({});
   );
 
   if (vista === "caja") {
+    const [filtroHistorial, setFiltroHistorial] = useState("");
+
     return (
       <div style={s.wrap}>
         <Header />
