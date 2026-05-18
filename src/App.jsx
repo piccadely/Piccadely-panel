@@ -1122,8 +1122,7 @@ const estaVencido = horaInicio && ahora >= horaInicio &&
   estadoActual !== "Entregado";
 const estaMuyVencido = estaVencido && minutosVencido >= 120;
                 return (
-                  <div key={p.id} style={{ ...s.fila, ...(abierto ? s.filaAbierta : {}), ...(estaMuyVencido ? { background: "#f5b7b1", borderLeft: "4px solid #922b21" } :
-    estaVencido ? { background: "#fdecea", borderLeft: "4px solid #c0392b" } : {})
+                  <div key={p.id} style={{ ...s.fila, ...(abierto ? s.filaAbierta : {}), ...(estaMuyVencido ? { background: "#f5b7b1", borderLeft: "4px solid #922b21" } : estaVencido ? { background: "#fdecea", borderLeft: "4px solid #c0392b" } : {}) }}>
                     <div style={s.filaTop} onClick={() => toggleExpandido(p.id)}>
                       <span style={{ ...s.cel, flex: 1.2 }}>
                         <span style={s.numero}>{p.numero}</span> {p.cliente}
