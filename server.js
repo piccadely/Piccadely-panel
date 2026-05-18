@@ -68,6 +68,29 @@ async function initDB() {
       total_num NUMERIC NOT NULL,
       updated_at TIMESTAMP DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS pedidos_tn (
+  id BIGINT PRIMARY KEY,
+  store_id TEXT,
+  numero TEXT,
+  estado_tn TEXT,
+  payment_status TEXT,
+  total NUMERIC,
+  contact_email TEXT,
+  contact_name TEXT,
+  contact_phone TEXT,
+  data JSONB,
+  tn_created_at TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS webhook_events (
+  id SERIAL PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  resource_id BIGINT NOT NULL,
+  signature TEXT NOT NULL,
+  processed_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(event_type, resource_id, signature)
+);
   `);
   console.log("DB inicializada");
 }
