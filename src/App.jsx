@@ -82,7 +82,7 @@ function guardarEstadoDB(id, estado) {
 function fmt(n) { return `$${Number(n).toLocaleString("es-AR")}`; }
 function sumar(arr) { return arr.reduce((a, p) => a + p.totalNum, 0); }
 
-// ─── BTN FACTURAR — fuera de App para que React no lo destruya en cada render ──
+// ─── BTN FACTURAR ────────────────────────────────────────────────────
 function BtnFacturar({ p, version, onAbrir }) {
   const [tieneFactura, setTieneFactura] = useState(null);
   const [pdfUrl, setPdfUrl] = useState(null);
@@ -100,7 +100,6 @@ function BtnFacturar({ p, version, onAbrir }) {
   }, [p.id, version]);
 
   if (tieneFactura === null) return null;
-
   const btnBase = { marginTop: 0, padding: "7px 14px", fontSize: 12, borderRadius: 6, cursor: "pointer" };
 
   return (
@@ -108,21 +107,18 @@ function BtnFacturar({ p, version, onAbrir }) {
       {tieneFactura ? (
         <>
           {pdfUrl && (
-            <a href={pdfUrl} target="_blank" rel="noreferrer"
-              onClick={e => e.stopPropagation()}
+            <a href={pdfUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
               style={{ ...btnBase, border: "1px solid #2a7a4b", color: "#2a7a4b", background: "#eaf3de", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
               📄 PDF
             </a>
           )}
-          <button
-            style={{ ...btnBase, border: "1px solid #c0392b", color: "#c0392b", background: "#fdecea" }}
+          <button style={{ ...btnBase, border: "1px solid #c0392b", color: "#c0392b", background: "#fdecea" }}
             onClick={e => { e.stopPropagation(); onAbrir(p); }}>
             🗑 Anular factura
           </button>
         </>
       ) : (
-        <button
-          style={{ ...btnBase, border: "1px solid #2a7a4b", color: "#2a7a4b", background: "#f0faf4", fontWeight: 600 }}
+        <button style={{ ...btnBase, border: "1px solid #2a7a4b", color: "#2a7a4b", background: "#f0faf4", fontWeight: 600 }}
           onClick={e => { e.stopPropagation(); onAbrir(p); }}>
           🧾 Facturar
         </button>
@@ -136,11 +132,9 @@ function ModalFacturacion({ p, onCerrar }) {
   const docRaw = p.identificacion || "";
   const docSinFormato = docRaw.replace(/[-\s]/g, "");
   const esCuit = docSinFormato.length > 8;
-  const docLimpio = docSinFormato;
-
   const [tipo, setTipo] = useState(esCuit ? "FACTURA A" : "FACTURA B");
   const [docTipo, setDocTipo] = useState(esCuit ? "CUIT" : "DNI");
-  const [docNro, setDocNro] = useState(docLimpio);
+  const [docNro, setDocNro] = useState(docSinFormato);
   const [razonSocial, setRazonSocial] = useState(p.cliente || "");
   const [email, setEmail] = useState(p.email || "");
   const [domicilio, setDomicilio] = useState(p.direccion || "");
@@ -148,8 +142,6 @@ function ModalFacturacion({ p, onCerrar }) {
   const [resultado, setResultado] = useState(null);
   const [facturas, setFacturas] = useState([]);
   const [loadingFacturas, setLoadingFacturas] = useState(true);
-
-  const esFacturaA = tipo === "FACTURA A";
   const requiereDoc = tipo === "FACTURA A";
 
   useEffect(() => { cargarFacturas(); }, []);
@@ -165,9 +157,7 @@ function ModalFacturacion({ p, onCerrar }) {
 
   const productosFactura = p.productos.split(", ").map((prod, i) => {
     const match = prod.match(/^(.+) x(\d+)$/);
-    const descripcion = match ? match[1] : prod;
-    const cantidad = match ? Number(match[2]) : 1;
-    return { descripcion, cantidad, codigo: `PROD${i+1}` };
+    return { descripcion: match ? match[1] : prod, cantidad: match ? Number(match[2]) : 1, codigo: `PROD${i+1}` };
   });
 
   const totalLimpio = (() => {
@@ -179,14 +169,12 @@ function ModalFacturacion({ p, onCerrar }) {
 
   async function emitir() {
     if (requiereDoc && !docNro.trim()) { alert("Para Factura A es obligatorio el CUIT"); return; }
-    if (!totalLimpio || totalLimpio <= 0) { alert("Error: no se pudo determinar el total del pedido"); return; }
-    setEmitiendo(true);
-    setResultado(null);
+    if (!totalLimpio || totalLimpio <= 0) { alert("Error: no se pudo determinar el total"); return; }
+    setEmitiendo(true); setResultado(null);
     try {
       const res = await axios.post(`${API}/api/facturar`, {
-        pedidoId: p.id, tipo, cliente: p.cliente,
-        documentoTipo: docTipo, documentoNro: docNro.trim(),
-        razonSocial, domicilio, email,
+        pedidoId: p.id, tipo, cliente: p.cliente, documentoTipo: docTipo,
+        documentoNro: docNro.trim(), razonSocial, domicilio, email,
         total: totalLimpio, productos: productosFactura,
       });
       setResultado(res.data);
@@ -200,12 +188,8 @@ function ModalFacturacion({ p, onCerrar }) {
     setEmitiendo(true);
     try {
       const res = await axios.post(`${API}/api/nota-credito`, { facturaId, pedidoId: p.id });
-      if (res.data.ok) {
-        await cargarFacturas();
-        setResultado({ ok: true, data: res.data.data, esNC: true });
-      } else {
-        setResultado({ ok: false, error: res.data.error });
-      }
+      if (res.data.ok) { await cargarFacturas(); setResultado({ ok: true, data: res.data.data, esNC: true }); }
+      else setResultado({ ok: false, error: res.data.error });
     } catch (e) { setResultado({ ok: false, error: e.message }); }
     setEmitiendo(false);
   }
@@ -218,18 +202,17 @@ function ModalFacturacion({ p, onCerrar }) {
   return (
     <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 540, maxHeight: "92vh", overflowY: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.25)" }}>
-
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: "#333" }}>🧾 Facturación</div>
             <div style={{ fontSize: 12, color: "#888" }}>{p.numero} — {p.cliente} — {p.total}</div>
           </div>
-          <button style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#aaa", lineHeight: 1 }} onClick={onCerrar}>✕</button>
+          <button style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#aaa" }} onClick={onCerrar}>✕</button>
         </div>
 
         {esCuit && !tieneFacturaActiva && (
           <div style={{ background: "#fef9e7", border: "1px solid #f39c12", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: "#856404" }}>
-            ⚠️ Este cliente tiene <strong>CUIT</strong> registrado — se sugiere emitir <strong>Factura A</strong>
+            ⚠️ Este cliente tiene <strong>CUIT</strong> — se sugiere <strong>Factura A</strong>
           </div>
         )}
 
@@ -261,21 +244,12 @@ function ModalFacturacion({ p, onCerrar }) {
               return (
                 <div key={f.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #eee" }}>
                   <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: esNC ? "#c0392b" : "#2a7a4b" }}>
-                      {esNC ? "✖ " : "✔ "}{f.tipo} Nº {f.numero}
-                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: esNC ? "#c0392b" : "#2a7a4b" }}>{esNC ? "✖ " : "✔ "}{f.tipo} Nº {f.numero}</div>
                     <div style={{ fontSize: 11, color: "#aaa" }}>{f.fecha} · CAE: {f.cae}</div>
                   </div>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: esNC ? "#c0392b" : "#2a7a4b" }}>
-                      {esNC ? "-" : ""}{fmt(Math.abs(f.total))}
-                    </span>
-                    {f.pdf_url && (
-                      <a href={f.pdf_url} target="_blank" rel="noreferrer"
-                        style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, border: "1px solid #2a7a4b", color: "#2a7a4b", textDecoration: "none", background: "#eaf3de" }}>
-                        PDF
-                      </a>
-                    )}
+                    <span style={{ fontSize: 12, fontWeight: 600, color: esNC ? "#c0392b" : "#2a7a4b" }}>{esNC ? "-" : ""}{fmt(Math.abs(f.total))}</span>
+                    {f.pdf_url && <a href={f.pdf_url} target="_blank" rel="noreferrer" style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, border: "1px solid #2a7a4b", color: "#2a7a4b", textDecoration: "none", background: "#eaf3de" }}>PDF</a>}
                   </div>
                 </div>
               );
@@ -287,16 +261,9 @@ function ModalFacturacion({ p, onCerrar }) {
           <div style={{ borderRadius: 8, padding: "10px 14px", marginBottom: 14, background: resultado.ok ? "#eaf3de" : "#fdecea", border: `1px solid ${resultado.ok ? "#2a7a4b" : "#c0392b"}` }}>
             {resultado.ok ? (
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#2a7a4b" }}>
-                  ✅ {resultado.esNC ? "Comprobante anulado — ya podés volver a facturar" : "Comprobante emitido"}
-                </div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#2a7a4b" }}>✅ {resultado.esNC ? "Comprobante anulado — ya podés volver a facturar" : "Comprobante emitido"}</div>
                 <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>Nº {resultado.data?.comprobante_nro} — CAE: {resultado.data?.cae}</div>
-                {resultado.data?.comprobante_pdf_url && (
-                  <a href={resultado.data.comprobante_pdf_url} target="_blank" rel="noreferrer"
-                    style={{ fontSize: 12, color: "#2a7a4b", textDecoration: "underline", display: "block", marginTop: 4 }}>
-                    📄 Descargar PDF
-                  </a>
-                )}
+                {resultado.data?.comprobante_pdf_url && <a href={resultado.data.comprobante_pdf_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#2a7a4b", textDecoration: "underline", display: "block", marginTop: 4 }}>📄 Descargar PDF</a>}
               </div>
             ) : (
               <div style={{ fontSize: 12, color: "#c0392b" }}>❌ Error: {typeof resultado.error === "string" ? resultado.error : JSON.stringify(resultado.error)}</div>
@@ -310,13 +277,10 @@ function ModalFacturacion({ p, onCerrar }) {
               <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Tipo de comprobante</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {["FACTURA B", "FACTURA A", "FACTURA B EXENTO", "TICKET X"].map(t => (
-                  <button key={t}
-                    onClick={() => { setTipo(t); if (t === "FACTURA A") { setDocTipo("CUIT"); } else { setDocTipo("DNI"); setDocNro(""); } }}
+                  <button key={t} onClick={() => { setTipo(t); if (t === "FACTURA A") setDocTipo("CUIT"); else { setDocTipo("DNI"); setDocNro(""); } }}
                     style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid", cursor: "pointer",
                       borderColor: tipo === t ? "#2a7a4b" : "#ddd", background: tipo === t ? "#eaf3de" : "#fff",
-                      color: tipo === t ? "#2a7a4b" : "#555", fontWeight: tipo === t ? 600 : 400 }}>
-                    {t}
-                  </button>
+                      color: tipo === t ? "#2a7a4b" : "#555", fontWeight: tipo === t ? 600 : 400 }}>{t}</button>
                 ))}
               </div>
             </div>
@@ -326,43 +290,31 @@ function ModalFacturacion({ p, onCerrar }) {
                   Documento {!requiereDoc && <span style={{ fontWeight: 400, color: "#aaa" }}>(opcional)</span>}
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>
-                  <select style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: 72 }}
-                    value={docTipo} onChange={e => setDocTipo(e.target.value)}>
-                    <option value="DNI">DNI</option>
-                    <option value="CUIT">CUIT</option>
+                  <select style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: 72 }} value={docTipo} onChange={e => setDocTipo(e.target.value)}>
+                    <option value="DNI">DNI</option><option value="CUIT">CUIT</option>
                   </select>
-                  <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", flex: 1 }}
-                    value={docNro} onChange={e => setDocNro(e.target.value)}
-                    placeholder={requiereDoc ? "Obligatorio" : "Opcional"} />
+                  <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", flex: 1 }} value={docNro} onChange={e => setDocNro(e.target.value)} placeholder={requiereDoc ? "Obligatorio" : "Opcional"} />
                 </div>
               </div>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Nombre / Razón social</div>
-                <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }}
-                  value={razonSocial} onChange={e => setRazonSocial(e.target.value)} />
+                <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }} value={razonSocial} onChange={e => setRazonSocial(e.target.value)} />
               </div>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Email (opcional)</div>
-                <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }}
-                  value={email} onChange={e => setEmail(e.target.value)} placeholder="cliente@email.com" />
+                <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }} value={email} onChange={e => setEmail(e.target.value)} placeholder="cliente@email.com" />
               </div>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Domicilio</div>
-                <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }}
-                  value={domicilio} onChange={e => setDomicilio(e.target.value)} />
+                <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }} value={domicilio} onChange={e => setDomicilio(e.target.value)} />
               </div>
             </div>
             <div style={{ background: "#f9f9f7", borderRadius: 8, padding: "10px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontSize: 13, color: "#666" }}>Total a facturar</span>
               <span style={{ fontSize: 16, fontWeight: 700, color: "#2a7a4b" }}>{p.total}</span>
             </div>
-            <button
-              style={{ width: "100%", padding: 11, borderRadius: 8, border: "none",
-                background: emitiendo ? "#ccc" : "#2a7a4b", color: "#fff", fontSize: 13, fontWeight: 600,
-                cursor: emitiendo ? "default" : "pointer" }}
-              onClick={emitir} disabled={emitiendo}>
-              {emitiendo ? "Emitiendo..." : `Emitir ${tipo}`}
-            </button>
+            <button style={{ width: "100%", padding: 11, borderRadius: 8, border: "none", background: emitiendo ? "#ccc" : "#2a7a4b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: emitiendo ? "default" : "pointer" }}
+              onClick={emitir} disabled={emitiendo}>{emitiendo ? "Emitiendo..." : `Emitir ${tipo}`}</button>
           </div>
         )}
       </div>
@@ -370,6 +322,7 @@ function ModalFacturacion({ p, onCerrar }) {
   );
 }
 
+// ─── COMPONENTE CAJA ─────────────────────────────────────────────────
 function VistaCaja({ pedidosFinalizados, onVolver }) {
   const [localSeleccionado, setLocalSeleccionado] = useState("A. Thomas");
   const [estadoCaja, setEstadoCaja] = useState(null);
@@ -408,9 +361,7 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
     if (!montoApertura) return;
     setGuardando(true);
     await axios.post(`${API}/api/caja/apertura`, { local: localSeleccionado, fecha: HOY, montoInicial: Number(montoApertura) });
-    setMontoApertura("");
-    await cargarEstado();
-    setGuardando(false);
+    setMontoApertura(""); await cargarEstado(); setGuardando(false);
   }
 
   async function registrarAjuste() {
@@ -418,20 +369,14 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
     setGuardando(true);
     const monto = ajuste.tipo === "salida" ? -Math.abs(Number(ajuste.monto)) : Math.abs(Number(ajuste.monto));
     await axios.post(`${API}/api/caja/ajuste`, { local: localSeleccionado, fecha: HOY, tipo: ajuste.tipo, concepto: ajuste.concepto, monto });
-    setAjuste({ tipo: "entrada", concepto: "", monto: "" });
-    setMostrarAjuste(false);
-    await cargarEstado();
-    setGuardando(false);
+    setAjuste({ tipo: "entrada", concepto: "", monto: "" }); setMostrarAjuste(false); await cargarEstado(); setGuardando(false);
   }
 
   async function cerrarCaja() {
     if (!montoCierre) return;
     setGuardando(true);
     await axios.post(`${API}/api/caja/cierre`, { local: localSeleccionado, fecha: HOY, montoCierre: Number(montoCierre) });
-    setMontoCierre("");
-    await cargarEstado();
-    await cargarHistorial();
-    setGuardando(false);
+    setMontoCierre(""); await cargarEstado(); await cargarHistorial(); setGuardando(false);
   }
 
   const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado);
@@ -455,8 +400,7 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
           {["A. Thomas", "French"].map(l => (
             <button key={l} onClick={() => setLocalSeleccionado(l)}
               style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer",
-                borderColor: localSeleccionado === l ? "#2a7a4b" : "#ddd",
-                background: localSeleccionado === l ? "#2a7a4b" : "#fff",
+                borderColor: localSeleccionado === l ? "#2a7a4b" : "#ddd", background: localSeleccionado === l ? "#2a7a4b" : "#fff",
                 color: localSeleccionado === l ? "#fff" : "#555", fontWeight: localSeleccionado === l ? 600 : 400 }}>
               📍 {l}
             </button>
@@ -557,20 +501,15 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
             {/* Historial de cierres */}
             <div style={{ gridColumn: "span 2", marginTop: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-  <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>📅 Historial de cierres</div>
-  <input type="date" 
-    style={{ fontSize: 12, padding: "5px 8px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }}
-    value={filtroHistorial}
-    onChange={e => setFiltroHistorial(e.target.value)}
-  />
-  {filtroHistorial && (
-    <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", color: "#888" }}
-      onClick={() => setFiltroHistorial("")}>✕ Limpiar</button>
-  )}
-</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>📅 Historial de cierres</div>
+                <input type="date" style={{ fontSize: 12, padding: "5px 8px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }}
+                  value={filtroHistorial} onChange={e => setFiltroHistorial(e.target.value)} />
+                {filtroHistorial && <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", color: "#888" }} onClick={() => setFiltroHistorial("")}>✕ Limpiar</button>}
+              </div>
               {loadingHistorial ? <div style={{ fontSize: 12, color: "#aaa" }}>Cargando historial...</div>
               : historial.length === 0 ? <div style={{ fontSize: 12, color: "#aaa" }}>Sin cierres anteriores</div>
-: historial.filter(h => !filtroHistorial || h.apertura.fecha === filtroHistorial).map(h => {                const a = h.apertura;
+              : historial.filter(h => !filtroHistorial || h.apertura.fecha === filtroHistorial).map(h => {
+                const a = h.apertura;
                 const movs = h.movimientos;
                 const ajustesH = movs.filter(m => m.tipo === "entrada" || m.tipo === "salida");
                 const totalAjustesH = ajustesH.reduce((acc, m) => acc + Number(m.monto), 0);
@@ -584,17 +523,11 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
                       onClick={() => setDiaExpandido(abierto ? null : a.id)}>
                       <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
                         <span style={{ fontSize: 13, fontWeight: 600, color: "#333", textTransform: "capitalize" }}>{fechaLabel}</span>
-                        {a.cerrada
-                          ? <span style={{ fontSize: 11, background: "#eaf3de", color: "#2a7a4b", padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>✓ Cerrada</span>
-                          : <span style={{ fontSize: 11, background: "#fef9e7", color: "#856404", padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>Sin cerrar</span>
-                        }
+                        {a.cerrada ? <span style={{ fontSize: 11, background: "#eaf3de", color: "#2a7a4b", padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>✓ Cerrada</span>
+                          : <span style={{ fontSize: 11, background: "#fef9e7", color: "#856404", padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>Sin cerrar</span>}
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-                        {diferencia !== null && (
-                          <span style={{ fontSize: 12, color: diferencia >= 0 ? "#2a7a4b" : "#c0392b", fontWeight: 600 }}>
-                            {diferencia >= 0 ? "+" : ""}{fmt(diferencia)} diferencia
-                          </span>
-                        )}
+                        {diferencia !== null && <span style={{ fontSize: 12, color: diferencia >= 0 ? "#2a7a4b" : "#c0392b", fontWeight: 600 }}>{diferencia >= 0 ? "+" : ""}{fmt(diferencia)} diferencia</span>}
                         <span style={{ fontSize: 14, fontWeight: 700, color: "#2a7a4b" }}>{fmt(a.monto_cierre || saldoEsperadoH)}</span>
                         <span style={{ fontSize: 11, color: "#aaa" }}>{abierto ? "▲" : "▼"}</span>
                       </div>
@@ -615,9 +548,7 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
                             {movs.map((m, i) => (
                               <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: "1px solid #f0f0ee", fontSize: 12 }}>
                                 <div><span style={{ color: "#555" }}>{m.concepto}</span><span style={{ fontSize: 11, color: "#aaa", marginLeft: 8 }}>{new Date(m.created_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</span></div>
-                                <span style={{ fontWeight: 600, color: m.tipo === "salida" ? "#c0392b" : "#2a7a4b" }}>
-                                  {m.tipo === "salida" ? "-" : "+"}{fmt(Math.abs(m.monto))}
-                                </span>
+                                <span style={{ fontWeight: 600, color: m.tipo === "salida" ? "#c0392b" : "#2a7a4b" }}>{m.tipo === "salida" ? "-" : "+"}{fmt(Math.abs(m.monto))}</span>
                               </div>
                             ))}
                           </div>
@@ -628,13 +559,13 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
                 );
               })}
             </div>
-
           </div>
         )}
       </div>
     </div>
   );
 }
+
 // ─── APP PRINCIPAL ───────────────────────────────────────────────────
 export default function App() {
   const [pedidosRaw, setPedidosRaw] = useState([]);
@@ -653,6 +584,9 @@ export default function App() {
   const [filtroRepartidor, setFiltroRepartidor] = useState("");
   const [facturando, setFacturando] = useState(null);
   const [facturaVersion, setFacturaVersion] = useState(0);
+  const [rvDesde, setRvDesde] = useState("");
+  const [rvHasta, setRvHasta] = useState("");
+  const [rvMedio, setRvMedio] = useState("");
   const menuRef = useRef(null);
 
   const [productos, setProductos] = useState([]);
@@ -663,7 +597,8 @@ export default function App() {
   const [carrito, setCarrito] = useState([]);
   const [form, setForm] = useState(FORM_INICIAL);
   const [pedidoCreado, setPedidoCreado] = useState(false);
-const [comandasImpresas, setComandasImpresas] = useState({});
+  const [comandasImpresas, setComandasImpresas] = useState({});
+
   useEffect(() => {
     Promise.all([
       axios.get(`${API}/api/orders`),
@@ -673,17 +608,10 @@ const [comandasImpresas, setComandasImpresas] = useState({});
       setPedidosRaw(resOrders.data);
       const locales = {};
       resOrders.data.forEach(p => {
-        locales[p.id] = resEstados.data[p.id] || {
-          estado: "Por empaquetar", repartidor: "Sin asignar",
-          tabManual: null, fechaManual: null, franjaManual: null,
-          cobrar: p.payment_status !== "paid",
-        };
+        locales[p.id] = resEstados.data[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.payment_status !== "paid" };
       });
       resManuales.data.forEach(p => {
-        locales[p.id] = resEstados.data[p.id] || {
-          estado: "Por empaquetar", repartidor: "Sin asignar",
-          tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.cobrar,
-        };
+        locales[p.id] = resEstados.data[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.cobrar };
       });
       setPedidosLocales(locales);
       setPedidosManuales(resManuales.data);
@@ -694,10 +622,7 @@ const [comandasImpresas, setComandasImpresas] = useState({});
   useEffect(() => {
     if (tab === "nuevo" && productos.length === 0) {
       setLoadingProductos(true);
-      Promise.all([
-        axios.get(`${API}/api/products`),
-        axios.get(`${API}/api/categories`),
-      ]).then(([resP, resC]) => {
+      Promise.all([axios.get(`${API}/api/products`), axios.get(`${API}/api/categories`)]).then(([resP, resC]) => {
         setProductos(resP.data.filter(p => p.variants?.[0]?.price));
         setCategorias(resC.data.filter(c => c.parent === null));
         setLoadingProductos(false);
@@ -706,9 +631,7 @@ const [comandasImpresas, setComandasImpresas] = useState({});
   }, [tab]);
 
   useEffect(() => {
-    function handleClick(e) {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuAbierto(false);
-    }
+    function handleClick(e) { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuAbierto(false); }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
@@ -721,24 +644,19 @@ const [comandasImpresas, setComandasImpresas] = useState({});
       const local = pedidosLocales[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: false };
       const tabAuto = clasificarPedido(p);
       const tabActual = local.tabManual || tabAuto;
-      const fechaDisplay = local.fechaManual || fecha;
-      const franjaDisplay = local.franjaManual || franja || "Sin franja";
-      const medioPago = medioPagoLabel(p.gateway);
       const totalNum = Number(p.total);
       return {
         id: p.id, numero: `#${p.number}`, cliente: p.contact_name, telefono: p.contact_phone,
         direccion: `${p.shipping_address?.address || ""} ${p.shipping_address?.number || ""}${p.shipping_address?.floor ? ` ${p.shipping_address.floor}` : ""}`.trim(),
         barrio: p.shipping_address?.locality || p.shipping_address?.city || "",
-        zona, fecha, franja, fechaDisplay, franjaDisplay,
-        productos: prods, totalNum,
-        total: `$${totalNum.toLocaleString("es-AR")}`,
+        zona, fecha, franja, fechaDisplay: local.fechaManual || fecha, franjaDisplay: local.franjaManual || franja || "Sin franja",
+        productos: prods, totalNum, total: `$${totalNum.toLocaleString("es-AR")}`,
         pago: p.payment_status === "paid" ? "Pagado" : "Pendiente",
-        medioPago, gateway: p.gateway,
+        medioPago: medioPagoLabel(p.gateway), gateway: p.gateway,
         esTakeaway: p.fulfillments?.[0]?.shipping?.type === "pickup",
         estado: local.estado, repartidor: local.repartidor, cobrar: local.cobrar,
         tabActual, local: localLabel(tabActual), nota: p.note || "", esManual: false, entreCalles: "",
-        identificacion: p.identification?.number || "",
-        email: p.contact_email || "",
+        identificacion: p.identification?.number || "", email: p.contact_email || "",
       };
     }),
     ...pedidosManuales.map(p => {
@@ -748,10 +666,8 @@ const [comandasImpresas, setComandasImpresas] = useState({});
         ...p, estado: local.estado, repartidor: local.repartidor,
         cobrar: local.cobrar !== undefined ? local.cobrar : p.cobrar,
         tabActual, local: localLabel(tabActual),
-        fechaDisplay: local.fechaManual || p.fecha,
-        franjaDisplay: local.franjaManual || p.franja || "Sin franja",
-        identificacion: p.identificacion || "",
-        email: p.email || "",
+        fechaDisplay: local.fechaManual || p.fecha, franjaDisplay: local.franjaManual || p.franja || "Sin franja",
+        identificacion: p.identificacion || "", email: p.email || "",
       };
     }),
   ];
@@ -763,11 +679,7 @@ const [comandasImpresas, setComandasImpresas] = useState({});
     return p.fechaDisplay >= HOY;
   });
 
-  const pedidosFinalizados = pedidosProcesados.filter(p => {
-    const estado = pedidosLocales[p.id]?.estado || p.estado;
-    return estado === "Entregado";
-  });
-
+  const pedidosFinalizados = pedidosProcesados.filter(p => (pedidosLocales[p.id]?.estado || p.estado) === "Entregado");
   const fechas = [...new Set(pedidosActivos.filter(p => p.fechaDisplay).map(p => p.fechaDisplay))].sort();
   const zonas = [...new Set(pedidosActivos.map(p => p.zona))].sort();
 
@@ -787,21 +699,14 @@ const [comandasImpresas, setComandasImpresas] = useState({});
   const franjas = Object.keys(porFranja).sort();
 
   function actualizarLocal(id, cambios) {
-    setPedidosLocales(prev => {
-      const nuevo = { ...prev, [id]: { ...prev[id], ...cambios } };
-      guardarEstadoDB(id, nuevo[id]);
-      return nuevo;
-    });
+    setPedidosLocales(prev => { const nuevo = { ...prev, [id]: { ...prev[id], ...cambios } }; guardarEstadoDB(id, nuevo[id]); return nuevo; });
   }
-
   function cambiarEstado(id, e) {
     e.stopPropagation();
     setPedidosLocales(prev => {
-      const estadoActual = prev[id]?.estado || "Por empaquetar";
-      const nuevoEstado = nextEstado(estadoActual);
+      const nuevoEstado = nextEstado(prev[id]?.estado || "Por empaquetar");
       const nuevo = { ...prev, [id]: { ...prev[id], estado: nuevoEstado } };
-      guardarEstadoDB(id, nuevo[id]);
-      return nuevo;
+      guardarEstadoDB(id, nuevo[id]); return nuevo;
     });
   }
   function cambiarRepartidor(id, valor) { actualizarLocal(id, { repartidor: valor }); }
@@ -820,12 +725,8 @@ const [comandasImpresas, setComandasImpresas] = useState({});
       return [...prev, { id: prod.id, variantId, nombre: prod.name.es, precio, cantidad: 1 }];
     });
   }
-  function cambiarCantidad(variantId, delta) {
-    setCarrito(prev => prev.map(i => i.variantId === variantId ? { ...i, cantidad: Math.max(1, i.cantidad + delta) } : i));
-  }
-  function quitarDelCarrito(variantId) {
-    setCarrito(prev => prev.filter(i => i.variantId !== variantId));
-  }
+  function cambiarCantidad(variantId, delta) { setCarrito(prev => prev.map(i => i.variantId === variantId ? { ...i, cantidad: Math.max(1, i.cantidad + delta) } : i)); }
+  function quitarDelCarrito(variantId) { setCarrito(prev => prev.filter(i => i.variantId !== variantId)); }
   const totalCarrito = carrito.reduce((a, i) => a + i.precio * i.cantidad, 0);
 
   async function crearPedido() {
@@ -833,16 +734,13 @@ const [comandasImpresas, setComandasImpresas] = useState({});
     const id = `manual-${Date.now()}`;
     const productosStr = carrito.map(i => `${i.nombre} x${i.cantidad}`).join(", ");
     const nuevoPedido = {
-      id, numero: `#M${Date.now().toString().slice(-4)}`,
-      cliente: form.cliente, telefono: form.telefono,
+      id, numero: `#M${Date.now().toString().slice(-4)}`, cliente: form.cliente, telefono: form.telefono,
       direccion: form.direccion, barrio: form.barrio, entreCalles: form.entreCalles || "",
       zona: form.zona || "Sin zona", fecha: form.fecha, franja: form.franja,
       fechaDisplay: form.fecha, franjaDisplay: form.franja || "Sin franja",
-      productos: productosStr, totalNum: totalCarrito,
-      total: `$${totalCarrito.toLocaleString("es-AR")}`,
+      productos: productosStr, totalNum: totalCarrito, total: `$${totalCarrito.toLocaleString("es-AR")}`,
       pago: form.medioPago === "Efectivo" ? "Pendiente" : "Pagado",
-      medioPago: form.medioPago, cobrar: form.cobrar,
-      tabActual: form.seccion, local: localLabel(form.seccion),
+      medioPago: form.medioPago, cobrar: form.cobrar, tabActual: form.seccion, local: localLabel(form.seccion),
       nota: form.nota, esManual: true, estado: "Por empaquetar", repartidor: "Sin asignar",
     };
     await axios.post(`${API}/api/pedidos-manuales`, nuevoPedido).catch(console.error);
@@ -850,17 +748,14 @@ const [comandasImpresas, setComandasImpresas] = useState({});
     await axios.post(`${API}/api/estados/${id}`, estadoInicial).catch(console.error);
     setPedidosManuales(prev => [...prev, nuevoPedido]);
     setPedidosLocales(prev => ({ ...prev, [id]: estadoInicial }));
-    setCarrito([]);
-    setForm(FORM_INICIAL);
-    setPedidoCreado(true);
+    setCarrito([]); setForm(FORM_INICIAL); setPedidoCreado(true);
     setTimeout(() => setPedidoCreado(false), 3000);
   }
 
   const productosFiltrados = productos.filter(p => {
     const nombre = p.name?.es?.toLowerCase() || "";
-    const matchBusqueda = !busqueda || nombre.includes(busqueda.toLowerCase());
-    const matchCategoria = !categoriaFiltro || p.categories?.some(c => c.id === Number(categoriaFiltro) || c.parent === Number(categoriaFiltro));
-    return matchBusqueda && matchCategoria;
+    return (!busqueda || nombre.includes(busqueda.toLowerCase())) &&
+      (!categoriaFiltro || p.categories?.some(c => c.id === Number(categoriaFiltro) || c.parent === Number(categoriaFiltro)));
   });
 
   function imprimirComanda(p) {
@@ -896,7 +791,6 @@ const [comandasImpresas, setComandasImpresas] = useState({});
 
   const conteos = {};
   TABS.forEach(t => { conteos[t.id] = pedidosActivos.filter(p => p.tabActual === t.id).length; });
-
   const totalFiltrados = filtrados.length;
   const totalEnCamino = filtrados.filter(p => (pedidosLocales[p.id]?.estado || p.estado) === "En camino").length;
   const totalPendientes = filtrados.filter(p => (pedidosLocales[p.id]?.estado || p.estado) !== "Entregado").length;
@@ -944,122 +838,111 @@ const [comandasImpresas, setComandasImpresas] = useState({});
   );
 
   if (vista === "caja") {
+    return <div style={s.wrap}><Header /><VistaCaja pedidosFinalizados={pedidosFinalizados} onVolver={() => setVista("panel")} /></div>;
+  }
+
+  if (vista === "reporteVentas") {
+    const ventasFiltradas = pedidosFinalizados.filter(p => {
+      if (rvDesde && p.fechaDisplay && p.fechaDisplay < rvDesde) return false;
+      if (rvHasta && p.fechaDisplay && p.fechaDisplay > rvHasta) return false;
+      if (rvMedio && p.medioPago !== rvMedio) return false;
+      return true;
+    }).sort((a, b) => {
+      if (!a.fechaDisplay) return 1;
+      if (!b.fechaDisplay) return -1;
+      return b.fechaDisplay.localeCompare(a.fechaDisplay);
+    });
+
+    const totalVentasRv = ventasFiltradas.reduce((acc, p) => acc + p.totalNum, 0);
+    const porMedio = MEDIOS_PAGO.reduce((acc, m) => {
+      acc[m] = ventasFiltradas.filter(p => p.medioPago === m).reduce((a, p) => a + p.totalNum, 0);
+      return acc;
+    }, {});
+
     return (
       <div style={s.wrap}>
         <Header />
-        <VistaCaja pedidosFinalizados={pedidosFinalizados} onVolver={() => setVista("panel")} />
-      </div>
-    );
-  }
-if (vista === "reporteVentas") {
-  const [rvDesde, setRvDesde] = useState("");
-  const [rvHasta, setRvHasta] = useState("");
-  const [rvMedio, setRvMedio] = useState("");
+        <div style={{ padding: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+            <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
+            <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>📊 Reporte de ventas</h2>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
+              <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rvDesde} onChange={e => setRvDesde(e.target.value)} />
+              <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
+              <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rvHasta} onChange={e => setRvHasta(e.target.value)} />
+              <select style={{ ...s.select, padding: "5px 8px" }} value={rvMedio} onChange={e => setRvMedio(e.target.value)}>
+                <option value="">Todos los medios</option>
+                {MEDIOS_PAGO.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+              {(rvDesde || rvHasta || rvMedio) && (
+                <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setRvDesde(""); setRvHasta(""); setRvMedio(""); }}>✕ Limpiar</button>
+              )}
+            </div>
+          </div>
 
-  const ventasFiltradas = pedidosFinalizados.filter(p => {
-    if (rvDesde && p.fechaDisplay && p.fechaDisplay < rvDesde) return false;
-    if (rvHasta && p.fechaDisplay && p.fechaDisplay > rvHasta) return false;
-    if (rvMedio && p.medioPago !== rvMedio) return false;
-    return true;
-  }).sort((a, b) => {
-    if (!a.fechaDisplay) return 1;
-    if (!b.fechaDisplay) return -1;
-    return b.fechaDisplay.localeCompare(a.fechaDisplay);
-  });
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
+            {MEDIOS_PAGO.filter(m => porMedio[m] > 0).map(m => (
+              <div key={m} style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
+                <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>{m}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#2a7a4b" }}>{fmt(porMedio[m])}</div>
+                <div style={{ fontSize: 11, color: "#aaa" }}>{ventasFiltradas.filter(p => p.medioPago === m).length} pedidos</div>
+              </div>
+            ))}
+            <div style={{ background: "#2a7a4b", border: "1px solid #2a7a4b", borderRadius: 8, padding: "12px 14px" }}>
+              <div style={{ fontSize: 11, color: "#a8d5b5", marginBottom: 4 }}>TOTAL</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>{fmt(totalVentasRv)}</div>
+              <div style={{ fontSize: 11, color: "#a8d5b5" }}>{ventasFiltradas.length} pedidos</div>
+            </div>
+          </div>
 
-  const totalVentas = ventasFiltradas.reduce((acc, p) => acc + p.totalNum, 0);
-  const porMedio = MEDIOS_PAGO.reduce((acc, m) => {
-    acc[m] = ventasFiltradas.filter(p => p.medioPago === m).reduce((a, p) => a + p.totalNum, 0);
-    return acc;
-  }, {});
-
-  return (
-    <div style={s.wrap}>
-      <Header />
-      {facturando && <ModalFacturacion p={facturando} onCerrar={cerrarModal} />}
-      <div style={{ padding: 24 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
-          <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
-          <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>📊 Reporte de ventas</h2>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
-            <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
-            <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rvDesde} onChange={e => setRvDesde(e.target.value)} />
-            <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
-            <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rvHasta} onChange={e => setRvHasta(e.target.value)} />
-            <select style={{ ...s.select, padding: "5px 8px" }} value={rvMedio} onChange={e => setRvMedio(e.target.value)}>
-              <option value="">Todos los medios</option>
-              {MEDIOS_PAGO.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
-            {(rvDesde || rvHasta || rvMedio) && (
-              <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }}
-                onClick={() => { setRvDesde(""); setRvHasta(""); setRvMedio(""); }}>✕ Limpiar</button>
+          <div style={s.lista}>
+            <div style={s.cabecera}>
+              <span style={{ ...s.col, flex: 0.6 }}>Nº</span>
+              <span style={{ ...s.col, flex: 1.5 }}>Cliente</span>
+              <span style={{ ...s.col, flex: 1 }}>Productos</span>
+              <span style={{ ...s.col, flex: 0.8 }}>Medio de pago</span>
+              <span style={{ ...s.col, flex: 0.7, textAlign: "center" }}>Fecha</span>
+              <span style={{ ...s.col, flex: 0.7, textAlign: "center" }}>Local</span>
+              <span style={{ ...s.col, flex: 0.7, textAlign: "right" }}>Monto</span>
+            </div>
+            {ventasFiltradas.length === 0 && <div style={s.empty}>No hay ventas en ese rango.</div>}
+            {ventasFiltradas.map(p => (
+              <div key={p.id} style={s.fila}>
+                <div style={{ ...s.filaTop, cursor: "default" }}>
+                  <span style={{ ...s.cel, flex: 0.6 }}><span style={s.numero}>{p.numero}</span></span>
+                  <span style={{ ...s.cel, flex: 1.5 }}>{p.cliente}</span>
+                  <span style={{ ...s.cel, flex: 1, color: "#666" }}>{p.productos}</span>
+                  <span style={{ ...s.cel, flex: 0.8 }}>{p.medioPago}</span>
+                  <span style={{ ...s.cel, flex: 0.7, textAlign: "center", color: "#555" }}>
+                    {p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"short"}) : "—"}
+                  </span>
+                  <span style={{ ...s.cel, flex: 0.7, textAlign: "center" }}>
+                    <span style={{ fontSize: 11, background: "#eaf3de", color: "#27500a", padding: "2px 7px", borderRadius: 4 }}>{p.local}</span>
+                  </span>
+                  <span style={{ ...s.cel, flex: 0.7, textAlign: "right", fontWeight: 600 }}>{p.total}</span>
+                </div>
+              </div>
+            ))}
+            {ventasFiltradas.length > 0 && (
+              <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#2a7a4b" }}>
+                Total: {fmt(totalVentasRv)}
+              </div>
             )}
           </div>
         </div>
-
-        {/* Resumen por medio de pago */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
-          {MEDIOS_PAGO.filter(m => porMedio[m] > 0).map(m => (
-            <div key={m} style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
-              <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>{m}</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#2a7a4b" }}>{fmt(porMedio[m])}</div>
-              <div style={{ fontSize: 11, color: "#aaa" }}>{ventasFiltradas.filter(p => p.medioPago === m).length} pedidos</div>
-            </div>
-          ))}
-          <div style={{ background: "#2a7a4b", border: "1px solid #2a7a4b", borderRadius: 8, padding: "12px 14px" }}>
-            <div style={{ fontSize: 11, color: "#a8d5b5", marginBottom: 4 }}>TOTAL</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>{fmt(totalVentas)}</div>
-            <div style={{ fontSize: 11, color: "#a8d5b5" }}>{ventasFiltradas.length} pedidos</div>
-          </div>
-        </div>
-
-        {/* Lista de pedidos */}
-        <div style={s.lista}>
-          <div style={s.cabecera}>
-            <span style={{ ...s.col, flex: 0.6 }}>Nº</span>
-            <span style={{ ...s.col, flex: 1.5 }}>Cliente</span>
-            <span style={{ ...s.col, flex: 1 }}>Productos</span>
-            <span style={{ ...s.col, flex: 0.8 }}>Medio de pago</span>
-            <span style={{ ...s.col, flex: 0.7, textAlign: "center" }}>Fecha</span>
-            <span style={{ ...s.col, flex: 0.7, textAlign: "center" }}>Local</span>
-            <span style={{ ...s.col, flex: 0.7, textAlign: "right" }}>Monto</span>
-          </div>
-          {ventasFiltradas.length === 0 && <div style={s.empty}>No hay ventas en ese rango.</div>}
-          {ventasFiltradas.map(p => (
-            <div key={p.id} style={{ ...s.fila }}>
-              <div style={{ ...s.filaTop, cursor: "default" }}>
-                <span style={{ ...s.cel, flex: 0.6 }}><span style={s.numero}>{p.numero}</span></span>
-                <span style={{ ...s.cel, flex: 1.5 }}>{p.cliente}</span>
-                <span style={{ ...s.cel, flex: 1, color: "#666" }}>{p.productos}</span>
-                <span style={{ ...s.cel, flex: 0.8 }}>{p.medioPago}</span>
-                <span style={{ ...s.cel, flex: 0.7, textAlign: "center", color: "#555" }}>
-                  {p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"short"}) : "—"}
-                </span>
-                <span style={{ ...s.cel, flex: 0.7, textAlign: "center" }}>
-                  <span style={{ fontSize: 11, background: "#eaf3de", color: "#27500a", padding: "2px 7px", borderRadius: 4 }}>{p.local}</span>
-                </span>
-                <span style={{ ...s.cel, flex: 0.7, textAlign: "right", fontWeight: 600 }}>{p.total}</span>
-              </div>
-            </div>
-          ))}
-          {ventasFiltradas.length > 0 && (
-            <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#2a7a4b" }}>
-              Total: {fmt(totalVentas)}
-            </div>
-          )}
-        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
+
   if (vista === "finalizados") {
     const finalizadosOrdenados = [...pedidosFinalizados]
-  .filter(p => {
-    if (filtroFinDesde && p.fechaDisplay && p.fechaDisplay < filtroFinDesde) return false;
-    if (filtroFinHasta && p.fechaDisplay && p.fechaDisplay > filtroFinHasta) return false;
-    if (filtroRepartidor && (pedidosLocales[p.id]?.repartidor || "Sin asignar") !== filtroRepartidor) return false;
-    return true;
-  })
+      .filter(p => {
+        if (filtroFinDesde && p.fechaDisplay && p.fechaDisplay < filtroFinDesde) return false;
+        if (filtroFinHasta && p.fechaDisplay && p.fechaDisplay > filtroFinHasta) return false;
+        if (filtroRepartidor && (pedidosLocales[p.id]?.repartidor || "Sin asignar") !== filtroRepartidor) return false;
+        return true;
+      })
       .sort((a, b) => {
         if (!a.fechaDisplay) return 1;
         if (!b.fechaDisplay) return -1;
@@ -1081,8 +964,13 @@ if (vista === "reporteVentas") {
               <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={filtroFinDesde} onChange={e => setFiltroFinDesde(e.target.value)} />
               <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
               <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={filtroFinHasta} onChange={e => setFiltroFinHasta(e.target.value)} />
-              {(filtroFinDesde || filtroFinHasta) && (
-                <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setFiltroFinDesde(""); setFiltroFinHasta(""); }}>✕ Limpiar</button>
+              <span style={{ fontSize: 12, color: "#888" }}>Repartidor</span>
+              <select style={{ ...s.select, padding: "5px 8px" }} value={filtroRepartidor} onChange={e => setFiltroRepartidor(e.target.value)}>
+                <option value="">Todos</option>
+                {REPARTIDORES.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+              {(filtroFinDesde || filtroFinHasta || filtroRepartidor) && (
+                <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setFiltroFinDesde(""); setFiltroFinHasta(""); setFiltroRepartidor(""); }}>✕ Limpiar</button>
               )}
             </div>
           </div>
@@ -1129,8 +1017,8 @@ if (vista === "reporteVentas") {
                     </div>
                     <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                       <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>
-  🖨️ Imprimir comanda {comandasImpresas[p.id] ? <span style={{ marginLeft: 4, background: "#f39c12", color: "#fff", borderRadius: 99, fontSize: 10, padding: "1px 6px", fontWeight: 700 }}>{comandasImpresas[p.id]}</span> : null}
-</button>
+                        🖨️ Imprimir comanda {comandasImpresas[p.id] ? <span style={{ marginLeft: 4, background: "#f39c12", color: "#fff", borderRadius: 99, fontSize: 10, padding: "1px 6px", fontWeight: 700 }}>{comandasImpresas[p.id]}</span> : null}
+                      </button>
                       <BtnFacturar p={p} version={facturaVersion} onAbrir={setFacturando} />
                     </div>
                   </div>
@@ -1298,18 +1186,12 @@ if (vista === "reporteVentas") {
                 const abierto = expandido === p.id;
                 const ec = ESTADO_COLORS[estadoActual];
                 const ahora = new Date();
-const fechaPedido = p.fechaDisplay || "";
-const franjaMatch = (p.franjaDisplay || "").match(/(\d{1,2}):(\d{2})/);
-const horaInicio = franjaMatch
-  ? new Date(`${fechaPedido}T${String(franjaMatch[1]).padStart(2,"0")}:${franjaMatch[2]}:00`)
-  : null;
-  if (horaInicio) console.log(p.numero, "horaInicio:", horaInicio, "minutosVencido:", Math.floor((new Date() - horaInicio) / 60000));
-const minutosVencido = horaInicio ? Math.floor((ahora - horaInicio) / 60000) : 0;
-const estaVencido = horaInicio && ahora >= horaInicio &&
-  fechaPedido === HOY &&
-  estadoActual !== "En camino" &&
-  estadoActual !== "Entregado";
-const estaMuyVencido = estaVencido && minutosVencido >= 120;
+                const fechaPedido = p.fechaDisplay || "";
+                const franjaMatch = (p.franjaDisplay || "").match(/(\d{1,2}):(\d{2})/);
+                const horaInicio = franjaMatch ? new Date(`${fechaPedido}T${String(franjaMatch[1]).padStart(2,"0")}:${franjaMatch[2]}:00`) : null;
+                const minutosVencido = horaInicio ? Math.floor((ahora - horaInicio) / 60000) : 0;
+                const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && estadoActual !== "En camino" && estadoActual !== "Entregado";
+                const estaMuyVencido = estaVencido && minutosVencido >= 120;
                 return (
                   <div key={p.id} style={{ ...s.fila, ...(abierto ? s.filaAbierta : {}), ...(estaMuyVencido ? { background: "#f5b7b1", borderLeft: "4px solid #922b21" } : estaVencido ? { background: "#fdecea", borderLeft: "4px solid #c0392b" } : {}) }}>
                     <div style={s.filaTop} onClick={() => toggleExpandido(p.id)}>
@@ -1360,8 +1242,8 @@ const estaMuyVencido = estaVencido && minutosVencido >= 120;
                         </div>
                         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                           <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>
-  🖨️ Imprimir comanda {comandasImpresas[p.id] ? <span style={{ marginLeft: 4, background: "#f39c12", color: "#fff", borderRadius: 99, fontSize: 10, padding: "1px 6px", fontWeight: 700 }}>{comandasImpresas[p.id]}</span> : null}
-</button>
+                            🖨️ Imprimir comanda {comandasImpresas[p.id] ? <span style={{ marginLeft: 4, background: "#f39c12", color: "#fff", borderRadius: 99, fontSize: 10, padding: "1px 6px", fontWeight: 700 }}>{comandasImpresas[p.id]}</span> : null}
+                          </button>
                           <BtnFacturar p={p} version={facturaVersion} onAbrir={setFacturando} />
                         </div>
                       </div>
