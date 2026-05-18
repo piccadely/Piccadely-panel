@@ -562,6 +562,7 @@ export default function App() {
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [filtroFinDesde, setFiltroFinDesde] = useState("");
   const [filtroFinHasta, setFiltroFinHasta] = useState("");
+  const [filtroRepartidor, setFiltroRepartidor] = useState("");
   const [facturando, setFacturando] = useState(null);
   const [facturaVersion, setFacturaVersion] = useState(0);
   const menuRef = useRef(null);
@@ -574,7 +575,7 @@ export default function App() {
   const [carrito, setCarrito] = useState([]);
   const [form, setForm] = useState(FORM_INICIAL);
   const [pedidoCreado, setPedidoCreado] = useState(false);
-
+const [comandasImpresas, setComandasImpresas] = useState({});
   useEffect(() => {
     Promise.all([
       axios.get(`${API}/api/orders`),
@@ -775,6 +776,7 @@ export default function App() {
   });
 
   function imprimirComanda(p) {
+    setComandasImpresas(prev => ({ ...prev, [p.id]: (prev[p.id] || 0) + 1 }));
     const ventana = window.open("", "_blank", "width=400,height=600");
     const estadoActual = pedidosLocales[p.id]?.estado || "Por empaquetar";
     const repartidorActual = pedidosLocales[p.id]?.repartidor || "Sin asignar";
@@ -863,11 +865,12 @@ export default function App() {
 
   if (vista === "finalizados") {
     const finalizadosOrdenados = [...pedidosFinalizados]
-      .filter(p => {
-        if (filtroFinDesde && p.fechaDisplay && p.fechaDisplay < filtroFinDesde) return false;
-        if (filtroFinHasta && p.fechaDisplay && p.fechaDisplay > filtroFinHasta) return false;
-        return true;
-      })
+  .filter(p => {
+    if (filtroFinDesde && p.fechaDisplay && p.fechaDisplay < filtroFinDesde) return false;
+    if (filtroFinHasta && p.fechaDisplay && p.fechaDisplay > filtroFinHasta) return false;
+    if (filtroRepartidor && (pedidosLocales[p.id]?.repartidor || "Sin asignar") !== filtroRepartidor) return false;
+    return true;
+  })
       .sort((a, b) => {
         if (!a.fechaDisplay) return 1;
         if (!b.fechaDisplay) return -1;
@@ -936,7 +939,9 @@ export default function App() {
                       <div style={s.detalleBloque}><div style={s.detalleLabel}>Repartidor</div><div style={s.detalleVal}>{pedidosLocales[p.id]?.repartidor || "Sin asignar"}</div></div>
                     </div>
                     <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                      <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>🖨️ Imprimir comanda</button>
+                      <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>
+  🖨️ Imprimir comanda {comandasImpresas[p.id] ? <span style={{ marginLeft: 4, background: "#f39c12", color: "#fff", borderRadius: 99, fontSize: 10, padding: "1px 6px", fontWeight: 700 }}>{comandasImpresas[p.id]}</span> : null}
+</button>
                       <BtnFacturar p={p} version={facturaVersion} onAbrir={setFacturando} />
                     </div>
                   </div>
