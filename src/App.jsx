@@ -379,7 +379,7 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
     setMontoCierre(""); await cargarEstado(); await cargarHistorial(); setGuardando(false);
   }
 
-  const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado);
+  const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado && (p.estado !== "Anulado"));
   const ventasPorMedio = MEDIOS_PAGO.reduce((acc, m) => { acc[m] = ventasLocal.filter(p => p.medioPago === m); return acc; }, {});
   const totalVentas = sumar(ventasLocal);
   const totalEfectivo = sumar(ventasPorMedio["Efectivo"] || []);
@@ -588,6 +588,7 @@ export default function App() {
   const [rvHasta, setRvHasta] = useState("");
   const [rvMedio, setRvMedio] = useState("");
   const [rvRepartidor, setRvRepartidor] = useState("");
+  const [tabFin, setTabFin] = useState("entregados");
   const menuRef = useRef(null);
 
   const [productos, setProductos] = useState([]);
@@ -675,12 +676,16 @@ export default function App() {
 
   const pedidosActivos = pedidosProcesados.filter(p => {
     const estado = pedidosLocales[p.id]?.estado || p.estado;
-    if (estado === "Entregado") return false;
+    if (estado === "Entregado" || estado === "Anulado") return false;
     if (!p.fechaDisplay) return true;
     return p.fechaDisplay >= HOY;
   });
 
-  const pedidosFinalizados = pedidosProcesados.filter(p => (pedidosLocales[p.id]?.estado || p.estado) === "Entregado");
+  const pedidosFinalizados = pedidosProcesados.filter(p => {
+    const est = pedidosLocales[p.id]?.estado || p.estado;
+    return est === "Entregado" || est === "Anulado";
+  });
+
   const fechas = [...new Set(pedidosActivos.filter(p => p.fechaDisplay).map(p => p.fechaDisplay))].sort();
   const zonas = [...new Set(pedidosActivos.map(p => p.zona))].sort();
 
@@ -710,6 +715,23 @@ export default function App() {
       guardarEstadoDB(id, nuevo[id]); return nuevo;
     });
   }
+
+  async function anularPedido(p, e) {
+    e.stopPropagation();
+    try {
+      const factRes = await axios.get(`${API}/api/facturas/${p.id}`);
+      const activas = factRes.data.filter(f => !f.tipo.includes("NOTA DE CREDITO"));
+      const ncs = factRes.data.filter(f => f.tipo.includes("NOTA DE CREDITO"));
+      const tieneFactura = activas.length > ncs.length;
+      if (tieneFactura) {
+        alert("⚠️ Este pedido tiene una factura activa. Primero anulá la factura con nota de crédito desde el botón 🧾 Facturar.");
+        return;
+      }
+    } catch(err) { console.error(err); }
+    if (!window.confirm(`¿Seguro que querés anular el pedido ${p.numero}?`)) return;
+    actualizarLocal(p.id, { estado: "Anulado" });
+  }
+
   function cambiarRepartidor(id, valor) { actualizarLocal(id, { repartidor: valor }); }
   function cambiarTab(id, valor) { actualizarLocal(id, { tabManual: valor }); }
   function cambiarFecha(id, valor) { actualizarLocal(id, { fechaManual: valor }); }
@@ -843,13 +865,15 @@ export default function App() {
   }
 
   if (vista === "reporteVentas") {
-  const ventasFiltradas = pedidosFinalizados.filter(p => {
-  if (rvDesde && p.fechaDisplay && p.fechaDisplay < rvDesde) return false;
-  if (rvHasta && p.fechaDisplay && p.fechaDisplay > rvHasta) return false;
-  if (rvMedio && p.medioPago !== rvMedio) return false;
-  if (rvRepartidor && (pedidosLocales[p.id]?.repartidor || "Sin asignar") !== rvRepartidor) return false;
-  return true;
-}).sort((a, b) => {
+    const ventasFiltradas = pedidosFinalizados.filter(p => {
+      const est = pedidosLocales[p.id]?.estado || p.estado;
+      if (est === "Anulado") return false;
+      if (rvDesde && p.fechaDisplay && p.fechaDisplay < rvDesde) return false;
+      if (rvHasta && p.fechaDisplay && p.fechaDisplay > rvHasta) return false;
+      if (rvMedio && p.medioPago !== rvMedio) return false;
+      if (rvRepartidor && (pedidosLocales[p.id]?.repartidor || "Sin asignar") !== rvRepartidor) return false;
+      return true;
+    }).sort((a, b) => {
       if (!a.fechaDisplay) return 1;
       if (!b.fechaDisplay) return -1;
       return b.fechaDisplay.localeCompare(a.fechaDisplay);
@@ -873,18 +897,18 @@ export default function App() {
               <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rvDesde} onChange={e => setRvDesde(e.target.value)} />
               <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
               <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rvHasta} onChange={e => setRvHasta(e.target.value)} />
-             <select style={{ ...s.select, padding: "5px 8px" }} value={rvMedio} onChange={e => setRvMedio(e.target.value)}>
-  <option value="">Todos los medios</option>
-  {MEDIOS_PAGO.map(m => <option key={m} value={m}>{m}</option>)}
-</select>
-<select style={{ ...s.select, padding: "5px 8px" }} value={rvRepartidor} onChange={e => setRvRepartidor(e.target.value)}>
-  <option value="">Todos los repartidores</option>
-  {REPARTIDORES.map(r => <option key={r} value={r}>{r}</option>)}
-</select>
-{(rvDesde || rvHasta || rvMedio || rvRepartidor) && (
-  <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }}
-    onClick={() => { setRvDesde(""); setRvHasta(""); setRvMedio(""); setRvRepartidor(""); }}>✕ Limpiar</button>
-)}
+              <select style={{ ...s.select, padding: "5px 8px" }} value={rvMedio} onChange={e => setRvMedio(e.target.value)}>
+                <option value="">Todos los medios</option>
+                {MEDIOS_PAGO.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+              <select style={{ ...s.select, padding: "5px 8px" }} value={rvRepartidor} onChange={e => setRvRepartidor(e.target.value)}>
+                <option value="">Todos los repartidores</option>
+                {REPARTIDORES.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+              {(rvDesde || rvHasta || rvMedio || rvRepartidor) && (
+                <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }}
+                  onClick={() => { setRvDesde(""); setRvHasta(""); setRvMedio(""); setRvRepartidor(""); }}>✕ Limpiar</button>
+              )}
             </div>
           </div>
 
@@ -956,24 +980,25 @@ export default function App() {
         return b.fechaDisplay.localeCompare(a.fechaDisplay);
       });
 
+    const entregados = finalizadosOrdenados.filter(p => (pedidosLocales[p.id]?.estado || p.estado) === "Entregado");
+    const anulados = finalizadosOrdenados.filter(p => (pedidosLocales[p.id]?.estado || p.estado) === "Anulado");
+    const listaMostrada = tabFin === "entregados" ? entregados : anulados;
+
     return (
       <div style={s.wrap}>
         <Header />
         {facturando && <ModalFacturacion p={facturando} onCerrar={cerrarModal} />}
         <div style={{ padding: "24px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
             <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
-            <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>
-              📋 Pedidos finalizados <span style={{ fontSize: 13, color: "#aaa", fontWeight: 400 }}>({finalizadosOrdenados.length})</span>
-            </h2>
+            <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>📋 Pedidos finalizados</h2>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
               <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
               <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={filtroFinDesde} onChange={e => setFiltroFinDesde(e.target.value)} />
               <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
               <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={filtroFinHasta} onChange={e => setFiltroFinHasta(e.target.value)} />
-              <span style={{ fontSize: 12, color: "#888" }}>Repartidor</span>
               <select style={{ ...s.select, padding: "5px 8px" }} value={filtroRepartidor} onChange={e => setFiltroRepartidor(e.target.value)}>
-                <option value="">Todos</option>
+                <option value="">Todos los repartidores</option>
                 {REPARTIDORES.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
               {(filtroFinDesde || filtroFinHasta || filtroRepartidor) && (
@@ -981,6 +1006,25 @@ export default function App() {
               )}
             </div>
           </div>
+
+          {/* Tabs entregados / anulados */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            <button onClick={() => setTabFin("entregados")}
+              style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer",
+                borderColor: tabFin === "entregados" ? "#2a7a4b" : "#ddd",
+                background: tabFin === "entregados" ? "#2a7a4b" : "#fff",
+                color: tabFin === "entregados" ? "#fff" : "#555", fontWeight: tabFin === "entregados" ? 600 : 400 }}>
+              ✅ Entregados ({entregados.length})
+            </button>
+            <button onClick={() => setTabFin("anulados")}
+              style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer",
+                borderColor: tabFin === "anulados" ? "#c0392b" : "#ddd",
+                background: tabFin === "anulados" ? "#c0392b" : "#fff",
+                color: tabFin === "anulados" ? "#fff" : "#555", fontWeight: tabFin === "anulados" ? 600 : 400 }}>
+              🚫 Anulados ({anulados.length})
+            </button>
+          </div>
+
           <div style={s.lista}>
             <div style={s.cabecera}>
               <span style={{ ...s.col, flex: 0.6 }}>Nº</span>
@@ -993,8 +1037,8 @@ export default function App() {
               <span style={{ ...s.col, flex: 0.8, textAlign: "center" }}>Fecha</span>
               <span style={{ ...s.col, flex: 0.7, textAlign: "center" }}>Local</span>
             </div>
-            {finalizadosOrdenados.length === 0 && <div style={s.empty}>No hay pedidos finalizados en ese rango.</div>}
-            {finalizadosOrdenados.map(p => (
+            {listaMostrada.length === 0 && <div style={s.empty}>No hay pedidos en esta sección.</div>}
+            {listaMostrada.map(p => (
               <div key={p.id} style={{ ...s.fila, ...(expandido === p.id ? s.filaAbierta : {}) }}>
                 <div style={s.filaTop} onClick={() => toggleExpandido(p.id)}>
                   <span style={{ ...s.cel, flex: 0.6 }}><span style={s.numero}>{p.numero}</span></span>
@@ -1191,7 +1235,7 @@ export default function App() {
                 const franjaManual = pedidosLocales[p.id]?.franjaManual || p.franja || "";
                 const cobrar = pedidosLocales[p.id]?.cobrar;
                 const abierto = expandido === p.id;
-                const ec = ESTADO_COLORS[estadoActual];
+                const ec = ESTADO_COLORS[estadoActual] || { bg: "#f0f0e8", text: "#555" };
                 const ahora = new Date();
                 const fechaPedido = p.fechaDisplay || "";
                 const franjaMatch = (p.franjaDisplay || "").match(/(\d{1,2}):(\d{2})/);
@@ -1247,11 +1291,15 @@ export default function App() {
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Horario de entrega</div><input type="text" placeholder="ej: 14:00 – 16:00" style={s.inputField} value={franjaManual} onChange={e => cambiarFranja(p.id, e.target.value)} onClick={e => e.stopPropagation()} /></div>
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Mover a sección</div><select style={s.inputField} value={tabActual} onChange={e => cambiarTab(p.id, e.target.value)}>{TABS.filter(t => t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}</select></div>
                         </div>
-                        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                        <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
                           <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>
                             🖨️ Imprimir comanda {comandasImpresas[p.id] ? <span style={{ marginLeft: 4, background: "#f39c12", color: "#fff", borderRadius: 99, fontSize: 10, padding: "1px 6px", fontWeight: 700 }}>{comandasImpresas[p.id]}</span> : null}
                           </button>
                           <BtnFacturar p={p} version={facturaVersion} onAbrir={setFacturando} />
+                          <button style={{ ...s.btnImprimir, borderColor: "#c0392b", color: "#c0392b", background: "#fdecea" }}
+                            onClick={e => anularPedido(p, e)}>
+                            🚫 Anular pedido
+                          </button>
                         </div>
                       </div>
                     )}
