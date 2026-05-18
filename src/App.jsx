@@ -587,6 +587,7 @@ export default function App() {
   const [rvDesde, setRvDesde] = useState("");
   const [rvHasta, setRvHasta] = useState("");
   const [rvMedio, setRvMedio] = useState("");
+  const [rvRepartidor, setRvRepartidor] = useState("");
   const menuRef = useRef(null);
 
   const [productos, setProductos] = useState([]);
@@ -842,12 +843,13 @@ export default function App() {
   }
 
   if (vista === "reporteVentas") {
-    const ventasFiltradas = pedidosFinalizados.filter(p => {
-      if (rvDesde && p.fechaDisplay && p.fechaDisplay < rvDesde) return false;
-      if (rvHasta && p.fechaDisplay && p.fechaDisplay > rvHasta) return false;
-      if (rvMedio && p.medioPago !== rvMedio) return false;
-      return true;
-    }).sort((a, b) => {
+  const ventasFiltradas = pedidosFinalizados.filter(p => {
+  if (rvDesde && p.fechaDisplay && p.fechaDisplay < rvDesde) return false;
+  if (rvHasta && p.fechaDisplay && p.fechaDisplay > rvHasta) return false;
+  if (rvMedio && p.medioPago !== rvMedio) return false;
+  if (rvRepartidor && (pedidosLocales[p.id]?.repartidor || "Sin asignar") !== rvRepartidor) return false;
+  return true;
+}).sort((a, b) => {
       if (!a.fechaDisplay) return 1;
       if (!b.fechaDisplay) return -1;
       return b.fechaDisplay.localeCompare(a.fechaDisplay);
@@ -871,13 +873,18 @@ export default function App() {
               <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rvDesde} onChange={e => setRvDesde(e.target.value)} />
               <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
               <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rvHasta} onChange={e => setRvHasta(e.target.value)} />
-              <select style={{ ...s.select, padding: "5px 8px" }} value={rvMedio} onChange={e => setRvMedio(e.target.value)}>
-                <option value="">Todos los medios</option>
-                {MEDIOS_PAGO.map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
-              {(rvDesde || rvHasta || rvMedio) && (
-                <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setRvDesde(""); setRvHasta(""); setRvMedio(""); }}>✕ Limpiar</button>
-              )}
+             <select style={{ ...s.select, padding: "5px 8px" }} value={rvMedio} onChange={e => setRvMedio(e.target.value)}>
+  <option value="">Todos los medios</option>
+  {MEDIOS_PAGO.map(m => <option key={m} value={m}>{m}</option>)}
+</select>
+<select style={{ ...s.select, padding: "5px 8px" }} value={rvRepartidor} onChange={e => setRvRepartidor(e.target.value)}>
+  <option value="">Todos los repartidores</option>
+  {REPARTIDORES.map(r => <option key={r} value={r}>{r}</option>)}
+</select>
+{(rvDesde || rvHasta || rvMedio || rvRepartidor) && (
+  <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }}
+    onClick={() => { setRvDesde(""); setRvHasta(""); setRvMedio(""); setRvRepartidor(""); }}>✕ Limpiar</button>
+)}
             </div>
           </div>
 
