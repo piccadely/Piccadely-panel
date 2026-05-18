@@ -701,6 +701,63 @@ app.post("/api/webhooks/tiendanube", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// ============================
+// ADMIN WEBHOOKS TIENDA NUBE
+// ============================
+
+const WEBHOOK_URL = "https://piccadely-panel-production.up.railway.app/api/webhooks/tiendanube";
+const WEBHOOK_EVENTS = [
+  "order/created",
+  "order/paid",
+  "order/updated",
+  "order/cancelled",
+  "order/voided"
+];
+
+app.get("/api/admin/webhooks", async (req, res) => {
+  try {
+    const response = await axios.get(
+      `https://api.tiendanube.com/2025-03/${STORE_ID}/webhooks`,
+      { headers }
+    );
+    res.json(response.data);
+  } catch (err) {
+    res.status(500).json({ error: err.response?.data || err.message });
+  }
+});
+
+app.post("/api/admin/webhooks/setup", async (req, res) => {
+  try {
+    const existing = await axios.get(
+      `https://api.tiendanube.com/2025-03/${STORE_ID}/webhooks`,
+      { headers }
+    );
+    const existingHooks = existing.data || [];
+    const created = [];
+    const skipped = [];
+
+    for (const event of WEBHOOK_EVENTS) {
+      const exists = existingHooks.find(h => h.event === event && h.url === WEBHOOK_URL);
+      if (exists) {
+        skipped.push({ event, id: exists.id });
+        continue;
+      }
+      try {
+        const response = await axios.post(
+          `https://api.tiendanube.com/2025-03/${STORE_ID}/webhooks`,
+          { event, url: WEBHOOK_URL },
+          { headers: { ...headers, "Content-Type": "application/json" } }
+        );
+        created.push({ event, id: response.data.id });
+      } catch (err) {
+        created.push({ event, error: err.response?.data || err.message });
+      }
+    }
+    res.json({ ok: true, created, skipped });
+  } catch (err) {
+    res.status(500).json({ error: err.response?.data || err.message });
+  }
+});
 app.listen(process.env.PORT || 3001, () => {
   console.log("Servidor corriendo");
 });
