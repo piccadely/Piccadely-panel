@@ -109,14 +109,22 @@ function fechaVencimiento(dias = 30) {
   return `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;
 }
 
-// TIENDA NUBE
+// TIENDA NUBE - Lee desde Neon (mantenido fresh por webhooks + backfill)
+// Si Neon está vacío, hace fallback a la API de TN como red de seguridad
 app.get("/api/orders", async (req, res) => {
   try {
-    const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/orders`, { headers });
-    res.json(r.data);
+    const result = await pool.query(
+      "SELECT data FROM pedidos_tn ORDER BY tn_created_at DESC LIMIT 200"
+    );
+    if (result.rows.length === 0) {
+      // Fallback: si Neon está vacío, traer de TN
+      const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/orders`, { headers });
+      return res.json(r.data);
+    }
+    res.json(result.rows.map(r => r.data));
   } catch (err) {
-    console.error(err.response?.data || err.message);
-    res.status(500).json({ error: "Error conectando con Tienda Nube" });
+    console.error("Error /api/orders:", err.response?.data || err.message);
+    res.status(500).json({ error: "Error trayendo pedidos" });
   }
 });
 
@@ -709,7 +717,61 @@ app.post("/api/webhooks/tiendanube", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// ============================
+// BACKFILL: importar todos los pedidos de TN a Neon
+// ============================
+app.post("/api/admin/backfill-orders", async (req, res) => {
+  try {
+    let page = 1;
+    let totalSynced = 0;
+    let totalPages = 0;
 
+    while (true) {
+      const response = await axios.get(
+        `https://api.tiendanube.com/2025-03/${STORE_ID}/orders?per_page=50&page=${page}`,
+        { headers }
+      );
+      const orders = response.data;
+      if (!orders || orders.length === 0) break;
+
+      for (const o of orders) {
+        await pool.query(`
+          INSERT INTO pedidos_tn
+            (id, store_id, numero, estado_tn, payment_status, total,
+             contact_email, contact_name, contact_phone, data, tn_created_at, updated_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
+          ON CONFLICT (id) DO UPDATE SET
+            numero = EXCLUDED.numero,
+            estado_tn = EXCLUDED.estado_tn,
+            payment_status = EXCLUDED.payment_status,
+            total = EXCLUDED.total,
+            contact_email = EXCLUDED.contact_email,
+            contact_name = EXCLUDED.contact_name,
+            contact_phone = EXCLUDED.contact_phone,
+            data = EXCLUDED.data,
+            updated_at = NOW()
+        `, [
+          o.id, String(o.store_id || ""), o.number || null, o.status || null,
+          o.payment_status || null, parseFloat(o.total) || 0,
+          o.contact_email || null, o.contact_name || null, o.contact_phone || null,
+          JSON.stringify(o), o.created_at || null
+        ]);
+        totalSynced++;
+      }
+
+      totalPages++;
+      console.log(`Backfill: página ${page} procesada, ${orders.length} pedidos`);
+      if (orders.length < 50) break; // última página
+      page++;
+      if (totalPages > 100) break; // safety: máx 5000 pedidos
+    }
+
+    res.json({ ok: true, totalSynced, totalPages });
+  } catch (err) {
+    console.error("Backfill error:", err.response?.data || err.message);
+    res.status(500).json({ error: err.response?.data || err.message });
+  }
+});
 // ============================
 // ADMIN WEBHOOKS TIENDA NUBE
 // ============================
