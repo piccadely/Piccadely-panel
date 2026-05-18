@@ -382,6 +382,7 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
   const [historial, setHistorial] = useState([]);
   const [loadingHistorial, setLoadingHistorial] = useState(false);
   const [diaExpandido, setDiaExpandido] = useState(null);
+  const [filtroHistorial, setFiltroHistorial] = useState("");
 
   async function cargarEstado() {
     setLoadingCaja(true);
@@ -942,8 +943,6 @@ const [comandasImpresas, setComandasImpresas] = useState({});
   );
 
   if (vista === "caja") {
-    const [filtroHistorial, setFiltroHistorial] = useState("");
-
     return (
       <div style={s.wrap}>
         <Header />
