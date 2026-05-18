@@ -922,6 +922,7 @@ const [comandasImpresas, setComandasImpresas] = useState({});
             <div style={s.dropdown}>
               <button style={s.dropItem} onClick={() => { setVista("caja"); setMenuAbierto(false); }}>💰 Caja</button>
               <button style={s.dropItem} onClick={() => { setVista("finalizados"); setMenuAbierto(false); }}>📋 Pedidos finalizados</button>
+              <button style={s.dropItem} onClick={() => { setVista("reporteVentas"); setMenuAbierto(false); }}>📊 Reporte de ventas</button>
               <button style={{ ...s.dropItem, borderTop: "1px solid #eee", color: "#888" }} onClick={() => { setVista("panel"); setMenuAbierto(false); }}>← Volver al panel</button>
             </div>
           )}
@@ -950,7 +951,107 @@ const [comandasImpresas, setComandasImpresas] = useState({});
       </div>
     );
   }
+if (vista === "reporteVentas") {
+  const [rvDesde, setRvDesde] = useState("");
+  const [rvHasta, setRvHasta] = useState("");
+  const [rvMedio, setRvMedio] = useState("");
 
+  const ventasFiltradas = pedidosFinalizados.filter(p => {
+    if (rvDesde && p.fechaDisplay && p.fechaDisplay < rvDesde) return false;
+    if (rvHasta && p.fechaDisplay && p.fechaDisplay > rvHasta) return false;
+    if (rvMedio && p.medioPago !== rvMedio) return false;
+    return true;
+  }).sort((a, b) => {
+    if (!a.fechaDisplay) return 1;
+    if (!b.fechaDisplay) return -1;
+    return b.fechaDisplay.localeCompare(a.fechaDisplay);
+  });
+
+  const totalVentas = ventasFiltradas.reduce((acc, p) => acc + p.totalNum, 0);
+  const porMedio = MEDIOS_PAGO.reduce((acc, m) => {
+    acc[m] = ventasFiltradas.filter(p => p.medioPago === m).reduce((a, p) => a + p.totalNum, 0);
+    return acc;
+  }, {});
+
+  return (
+    <div style={s.wrap}>
+      <Header />
+      {facturando && <ModalFacturacion p={facturando} onCerrar={cerrarModal} />}
+      <div style={{ padding: 24 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+          <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
+          <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>📊 Reporte de ventas</h2>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
+            <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rvDesde} onChange={e => setRvDesde(e.target.value)} />
+            <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
+            <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rvHasta} onChange={e => setRvHasta(e.target.value)} />
+            <select style={{ ...s.select, padding: "5px 8px" }} value={rvMedio} onChange={e => setRvMedio(e.target.value)}>
+              <option value="">Todos los medios</option>
+              {MEDIOS_PAGO.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            {(rvDesde || rvHasta || rvMedio) && (
+              <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }}
+                onClick={() => { setRvDesde(""); setRvHasta(""); setRvMedio(""); }}>✕ Limpiar</button>
+            )}
+          </div>
+        </div>
+
+        {/* Resumen por medio de pago */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
+          {MEDIOS_PAGO.filter(m => porMedio[m] > 0).map(m => (
+            <div key={m} style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
+              <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>{m}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#2a7a4b" }}>{fmt(porMedio[m])}</div>
+              <div style={{ fontSize: 11, color: "#aaa" }}>{ventasFiltradas.filter(p => p.medioPago === m).length} pedidos</div>
+            </div>
+          ))}
+          <div style={{ background: "#2a7a4b", border: "1px solid #2a7a4b", borderRadius: 8, padding: "12px 14px" }}>
+            <div style={{ fontSize: 11, color: "#a8d5b5", marginBottom: 4 }}>TOTAL</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>{fmt(totalVentas)}</div>
+            <div style={{ fontSize: 11, color: "#a8d5b5" }}>{ventasFiltradas.length} pedidos</div>
+          </div>
+        </div>
+
+        {/* Lista de pedidos */}
+        <div style={s.lista}>
+          <div style={s.cabecera}>
+            <span style={{ ...s.col, flex: 0.6 }}>Nº</span>
+            <span style={{ ...s.col, flex: 1.5 }}>Cliente</span>
+            <span style={{ ...s.col, flex: 1 }}>Productos</span>
+            <span style={{ ...s.col, flex: 0.8 }}>Medio de pago</span>
+            <span style={{ ...s.col, flex: 0.7, textAlign: "center" }}>Fecha</span>
+            <span style={{ ...s.col, flex: 0.7, textAlign: "center" }}>Local</span>
+            <span style={{ ...s.col, flex: 0.7, textAlign: "right" }}>Monto</span>
+          </div>
+          {ventasFiltradas.length === 0 && <div style={s.empty}>No hay ventas en ese rango.</div>}
+          {ventasFiltradas.map(p => (
+            <div key={p.id} style={{ ...s.fila }}>
+              <div style={{ ...s.filaTop, cursor: "default" }}>
+                <span style={{ ...s.cel, flex: 0.6 }}><span style={s.numero}>{p.numero}</span></span>
+                <span style={{ ...s.cel, flex: 1.5 }}>{p.cliente}</span>
+                <span style={{ ...s.cel, flex: 1, color: "#666" }}>{p.productos}</span>
+                <span style={{ ...s.cel, flex: 0.8 }}>{p.medioPago}</span>
+                <span style={{ ...s.cel, flex: 0.7, textAlign: "center", color: "#555" }}>
+                  {p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"short"}) : "—"}
+                </span>
+                <span style={{ ...s.cel, flex: 0.7, textAlign: "center" }}>
+                  <span style={{ fontSize: 11, background: "#eaf3de", color: "#27500a", padding: "2px 7px", borderRadius: 4 }}>{p.local}</span>
+                </span>
+                <span style={{ ...s.cel, flex: 0.7, textAlign: "right", fontWeight: 600 }}>{p.total}</span>
+              </div>
+            </div>
+          ))}
+          {ventasFiltradas.length > 0 && (
+            <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#2a7a4b" }}>
+              Total: {fmt(totalVentas)}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
   if (vista === "finalizados") {
     const finalizadosOrdenados = [...pedidosFinalizados]
   .filter(p => {
