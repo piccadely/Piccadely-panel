@@ -7,6 +7,7 @@ import crypto from "crypto";
 const { Pool } = pg;
 
 const app = express();
+app.use(cors({ origin: "*" }));
 app.use(express.json({
   verify: (req, res, buf) => { req.rawBody = buf; }
 }));
@@ -71,32 +72,32 @@ async function initDB() {
       updated_at TIMESTAMP DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS pedidos_tn (
-  id BIGINT PRIMARY KEY,
-  store_id TEXT,
-  numero TEXT,
-  estado_tn TEXT,
-  payment_status TEXT,
-  total NUMERIC,
-  contact_email TEXT,
-  contact_name TEXT,
-  contact_phone TEXT,
-  data JSONB,
-  tn_created_at TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS webhook_events (
-  id SERIAL PRIMARY KEY,
-  event_type TEXT NOT NULL,
-  resource_id BIGINT NOT NULL,
-  signature TEXT NOT NULL,
-  processed_at TIMESTAMP DEFAULT NOW(),
-  UNIQUE(event_type, resource_id, signature)
-);
+      id BIGINT PRIMARY KEY,
+      store_id TEXT,
+      numero TEXT,
+      estado_tn TEXT,
+      payment_status TEXT,
+      total NUMERIC,
+      contact_email TEXT,
+      contact_name TEXT,
+      contact_phone TEXT,
+      data JSONB,
+      tn_created_at TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS webhook_events (
+      id SERIAL PRIMARY KEY,
+      event_type TEXT NOT NULL,
+      resource_id BIGINT NOT NULL,
+      signature TEXT NOT NULL,
+      processed_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(event_type, resource_id, signature)
+    );
   `);
   console.log("DB inicializada");
 }
 initDB().catch(console.error);
+
 function fechaHoy() {
   const hoy = new Date();
   return `${String(hoy.getDate()).padStart(2,"0")}/${String(hoy.getMonth()+1).padStart(2,"0")}/${hoy.getFullYear()}`;
@@ -289,6 +290,7 @@ function puntoVentaDesdeNumero(numero) {
   }
   return String(Number(TF_PDV));
 }
+
 app.get("/api/facturas/:pedidoId", async (req, res) => {
   const { pedidoId } = req.params;
   try {
@@ -302,6 +304,7 @@ app.get("/api/facturas/:pedidoId", async (req, res) => {
     res.status(500).json({ error: "Error trayendo facturas" });
   }
 });
+
 app.post("/api/facturar", async (req, res) => {
   const { pedidoId, tipo, cliente, documentoTipo, documentoNro, razonSocial, domicilio, email, total, productos } = req.body;
 
@@ -321,7 +324,7 @@ app.post("/api/facturar", async (req, res) => {
   if (!totalNum || totalNum <= 0) {
     return res.json({ ok: false, error: "Total inválido: " + total });
   }
-// Bloqueo de duplicados en backend
+  // Bloqueo de duplicados en backend
   try {
     const existentes = await pool.query(
       "SELECT * FROM facturas WHERE pedido_id=$1 ORDER BY created_at ASC",
@@ -435,6 +438,7 @@ app.post("/api/facturar", async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+
 app.post("/api/nota-credito", async (req, res) => {
   const { facturaId, pedidoId } = req.body;
 
@@ -551,6 +555,7 @@ app.post("/api/nota-credito", async (req, res) => {
     res.status(500).json({ ok: false, error: err.response?.data || err.message });
   }
 });
+
 app.get("/api/caja/historial/:local", async (req, res) => {
   const { local } = req.params;
   try {
@@ -572,6 +577,7 @@ app.get("/api/caja/historial/:local", async (req, res) => {
     res.status(500).json({ error: "Error trayendo historial" });
   }
 });
+
 app.post("/api/pedidos/productos/:id", async (req, res) => {
   const { id } = req.params;
   const { productos, totalNum } = req.body;
@@ -588,6 +594,7 @@ app.post("/api/pedidos/productos/:id", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 app.get("/api/pedidos/productos/:id", async (req, res) => {
   const { id } = req.params;
   try {
@@ -597,6 +604,7 @@ app.get("/api/pedidos/productos/:id", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 // ============================
 // WEBHOOKS TIENDA NUBE
 // ============================
@@ -701,6 +709,7 @@ app.post("/api/webhooks/tiendanube", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 // ============================
 // ADMIN WEBHOOKS TIENDA NUBE
 // ============================
@@ -758,6 +767,7 @@ app.post("/api/admin/webhooks/setup", async (req, res) => {
     res.status(500).json({ error: err.response?.data || err.message });
   }
 });
+
 app.listen(process.env.PORT || 3001, () => {
   console.log("Servidor corriendo");
 });
