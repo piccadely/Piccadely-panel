@@ -1110,8 +1110,11 @@ const [comandasImpresas, setComandasImpresas] = useState({});
                 const ec = ESTADO_COLORS[estadoActual];
                 const ahora = new Date();
 const fechaPedido = p.fechaDisplay || "";
-const franjaMatch = (p.franjaDisplay || "").match(/(\d+):(\d+)/);
-const horaInicio = franjaMatch ? new Date(fechaPedido + "T" + franjaMatch[0] + ":00") : null;
+const franjaMatch = (p.franjaDisplay || "").match(/(\d{1,2}):(\d{2})/);
+const horaInicio = franjaMatch
+  ? new Date(`${fechaPedido}T${String(franjaMatch[1]).padStart(2,"0")}:${franjaMatch[2]}:00`)
+  : null;
+  if (horaInicio) console.log(p.numero, "horaInicio:", horaInicio, "minutosVencido:", Math.floor((new Date() - horaInicio) / 60000));
 const minutosVencido = horaInicio ? Math.floor((ahora - horaInicio) / 60000) : 0;
 const estaVencido = horaInicio && ahora >= horaInicio &&
   fechaPedido === HOY &&
