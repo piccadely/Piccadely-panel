@@ -788,6 +788,40 @@ export default function App() {
     }).catch(() => { setError("Error conectando con Tienda Nube"); setLoading(false); });
   }, []);
 
+  // Auto-refresh cada 30 segundos para que aparezcan pedidos nuevos sin recargar
+  useEffect(() => {
+    const refrescar = async () => {
+      try {
+        const [resOrders, resManuales] = await Promise.all([
+          axios.get(`${API}/api/orders`),
+          axios.get(`${API}/api/pedidos-manuales`),
+        ]);
+        setPedidosRaw(resOrders.data);
+        setPedidosManuales(resManuales.data);
+        // Agregar estado por defecto SOLO para pedidos nuevos, sin tocar los existentes
+        setPedidosLocales(prev => {
+          const nuevo = { ...prev };
+          resOrders.data.forEach(p => {
+            if (!nuevo[p.id]) {
+              nuevo[p.id] = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.payment_status !== "paid" };
+            }
+          });
+          resManuales.data.forEach(p => {
+            if (!nuevo[p.id]) {
+              nuevo[p.id] = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.cobrar };
+            }
+          });
+          return nuevo;
+        });
+      } catch (err) {
+        // Falla silenciosa para no romper la UI por un blip de red
+        console.warn("Auto-refresh falló:", err.message);
+      }
+    };
+    const interval = setInterval(refrescar, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     if (tab === "nuevo" && productos.length === 0) {
       setLoadingProductos(true);
