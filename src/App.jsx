@@ -592,7 +592,7 @@ export default function App() {
   const [rpDesde, setRpDesde] = useState("");
 const [rpHasta, setRpHasta] = useState("");
   const menuRef = useRef(null);
-
+const [prodFecha, setProdFecha] = useState(HOY);
   const [productos, setProductos] = useState([]);
   const [categorias, setCategorias] = useState([]);
   const [loadingProductos, setLoadingProductos] = useState(false);
@@ -843,6 +843,7 @@ const [rpHasta, setRpHasta] = useState("");
               <button style={s.dropItem} onClick={() => { setVista("finalizados"); setMenuAbierto(false); }}>📋 Pedidos finalizados</button>
               <button style={s.dropItem} onClick={() => { setVista("reporteVentas"); setMenuAbierto(false); }}>📊 Reporte de ventas</button>
               <button style={s.dropItem} onClick={() => { setVista("reporteProductos"); setMenuAbierto(false); }}>📦 Productos vendidos</button>
+             <button style={s.dropItem} onClick={() => { setVista("produccion"); setMenuAbierto(false); }}>🔧 Análisis de producción</button>
               <button style={{ ...s.dropItem, borderTop: "1px solid #eee", color: "#888" }} onClick={() => { setVista("panel"); setMenuAbierto(false); }}>← Volver al panel</button>
             </div>
           )}
@@ -1066,6 +1067,126 @@ if (vista === "reporteProductos") {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+if (vista === "produccion") {
+  const pedidosProduccion = pedidosProcesados.filter(p => {
+    const est = pedidosLocales[p.id]?.estado || p.estado;
+    if (est === "Entregado" || est === "Anulado") return false;
+    const fecha = p.fechaDisplay;
+    if (!fecha) return false;
+    return fecha === prodFecha;
+  });
+
+  const productosMap = {};
+  pedidosProduccion.forEach(p => {
+    const items = p.productos.split(", ");
+    items.forEach(item => {
+      const match = item.match(/^(.+) x(\d+)$/);
+      if (!match) return;
+      const nombre = match[1].trim();
+      const cantidad = Number(match[2]);
+      if (!productosMap[nombre]) productosMap[nombre] = { nombre, cantidad: 0, pedidos: [] };
+      productosMap[nombre].cantidad += cantidad;
+      productosMap[nombre].pedidos.push({ numero: p.numero, cliente: p.cliente, cantidad, franja: p.franjaDisplay });
+    });
+  });
+
+  const listaProduccion = Object.values(productosMap).sort((a, b) => b.cantidad - a.cantidad);
+  const totalUnidades = listaProduccion.reduce((a, p) => a + p.cantidad, 0);
+
+  // Fechas disponibles con pedidos activos
+  const fechasDisponibles = [...new Set(
+    pedidosProcesados
+      .filter(p => {
+        const est = pedidosLocales[p.id]?.estado || p.estado;
+        return est !== "Entregado" && est !== "Anulado" && p.fechaDisplay && p.fechaDisplay >= HOY;
+      })
+      .map(p => p.fechaDisplay)
+  )].sort();
+
+  return (
+    <div style={s.wrap}>
+      <Header />
+      <div style={{ padding: 24 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+          <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
+          <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>🔧 Análisis de producción</h2>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "#888" }}>Fecha</span>
+            <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={prodFecha} onChange={e => setProdFecha(e.target.value)} />
+            {fechasDisponibles.length > 0 && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {fechasDisponibles.map(f => (
+                  <button key={f} onClick={() => setProdFecha(f)}
+                    style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid", cursor: "pointer",
+                      borderColor: prodFecha === f ? "#2a7a4b" : "#ddd",
+                      background: prodFecha === f ? "#2a7a4b" : "#fff",
+                      color: prodFecha === f ? "#fff" : "#555" }}>
+                    {new Date(f + "T12:00:00").toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "short" })}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Resumen */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
+          <div style={{ background: "#2a7a4b", border: "1px solid #2a7a4b", borderRadius: 8, padding: "12px 14px" }}>
+            <div style={{ fontSize: 11, color: "#a8d5b5", marginBottom: 4 }}>UNIDADES A PRODUCIR</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: "#fff" }}>{totalUnidades}</div>
+            <div style={{ fontSize: 11, color: "#a8d5b5" }}>{pedidosProduccion.length} pedidos</div>
+          </div>
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
+            <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>PRODUCTOS DISTINTOS</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: "#333" }}>{listaProduccion.length}</div>
+          </div>
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
+            <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>FECHA</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#333", textTransform: "capitalize" }}>
+              {new Date(prodFecha + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}
+            </div>
+          </div>
+        </div>
+
+        {pedidosProduccion.length === 0 ? (
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 40, textAlign: "center", color: "#aaa", fontSize: 13 }}>
+            No hay pedidos activos para esta fecha.
+          </div>
+        ) : (
+          <div style={s.lista}>
+            <div style={s.cabecera}>
+              <span style={{ ...s.col, flex: 0.5, textAlign: "center" }}>#</span>
+              <span style={{ ...s.col, flex: 3 }}>Producto</span>
+              <span style={{ ...s.col, flex: 0.8, textAlign: "center" }}>Total</span>
+              <span style={{ ...s.col, flex: 3 }}>Detalle por pedido</span>
+            </div>
+            {listaProduccion.map((prod, i) => (
+              <div key={prod.nombre} style={s.fila}>
+                <div style={{ ...s.filaTop, cursor: "default", alignItems: "flex-start", paddingTop: 10, paddingBottom: 10 }}>
+                  <span style={{ ...s.cel, flex: 0.5, textAlign: "center", color: "#aaa", fontWeight: 600, paddingTop: 2 }}>{i + 1}</span>
+                  <span style={{ ...s.cel, flex: 3, fontWeight: 600, paddingTop: 2 }}>{prod.nombre}</span>
+                  <span style={{ ...s.cel, flex: 0.8, textAlign: "center" }}>
+                    <span style={{ fontSize: 18, fontWeight: 700, color: "#2a7a4b" }}>{prod.cantidad}</span>
+                  </span>
+                  <div style={{ flex: 3, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {prod.pedidos.map((pd, j) => (
+                      <span key={j} style={{ fontSize: 11, background: "#f0f0ee", color: "#555", padding: "2px 8px", borderRadius: 4, whiteSpace: "nowrap" }}>
+                        {pd.numero} · {pd.cliente} · x{pd.cantidad} · {pd.franja}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#2a7a4b" }}>
+              Total a producir: {totalUnidades} unidades
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
