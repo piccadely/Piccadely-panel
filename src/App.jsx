@@ -460,7 +460,7 @@ function ModalEditarProductos({ p, productos, categorias, onGuardar, onCerrar })
 // ─── COMPONENTE CAJA ─────────────────────────────────────────────────
 function VistaCaja({ pedidosFinalizados, onVolver, usuario }) {
   const localesPermitidos = usuario.rol === "admin"
-    ? ["A. Thomas", "French"]
+    ? ["A. Thomas", "French", "Administración"]
     : usuario.rol === "a_thomas"
       ? ["A. Thomas"]
       : ["French"];
@@ -574,7 +574,7 @@ const [localSeleccionado, setLocalSeleccionado] = useState(localesPermitidos[0])
                   </div>
                 );
               })}
-              {ventasLocal.length === 0 && <div style={{ fontSize: 12, color: "#aaa" }}>Sin ventas registradas</div>}
+              {localSeleccionado === "Administración" ? <div style={{ fontSize: 12, color: "#888", padding: "12px 0", fontStyle: "italic" }}>Esta caja solo registra movimientos manuales (ingresos/egresos administrativos), no incluye ventas de pedidos.</div> : ventasLocal.length === 0 && <div style={{ fontSize: 12, color: "#aaa" }}>Sin ventas registradas</div>}
               <div style={{ borderTop: "2px solid #eee", marginTop: 10, paddingTop: 10, display: "flex", justifyContent: "space-between" }}>
                 <span style={{ fontSize: 14, fontWeight: 600 }}>Total ventas</span>
                 <span style={{ fontSize: 16, fontWeight: 700, color: "#2a7a4b" }}>{fmt(totalVentas)}</span>
@@ -585,7 +585,7 @@ const [localSeleccionado, setLocalSeleccionado] = useState(localesPermitidos[0])
                 🏦 Estado de caja {cerrada && <span style={{ fontSize: 11, background: "#c0392b", color: "#fff", padding: "2px 8px", borderRadius: 4, marginLeft: 8 }}>CERRADA</span>}
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}><span style={{ fontSize: 13, color: "#666" }}>Monto inicial</span><span style={{ fontSize: 13, fontWeight: 500 }}>{fmt(montoInicial)}</span></div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}><span style={{ fontSize: 13, color: "#666" }}>Ventas efectivo</span><span style={{ fontSize: 13, fontWeight: 500 }}>{fmt(totalEfectivo)}</span></div>
+              {localSeleccionado !== "Administración" && <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}><span style={{ fontSize: 13, color: "#666" }}>Ventas efectivo</span><span style={{ fontSize: 13, fontWeight: 500 }}>{fmt(totalEfectivo)}</span></div>}
               {ajustes.map((a, i) => (
                 <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}>
                   <span style={{ fontSize: 12, color: Number(a.monto) >= 0 ? "#2a7a4b" : "#c0392b" }}>{Number(a.monto) >= 0 ? "↑" : "↓"} {a.concepto}</span>
