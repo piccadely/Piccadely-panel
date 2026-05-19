@@ -85,6 +85,24 @@ function guardarEstadoDB(id, estado) {
 function fmt(n) { return `$${Number(n).toLocaleString("es-AR")}`; }
 function sumar(arr) { return arr.reduce((a, p) => a + p.totalNum, 0); }
 
+function reproducirBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [0, 0.25].forEach(delay => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = "sine";
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.3, ctx.currentTime + delay);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + delay + 0.2);
+      osc.start(ctx.currentTime + delay);
+      osc.stop(ctx.currentTime + delay + 0.2);
+    });
+  } catch (e) { console.warn("No se pudo reproducir el beep:", e); }
+}
+
 // ─── BTN FACTURAR ────────────────────────────────────────────────────
 function BtnFacturar({ p, version, onAbrir }) {
   const [tieneFactura, setTieneFactura] = useState(null);
@@ -823,7 +841,36 @@ function PanelApp({ usuario }) {
     const interval = setInterval(refrescar, 30000);
     return () => clearInterval(interval);
   }, []);
+// Notificación sonora cuando entran pedidos nuevos
+  const idsPedidosVistosRef = useRef(null);
+  useEffect(() => {
+    if (loading) return;
+    const idsActuales = new Set([
+      ...pedidosRaw.map(p => String(p.id)),
+      ...pedidosManuales.map(p => String(p.id))
+    ]);
+    if (idsPedidosVistosRef.current === null) {
+      idsPedidosVistosRef.current = idsActuales;
+      return;
+    }
+    const nuevos = [...idsActuales].filter(id => !idsPedidosVistosRef.current.has(id));
+    if (nuevos.length > 0) {
+      reproducirBeep();
+      document.title = `🔔 ${nuevos.length} nuevo${nuevos.length > 1 ? "s" : ""} - Piccadely`;
+    }
+    idsPedidosVistosRef.current = idsActuales;
+  }, [pedidosRaw, pedidosManuales, loading]);
 
+  // Restaurar título cuando el usuario vuelve al panel
+  useEffect(() => {
+    function restaurarTitulo() { document.title = "Piccadely Panel"; }
+    window.addEventListener("focus", restaurarTitulo);
+    window.addEventListener("click", restaurarTitulo);
+    return () => {
+      window.removeEventListener("focus", restaurarTitulo);
+      window.removeEventListener("click", restaurarTitulo);
+    };
+  }, []);
   useEffect(() => {
     if (tab === "nuevo" && productos.length === 0) {
       setLoadingProductos(true);
