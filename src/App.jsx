@@ -42,14 +42,14 @@ const TABS = [
   { id: "nuevo",       label: "➕ Nuevo pedido" },
 ];
 
-function clasificarPedido(p) {
+ffunction clasificarPedido(p) {
   const location = p.fulfillments?.[0]?.assigned_location?.name || "";
   const tipo = p.fulfillments?.[0]?.shipping?.type || "";
   const optionName = (p.fulfillments?.[0]?.shipping?.option?.name || "").toLowerCase();
   const esPickup = tipo === "pickup" || optionName.includes("retiro") || optionName.includes("pickup") || optionName.includes("local");
 
-  // En Piccadely: zona "Recoleta" = sucursal French, todo lo demás (incluido "Villa Ortuzar") = sucursal A. Thomas
-  const esFrench = optionName.includes("recoleta") || location.toLowerCase().includes("recoleta");
+  // En Piccadely: opción "Recoleta" = sucursal French; todo lo demás = A. Thomas
+  const esFrench = optionName.includes("recoleta");
 
   if (esPickup) {
     return esFrench ? "retiro-fr" : "retiro-at";
@@ -57,6 +57,7 @@ function clasificarPedido(p) {
 
   return esFrench ? "delivery-fr" : "delivery-at";
 }
+
 function medioPagoLabel(gateway) {
   if (!gateway) return "Otro";
   if (gateway.includes("mercado-pago")) return "Mercado Pago";
