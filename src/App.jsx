@@ -43,29 +43,15 @@ const TABS = [
 ];
 
 function clasificarPedido(p) {
-  const ff = p.fulfillments?.[0];
-  const ffEsObjeto = ff && typeof ff === "object";
-
-  // Caso viejo: fulfillments embebidos (objeto)
-  if (ffEsObjeto) {
-    const location = ff?.assigned_location?.name || "";
-    const tipo = ff?.shipping?.type || "";
-    const optionName = (ff?.shipping?.option?.name || "").toLowerCase();
-    const esPickup = tipo === "pickup" || optionName.includes("retiro") || optionName.includes("pickup") || optionName.includes("local");
-    if (esPickup) {
-      return location === "Villa Ortuzar" ? "retiro-fr" : "retiro-at";
-    }
-    return "delivery-at";
-  }
-
-  // Caso nuevo: fulfillments son IDs. Detectar retiro por ausencia de dirección
-  const direccion = (p.shipping_address?.address || "").trim();
-  const esPickup = direccion === "";
+  const location = p.fulfillments?.[0]?.assigned_location?.name || "";
+  const tipo = p.fulfillments?.[0]?.shipping?.type || "";
+  const optionName = (p.fulfillments?.[0]?.shipping?.option?.name || "").toLowerCase();
+  const esPickup = tipo === "pickup" || optionName.includes("retiro") || optionName.includes("pickup") || optionName.includes("local");
 
   if (esPickup) {
-    // No tenemos el local específico, default a A. Thomas (mover manualmente si es French)
-    return "retiro-at";
+    return location === "Villa Ortuzar" ? "retiro-fr" : "retiro-at";
   }
+
   return "delivery-at";
 }
 
@@ -496,8 +482,8 @@ function VistaCaja({ pedidosFinalizados, onVolver, usuario }) {
     : usuario.rol === "a_thomas"
       ? ["A. Thomas"]
       : ["French"];
-const [localSeleccionado, setLocalSeleccionado] = useState(localesPermitidos[0]);
-      const [estadoCaja, setEstadoCaja] = useState(null);
+  const [localSeleccionado, setLocalSeleccionado] = useState(localesPermitidos[0]);
+  const [estadoCaja, setEstadoCaja] = useState(null);
   const [loadingCaja, setLoadingCaja] = useState(false);
   const [montoApertura, setMontoApertura] = useState("");
   const [ajuste, setAjuste] = useState({ tipo: "entrada", concepto: "", monto: "" });
@@ -855,7 +841,8 @@ function PanelApp({ usuario }) {
     const interval = setInterval(refrescar, 30000);
     return () => clearInterval(interval);
   }, []);
-// Notificación sonora cuando entran pedidos nuevos
+
+  // Notificación sonora cuando entran pedidos nuevos
   const idsPedidosVistosRef = useRef(null);
   useEffect(() => {
     if (loading) return;
@@ -885,6 +872,7 @@ function PanelApp({ usuario }) {
       window.removeEventListener("click", restaurarTitulo);
     };
   }, []);
+
   useEffect(() => {
     if (tab === "nuevo" && productos.length === 0) {
       setLoadingProductos(true);
@@ -1139,9 +1127,10 @@ function PanelApp({ usuario }) {
       ))}
     </div>
   );
-if (vista === "usuarios") {
-  return <div style={s.wrap}><Header /><Usuarios onVolver={() => setVista("panel")} /></div>;
-}
+
+  if (vista === "usuarios") {
+    return <div style={s.wrap}><Header /><Usuarios onVolver={() => setVista("panel")} /></div>;
+  }
   if (vista === "caja") {
     return <div style={s.wrap}><Header /><VistaCaja pedidosFinalizados={pedidosFinalizados} onVolver={() => setVista("panel")} usuario={usuario} /></div>;
   }
@@ -1891,7 +1880,7 @@ const s = {
   inputField: { fontSize: 12, padding: "5px 8px", borderRadius: 5, border: "1px solid #ddd", background: "#fff", color: "#333" },
   btnEstado: { fontSize: 11, padding: "3px 10px", borderRadius: 5, border: "1px solid #2a7a4b", background: "#2a7a4b", color: "#fff", cursor: "pointer", fontWeight: 600 },
   btnImprimir: { fontSize: 12, padding: "7px 14px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", color: "#555", fontWeight: 500 },
- franjaHeader: { display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", background: "#eaf3de", borderRadius: 8, marginBottom: 6, marginTop: 14 },
+  franjaHeader: { display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", background: "#eaf3de", borderRadius: 8, marginBottom: 6, marginTop: 14 },
   franjaFecha: { fontSize: 13, fontWeight: 700, color: "#27500a", textTransform: "capitalize" },
   franjaHora: { fontSize: 12, color: "#27500a", fontWeight: 600 },
   franjaCount: { fontSize: 11, color: "#2a7a4b", marginLeft: "auto", fontWeight: 600 },

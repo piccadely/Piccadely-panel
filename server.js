@@ -635,13 +635,41 @@ function verifyTNSignature(rawBody, signature) {
   }
 }
 
+// Tienda Nube (API 2025-03) manda fulfillments como array de IDs.
+// Esta función hace las requests necesarias para traer los objetos completos
+// y reemplazar el array de IDs por el array de objetos hidratados.
+async function hidratarFulfillments(orden) {
+  if (!orden || !Array.isArray(orden.fulfillments) || orden.fulfillments.length === 0) return orden;
+  // Si ya son objetos, no hacer nada
+  if (typeof orden.fulfillments[0] === "object") return orden;
+  try {
+    const detalles = await Promise.all(
+      orden.fulfillments.map(ffId =>
+        axios.get(
+          `https://api.tiendanube.com/2025-03/${STORE_ID}/orders/${orden.id}/fulfillments/${ffId}`,
+          { headers }
+        ).then(r => r.data).catch(err => {
+          console.warn(`No se pudo hidratar fulfillment ${ffId} del pedido ${orden.id}:`, err.response?.status || err.message);
+          return null;
+        })
+      )
+    );
+    orden.fulfillments = detalles.filter(f => f !== null);
+  } catch (e) {
+    console.error(`Error hidratando fulfillments del pedido ${orden.id}:`, e.message);
+  }
+  return orden;
+}
+
 async function upsertOrderFromTN(orderId) {
+
   try {
     const response = await axios.get(
       `https://api.tiendanube.com/2025-03/${STORE_ID}/orders/${orderId}`,
       { headers }
     );
-    const o = response.data;
+   const o = response.data;
+    await hidratarFulfillments(o);
     await pool.query(`
       INSERT INTO pedidos_tn
         (id, store_id, numero, estado_tn, payment_status, total,
@@ -738,6 +766,7 @@ app.post("/api/admin/backfill-orders", requireAdmin, async (req, res) => {
       if (!orders || orders.length === 0) break;
 
       for (const o of orders) {
+        await hidratarFulfillments(o);
         await pool.query(`
           INSERT INTO pedidos_tn
             (id, store_id, numero, estado_tn, payment_status, total,
