@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
+import Login from "./Login";
+import { getUsuarioGuardado, validarSesion, cerrarSesion, ROL_LABELS } from "./auth-utils";
 
 const API = "https://piccadely-panel-production.up.railway.app";
 
@@ -376,7 +378,6 @@ function ModalEditarProductos({ p, productos, categorias, onGuardar, onCerrar })
           <button style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#aaa" }} onClick={onCerrar}>✕</button>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-          {/* Catálogo */}
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 8 }}>Catálogo</div>
             <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
@@ -395,7 +396,6 @@ function ModalEditarProductos({ p, productos, categorias, onGuardar, onCerrar })
                 </div>
               ))}
             </div>
-            {/* Variable */}
             <div style={{ background: "#f9f9f7", borderRadius: 8, padding: 10 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Producto variable</div>
               <input style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 6 }} placeholder="Nombre" value={varNombre} onChange={e => setVarNombre(e.target.value)} />
@@ -414,7 +414,6 @@ function ModalEditarProductos({ p, productos, categorias, onGuardar, onCerrar })
               </button>
             </div>
           </div>
-          {/* Carrito actual */}
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 8 }}>Productos del pedido</div>
             {carrito.length === 0 && <div style={{ fontSize: 12, color: "#aaa", padding: "16px 0" }}>Sin productos</div>}
@@ -632,7 +631,6 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
                 <button style={{ width: "100%", padding: 10, borderRadius: 8, border: "none", background: "#c0392b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }} onClick={cerrarCaja} disabled={guardando || !montoCierre}>{guardando ? "Cerrando..." : "Ejecutar cierre Z"}</button>
               </div>
             )}
-            {/* Historial de cierres */}
             <div style={{ gridColumn: "span 2", marginTop: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>📅 Historial de cierres</div>
@@ -700,8 +698,8 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
   );
 }
 
-// ─── APP PRINCIPAL ───────────────────────────────────────────────────
-export default function App() {
+// ─── PANEL PRINCIPAL ─────────────────────────────────────────────────
+function PanelApp({ usuario }) {
   const [pedidosRaw, setPedidosRaw] = useState([]);
   const [pedidosLocales, setPedidosLocales] = useState({});
   const [pedidosManuales, setPedidosManuales] = useState([]);
@@ -788,7 +786,7 @@ export default function App() {
     }).catch(() => { setError("Error conectando con Tienda Nube"); setLoading(false); });
   }, []);
 
-  // Auto-refresh cada 30 segundos para que aparezcan pedidos nuevos sin recargar
+  // Auto-refresh cada 30 segundos
   useEffect(() => {
     const refrescar = async () => {
       try {
@@ -798,7 +796,6 @@ export default function App() {
         ]);
         setPedidosRaw(resOrders.data);
         setPedidosManuales(resManuales.data);
-        // Agregar estado por defecto SOLO para pedidos nuevos, sin tocar los existentes
         setPedidosLocales(prev => {
           const nuevo = { ...prev };
           resOrders.data.forEach(p => {
@@ -814,7 +811,6 @@ export default function App() {
           return nuevo;
         });
       } catch (err) {
-        // Falla silenciosa para no romper la UI por un blip de red
         console.warn("Auto-refresh falló:", err.message);
       }
     };
@@ -1038,6 +1034,13 @@ export default function App() {
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <span style={s.fechaHoy}>{new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 12, borderLeft: "1px solid #eee" }}>
+          <div style={{ textAlign: "right", lineHeight: 1.2 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#333" }}>{usuario.nombre_completo}</div>
+            <div style={{ fontSize: 11, color: "#888" }}>{ROL_LABELS[usuario.rol] || usuario.rol}</div>
+          </div>
+          <button style={s.btnLogout} onClick={() => { if (window.confirm("¿Cerrar sesión?")) cerrarSesion(); }} title="Cerrar sesión">⎋</button>
+        </div>
         <div style={{ position: "relative" }} ref={menuRef}>
           <button style={s.hamburger} onClick={() => setMenuAbierto(m => !m)}>
             <div style={s.hambLine} /><div style={s.hambLine} /><div style={s.hambLine} />
@@ -1570,7 +1573,6 @@ export default function App() {
                 </div>
               </>
             )}
-            {/* Producto variable */}
             <div style={{ borderTop: "1px solid #eee", paddingTop: 12, marginTop: 8 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 8 }}>+ Producto variable</div>
               <input style={{ ...s.formInput, marginBottom: 6 }} placeholder="Nombre del producto" value={varNombre} onChange={e => setVarNombre(e.target.value)} />
@@ -1746,66 +1748,93 @@ export default function App() {
   );
 }
 
+// ─── WRAPPER DE AUTENTICACIÓN ────────────────────────────────────────
+export default function App() {
+  const [usuario, setUsuario] = useState(getUsuarioGuardado());
+  const [validandoSesion, setValidandoSesion] = useState(true);
+
+  useEffect(() => {
+    validarSesion().then(user => {
+      setUsuario(user);
+      setValidandoSesion(false);
+    });
+  }, []);
+
+  if (validandoSesion) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "system-ui, sans-serif", color: "#888", fontSize: 14, background: "#f7f7f5" }}>
+        Validando sesión...
+      </div>
+    );
+  }
+
+  if (!usuario) {
+    return <Login onLogin={setUsuario} />;
+  }
+
+  return <PanelApp usuario={usuario} />;
+}
+
+// ─── ESTILOS ─────────────────────────────────────────────────────────
 const s = {
   wrap: { fontFamily: "system-ui, sans-serif", minHeight: "100vh", background: "#f7f7f5" },
   loading: { padding: 40, textAlign: "center", color: "#666" },
   error: { padding: 40, textAlign: "center", color: "red" },
   header: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 24px", background: "#fff", borderBottom: "1px solid #eee" },
   brand: { display: "flex", alignItems: "center", gap: 8 },
-  dot: { width: 9, height: 9, borderRadius: "50%", background: "#2a7a4b" },
-  brandName: { fontWeight: 600, fontSize: 14 },
   fechaHoy: { fontSize: 13, color: "#888", textTransform: "capitalize" },
-  hamburger: { background: "none", border: "1px solid #ddd", borderRadius: 6, padding: "6px 8px", cursor: "pointer", display: "flex", flexDirection: "column", gap: 4 },
-  hambLine: { width: 18, height: 2, background: "#555", borderRadius: 2 },
-  dropdown: { position: "absolute", right: 0, top: "calc(100% + 8px)", background: "#fff", border: "1px solid #eee", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.1)", zIndex: 100, minWidth: 200, overflow: "hidden" },
-  dropItem: { display: "block", width: "100%", padding: "11px 16px", border: "none", background: "none", cursor: "pointer", textAlign: "left", fontSize: 13, color: "#333" },
+  btnLogout: { fontSize: 14, padding: "5px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", color: "#888" },
+  hamburger: { width: 32, height: 32, border: "1px solid #ddd", borderRadius: 6, background: "#fff", cursor: "pointer", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: 4, padding: 0 },
+  hambLine: { width: 16, height: 2, background: "#555", borderRadius: 1 },
+  dropdown: { position: "absolute", top: "100%", right: 0, marginTop: 6, background: "#fff", border: "1px solid #eee", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.08)", minWidth: 220, zIndex: 100, overflow: "hidden" },
+  dropItem: { display: "block", width: "100%", textAlign: "left", padding: "10px 14px", border: "none", background: "transparent", cursor: "pointer", fontSize: 13, color: "#333", borderBottom: "1px solid #f5f5f5" },
   btnVolver: { fontSize: 12, padding: "6px 12px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", color: "#555" },
-  tabs: { display: "flex", padding: "0 24px", background: "#fff", borderBottom: "1px solid #eee", gap: 4, overflowX: "auto" },
-  tab: { padding: "10px 14px", border: "none", background: "none", cursor: "pointer", fontSize: 12, color: "#888", borderBottom: "2px solid transparent", marginBottom: -1, display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" },
-  tabActive: { color: "#2a7a4b", borderBottomColor: "#2a7a4b", fontWeight: 600 },
-  tabCount: { fontSize: 11, background: "#eee", color: "#888", padding: "1px 7px", borderRadius: 99, fontWeight: 600 },
+  tabs: { display: "flex", padding: "0 24px", background: "#fff", borderBottom: "1px solid #eee", gap: 4 },
+  tab: { padding: "12px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: 13, color: "#888", display: "flex", alignItems: "center", gap: 8, borderBottom: "2px solid transparent", marginBottom: -1 },
+  tabActive: { color: "#2a7a4b", borderBottom: "2px solid #2a7a4b", fontWeight: 600 },
+  tabCount: { background: "#f0f0e8", color: "#888", fontSize: 11, padding: "1px 7px", borderRadius: 99, fontWeight: 600 },
   tabCountActive: { background: "#2a7a4b", color: "#fff" },
-  stats: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, padding: "14px 24px", background: "#f7f7f5" },
-  stat: { background: "#fff", borderRadius: 8, padding: "10px 14px", border: "1px solid #eee" },
-  statLabel: { fontSize: 11, color: "#aaa", marginBottom: 2 },
-  statVal: { fontSize: 20, fontWeight: 600 },
-  filters: { display: "flex", gap: 8, padding: "0 24px 14px", background: "#f7f7f5" },
-  select: { fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer" },
-  lista: { margin: "0 24px 24px", background: "#fff", borderRadius: 10, border: "1px solid #eee", overflow: "hidden" },
-  cabecera: { display: "flex", alignItems: "center", padding: "8px 14px", background: "#f0f0ee", borderBottom: "1px solid #e5e5e3" },
-  col: { fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em" },
-  franjaHeader: { display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "#f9f9f7", borderTop: "1px solid #eee", borderBottom: "1px solid #eee" },
-  franjaFecha: { fontSize: 12, fontWeight: 600, color: "#333", textTransform: "capitalize" },
-  franjaHora: { fontSize: 11, background: "#faeeda", color: "#633806", padding: "2px 8px", borderRadius: 4, fontWeight: 500 },
-  franjaCount: { fontSize: 11, background: "#ebebeb", color: "#888", padding: "2px 8px", borderRadius: 99 },
-  fila: { borderBottom: "1px solid #f0f0ee" },
-  filaAbierta: { background: "#fafaf8" },
-  filaTop: { display: "flex", alignItems: "center", padding: "9px 14px", cursor: "pointer" },
-  cel: { fontSize: 12, color: "#333", paddingRight: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  numero: { fontWeight: 600, color: "#2a7a4b", marginRight: 4 },
-  cobrarBadge: { fontSize: 10, background: "#c0392b", color: "#fff", padding: "1px 6px", borderRadius: 4, marginLeft: 6, fontWeight: 600 },
-  zonaTag: { fontSize: 11, background: "#e6f1fb", color: "#0c447c", padding: "2px 7px", borderRadius: 4 },
-  franjaTag: { fontSize: 11, background: "#faeeda", color: "#633806", padding: "2px 7px", borderRadius: 4 },
-  estadoTag: { fontSize: 11, padding: "2px 8px", borderRadius: 4, fontWeight: 500, whiteSpace: "nowrap" },
-  chevron: { fontSize: 10, color: "#bbb", marginLeft: 8, flexShrink: 0 },
-  detalle: { padding: "12px 14px 14px", borderTop: "1px solid #ebebeb", background: "#fafaf8" },
-  detalleGrid: { display: "flex", gap: 24, flexWrap: "wrap" },
-  detalleBloque: { minWidth: 160 },
-  detalleLabel: { fontSize: 10, fontWeight: 600, color: "#aaa", textTransform: "uppercase", marginBottom: 4 },
+  stats: { display: "flex", gap: 12, padding: "16px 24px", background: "#fff", borderBottom: "1px solid #eee" },
+  stat: { background: "#f9f9f7", borderRadius: 8, padding: "10px 16px", minWidth: 110 },
+  statLabel: { fontSize: 10, color: "#888", textTransform: "uppercase", fontWeight: 600, letterSpacing: 0.5 },
+  statVal: { fontSize: 20, fontWeight: 700, marginTop: 2 },
+  filters: { display: "flex", gap: 10, padding: "12px 24px", background: "#fff", borderBottom: "1px solid #eee" },
+  select: { fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", color: "#555" },
+  lista: { padding: 24 },
+  cabecera: { display: "flex", padding: "10px 14px", background: "#f9f9f7", borderRadius: 8, marginBottom: 10, fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: 0.3 },
+  col: { padding: "0 6px" },
+  fila: { background: "#fff", border: "1px solid #eee", borderRadius: 8, marginBottom: 6, overflow: "hidden", transition: "all 0.15s" },
+  filaAbierta: { borderColor: "#2a7a4b", boxShadow: "0 2px 8px rgba(42,122,75,0.1)" },
+  filaTop: { display: "flex", alignItems: "center", padding: "10px 14px", cursor: "pointer", fontSize: 13 },
+  cel: { padding: "0 6px", color: "#333" },
+  numero: { fontWeight: 700, color: "#2a7a4b", marginRight: 6 },
+  zonaTag: { fontSize: 11, background: "#f0f0e8", color: "#555", padding: "2px 8px", borderRadius: 4 },
+  franjaTag: { fontSize: 11, background: "#f5f0e8", color: "#7d5a2c", padding: "2px 8px", borderRadius: 4 },
+  estadoTag: { fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 4, textTransform: "uppercase", letterSpacing: 0.3 },
+  cobrarBadge: { fontSize: 9, fontWeight: 700, background: "#c0392b", color: "#fff", padding: "2px 6px", borderRadius: 3, marginLeft: 6, letterSpacing: 0.5 },
+  chevron: { fontSize: 10, color: "#aaa", marginLeft: 4 },
+  detalle: { padding: "14px 18px", borderTop: "1px solid #eee", background: "#fafaf8" },
+  detalleGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 },
+  detalleBloque: { display: "flex", flexDirection: "column", gap: 4 },
+  detalleLabel: { fontSize: 10, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: 0.3 },
   detalleVal: { fontSize: 13, color: "#333" },
-  inputField: { fontSize: 12, padding: "5px 8px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#333", width: "100%" },
-  btnEstado: { fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", color: "#333" },
-  btnImprimir: { marginTop: 0, padding: "7px 14px", fontSize: 12, borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", color: "#333" },
-  empty: { padding: "20px 14px", color: "#aaa", fontSize: 13 },
-  formCard: { background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "16px 20px" },
+  inputField: { fontSize: 12, padding: "5px 8px", borderRadius: 5, border: "1px solid #ddd", background: "#fff", color: "#333" },
+  btnEstado: { fontSize: 11, padding: "3px 10px", borderRadius: 5, border: "1px solid #2a7a4b", background: "#2a7a4b", color: "#fff", cursor: "pointer", fontWeight: 600 },
+  btnImprimir: { fontSize: 12, padding: "7px 14px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", color: "#555", fontWeight: 500 },
+  franjaHeader: { display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "#fff", border: "1px solid #eee", borderRadius: 8, marginBottom: 6, marginTop: 14 },
+  franjaFecha: { fontSize: 12, fontWeight: 600, color: "#333", textTransform: "capitalize" },
+  franjaHora: { fontSize: 12, color: "#888" },
+  franjaCount: { fontSize: 11, color: "#aaa", marginLeft: "auto" },
+  empty: { padding: 40, textAlign: "center", color: "#aaa", fontSize: 13 },
+  formCard: { background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 },
   formCardTitle: { fontSize: 14, fontWeight: 600, color: "#333", marginBottom: 14 },
   formGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 },
-  formBloque: {},
-  formLabel: { fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", display: "block", marginBottom: 4 },
-  formInput: { fontSize: 12, padding: "7px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#333", width: "100%", boxSizing: "border-box" },
+  formBloque: { display: "flex", flexDirection: "column", gap: 4 },
+  formLabel: { fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase" },
+  formInput: { fontSize: 13, padding: "7px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#333", outline: "none" },
   prodFila: { display: "flex", alignItems: "center", padding: "8px 12px", borderBottom: "1px solid #f5f5f5" },
-  btnAgregar: { fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #2a7a4b", background: "#2a7a4b", color: "#fff", cursor: "pointer", whiteSpace: "nowrap" },
-  carritoFila: { display: "flex", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #f5f5f5" },
-  btnCant: { fontSize: 12, width: 24, height: 24, borderRadius: 4, border: "1px solid #ddd", background: "#f9f9f7", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#333" },
-  btnCrear: { marginTop: 16, padding: "10px", fontSize: 13, borderRadius: 8, border: "none", background: "#2a7a4b", color: "#fff", cursor: "pointer", width: "100%", fontWeight: 600 },
+  btnAgregar: { fontSize: 11, padding: "4px 10px", borderRadius: 5, border: "1px solid #2a7a4b", background: "#2a7a4b", color: "#fff", cursor: "pointer", fontWeight: 600 },
+  carritoFila: { display: "flex", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #f5f5f5", gap: 6 },
+  btnCant: { fontSize: 12, width: 22, height: 22, borderRadius: 4, border: "1px solid #ddd", background: "#f9f9f7", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" },
+  btnCrear: { width: "100%", padding: 11, borderRadius: 8, border: "none", background: "#2a7a4b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" },
 };
