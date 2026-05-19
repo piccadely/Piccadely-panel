@@ -43,16 +43,29 @@ const TABS = [
 ];
 
 function clasificarPedido(p) {
-  const location = p.fulfillments?.[0]?.assigned_location?.name || "";
-  const tipo = p.fulfillments?.[0]?.shipping?.type || "";
-  const optionName = (p.fulfillments?.[0]?.shipping?.option?.name || "").toLowerCase();
-  const esPickup = tipo === "pickup" || optionName.includes("retiro") || optionName.includes("pickup") || optionName.includes("local");
+  const ff = p.fulfillments?.[0];
+  const ffEsObjeto = ff && typeof ff === "object";
 
-  if (esPickup) {
-    return location === "Villa Ortuzar" ? "retiro-fr" : "retiro-at";
+  // Caso viejo: fulfillments embebidos (objeto)
+  if (ffEsObjeto) {
+    const location = ff?.assigned_location?.name || "";
+    const tipo = ff?.shipping?.type || "";
+    const optionName = (ff?.shipping?.option?.name || "").toLowerCase();
+    const esPickup = tipo === "pickup" || optionName.includes("retiro") || optionName.includes("pickup") || optionName.includes("local");
+    if (esPickup) {
+      return location === "Villa Ortuzar" ? "retiro-fr" : "retiro-at";
+    }
+    return "delivery-at";
   }
 
-  // Todos los deliveries van a A. Thomas
+  // Caso nuevo: fulfillments son IDs. Detectar retiro por ausencia de dirección
+  const direccion = (p.shipping_address?.address || "").trim();
+  const esPickup = direccion === "";
+
+  if (esPickup) {
+    // No tenemos el local específico, default a A. Thomas (mover manualmente si es French)
+    return "retiro-at";
+  }
   return "delivery-at";
 }
 
