@@ -15,6 +15,19 @@ app.use(express.json({
 const STORE_ID = "7597872";
 const ACCESS_TOKEN = "657a5d5af8780cd0304f2652e5122b651c60b66c";
 const TN_CLIENT_SECRET = process.env.TN_CLIENT_SECRET || "";
+const ADMIN_SECRET = process.env.ADMIN_SECRET || "";
+
+// Middleware para proteger endpoints /api/admin/*
+function requireAdmin(req, res, next) {
+  if (!ADMIN_SECRET) {
+    return res.status(500).json({ error: "ADMIN_SECRET no configurado en el servidor" });
+  }
+  const provided = req.headers["x-admin-secret"];
+  if (provided !== ADMIN_SECRET) {
+    return res.status(401).json({ error: "No autorizado" });
+  }
+  next();
+}
 const headers = {
   Authentication: `bearer ${ACCESS_TOKEN}`,
   "User-Agent": "PiccadelyPanel (piccadely@gmail.com)",
@@ -720,7 +733,7 @@ app.post("/api/webhooks/tiendanube", async (req, res) => {
 // ============================
 // BACKFILL: importar todos los pedidos de TN a Neon
 // ============================
-app.post("/api/admin/backfill-orders", async (req, res) => {
+app.post("/api/admin/backfill-orders", requireAdmin, async (req, res) => {
   try {
     let page = 1;
     let totalSynced = 0;
@@ -785,7 +798,7 @@ const WEBHOOK_EVENTS = [
   "order/voided"
 ];
 
-app.get("/api/admin/webhooks", async (req, res) => {
+app.get("/api/admin/webhooks", requireAdmin, async (req, res) => {
   try {
     const response = await axios.get(
       `https://api.tiendanube.com/2025-03/${STORE_ID}/webhooks`,
@@ -797,7 +810,7 @@ app.get("/api/admin/webhooks", async (req, res) => {
   }
 });
 
-app.post("/api/admin/webhooks/setup", async (req, res) => {
+app.post("/api/admin/webhooks/setup", requireAdmin, async (req, res) => {
   try {
     const existing = await axios.get(
       `https://api.tiendanube.com/2025-03/${STORE_ID}/webhooks`,
