@@ -3,6 +3,7 @@ import cors from "cors";
 import axios from "axios";
 import pg from "pg";
 import crypto from "crypto";
+import { initAuthDB, setupAuth } from "./auth.js";
 
 const { Pool } = pg;
 
@@ -15,19 +16,6 @@ app.use(express.json({
 const STORE_ID = "7597872";
 const ACCESS_TOKEN = "657a5d5af8780cd0304f2652e5122b651c60b66c";
 const TN_CLIENT_SECRET = process.env.TN_CLIENT_SECRET || "";
-const ADMIN_SECRET = process.env.ADMIN_SECRET || "";
-
-// Middleware para proteger endpoints /api/admin/*
-function requireAdmin(req, res, next) {
-  if (!ADMIN_SECRET) {
-    return res.status(500).json({ error: "ADMIN_SECRET no configurado en el servidor" });
-  }
-  const provided = req.headers["x-admin-secret"];
-  if (provided !== ADMIN_SECRET) {
-    return res.status(401).json({ error: "No autorizado" });
-  }
-  next();
-}
 const headers = {
   Authentication: `bearer ${ACCESS_TOKEN}`,
   "User-Agent": "PiccadelyPanel (piccadely@gmail.com)",
@@ -108,8 +96,12 @@ async function initDB() {
     );
   `);
   console.log("DB inicializada");
+  await initAuthDB(pool);
 }
 initDB().catch(console.error);
+
+// Montar sistema de autenticación (devuelve los middlewares)
+const { requireAuth, requireAdmin, requireRole } = setupAuth(app, pool);
 
 function fechaHoy() {
   const hoy = new Date();
@@ -123,14 +115,12 @@ function fechaVencimiento(dias = 30) {
 }
 
 // TIENDA NUBE - Lee desde Neon (mantenido fresh por webhooks + backfill)
-// Si Neon está vacío, hace fallback a la API de TN como red de seguridad
 app.get("/api/orders", async (req, res) => {
   try {
     const result = await pool.query(
       "SELECT data FROM pedidos_tn ORDER BY tn_created_at DESC LIMIT 200"
     );
     if (result.rows.length === 0) {
-      // Fallback: si Neon está vacío, traer de TN
       const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/orders`, { headers });
       return res.json(r.data);
     }
@@ -333,7 +323,6 @@ app.post("/api/facturar", async (req, res) => {
   const esExento = tipo === "FACTURA B EXENTO";
   const sinDatos = !documentoNro || String(documentoNro).trim() === "";
 
-  // Parsear total desde cualquier formato: "$43.140", "43140.00", 43140
   const totalNum = (() => {
     const raw = String(total).trim();
     if (/^\d+(\.\d+)?$/.test(raw)) return Number(raw);
@@ -345,7 +334,7 @@ app.post("/api/facturar", async (req, res) => {
   if (!totalNum || totalNum <= 0) {
     return res.json({ ok: false, error: "Total inválido: " + total });
   }
-  // Bloqueo de duplicados en backend
+
   try {
     const existentes = await pool.query(
       "SELECT * FROM facturas WHERE pedido_id=$1 ORDER BY created_at ASC",
@@ -730,6 +719,7 @@ app.post("/api/webhooks/tiendanube", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 // ============================
 // BACKFILL: importar todos los pedidos de TN a Neon
 // ============================
@@ -774,9 +764,9 @@ app.post("/api/admin/backfill-orders", requireAdmin, async (req, res) => {
 
       totalPages++;
       console.log(`Backfill: página ${page} procesada, ${orders.length} pedidos`);
-      if (orders.length < 50) break; // última página
+      if (orders.length < 50) break;
       page++;
-      if (totalPages > 100) break; // safety: máx 5000 pedidos
+      if (totalPages > 100) break;
     }
 
     res.json({ ok: true, totalSynced, totalPages });
@@ -785,6 +775,7 @@ app.post("/api/admin/backfill-orders", requireAdmin, async (req, res) => {
     res.status(500).json({ error: err.response?.data || err.message });
   }
 });
+
 // ============================
 // ADMIN WEBHOOKS TIENDA NUBE
 // ============================
