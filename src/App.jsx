@@ -45,13 +45,14 @@ const TABS = [
 function clasificarPedido(p) {
   const location = p.fulfillments?.[0]?.assigned_location?.name || "";
   const tipo = p.fulfillments?.[0]?.shipping?.type || "";
-  const esPickup = tipo === "pickup";
-  const esAT = location === "Recoleta";
-  const esFR = location === "Villa Ortuzar";
-  if (esPickup && esAT) return "retiro-at";
-  if (esPickup && esFR) return "retiro-fr";
-  if (!esPickup && esAT) return "delivery-at";
-  if (!esPickup && esFR) return "delivery-fr";
+  const optionName = (p.fulfillments?.[0]?.shipping?.option?.name || "").toLowerCase();
+  const esPickup = tipo === "pickup" || optionName.includes("retiro") || optionName.includes("pickup") || optionName.includes("local");
+
+  if (esPickup) {
+    return location === "Villa Ortuzar" ? "retiro-fr" : "retiro-at";
+  }
+
+  // Todos los deliveries van a A. Thomas
   return "delivery-at";
 }
 
