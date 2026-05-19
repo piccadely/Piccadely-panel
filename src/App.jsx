@@ -48,13 +48,15 @@ function clasificarPedido(p) {
   const optionName = (p.fulfillments?.[0]?.shipping?.option?.name || "").toLowerCase();
   const esPickup = tipo === "pickup" || optionName.includes("retiro") || optionName.includes("pickup") || optionName.includes("local");
 
+  // En Piccadely: zona "Recoleta" = sucursal French, todo lo demás (incluido "Villa Ortuzar") = sucursal A. Thomas
+  const esFrench = optionName.includes("recoleta") || location.toLowerCase().includes("recoleta");
+
   if (esPickup) {
-    return location === "Villa Ortuzar" ? "retiro-fr" : "retiro-at";
+    return esFrench ? "retiro-fr" : "retiro-at";
   }
 
-  return "delivery-at";
+  return esFrench ? "delivery-fr" : "delivery-at";
 }
-
 function medioPagoLabel(gateway) {
   if (!gateway) return "Otro";
   if (gateway.includes("mercado-pago")) return "Mercado Pago";
