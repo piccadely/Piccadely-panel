@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import Login from "./Login";
+import Usuarios from "./Usuarios";
 import { getUsuarioGuardado, validarSesion, cerrarSesion, ROL_LABELS } from "./auth-utils";
 
 const API = "https://piccadely-panel-production.up.railway.app";
@@ -1047,6 +1048,7 @@ function PanelApp({ usuario }) {
           </button>
           {menuAbierto && (
             <div style={s.dropdown}>
+              {usuario.rol === "admin" && <button style={s.dropItem} onClick={() => { setVista("usuarios"); setMenuAbierto(false); }}>👥 Usuarios</button>}
               <button style={s.dropItem} onClick={() => { setVista("caja"); setMenuAbierto(false); }}>💰 Caja</button>
               <button style={s.dropItem} onClick={() => { setVista("finalizados"); setMenuAbierto(false); }}>📋 Pedidos finalizados</button>
               <button style={s.dropItem} onClick={() => { setVista("reporteVentas"); setMenuAbierto(false); }}>📊 Reporte de ventas</button>
@@ -1071,7 +1073,9 @@ function PanelApp({ usuario }) {
       ))}
     </div>
   );
-
+if (vista === "usuarios") {
+  return <div style={s.wrap}><Header /><Usuarios onVolver={() => setVista("panel")} /></div>;
+}
   if (vista === "caja") {
     return <div style={s.wrap}><Header /><VistaCaja pedidosFinalizados={pedidosFinalizados} onVolver={() => setVista("panel")} /></div>;
   }
