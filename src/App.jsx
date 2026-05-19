@@ -458,9 +458,14 @@ function ModalEditarProductos({ p, productos, categorias, onGuardar, onCerrar })
 }
 
 // ─── COMPONENTE CAJA ─────────────────────────────────────────────────
-function VistaCaja({ pedidosFinalizados, onVolver }) {
-  const [localSeleccionado, setLocalSeleccionado] = useState("A. Thomas");
-  const [estadoCaja, setEstadoCaja] = useState(null);
+function VistaCaja({ pedidosFinalizados, onVolver, usuario }) {
+  const localesPermitidos = usuario.rol === "admin"
+    ? ["A. Thomas", "French"]
+    : usuario.rol === "a_thomas"
+      ? ["A. Thomas"]
+      : ["French"];
+const [localSeleccionado, setLocalSeleccionado] = useState(localesPermitidos[0]);
+      const [estadoCaja, setEstadoCaja] = useState(null);
   const [loadingCaja, setLoadingCaja] = useState(false);
   const [montoApertura, setMontoApertura] = useState("");
   const [ajuste, setAjuste] = useState({ tipo: "entrada", concepto: "", monto: "" });
@@ -532,7 +537,7 @@ function VistaCaja({ pedidosFinalizados, onVolver }) {
           <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>💰 Caja</h2>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          {["A. Thomas", "French"].map(l => (
+          {localesPermitidos.length > 1 && localesPermitidos.map(l => (
             <button key={l} onClick={() => setLocalSeleccionado(l)}
               style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer",
                 borderColor: localSeleccionado === l ? "#2a7a4b" : "#ddd", background: localSeleccionado === l ? "#2a7a4b" : "#fff",
@@ -1077,7 +1082,7 @@ if (vista === "usuarios") {
   return <div style={s.wrap}><Header /><Usuarios onVolver={() => setVista("panel")} /></div>;
 }
   if (vista === "caja") {
-    return <div style={s.wrap}><Header /><VistaCaja pedidosFinalizados={pedidosFinalizados} onVolver={() => setVista("panel")} /></div>;
+    return <div style={s.wrap}><Header /><VistaCaja pedidosFinalizados={pedidosFinalizados} onVolver={() => setVista("panel")} usuario={usuario} /></div>;
   }
 
   if (vista === "reporteVentas") {
