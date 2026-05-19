@@ -42,14 +42,22 @@ const TABS = [
   { id: "nuevo",       label: "➕ Nuevo pedido" },
 ];
 
-ffunction clasificarPedido(p) {
-  const location = p.fulfillments?.[0]?.assigned_location?.name || "";
-  const tipo = p.fulfillments?.[0]?.shipping?.type || "";
-  const optionName = (p.fulfillments?.[0]?.shipping?.option?.name || "").toLowerCase();
+// Códigos ULID de las opciones de envío en Tienda Nube (estables)
+const TN_CODE_FRENCH = "01KQ7S2Z0799JKAT5A1VTH12EQ"; // Recoleta (sucursal French, calle French 2615)
+const TN_CODE_AT = "01KQ7TFQPTTZQ7CFFKCKVWEZQV";     // Villa Ortuzar (sucursal A. Thomas, Alvarez Thomas 1558)
+
+function clasificarPedido(p) {
+  const ff = p.fulfillments?.[0];
+  const tipo = ff?.shipping?.type || "";
+  const optionName = (ff?.shipping?.option?.name || "").toLowerCase();
+  const optionCode = ff?.shipping?.option?.code || "";
   const esPickup = tipo === "pickup" || optionName.includes("retiro") || optionName.includes("pickup") || optionName.includes("local");
 
-  // En Piccadely: opción "Recoleta" = sucursal French; todo lo demás = A. Thomas
-  const esFrench = optionName.includes("recoleta");
+  // Primer match por ULID (lo más confiable), fallback por nombre
+  let esFrench;
+  if (optionCode === TN_CODE_FRENCH) esFrench = true;
+  else if (optionCode === TN_CODE_AT) esFrench = false;
+  else esFrench = optionName.includes("recoleta");
 
   if (esPickup) {
     return esFrench ? "retiro-fr" : "retiro-at";
