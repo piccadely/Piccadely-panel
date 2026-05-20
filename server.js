@@ -123,6 +123,31 @@ initDB().catch(console.error);
 // Montar sistema de autenticación (devuelve los middlewares)
 const { requireAuth, requireAdmin, requireRole } = setupAuth(app, pool);
 
+// ─── HEALTH CHECK ────────────────────────────────────────────────────
+// Endpoint público para monitoreo externo (UptimeRobot, etc.)
+// 200 + status "healthy" si server y DB responden. 503 si la DB no responde.
+app.get("/api/health", async (req, res) => {
+  const start = Date.now();
+  try {
+    await pool.query("SELECT 1");
+    res.json({
+      status: "healthy",
+      server: "ok",
+      database: "ok",
+      database_latency_ms: Date.now() - start,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error("Health check fallido:", err.message);
+    res.status(503).json({
+      status: "unhealthy",
+      server: "ok",
+      database: "error",
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
 function fechaHoy() {
   const hoy = new Date();
   return `${String(hoy.getDate()).padStart(2,"0")}/${String(hoy.getMonth()+1).padStart(2,"0")}/${hoy.getFullYear()}`;
