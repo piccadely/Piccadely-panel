@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import Login from "./Login";
 import Usuarios from "./Usuarios";
 import { getUsuarioGuardado, validarSesion, cerrarSesion, ROL_LABELS } from "./auth-utils";
@@ -95,6 +98,64 @@ function guardarEstadoDB(id, estado) {
 
 function fmt(n) { return `$${Number(n).toLocaleString("es-AR")}`; }
 function sumar(arr) { return arr.reduce((a, p) => a + p.totalNum, 0); }
+
+// ─── EXPORTACIÓN XLSX / PDF ──────────────────────────────────────────
+function fechaTagArchivo(desde, hasta) {
+  if (desde && hasta) return `${desde}_a_${hasta}`;
+  if (desde) return `desde_${desde}`;
+  if (hasta) return `hasta_${hasta}`;
+  return new Date().toISOString().split("T")[0];
+}
+
+function exportarExcel(filename, hojas) {
+  const wb = XLSX.utils.book_new();
+  hojas.forEach(({ name, data }) => {
+    const ws = XLSX.utils.json_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb, ws, name.substring(0, 31));
+  });
+  XLSX.writeFile(wb, filename);
+}
+
+function exportarPDF(filename, titulo, columnas, filas, totalLinea = null, subtitulo = null) {
+  const doc = new jsPDF();
+  doc.setFontSize(14);
+  doc.setTextColor(42, 122, 75);
+  doc.text("Piccadely — " + titulo, 14, 15);
+  doc.setFontSize(9);
+  doc.setTextColor(120, 120, 120);
+  let y = 22;
+  if (subtitulo) {
+    doc.text(subtitulo, 14, y);
+    y += 5;
+  }
+  doc.text(`Generado: ${new Date().toLocaleString("es-AR")}`, 14, y);
+  y += 5;
+
+  autoTable(doc, {
+    startY: y + 2,
+    head: [columnas],
+    body: filas,
+    styles: { fontSize: 8, cellPadding: 2 },
+    headStyles: { fillColor: [42, 122, 75], textColor: 255, fontStyle: "bold" },
+    alternateRowStyles: { fillColor: [249, 249, 247] },
+  });
+
+  if (totalLinea) {
+    const finalY = doc.lastAutoTable.finalY + 8;
+    doc.setFontSize(11);
+    doc.setTextColor(42, 122, 75);
+    doc.setFont(undefined, "bold");
+    doc.text(totalLinea, 14, finalY);
+  }
+
+  doc.save(filename);
+}
+
+const btnExportar = (color) => ({
+  fontSize: 12, padding: "6px 12px", borderRadius: 6,
+  border: `1px solid ${color}`, background: "#fff", color,
+  cursor: "pointer", fontWeight: 500,
+});
 
 function reproducirBeep() {
   try {
@@ -667,11 +728,70 @@ function VistaCaja({ pedidosFinalizados, onVolver, usuario }) {
               </div>
             )}
             <div style={{ gridColumn: "span 2", marginTop: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>📅 Historial de cierres</div>
                 <input type="date" style={{ fontSize: 12, padding: "5px 8px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }}
                   value={filtroHistorial} onChange={e => setFiltroHistorial(e.target.value)} />
                 {filtroHistorial && <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", color: "#888" }} onClick={() => setFiltroHistorial("")}>✕ Limpiar</button>}
+                {historial.length > 0 && (
+                  <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+                    <button style={btnExportar("#2a7a4b")} onClick={() => {
+                      const histFiltrado = historial.filter(h => !filtroHistorial || h.apertura.fecha === filtroHistorial);
+                      const resumen = histFiltrado.map(h => {
+                        const a = h.apertura;
+                        const ajustesH = h.movimientos.filter(m => m.tipo === "entrada" || m.tipo === "salida");
+                        const totalAjustesH = ajustesH.reduce((acc, m) => acc + Number(m.monto), 0);
+                        const saldoEsperadoH = Number(a.monto_inicial) + totalAjustesH;
+                        const diferencia = a.monto_cierre !== null ? Number(a.monto_cierre) - saldoEsperadoH : null;
+                        return {
+                          "Fecha": a.fecha,
+                          "Monto inicial": Number(a.monto_inicial),
+                          "Total ajustes": totalAjustesH,
+                          "Saldo esperado": saldoEsperadoH,
+                          "Monto cierre": a.monto_cierre !== null ? Number(a.monto_cierre) : "",
+                          "Diferencia": diferencia !== null ? diferencia : "",
+                          "Estado": a.cerrada ? "Cerrada" : "Sin cerrar",
+                        };
+                      });
+                      const movimientosDetalle = [];
+                      histFiltrado.forEach(h => {
+                        h.movimientos.forEach(m => {
+                          movimientosDetalle.push({
+                            "Fecha": h.apertura.fecha,
+                            "Hora": new Date(m.created_at).toLocaleTimeString("es-AR"),
+                            "Tipo": m.tipo,
+                            "Concepto": m.concepto,
+                            "Monto": Number(m.monto),
+                          });
+                        });
+                      });
+                      exportarExcel(`caja_${localSeleccionado}_${filtroHistorial || "todas"}.xlsx`, [
+                        { name: "Resumen por día", data: resumen },
+                        { name: "Movimientos detalle", data: movimientosDetalle },
+                      ]);
+                    }}>📊 Excel</button>
+                    <button style={btnExportar("#c0392b")} onClick={() => {
+                      const histFiltrado = historial.filter(h => !filtroHistorial || h.apertura.fecha === filtroHistorial);
+                      const filas = histFiltrado.map(h => {
+                        const a = h.apertura;
+                        const ajustesH = h.movimientos.filter(m => m.tipo === "entrada" || m.tipo === "salida");
+                        const totalAjustesH = ajustesH.reduce((acc, m) => acc + Number(m.monto), 0);
+                        const saldoEsperadoH = Number(a.monto_inicial) + totalAjustesH;
+                        const diferencia = a.monto_cierre !== null ? Number(a.monto_cierre) - saldoEsperadoH : null;
+                        return [
+                          a.fecha, fmt(a.monto_inicial), fmt(totalAjustesH), fmt(saldoEsperadoH),
+                          a.monto_cierre !== null ? fmt(a.monto_cierre) : "—",
+                          diferencia !== null ? fmt(diferencia) : "—",
+                          a.cerrada ? "Cerrada" : "Sin cerrar",
+                        ];
+                      });
+                      exportarPDF(`caja_${localSeleccionado}_${filtroHistorial || "todas"}.pdf`,
+                        `Historial de Caja — ${localSeleccionado}`,
+                        ["Fecha", "Inicial", "Ajustes", "Esperado", "Contado", "Diferencia", "Estado"],
+                        filas, null, filtroHistorial ? `Fecha: ${filtroHistorial}` : "Todas las fechas");
+                    }}>📄 PDF</button>
+                  </div>
+                )}
               </div>
               {loadingHistorial ? <div style={{ fontSize: 12, color: "#aaa" }}>Cargando historial...</div>
               : historial.length === 0 ? <div style={{ fontSize: 12, color: "#aaa" }}>Sin cierres anteriores</div>
@@ -1165,6 +1285,40 @@ function PanelApp({ usuario }) {
       acc[m] = ventasFiltradas.filter(p => p.medioPago === m).reduce((a, p) => a + p.totalNum, 0);
       return acc;
     }, {});
+
+    const tag = fechaTagArchivo(rvDesde, rvHasta);
+    const exportarVentasExcel = () => {
+      const datos = ventasFiltradas.map(p => ({
+        "Nº": p.numero,
+        "Cliente": p.cliente,
+        "Productos": p.productos,
+        "Medio de pago": p.medioPago,
+        "Repartidor": pedidosLocales[p.id]?.repartidor || "Sin asignar",
+        "Fecha": p.fechaDisplay || "",
+        "Local": p.local,
+        "Total": p.totalNum,
+      }));
+      const resumen = MEDIOS_PAGO.filter(m => porMedio[m] > 0).map(m => ({
+        "Medio de pago": m,
+        "Pedidos": ventasFiltradas.filter(p => p.medioPago === m).length,
+        "Total": porMedio[m],
+      }));
+      resumen.push({ "Medio de pago": "TOTAL GENERAL", "Pedidos": ventasFiltradas.length, "Total": totalVentasRv });
+      exportarExcel(`ventas_${tag}.xlsx`, [
+        { name: "Ventas", data: datos },
+        { name: "Resumen", data: resumen },
+      ]);
+    };
+    const exportarVentasPDF = () => {
+      const filas = ventasFiltradas.map(p => [
+        p.numero, p.cliente, p.productos.length > 50 ? p.productos.substring(0, 50) + "..." : p.productos,
+        p.medioPago, p.fechaDisplay || "—", p.local, fmt(p.totalNum),
+      ]);
+      const subt = (rvDesde || rvHasta) ? `Desde ${rvDesde || "inicio"} hasta ${rvHasta || "hoy"}` : "Todas las fechas";
+      exportarPDF(`ventas_${tag}.pdf`, "Reporte de Ventas",
+        ["Nº", "Cliente", "Productos", "Medio pago", "Fecha", "Local", "Total"],
+        filas, `Total: ${fmt(totalVentasRv)}  ·  ${ventasFiltradas.length} pedidos`, subt);
+    };
     return (
       <div style={s.wrap}>
         <Header />
@@ -1188,6 +1342,12 @@ function PanelApp({ usuario }) {
               {(rvDesde || rvHasta || rvMedio || rvRepartidor) && (
                 <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }}
                   onClick={() => { setRvDesde(""); setRvHasta(""); setRvMedio(""); setRvRepartidor(""); }}>✕ Limpiar</button>
+              )}
+              {ventasFiltradas.length > 0 && (
+                <>
+                  <button style={btnExportar("#2a7a4b")} onClick={exportarVentasExcel}>📊 Excel</button>
+                  <button style={btnExportar("#c0392b")} onClick={exportarVentasPDF}>📄 PDF</button>
+                </>
               )}
             </div>
           </div>
@@ -1266,6 +1426,28 @@ function PanelApp({ usuario }) {
     });
     const listaProductos = Object.values(productosMap).sort((a, b) => b.cantidad - a.cantidad);
     const totalUnidades = listaProductos.reduce((a, p) => a + p.cantidad, 0);
+
+    const tagRp = fechaTagArchivo(rpDesde, rpHasta);
+    const exportarProdExcel = () => {
+      const datos = listaProductos.map((prod, i) => ({
+        "Ranking": i + 1,
+        "Producto": prod.nombre,
+        "Unidades vendidas": prod.cantidad,
+        "% del total": totalUnidades > 0 ? `${((prod.cantidad / totalUnidades) * 100).toFixed(1)}%` : "0%",
+      }));
+      datos.push({ "Ranking": "", "Producto": "TOTAL", "Unidades vendidas": totalUnidades, "% del total": "100%" });
+      exportarExcel(`productos_vendidos_${tagRp}.xlsx`, [{ name: "Productos", data: datos }]);
+    };
+    const exportarProdPDF = () => {
+      const filas = listaProductos.map((prod, i) => [
+        i + 1, prod.nombre, prod.cantidad,
+        totalUnidades > 0 ? `${((prod.cantidad / totalUnidades) * 100).toFixed(1)}%` : "0%",
+      ]);
+      const subt = (rpDesde || rpHasta) ? `Desde ${rpDesde || "inicio"} hasta ${rpHasta || "hoy"}` : "Todas las fechas";
+      exportarPDF(`productos_vendidos_${tagRp}.pdf`, "Productos Vendidos",
+        ["#", "Producto", "Unidades", "% del total"],
+        filas, `Total: ${totalUnidades} unidades  ·  ${pedidosBase.length} pedidos`, subt);
+    };
     return (
       <div style={s.wrap}>
         <Header />
@@ -1281,6 +1463,12 @@ function PanelApp({ usuario }) {
               {(rpDesde || rpHasta) && (
                 <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }}
                   onClick={() => { setRpDesde(""); setRpHasta(""); }}>✕ Limpiar</button>
+              )}
+              {listaProductos.length > 0 && (
+                <>
+                  <button style={btnExportar("#2a7a4b")} onClick={exportarProdExcel}>📊 Excel</button>
+                  <button style={btnExportar("#c0392b")} onClick={exportarProdPDF}>📄 PDF</button>
+                </>
               )}
             </div>
           </div>
@@ -1356,6 +1544,24 @@ function PanelApp({ usuario }) {
     });
     const listaProduccion = Object.values(productosMap).sort((a, b) => b.cantidad - a.cantidad);
     const totalUnidades = listaProduccion.reduce((a, p) => a + p.cantidad, 0);
+
+    const exportarProduccionExcel = () => {
+      const datos = listaProduccion.map(prod => ({
+        "Producto": prod.nombre,
+        "Cantidad a producir": prod.cantidad,
+      }));
+      datos.push({ "Producto": "TOTAL", "Cantidad a producir": totalUnidades });
+      exportarExcel(`produccion_${prodFecha}.xlsx`, [{ name: "Producción", data: datos }]);
+    };
+    const exportarProduccionPDF = () => {
+      const filas = listaProduccion.map(prod => [prod.nombre, prod.cantidad]);
+      const fechaLabel = new Date(prodFecha + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
+      exportarPDF(`produccion_${prodFecha}.pdf`, "Análisis de Producción",
+        ["Producto", "Cantidad"],
+        filas, `Total a producir: ${totalUnidades} unidades  ·  ${pedidosProduccion.length} pedidos`,
+        `Fecha: ${fechaLabel}`);
+    };
+
     const fechasDisponibles = [...new Set(
       pedidosProcesados.filter(p => {
         const est = pedidosLocales[p.id]?.estado || p.estado;
@@ -1383,6 +1589,12 @@ function PanelApp({ usuario }) {
                     </button>
                   ))}
                 </div>
+              )}
+              {listaProduccion.length > 0 && (
+                <>
+                  <button style={btnExportar("#2a7a4b")} onClick={exportarProduccionExcel}>📊 Excel</button>
+                  <button style={btnExportar("#c0392b")} onClick={exportarProduccionPDF}>📄 PDF</button>
+                </>
               )}
             </div>
           </div>
@@ -1459,6 +1671,39 @@ function PanelApp({ usuario }) {
     const entregados = finalizadosOrdenados.filter(p => (pedidosLocales[p.id]?.estado || p.estado) === "Entregado");
     const anulados = finalizadosOrdenados.filter(p => (pedidosLocales[p.id]?.estado || p.estado) === "Anulado");
     const listaMostrada = tabFin === "entregados" ? entregados : anulados;
+
+    const tagFin = fechaTagArchivo(filtroFinDesde, filtroFinHasta);
+    const exportarFinalizadosExcel = () => {
+      const datos = listaMostrada.map(p => ({
+        "Nº": p.numero,
+        "Cliente": p.cliente,
+        "Teléfono": p.telefono,
+        "Dirección": p.direccion + (p.barrio ? `, ${p.barrio}` : ""),
+        "Productos": p.productos,
+        "Medio de pago": p.medioPago,
+        "Total": p.totalNum,
+        "Fecha": p.fechaDisplay || "",
+        "Local": p.local,
+        "Estado": pedidosLocales[p.id]?.estado || p.estado,
+        "Repartidor": pedidosLocales[p.id]?.repartidor || "Sin asignar",
+      }));
+      exportarExcel(`pedidos_${tabFin}_${tagFin}.xlsx`, [
+        { name: tabFin === "entregados" ? "Entregados" : "Anulados", data: datos },
+      ]);
+    };
+    const exportarFinalizadosPDF = () => {
+      const filas = listaMostrada.map(p => [
+        p.numero, p.cliente, p.telefono,
+        (p.productos.length > 40 ? p.productos.substring(0, 40) + "..." : p.productos),
+        p.medioPago, fmt(p.totalNum), p.fechaDisplay || "—", p.local,
+      ]);
+      const totalSum = listaMostrada.reduce((a, p) => a + p.totalNum, 0);
+      const subt = (filtroFinDesde || filtroFinHasta) ? `Desde ${filtroFinDesde || "inicio"} hasta ${filtroFinHasta || "hoy"}` : "Todas las fechas";
+      const titulo = tabFin === "entregados" ? "Pedidos Entregados" : "Pedidos Anulados";
+      exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, titulo,
+        ["Nº", "Cliente", "Teléfono", "Productos", "Pago", "Total", "Fecha", "Local"],
+        filas, `Total: ${fmt(totalSum)}  ·  ${listaMostrada.length} pedidos`, subt);
+    };
     return (
       <div style={s.wrap}>
         <Header />
@@ -1478,6 +1723,12 @@ function PanelApp({ usuario }) {
               </select>
               {(filtroFinDesde || filtroFinHasta || filtroRepartidor) && (
                 <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setFiltroFinDesde(""); setFiltroFinHasta(""); setFiltroRepartidor(""); }}>✕ Limpiar</button>
+              )}
+              {listaMostrada.length > 0 && (
+                <>
+                  <button style={btnExportar("#2a7a4b")} onClick={exportarFinalizadosExcel}>📊 Excel</button>
+                  <button style={btnExportar("#c0392b")} onClick={exportarFinalizadosPDF}>📄 PDF</button>
+                </>
               )}
             </div>
           </div>
