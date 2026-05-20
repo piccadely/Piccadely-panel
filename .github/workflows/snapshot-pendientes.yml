@@ -1,0 +1,78 @@
+name: Snapshot diario de pedidos pendientes
+
+# Se ejecuta automáticamente todos los días a las 23:59 Argentina (02:59 UTC del día siguiente)
+# Genera un PDF con todos los pedidos pendientes a 15 días y lo envía por mail
+# como red de seguridad operativa en caso de que el panel se caiga
+on:
+  schedule:
+    - cron: "59 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Calcular fecha Argentina
+        id: fecha
+        run: |
+          # UTC - 3 horas = hora Argentina
+          FECHA_AR=$(TZ='America/Argentina/Buenos_Aires' date +'%Y-%m-%d')
+          FECHA_LARGA=$(TZ='America/Argentina/Buenos_Aires' date +'%A %d de %B de %Y')
+          echo "fecha=${FECHA_AR}" >> $GITHUB_OUTPUT
+          echo "fecha_larga=${FECHA_LARGA}" >> $GITHUB_OUTPUT
+
+      - name: Descargar PDF del backend
+        env:
+          ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
+        run: |
+          if [ -z "$ADMIN_SECRET" ]; then
+            echo "❌ Falta el secret ADMIN_SECRET en este repo"
+            echo "Configurarlo en: Settings → Secrets and variables → Actions → New repository secret"
+            exit 1
+          fi
+          
+          HTTP_CODE=$(curl -s -o snapshot.pdf -w "%{http_code}" \
+            -X GET "https://piccadely-panel-production.up.railway.app/api/admin/snapshot-pendientes" \
+            -H "x-admin-secret: $ADMIN_SECRET" \
+            --max-time 60)
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ El backend respondió HTTP $HTTP_CODE"
+            cat snapshot.pdf
+            exit 1
+          fi
+          
+          SIZE=$(du -h snapshot.pdf | cut -f1)
+          echo "✅ PDF generado: snapshot.pdf ($SIZE)"
+          # Renombrar para que el adjunto tenga nombre lindo
+          mv snapshot.pdf "piccadely_pendientes_${{ steps.fecha.outputs.fecha }}.pdf"
+
+      - name: Enviar PDF por email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.GMAIL_USER }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: "Piccadely · Pedidos pendientes · ${{ steps.fecha.outputs.fecha }}"
+          to: chapa@piccadely.com
+          from: Piccadely Snapshot <${{ secrets.GMAIL_USER }}>
+          html_body: |
+            <h2 style="color:#2a7a4b;font-family:sans-serif;">Snapshot diario · Piccadely</h2>
+            <p style="font-family:sans-serif;color:#333;">
+              Adjunto el listado de <strong>pedidos pendientes</strong> para los próximos 15 días,
+              generado al cierre del día (23:59).
+            </p>
+            <p style="font-family:sans-serif;color:#666;font-size:13px;">
+              📋 Si el panel se cae por cualquier motivo, podés abrir este PDF y consultar
+              qué pedidos tenés comprometidos: cliente, dirección, productos, horario.
+              <br><br>
+              📌 Este mail se envía automáticamente todos los días, no requiere acción.
+            </p>
+            <hr style="border:none;border-top:1px solid #eee;margin:20px 0;">
+            <p style="font-family:sans-serif;color:#aaa;font-size:11px;">
+              Generado por GitHub Actions desde el repo Piccadely-panel.
+            </p>
+          attachments: piccadely_pendientes_${{ steps.fecha.outputs.fecha }}.pdf
