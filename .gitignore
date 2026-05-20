@@ -1,24 +1,64 @@
-# Logs
-logs
+# ─── DEPENDENCIAS ────────────────────────────────────────────────────
+node_modules/
+.pnpm-store/
+
+# ─── BUILDS ──────────────────────────────────────────────────────────
+dist/
+build/
+.next/
+.vercel/
+out/
+
+# ─── VARIABLES DE ENTORNO (NUNCA COMMITEAR) ──────────────────────────
+.env
+.env.local
+.env.production
+.env.development
+.env.*.local
+*.env
+
+# ─── LOGS ────────────────────────────────────────────────────────────
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+logs/
 
-node_modules
-dist
-dist-ssr
-*.local
+# ─── EDITORS / IDE ───────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+# ─── SISTEMA OPERATIVO ───────────────────────────────────────────────
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+Thumbs.db
+Desktop.ini
+
+# ─── CACHE ───────────────────────────────────────────────────────────
+.cache/
+.parcel-cache/
+.eslintcache
+.npm
+
+# ─── BACKUPS LOCALES ─────────────────────────────────────────────────
+*.bak
+*.backup
+*.tmp
+backup_*/
+backups/
+
+# ─── ARCHIVOS DE PRUEBA / TESTING ────────────────────────────────────
+coverage/
+.nyc_output/
+test-results/
+
+# ─── SECRETS Y CREDENCIALES ──────────────────────────────────────────
+*.pem
+*.key
+*.p12
+secrets/
+credentials/

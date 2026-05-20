@@ -7,23 +7,43 @@ import { initAuthDB, setupAuth } from "./auth.js";
 
 const { Pool } = pg;
 
+// ─── VALIDACIÓN DE VARIABLES DE ENTORNO ──────────────────────────────
+const REQUIRED_ENV = [
+  "DATABASE_URL",
+  "TN_STORE_ID",
+  "TN_ACCESS_TOKEN",
+  "TN_CLIENT_SECRET",
+  "TF_APIKEY",
+  "TF_APITOKEN",
+  "TF_USERTOKEN",
+  "JWT_SECRET",
+  "ADMIN_SECRET",
+];
+
+const missing = REQUIRED_ENV.filter(k => !process.env[k]);
+if (missing.length > 0) {
+  console.error("❌ FATAL: faltan variables de entorno:", missing.join(", "));
+  console.error("Configurá estas variables en Railway antes de iniciar el servidor.");
+  process.exit(1);
+}
+
 const app = express();
 app.use(cors({ origin: "*" }));
 app.use(express.json({
   verify: (req, res, buf) => { req.rawBody = buf; }
 }));
 
-const STORE_ID = "7597872";
-const ACCESS_TOKEN = "657a5d5af8780cd0304f2652e5122b651c60b66c";
-const TN_CLIENT_SECRET = process.env.TN_CLIENT_SECRET || "";
+const STORE_ID = process.env.TN_STORE_ID;
+const ACCESS_TOKEN = process.env.TN_ACCESS_TOKEN;
+const TN_CLIENT_SECRET = process.env.TN_CLIENT_SECRET;
 const headers = {
   Authentication: `bearer ${ACCESS_TOKEN}`,
   "User-Agent": "PiccadelyPanel (piccadely@gmail.com)",
 };
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || "postgresql://postgres:wtZlEaHjqrFUMslzmlbzGsAYOGHbXUis@postgres.railway.internal:5432/railway",
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
 });
 
 async function initDB() {
@@ -266,10 +286,10 @@ app.post("/api/caja/cierre", async (req, res) => {
 });
 
 // FACTURACIÓN
-const TF_APIKEY = "72026";
-const TF_APITOKEN = "f3e0ae8012f40c58d93b5c0333ae634b";
-const TF_USERTOKEN = "686753022f9690813f6166450767316fffb6b8c1867cf5db2b3ba5f7211d5d84";
-const TF_PDV = "00007";
+const TF_APIKEY = process.env.TF_APIKEY;
+const TF_APITOKEN = process.env.TF_APITOKEN;
+const TF_USERTOKEN = process.env.TF_USERTOKEN;
+const TF_PDV = process.env.TF_PDV || "00007";
 const TF_CUIT_EMISOR = process.env.TF_CUIT_EMISOR || "30712271503";
 
 function esNotaCredito(f) {
@@ -782,7 +802,7 @@ app.post("/api/admin/backfill-orders", requireAdmin, async (req, res) => {
 // ADMIN WEBHOOKS TIENDA NUBE
 // ============================
 
-const WEBHOOK_URL = "https://piccadely-panel-production.up.railway.app/api/webhooks/tiendanube";
+const WEBHOOK_URL = process.env.WEBHOOK_URL || "https://piccadely-panel-production.up.railway.app/api/webhooks/tiendanube";
 const WEBHOOK_EVENTS = [
   "order/created",
   "order/paid",

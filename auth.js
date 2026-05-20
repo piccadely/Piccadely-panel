@@ -5,15 +5,22 @@
 //   - initAuthDB(pool):  crea la tabla usuarios y seedea los 12 iniciales
 //   - setupAuth(app, pool):  monta los endpoints de login/usuarios y
 //                            devuelve los middlewares { requireAuth, requireAdmin, requireRole }
+//
+// Variables de entorno requeridas (validadas en server.js):
+//   - JWT_SECRET:  secret para firmar JWT
+//   - ADMIN_SECRET: secret para autenticación admin vía header x-admin-secret
+//
+// Variable de entorno opcional:
+//   - PASSWORD_INICIAL: contraseña usada en el primer seed (default "Piccadely2026!")
 // ─────────────────────────────────────────────────────────────────────
 
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 
-const JWT_SECRET = process.env.JWT_SECRET || "";
-const ADMIN_SECRET = process.env.ADMIN_SECRET || "";
+const JWT_SECRET = process.env.JWT_SECRET;
+const ADMIN_SECRET = process.env.ADMIN_SECRET;
 const JWT_EXPIRES_IN = "14h";
-const PASSWORD_INICIAL = "Piccadely2026!";
+const PASSWORD_INICIAL = process.env.PASSWORD_INICIAL || "Piccadely2026!";
 
 // ─── INIT DB: tabla + seed ───────────────────────────────────────────
 export async function initAuthDB(pool) {
@@ -62,12 +69,11 @@ export async function initAuthDB(pool) {
     );
   }
 
-  console.log(`Auth: seed completo — ${usuariosIniciales.length} usuarios creados con password '${PASSWORD_INICIAL}'`);
+  console.log(`Auth: seed completo — ${usuariosIniciales.length} usuarios creados con password inicial`);
 }
 
 // ─── SETUP: middlewares + endpoints ──────────────────────────────────
 export function setupAuth(app, pool) {
-  // ── Middleware: requiere usuario autenticado (cualquier rol) ──
   function requireAuth(req, res, next) {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -83,7 +89,6 @@ export function setupAuth(app, pool) {
     }
   }
 
-  // ── Middleware: requiere rol(es) específico(s) ──
   function requireRole(...rolesPermitidos) {
     return (req, res, next) => {
       if (!req.user) return res.status(401).json({ error: "No autenticado" });
@@ -94,15 +99,12 @@ export function setupAuth(app, pool) {
     };
   }
 
-  // ── Middleware: admin (acepta JWT con rol admin O header x-admin-secret para scripts internos) ──
   function requireAdmin(req, res, next) {
-    // Opción 1: header x-admin-secret (compatibilidad con scripts internos / PowerShell)
     const adminSecretHeader = req.headers["x-admin-secret"];
-    if (ADMIN_SECRET && adminSecretHeader === ADMIN_SECRET) {
+    if (adminSecretHeader && adminSecretHeader === ADMIN_SECRET) {
       req.user = { id: 0, username: "system", rol: "admin", nombre_completo: "Sistema" };
       return next();
     }
-    // Opción 2: JWT con rol admin
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return res.status(401).json({ error: "No autorizado" });
@@ -120,28 +122,20 @@ export function setupAuth(app, pool) {
     }
   }
 
-  // ── POST /api/login ──
   app.post("/api/login", async (req, res) => {
     try {
       const { username, password } = req.body;
-      if (!username || !password) {
-        return res.status(400).json({ error: "Faltan username o password" });
-      }
+      if (!username || !password) return res.status(400).json({ error: "Faltan username o password" });
 
       const { rows } = await pool.query(
         "SELECT * FROM usuarios WHERE username = $1 AND activo = true",
         [String(username).toLowerCase().trim()]
       );
-
-      if (rows.length === 0) {
-        return res.status(401).json({ error: "Usuario o contraseña incorrectos" });
-      }
+      if (rows.length === 0) return res.status(401).json({ error: "Usuario o contraseña incorrectos" });
 
       const user = rows[0];
       const ok = await bcrypt.compare(password, user.password_hash);
-      if (!ok) {
-        return res.status(401).json({ error: "Usuario o contraseña incorrectos" });
-      }
+      if (!ok) return res.status(401).json({ error: "Usuario o contraseña incorrectos" });
 
       const token = jwt.sign(
         { id: user.id, username: user.username, rol: user.rol, nombre_completo: user.nombre_completo },
@@ -151,12 +145,7 @@ export function setupAuth(app, pool) {
 
       res.json({
         token,
-        user: {
-          id: user.id,
-          username: user.username,
-          nombre_completo: user.nombre_completo,
-          rol: user.rol,
-        }
+        user: { id: user.id, username: user.username, nombre_completo: user.nombre_completo, rol: user.rol }
       });
     } catch (err) {
       console.error("Error /api/login:", err.message);
@@ -164,21 +153,15 @@ export function setupAuth(app, pool) {
     }
   });
 
-  // ── GET /api/me — info del usuario logueado ──
   app.get("/api/me", requireAuth, (req, res) => {
     res.json({ user: req.user });
   });
 
-  // ── POST /api/cambiar-password — cualquier usuario puede cambiar su propia password ──
   app.post("/api/cambiar-password", requireAuth, async (req, res) => {
     try {
       const { passwordActual, passwordNuevo } = req.body;
-      if (!passwordActual || !passwordNuevo) {
-        return res.status(400).json({ error: "Faltan campos" });
-      }
-      if (passwordNuevo.length < 4) {
-        return res.status(400).json({ error: "La nueva contraseña es muy corta" });
-      }
+      if (!passwordActual || !passwordNuevo) return res.status(400).json({ error: "Faltan campos" });
+      if (passwordNuevo.length < 4) return res.status(400).json({ error: "La nueva contraseña es muy corta" });
 
       const { rows } = await pool.query("SELECT password_hash FROM usuarios WHERE id = $1", [req.user.id]);
       if (rows.length === 0) return res.status(404).json({ error: "Usuario no encontrado" });
@@ -187,11 +170,7 @@ export function setupAuth(app, pool) {
       if (!valido) return res.status(401).json({ error: "Contraseña actual incorrecta" });
 
       const nuevoHash = await bcrypt.hash(passwordNuevo, 10);
-      await pool.query(
-        "UPDATE usuarios SET password_hash = $1, updated_at = NOW() WHERE id = $2",
-        [nuevoHash, req.user.id]
-      );
-
+      await pool.query("UPDATE usuarios SET password_hash = $1, updated_at = NOW() WHERE id = $2", [nuevoHash, req.user.id]);
       res.json({ ok: true });
     } catch (err) {
       console.error("Error /api/cambiar-password:", err.message);
@@ -199,31 +178,21 @@ export function setupAuth(app, pool) {
     }
   });
 
-  // ── GET /api/usuarios — listar todos (solo admin) ──
   app.get("/api/usuarios", requireAdmin, async (req, res) => {
     try {
       const { rows } = await pool.query(
         "SELECT id, username, nombre_completo, rol, activo, created_at FROM usuarios ORDER BY rol, nombre_completo"
       );
       res.json(rows);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
   });
 
-  // ── POST /api/usuarios — crear (solo admin) ──
   app.post("/api/usuarios", requireAdmin, async (req, res) => {
     try {
       const { username, password, nombre_completo, rol } = req.body;
-      if (!username || !password || !nombre_completo || !rol) {
-        return res.status(400).json({ error: "Faltan campos" });
-      }
-      if (!["admin", "a_thomas", "french"].includes(rol)) {
-        return res.status(400).json({ error: "Rol inválido" });
-      }
-      if (password.length < 4) {
-        return res.status(400).json({ error: "La contraseña es muy corta" });
-      }
+      if (!username || !password || !nombre_completo || !rol) return res.status(400).json({ error: "Faltan campos" });
+      if (!["admin", "a_thomas", "french"].includes(rol)) return res.status(400).json({ error: "Rol inválido" });
+      if (password.length < 4) return res.status(400).json({ error: "La contraseña es muy corta" });
 
       const hash = await bcrypt.hash(password, 10);
       const { rows } = await pool.query(
@@ -239,7 +208,6 @@ export function setupAuth(app, pool) {
     }
   });
 
-  // ── PATCH /api/usuarios/:id — editar (solo admin) ──
   app.patch("/api/usuarios/:id", requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
@@ -251,9 +219,7 @@ export function setupAuth(app, pool) {
 
       if (nombre_completo !== undefined) { updates.push(`nombre_completo = $${i++}`); valores.push(nombre_completo); }
       if (rol !== undefined) {
-        if (!["admin", "a_thomas", "french"].includes(rol)) {
-          return res.status(400).json({ error: "Rol inválido" });
-        }
+        if (!["admin", "a_thomas", "french"].includes(rol)) return res.status(400).json({ error: "Rol inválido" });
         updates.push(`rol = $${i++}`); valores.push(rol);
       }
       if (activo !== undefined) { updates.push(`activo = $${i++}`); valores.push(activo); }
@@ -274,24 +240,17 @@ export function setupAuth(app, pool) {
 
       if (rows.length === 0) return res.status(404).json({ error: "Usuario no encontrado" });
       res.json(rows[0]);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
   });
 
-  // ── DELETE /api/usuarios/:id — eliminar (solo admin) ──
   app.delete("/api/usuarios/:id", requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
-      if (Number(id) === req.user.id) {
-        return res.status(400).json({ error: "No podés eliminarte a vos mismo" });
-      }
+      if (Number(id) === req.user.id) return res.status(400).json({ error: "No podés eliminarte a vos mismo" });
       const { rows } = await pool.query("DELETE FROM usuarios WHERE id = $1 RETURNING id", [id]);
       if (rows.length === 0) return res.status(404).json({ error: "Usuario no encontrado" });
       res.json({ ok: true });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
   });
 
   return { requireAuth, requireAdmin, requireRole };
