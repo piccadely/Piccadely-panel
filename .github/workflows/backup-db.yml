@@ -1,0 +1,54 @@
+name: Backup diario de Neon
+
+# Se ejecuta automáticamente cada día a las 07:00 UTC (= 04:00 Argentina)
+# También se puede correr manualmente desde la pestaña Actions de GitHub
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Instalar cliente de PostgreSQL 17
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+
+      - name: Generar nombre de archivo con fecha
+        id: filename
+        run: |
+          FECHA=$(date -u +'%Y-%m-%d_%H%M%S')
+          echo "name=piccadely_backup_${FECHA}.sql.gz" >> $GITHUB_OUTPUT
+          echo "fecha=${FECHA}" >> $GITHUB_OUTPUT
+
+      - name: Ejecutar pg_dump y comprimir
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "❌ Falta el secret DATABASE_URL en este repo"
+            echo "Configurarlo en: Settings → Secrets and variables → Actions → New repository secret"
+            exit 1
+          fi
+          pg_dump "$DATABASE_URL" \
+            --no-owner \
+            --no-privileges \
+            --clean \
+            --if-exists \
+            | gzip > ${{ steps.filename.outputs.name }}
+          
+          SIZE=$(du -h ${{ steps.filename.outputs.name }} | cut -f1)
+          echo "✅ Backup creado: ${{ steps.filename.outputs.name }} ($SIZE)"
+
+      - name: Subir como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-${{ steps.filename.outputs.fecha }}
+          path: ${{ steps.filename.outputs.name }}
+          retention-days: 90
+          compression-level: 0
