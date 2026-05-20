@@ -879,6 +879,7 @@ function PanelApp({ usuario }) {
   const [rpDesde, setRpDesde] = useState("");
   const [rpHasta, setRpHasta] = useState("");
   const [prodFecha, setProdFecha] = useState(HOY);
+  const [prodLocal, setProdLocal] = useState("todos");
   const [editandoProductos, setEditandoProductos] = useState(null);
   const [productosOverride, setProductosOverride] = useState({});
   const menuRef = useRef(null);
@@ -1528,7 +1529,9 @@ function PanelApp({ usuario }) {
     const pedidosProduccion = pedidosProcesados.filter(p => {
       const est = pedidosLocales[p.id]?.estado || p.estado;
       if (est === "Entregado" || est === "Anulado") return false;
-      return p.fechaDisplay === prodFecha;
+      if (p.fechaDisplay !== prodFecha) return false;
+      if (prodLocal !== "todos" && p.local !== prodLocal) return false;
+      return true;
     });
     const productosMap = {};
     pedidosProduccion.forEach(p => {
@@ -1545,21 +1548,24 @@ function PanelApp({ usuario }) {
     const listaProduccion = Object.values(productosMap).sort((a, b) => b.cantidad - a.cantidad);
     const totalUnidades = listaProduccion.reduce((a, p) => a + p.cantidad, 0);
 
+    const localTag = prodLocal === "todos" ? "todos" : prodLocal.toLowerCase().replace(/[.\s]/g, "");
+    const localLabel2 = prodLocal === "todos" ? "Ambos locales" : prodLocal;
+
     const exportarProduccionExcel = () => {
       const datos = listaProduccion.map(prod => ({
         "Producto": prod.nombre,
         "Cantidad a producir": prod.cantidad,
       }));
       datos.push({ "Producto": "TOTAL", "Cantidad a producir": totalUnidades });
-      exportarExcel(`produccion_${prodFecha}.xlsx`, [{ name: "Producción", data: datos }]);
+      exportarExcel(`produccion_${prodFecha}_${localTag}.xlsx`, [{ name: "Producción", data: datos }]);
     };
     const exportarProduccionPDF = () => {
       const filas = listaProduccion.map(prod => [prod.nombre, prod.cantidad]);
       const fechaLabel = new Date(prodFecha + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
-      exportarPDF(`produccion_${prodFecha}.pdf`, "Análisis de Producción",
+      exportarPDF(`produccion_${prodFecha}_${localTag}.pdf`, "Análisis de Producción",
         ["Producto", "Cantidad"],
         filas, `Total a producir: ${totalUnidades} unidades  ·  ${pedidosProduccion.length} pedidos`,
-        `Fecha: ${fechaLabel}`);
+        `Fecha: ${fechaLabel}  ·  Local: ${localLabel2}`);
     };
 
     const fechasDisponibles = [...new Set(
@@ -1597,6 +1603,23 @@ function PanelApp({ usuario }) {
                 </>
               )}
             </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "#888", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3 }}>Sucursal:</span>
+            {[
+              { id: "todos", label: "🏭 Ambos" },
+              { id: "A. Thomas", label: "📍 A. Thomas" },
+              { id: "French", label: "📍 French" },
+            ].map(opt => (
+              <button key={opt.id} onClick={() => setProdLocal(opt.id)}
+                style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer",
+                  borderColor: prodLocal === opt.id ? "#2a7a4b" : "#ddd",
+                  background: prodLocal === opt.id ? "#2a7a4b" : "#fff",
+                  color: prodLocal === opt.id ? "#fff" : "#555",
+                  fontWeight: prodLocal === opt.id ? 600 : 400 }}>
+                {opt.label}
+              </button>
+            ))}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
             <div style={{ background: "#2a7a4b", border: "1px solid #2a7a4b", borderRadius: 8, padding: "12px 14px" }}>
