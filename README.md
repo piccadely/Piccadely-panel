@@ -512,6 +512,7 @@ GitHub Actions manda mail automático si falla. Revisar Actions → workflow "Ba
 - [ ] CI/CD con tests automáticos
 
 ### Limpieza técnica
+- [ ] Ambiente de staging / pre-producción (Railway service paralelo + branch de Neon + branch `staging` en GitHub). Ver discusión en el chat del 20/05/2026: vale la pena cuando haya un segundo dev o cuando se necesite probar webhooks reales de TN. Costo estimado: ~$5-10 USD/mes adicional en Railway.
 - [ ] Cambiar `sslmode=require` → `sslmode=verify-full` en DATABASE_URL
 - [ ] Dar de baja la DB vieja en Railway Postgres (si todavía existe)
 - [ ] Refactorear `src/App.jsx` (~2100 líneas) en componentes separados
