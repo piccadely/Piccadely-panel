@@ -60,7 +60,7 @@ jobs:
           to: chapa@piccadely.com
           from: Piccadely Snapshot <${{ secrets.GMAIL_USER }}>
           html_body: |
-            <h2 style="color:#2a7a4b;font-family:sans-serif;">Snapshot diario · Piccadely</h2>
+            <h2 style="color:#F68B32;font-family:sans-serif;">Snapshot diario · Piccadely</h2>
             <p style="font-family:sans-serif;color:#333;">
               Adjunto el listado de <strong>pedidos pendientes</strong> para los próximos 15 días,
               generado al cierre del día (23:59).
