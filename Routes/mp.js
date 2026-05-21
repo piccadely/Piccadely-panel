@@ -144,7 +144,8 @@ export function mpRouter(pool, mailTransporter) {
       const paymentClient = new Payment(client);
       const payment = await paymentClient.get({ id: dataId });
 
-      console.log(`MP pago ${dataId}: status=${payment.status}`);
+    console.log(`MP pago ${dataId}: status=${payment.status} preference_id=${payment.preference_id}`);
+console.log(`MP pago objeto keys:`, Object.keys(payment));
 
       if (payment.status !== "approved") return;
 
