@@ -500,7 +500,19 @@ app.get("/api/pedidos-manuales", async (req, res) => {
     res.status(500).json({ error: "Error trayendo pedidos manuales" });
   }
 });
-
+app.patch("/api/pedidos-manuales/:id/email", async (req, res) => {
+  const { id } = req.params;
+  const { email } = req.body;
+  try {
+    await pool.query(
+      "UPDATE pedidos_manuales SET email = $1 WHERE id = $2",
+      [email, id]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app.post("/api/pedidos-manuales", async (req, res) => {
   const p = req.body;
   try {

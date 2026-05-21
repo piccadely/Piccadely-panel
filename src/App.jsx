@@ -45,9 +45,8 @@ const TABS = [
   { id: "nuevo",       label: "➕ Nuevo pedido" },
 ];
 
-// Códigos ULID de las opciones de envío en Tienda Nube (estables)
-const TN_CODE_FRENCH = "01KQ7S2Z0799JKAT5A1VTH12EQ"; // Recoleta (sucursal French, calle French 2615)
-const TN_CODE_AT = "01KQ7TFQPTTZQ7CFFKCKVWEZQV";     // Villa Ortuzar (sucursal A. Thomas, Alvarez Thomas 1558)
+const TN_CODE_FRENCH = "01KQ7S2Z0799JKAT5A1VTH12EQ";
+const TN_CODE_AT = "01KQ7TFQPTTZQ7CFFKCKVWEZQV";
 
 function clasificarPedido(p) {
   const ff = p.fulfillments?.[0];
@@ -55,17 +54,11 @@ function clasificarPedido(p) {
   const optionName = (ff?.shipping?.option?.name || "").toLowerCase();
   const optionCode = ff?.shipping?.option?.code || "";
   const esPickup = tipo === "pickup" || optionName.includes("retiro") || optionName.includes("pickup") || optionName.includes("local");
-
-  // Primer match por ULID (lo más confiable), fallback por nombre
   let esFrench;
   if (optionCode === TN_CODE_FRENCH) esFrench = true;
   else if (optionCode === TN_CODE_AT) esFrench = false;
   else esFrench = optionName.includes("recoleta");
-
-  if (esPickup) {
-    return esFrench ? "retiro-fr" : "retiro-at";
-  }
-
+  if (esPickup) return esFrench ? "retiro-fr" : "retiro-at";
   return esFrench ? "delivery-fr" : "delivery-at";
 }
 
@@ -99,7 +92,6 @@ function guardarEstadoDB(id, estado) {
 function fmt(n) { return `$${Number(n).toLocaleString("es-AR")}`; }
 function sumar(arr) { return arr.reduce((a, p) => a + p.totalNum, 0); }
 
-// ─── EXPORTACIÓN XLSX / PDF ──────────────────────────────────────────
 function fechaTagArchivo(desde, hasta) {
   if (desde && hasta) return `${desde}_a_${hasta}`;
   if (desde) return `desde_${desde}`;
@@ -124,13 +116,9 @@ function exportarPDF(filename, titulo, columnas, filas, totalLinea = null, subti
   doc.setFontSize(9);
   doc.setTextColor(120, 120, 120);
   let y = 22;
-  if (subtitulo) {
-    doc.text(subtitulo, 14, y);
-    y += 5;
-  }
+  if (subtitulo) { doc.text(subtitulo, 14, y); y += 5; }
   doc.text(`Generado: ${new Date().toLocaleString("es-AR")}`, 14, y);
   y += 5;
-
   autoTable(doc, {
     startY: y + 2,
     head: [columnas],
@@ -139,7 +127,6 @@ function exportarPDF(filename, titulo, columnas, filas, totalLinea = null, subti
     headStyles: { fillColor: [42, 122, 75], textColor: 255, fontStyle: "bold" },
     alternateRowStyles: { fillColor: [249, 249, 247] },
   });
-
   if (totalLinea) {
     const finalY = doc.lastAutoTable.finalY + 8;
     doc.setFontSize(11);
@@ -147,7 +134,6 @@ function exportarPDF(filename, titulo, columnas, filas, totalLinea = null, subti
     doc.setFont(undefined, "bold");
     doc.text(totalLinea, 14, finalY);
   }
-
   doc.save(filename);
 }
 
@@ -175,23 +161,13 @@ function reproducirBeep() {
   } catch (e) { console.warn("No se pudo reproducir el beep:", e); }
 }
 
-// ─── INPUT CON COMMIT ON BLUR ────────────────────────────────────────
-// Componente con state interno propio. Mientras el usuario escribe, no
-// actualiza al padre (evita que se reagrupen/reordenen los pedidos y se
-// pierda el foco). Solo informa al padre al hacer blur (TAB, click afuera).
 function InputBlur({ initialValue, onCommit, style, placeholder, type = "text", ...rest }) {
   const [value, setValue] = useState(initialValue ?? "");
-  // Si cambia desde afuera (ej. otra pestaña), sincronizar mientras no esté siendo editado
   const [focused, setFocused] = useState(false);
-  useEffect(() => {
-    if (!focused) setValue(initialValue ?? "");
-  }, [initialValue, focused]);
+  useEffect(() => { if (!focused) setValue(initialValue ?? ""); }, [initialValue, focused]);
   return (
     <input
-      type={type}
-      style={style}
-      placeholder={placeholder}
-      value={value}
+      type={type} style={style} placeholder={placeholder} value={value}
       onFocus={() => setFocused(true)}
       onChange={e => setValue(e.target.value)}
       onBlur={() => { setFocused(false); if (value !== (initialValue ?? "")) onCommit(value); }}
@@ -241,6 +217,128 @@ function BtnFacturar({ p, version, onAbrir }) {
           🧾 Facturar
         </button>
       )}
+    </div>
+  );
+}
+
+// ─── BTN MERCADO PAGO ────────────────────────────────────────────────
+function BtnPagoMP({ p, onEmailRequerido }) {
+  const [loading, setLoading] = useState(false);
+  const [linkGenerado, setLinkGenerado] = useState(null);
+  const [copiado, setCopiado] = useState(false);
+
+  if (p.pago !== "Pendiente") return null;
+
+  async function generarLink() {
+    if (!p.email || !p.email.trim()) {
+      onEmailRequerido(p);
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await axios.post(`${API}/api/mp/create-preference`, { pedidoId: p.id });
+      if (res.data.init_point) {
+        setLinkGenerado(res.data.init_point);
+      } else {
+        alert("Error al generar el link de pago");
+      }
+    } catch (err) {
+      alert("Error al conectar con Mercado Pago");
+      console.error(err);
+    }
+    setLoading(false);
+  }
+
+  async function copiarLink() {
+    if (!linkGenerado) return;
+    await navigator.clipboard.writeText(linkGenerado);
+    setCopiado(true);
+    setTimeout(() => setCopiado(false), 2000);
+  }
+
+  if (linkGenerado) {
+    return (
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <a
+          href={linkGenerado}
+          target="_blank"
+          rel="noreferrer"
+          style={{ fontSize: 12, padding: "7px 12px", borderRadius: 6, border: "1px solid #009ee3", background: "#e8f7fc", color: "#009ee3", textDecoration: "none", fontWeight: 600 }}
+          onClick={e => e.stopPropagation()}
+        >
+          🔗 Abrir link MP
+        </a>
+        <button
+          style={{ fontSize: 12, padding: "7px 12px", borderRadius: 6, border: "1px solid #009ee3", background: copiado ? "#009ee3" : "#fff", color: copiado ? "#fff" : "#009ee3", cursor: "pointer", fontWeight: 600 }}
+          onClick={e => { e.stopPropagation(); copiarLink(); }}
+        >
+          {copiado ? "✅ Copiado" : "📋 Copiar link"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      style={{ fontSize: 12, padding: "7px 14px", borderRadius: 6, border: "1px solid #009ee3", background: "#fff", color: "#009ee3", cursor: loading ? "default" : "pointer", fontWeight: 600, opacity: loading ? 0.6 : 1 }}
+      onClick={e => { e.stopPropagation(); generarLink(); }}
+      disabled={loading}
+    >
+      {loading ? "Generando..." : "💳 Enviar link de pago"}
+    </button>
+  );
+}
+
+// ─── MODAL PEDIR EMAIL PARA MP ───────────────────────────────────────
+function ModalEmailMP({ pedido, onConfirmar, onCerrar }) {
+  const [email, setEmail] = useState("");
+  const [guardando, setGuardando] = useState(false);
+
+  async function confirmar() {
+    if (!email.trim()) return;
+    setGuardando(true);
+    try {
+      await axios.patch(`${API}/api/pedidos-manuales/${pedido.id}/email`, { email });
+    } catch (e) {
+      console.error(e);
+    }
+    setGuardando(false);
+    onConfirmar(email);
+  }
+
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 400, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: "#333", marginBottom: 8 }}>💳 Link de pago MP</div>
+        <div style={{ fontSize: 13, color: "#666", marginBottom: 20 }}>
+          El pedido <strong>{pedido.numero}</strong> no tiene email cargado.<br />
+          Ingresalo para generar el link de pago.
+        </div>
+        <input
+          type="email"
+          autoFocus
+          style={{ fontSize: 13, padding: "8px 12px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 16 }}
+          placeholder="cliente@ejemplo.com"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && confirmar()}
+        />
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            style={{ flex: 1, padding: 10, borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#009ee3", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+            onClick={confirmar}
+            disabled={guardando || !email.trim()}
+          >
+            {guardando ? "Guardando..." : "Guardar y generar link"}
+          </button>
+          <button
+            style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", fontSize: 13, cursor: "pointer", color: "#555" }}
+            onClick={onCerrar}
+          >
+            Cancelar
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -576,9 +674,7 @@ function ModalEditarProductos({ p, productos, categorias, onGuardar, onCerrar })
 function VistaCaja({ pedidosFinalizados, onVolver, usuario }) {
   const localesPermitidos = usuario.rol === "admin"
     ? ["A. Thomas", "French", "Administración"]
-    : usuario.rol === "a_thomas"
-      ? ["A. Thomas"]
-      : ["French"];
+    : usuario.rol === "a_thomas" ? ["A. Thomas"] : ["French"];
   const [localSeleccionado, setLocalSeleccionado] = useState(localesPermitidos[0]);
   const [estadoCaja, setEstadoCaja] = useState(null);
   const [loadingCaja, setLoadingCaja] = useState(false);
@@ -689,7 +785,7 @@ function VistaCaja({ pedidosFinalizados, onVolver, usuario }) {
                   </div>
                 );
               })}
-              {localSeleccionado === "Administración" ? <div style={{ fontSize: 12, color: "#888", padding: "12px 0", fontStyle: "italic" }}>Esta caja solo registra movimientos manuales (ingresos/egresos administrativos), no incluye ventas de pedidos.</div> : ventasLocal.length === 0 && <div style={{ fontSize: 12, color: "#aaa" }}>Sin ventas registradas</div>}
+              {localSeleccionado === "Administración" ? <div style={{ fontSize: 12, color: "#888", padding: "12px 0", fontStyle: "italic" }}>Esta caja solo registra movimientos manuales.</div> : ventasLocal.length === 0 && <div style={{ fontSize: 12, color: "#aaa" }}>Sin ventas registradas</div>}
               <div style={{ borderTop: "2px solid #eee", marginTop: 10, paddingTop: 10, display: "flex", justifyContent: "space-between" }}>
                 <span style={{ fontSize: 14, fontWeight: 600 }}>Total ventas</span>
                 <span style={{ fontSize: 16, fontWeight: 700, color: "#F68B32" }}>{fmt(totalVentas)}</span>
@@ -768,32 +864,11 @@ function VistaCaja({ pedidosFinalizados, onVolver, usuario }) {
                         const totalAjustesH = ajustesH.reduce((acc, m) => acc + Number(m.monto), 0);
                         const saldoEsperadoH = Number(a.monto_inicial) + totalAjustesH;
                         const diferencia = a.monto_cierre !== null ? Number(a.monto_cierre) - saldoEsperadoH : null;
-                        return {
-                          "Fecha": a.fecha,
-                          "Monto inicial": Number(a.monto_inicial),
-                          "Total ajustes": totalAjustesH,
-                          "Saldo esperado": saldoEsperadoH,
-                          "Monto cierre": a.monto_cierre !== null ? Number(a.monto_cierre) : "",
-                          "Diferencia": diferencia !== null ? diferencia : "",
-                          "Estado": a.cerrada ? "Cerrada" : "Sin cerrar",
-                        };
+                        return { "Fecha": a.fecha, "Monto inicial": Number(a.monto_inicial), "Total ajustes": totalAjustesH, "Saldo esperado": saldoEsperadoH, "Monto cierre": a.monto_cierre !== null ? Number(a.monto_cierre) : "", "Diferencia": diferencia !== null ? diferencia : "", "Estado": a.cerrada ? "Cerrada" : "Sin cerrar" };
                       });
                       const movimientosDetalle = [];
-                      histFiltrado.forEach(h => {
-                        h.movimientos.forEach(m => {
-                          movimientosDetalle.push({
-                            "Fecha": h.apertura.fecha,
-                            "Hora": new Date(m.created_at).toLocaleTimeString("es-AR"),
-                            "Tipo": m.tipo,
-                            "Concepto": m.concepto,
-                            "Monto": Number(m.monto),
-                          });
-                        });
-                      });
-                      exportarExcel(`caja_${localSeleccionado}_${filtroHistorial || "todas"}.xlsx`, [
-                        { name: "Resumen por día", data: resumen },
-                        { name: "Movimientos detalle", data: movimientosDetalle },
-                      ]);
+                      histFiltrado.forEach(h => { h.movimientos.forEach(m => { movimientosDetalle.push({ "Fecha": h.apertura.fecha, "Hora": new Date(m.created_at).toLocaleTimeString("es-AR"), "Tipo": m.tipo, "Concepto": m.concepto, "Monto": Number(m.monto) }); }); });
+                      exportarExcel(`caja_${localSeleccionado}_${filtroHistorial || "todas"}.xlsx`, [{ name: "Resumen por día", data: resumen }, { name: "Movimientos detalle", data: movimientosDetalle }]);
                     }}>📊 Excel</button>
                     <button style={btnExportar("#c0392b")} onClick={() => {
                       const histFiltrado = historial.filter(h => !filtroHistorial || h.apertura.fecha === filtroHistorial);
@@ -803,17 +878,9 @@ function VistaCaja({ pedidosFinalizados, onVolver, usuario }) {
                         const totalAjustesH = ajustesH.reduce((acc, m) => acc + Number(m.monto), 0);
                         const saldoEsperadoH = Number(a.monto_inicial) + totalAjustesH;
                         const diferencia = a.monto_cierre !== null ? Number(a.monto_cierre) - saldoEsperadoH : null;
-                        return [
-                          a.fecha, fmt(a.monto_inicial), fmt(totalAjustesH), fmt(saldoEsperadoH),
-                          a.monto_cierre !== null ? fmt(a.monto_cierre) : "—",
-                          diferencia !== null ? fmt(diferencia) : "—",
-                          a.cerrada ? "Cerrada" : "Sin cerrar",
-                        ];
+                        return [a.fecha, fmt(a.monto_inicial), fmt(totalAjustesH), fmt(saldoEsperadoH), a.monto_cierre !== null ? fmt(a.monto_cierre) : "—", diferencia !== null ? fmt(diferencia) : "—", a.cerrada ? "Cerrada" : "Sin cerrar"];
                       });
-                      exportarPDF(`caja_${localSeleccionado}_${filtroHistorial || "todas"}.pdf`,
-                        `Historial de Caja — ${localSeleccionado}`,
-                        ["Fecha", "Inicial", "Ajustes", "Esperado", "Contado", "Diferencia", "Estado"],
-                        filas, null, filtroHistorial ? `Fecha: ${filtroHistorial}` : "Todas las fechas");
+                      exportarPDF(`caja_${localSeleccionado}_${filtroHistorial || "todas"}.pdf`, `Historial de Caja — ${localSeleccionado}`, ["Fecha", "Inicial", "Ajustes", "Esperado", "Contado", "Diferencia", "Estado"], filas, null, filtroHistorial ? `Fecha: ${filtroHistorial}` : "Todas las fechas");
                     }}>📄 PDF</button>
                   </div>
                 )}
@@ -895,6 +962,7 @@ function PanelApp({ usuario }) {
   const [filtroFinHasta, setFiltroFinHasta] = useState("");
   const [filtroRepartidor, setFiltroRepartidor] = useState("");
   const [facturando, setFacturando] = useState(null);
+  const [pedidoEmailMP, setPedidoEmailMP] = useState(null);
   const [facturaVersion, setFacturaVersion] = useState(0);
   const [rvDesde, setRvDesde] = useState("");
   const [rvHasta, setRvHasta] = useState("");
@@ -967,7 +1035,6 @@ function PanelApp({ usuario }) {
     }).catch(() => { setError("Error conectando con Tienda Nube"); setLoading(false); });
   }, []);
 
-  // Auto-refresh cada 30 segundos
   useEffect(() => {
     const refrescar = async () => {
       try {
@@ -979,55 +1046,31 @@ function PanelApp({ usuario }) {
         setPedidosManuales(resManuales.data);
         setPedidosLocales(prev => {
           const nuevo = { ...prev };
-          resOrders.data.forEach(p => {
-            if (!nuevo[p.id]) {
-              nuevo[p.id] = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.payment_status !== "paid" };
-            }
-          });
-          resManuales.data.forEach(p => {
-            if (!nuevo[p.id]) {
-              nuevo[p.id] = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.cobrar };
-            }
-          });
+          resOrders.data.forEach(p => { if (!nuevo[p.id]) nuevo[p.id] = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.payment_status !== "paid" }; });
+          resManuales.data.forEach(p => { if (!nuevo[p.id]) nuevo[p.id] = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.cobrar }; });
           return nuevo;
         });
-      } catch (err) {
-        console.warn("Auto-refresh falló:", err.message);
-      }
+      } catch (err) { console.warn("Auto-refresh falló:", err.message); }
     };
     const interval = setInterval(refrescar, 30000);
     return () => clearInterval(interval);
   }, []);
 
-  // Notificación sonora cuando entran pedidos nuevos
   const idsPedidosVistosRef = useRef(null);
   useEffect(() => {
     if (loading) return;
-    const idsActuales = new Set([
-      ...pedidosRaw.map(p => String(p.id)),
-      ...pedidosManuales.map(p => String(p.id))
-    ]);
-    if (idsPedidosVistosRef.current === null) {
-      idsPedidosVistosRef.current = idsActuales;
-      return;
-    }
+    const idsActuales = new Set([...pedidosRaw.map(p => String(p.id)), ...pedidosManuales.map(p => String(p.id))]);
+    if (idsPedidosVistosRef.current === null) { idsPedidosVistosRef.current = idsActuales; return; }
     const nuevos = [...idsActuales].filter(id => !idsPedidosVistosRef.current.has(id));
-    if (nuevos.length > 0) {
-      reproducirBeep();
-      document.title = `🔔 ${nuevos.length} nuevo${nuevos.length > 1 ? "s" : ""} - Piccadely`;
-    }
+    if (nuevos.length > 0) { reproducirBeep(); document.title = `🔔 ${nuevos.length} nuevo${nuevos.length > 1 ? "s" : ""} - Piccadely`; }
     idsPedidosVistosRef.current = idsActuales;
   }, [pedidosRaw, pedidosManuales, loading]);
 
-  // Restaurar título cuando el usuario vuelve al panel
   useEffect(() => {
     function restaurarTitulo() { document.title = "Piccadely Panel"; }
     window.addEventListener("focus", restaurarTitulo);
     window.addEventListener("click", restaurarTitulo);
-    return () => {
-      window.removeEventListener("focus", restaurarTitulo);
-      window.removeEventListener("click", restaurarTitulo);
-    };
+    return () => { window.removeEventListener("focus", restaurarTitulo); window.removeEventListener("click", restaurarTitulo); };
   }, []);
 
   useEffect(() => {
@@ -1123,16 +1166,11 @@ function PanelApp({ usuario }) {
   function actualizarLocal(id, cambios) {
     setPedidosLocales(prev => { const nuevo = { ...prev, [id]: { ...prev[id], ...cambios } }; guardarEstadoDB(id, nuevo[id]); return nuevo; });
   }
-  // Variante: actualiza solo state local sin pegarle al backend (para inputs de texto donde guardamos onBlur)
   function actualizarLocalSinGuardar(id, cambios) {
     setPedidosLocales(prev => ({ ...prev, [id]: { ...prev[id], ...cambios } }));
   }
-  // Guarda el estado local actual al backend (se llama onBlur)
   function guardarLocalEnDB(id) {
-    setPedidosLocales(prev => {
-      if (prev[id]) guardarEstadoDB(id, prev[id]);
-      return prev;
-    });
+    setPedidosLocales(prev => { if (prev[id]) guardarEstadoDB(id, prev[id]); return prev; });
   }
   function cambiarEstado(id, e) {
     e.stopPropagation();
@@ -1149,10 +1187,7 @@ function PanelApp({ usuario }) {
       const factRes = await axios.get(`${API}/api/facturas/${p.id}`);
       const activas = factRes.data.filter(f => !f.tipo.includes("NOTA DE CREDITO"));
       const ncs = factRes.data.filter(f => f.tipo.includes("NOTA DE CREDITO"));
-      if (activas.length > ncs.length) {
-        alert("⚠️ Este pedido tiene una factura activa. Primero anulá la factura con nota de crédito desde el botón 🧾 Facturar.");
-        return;
-      }
+      if (activas.length > ncs.length) { alert("⚠️ Este pedido tiene una factura activa. Primero anulá la factura con nota de crédito desde el botón 🧾 Facturar."); return; }
     } catch(err) { console.error(err); }
     if (!window.confirm(`¿Seguro que querés anular el pedido ${p.numero}?`)) return;
     actualizarLocal(p.id, { estado: "Anulado" });
@@ -1160,8 +1195,6 @@ function PanelApp({ usuario }) {
 
   function cambiarRepartidor(id, valor) { actualizarLocal(id, { repartidor: valor }); }
   function cambiarTab(id, valor) { actualizarLocal(id, { tabManual: valor }); }
-  function cambiarFecha(id, valor) { actualizarLocalSinGuardar(id, { fechaManual: valor }); }
-  function cambiarFranja(id, valor) { actualizarLocalSinGuardar(id, { franjaManual: valor }); }
   function cambiarCobrar(id, valor) { actualizarLocal(id, { cobrar: valor }); }
   function toggleExpandido(id) { setExpandido(prev => prev === id ? null : id); }
 
@@ -1251,6 +1284,20 @@ function PanelApp({ usuario }) {
 
   const cerrarModal = () => { setFacturando(null); setFacturaVersion(v => v + 1); };
 
+  // Helper para el modal de email MP (reutilizable en todas las vistas)
+  const modalEmailMPNode = pedidoEmailMP && (
+    <ModalEmailMP
+      pedido={pedidoEmailMP}
+      onCerrar={() => setPedidoEmailMP(null)}
+      onConfirmar={(emailNuevo) => {
+        setPedidosManuales(prev =>
+          prev.map(p => p.id === pedidoEmailMP.id ? { ...p, email: emailNuevo } : p)
+        );
+        setPedidoEmailMP(null);
+      }}
+    />
+  );
+
   const Header = () => (
     <div style={s.header}>
       <div style={s.brand}>
@@ -1313,49 +1360,20 @@ function PanelApp({ usuario }) {
       if (rvMedio && p.medioPago !== rvMedio) return false;
       if (rvRepartidor && (pedidosLocales[p.id]?.repartidor || "Sin asignar") !== rvRepartidor) return false;
       return true;
-    }).sort((a, b) => {
-      if (!a.fechaDisplay) return 1;
-      if (!b.fechaDisplay) return -1;
-      return b.fechaDisplay.localeCompare(a.fechaDisplay);
-    });
+    }).sort((a, b) => { if (!a.fechaDisplay) return 1; if (!b.fechaDisplay) return -1; return b.fechaDisplay.localeCompare(a.fechaDisplay); });
     const totalVentasRv = ventasFiltradas.reduce((acc, p) => acc + p.totalNum, 0);
-    const porMedio = MEDIOS_PAGO.reduce((acc, m) => {
-      acc[m] = ventasFiltradas.filter(p => p.medioPago === m).reduce((a, p) => a + p.totalNum, 0);
-      return acc;
-    }, {});
-
+    const porMedio = MEDIOS_PAGO.reduce((acc, m) => { acc[m] = ventasFiltradas.filter(p => p.medioPago === m).reduce((a, p) => a + p.totalNum, 0); return acc; }, {});
     const tag = fechaTagArchivo(rvDesde, rvHasta);
     const exportarVentasExcel = () => {
-      const datos = ventasFiltradas.map(p => ({
-        "Nº": p.numero,
-        "Cliente": p.cliente,
-        "Productos": p.productos,
-        "Medio de pago": p.medioPago,
-        "Repartidor": pedidosLocales[p.id]?.repartidor || "Sin asignar",
-        "Fecha": p.fechaDisplay || "",
-        "Local": p.local,
-        "Total": p.totalNum,
-      }));
-      const resumen = MEDIOS_PAGO.filter(m => porMedio[m] > 0).map(m => ({
-        "Medio de pago": m,
-        "Pedidos": ventasFiltradas.filter(p => p.medioPago === m).length,
-        "Total": porMedio[m],
-      }));
+      const datos = ventasFiltradas.map(p => ({ "Nº": p.numero, "Cliente": p.cliente, "Productos": p.productos, "Medio de pago": p.medioPago, "Repartidor": pedidosLocales[p.id]?.repartidor || "Sin asignar", "Fecha": p.fechaDisplay || "", "Local": p.local, "Total": p.totalNum }));
+      const resumen = MEDIOS_PAGO.filter(m => porMedio[m] > 0).map(m => ({ "Medio de pago": m, "Pedidos": ventasFiltradas.filter(p => p.medioPago === m).length, "Total": porMedio[m] }));
       resumen.push({ "Medio de pago": "TOTAL GENERAL", "Pedidos": ventasFiltradas.length, "Total": totalVentasRv });
-      exportarExcel(`ventas_${tag}.xlsx`, [
-        { name: "Ventas", data: datos },
-        { name: "Resumen", data: resumen },
-      ]);
+      exportarExcel(`ventas_${tag}.xlsx`, [{ name: "Ventas", data: datos }, { name: "Resumen", data: resumen }]);
     };
     const exportarVentasPDF = () => {
-      const filas = ventasFiltradas.map(p => [
-        p.numero, p.cliente, p.productos.length > 50 ? p.productos.substring(0, 50) + "..." : p.productos,
-        p.medioPago, p.fechaDisplay || "—", p.local, fmt(p.totalNum),
-      ]);
+      const filas = ventasFiltradas.map(p => [p.numero, p.cliente, p.productos.length > 50 ? p.productos.substring(0, 50) + "..." : p.productos, p.medioPago, p.fechaDisplay || "—", p.local, fmt(p.totalNum)]);
       const subt = (rvDesde || rvHasta) ? `Desde ${rvDesde || "inicio"} hasta ${rvHasta || "hoy"}` : "Todas las fechas";
-      exportarPDF(`ventas_${tag}.pdf`, "Reporte de Ventas",
-        ["Nº", "Cliente", "Productos", "Medio pago", "Fecha", "Local", "Total"],
-        filas, `Total: ${fmt(totalVentasRv)}  ·  ${ventasFiltradas.length} pedidos`, subt);
+      exportarPDF(`ventas_${tag}.pdf`, "Reporte de Ventas", ["Nº", "Cliente", "Productos", "Medio pago", "Fecha", "Local", "Total"], filas, `Total: ${fmt(totalVentasRv)}  ·  ${ventasFiltradas.length} pedidos`, subt);
     };
     return (
       <div style={s.wrap}>
@@ -1378,15 +1396,9 @@ function PanelApp({ usuario }) {
                 {REPARTIDORES.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
               {(rvDesde || rvHasta || rvMedio || rvRepartidor) && (
-                <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }}
-                  onClick={() => { setRvDesde(""); setRvHasta(""); setRvMedio(""); setRvRepartidor(""); }}>✕ Limpiar</button>
+                <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setRvDesde(""); setRvHasta(""); setRvMedio(""); setRvRepartidor(""); }}>✕ Limpiar</button>
               )}
-              {ventasFiltradas.length > 0 && (
-                <>
-                  <button style={btnExportar("#F68B32")} onClick={exportarVentasExcel}>📊 Excel</button>
-                  <button style={btnExportar("#c0392b")} onClick={exportarVentasPDF}>📄 PDF</button>
-                </>
-              )}
+              {ventasFiltradas.length > 0 && (<><button style={btnExportar("#F68B32")} onClick={exportarVentasExcel}>📊 Excel</button><button style={btnExportar("#c0392b")} onClick={exportarVentasPDF}>📄 PDF</button></>)}
             </div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
@@ -1405,12 +1417,9 @@ function PanelApp({ usuario }) {
           </div>
           <div style={s.lista}>
             <div style={s.cabecera}>
-              <span style={{ ...s.col, flex: 0.6 }}>Nº</span>
-              <span style={{ ...s.col, flex: 1.5 }}>Cliente</span>
-              <span style={{ ...s.col, flex: 1 }}>Productos</span>
-              <span style={{ ...s.col, flex: 0.8 }}>Medio de pago</span>
-              <span style={{ ...s.col, flex: 0.7, textAlign: "center" }}>Fecha</span>
-              <span style={{ ...s.col, flex: 0.7, textAlign: "center" }}>Local</span>
+              <span style={{ ...s.col, flex: 0.6 }}>Nº</span><span style={{ ...s.col, flex: 1.5 }}>Cliente</span>
+              <span style={{ ...s.col, flex: 1 }}>Productos</span><span style={{ ...s.col, flex: 0.8 }}>Medio de pago</span>
+              <span style={{ ...s.col, flex: 0.7, textAlign: "center" }}>Fecha</span><span style={{ ...s.col, flex: 0.7, textAlign: "center" }}>Local</span>
               <span style={{ ...s.col, flex: 0.7, textAlign: "right" }}>Monto</span>
             </div>
             {ventasFiltradas.length === 0 && <div style={s.empty}>No hay ventas en ese rango.</div>}
@@ -1421,21 +1430,13 @@ function PanelApp({ usuario }) {
                   <span style={{ ...s.cel, flex: 1.5 }}>{p.cliente}</span>
                   <span style={{ ...s.cel, flex: 1, color: "#666" }}>{p.productos}</span>
                   <span style={{ ...s.cel, flex: 0.8 }}>{p.medioPago}</span>
-                  <span style={{ ...s.cel, flex: 0.7, textAlign: "center", color: "#555" }}>
-                    {p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"short"}) : "—"}
-                  </span>
-                  <span style={{ ...s.cel, flex: 0.7, textAlign: "center" }}>
-                    <span style={{ fontSize: 11, background: "#eaf3de", color: "#27500a", padding: "2px 7px", borderRadius: 4 }}>{p.local}</span>
-                  </span>
+                  <span style={{ ...s.cel, flex: 0.7, textAlign: "center", color: "#555" }}>{p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"short"}) : "—"}</span>
+                  <span style={{ ...s.cel, flex: 0.7, textAlign: "center" }}><span style={{ fontSize: 11, background: "#eaf3de", color: "#27500a", padding: "2px 7px", borderRadius: 4 }}>{p.local}</span></span>
                   <span style={{ ...s.cel, flex: 0.7, textAlign: "right", fontWeight: 600 }}>{p.total}</span>
                 </div>
               </div>
             ))}
-            {ventasFiltradas.length > 0 && (
-              <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#F68B32" }}>
-                Total: {fmt(totalVentasRv)}
-              </div>
-            )}
+            {ventasFiltradas.length > 0 && <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#F68B32" }}>Total: {fmt(totalVentasRv)}</div>}
           </div>
         </div>
       </div>
@@ -1452,8 +1453,7 @@ function PanelApp({ usuario }) {
     });
     const productosMap = {};
     pedidosBase.forEach(p => {
-      const items = p.productos.split(", ");
-      items.forEach(item => {
+      p.productos.split(", ").forEach(item => {
         const match = item.match(/^(.+) x(\d+)$/);
         if (!match) return;
         const nombre = match[1].trim();
@@ -1464,27 +1464,16 @@ function PanelApp({ usuario }) {
     });
     const listaProductos = Object.values(productosMap).sort((a, b) => b.cantidad - a.cantidad);
     const totalUnidades = listaProductos.reduce((a, p) => a + p.cantidad, 0);
-
     const tagRp = fechaTagArchivo(rpDesde, rpHasta);
     const exportarProdExcel = () => {
-      const datos = listaProductos.map((prod, i) => ({
-        "Ranking": i + 1,
-        "Producto": prod.nombre,
-        "Unidades vendidas": prod.cantidad,
-        "% del total": totalUnidades > 0 ? `${((prod.cantidad / totalUnidades) * 100).toFixed(1)}%` : "0%",
-      }));
+      const datos = listaProductos.map((prod, i) => ({ "Ranking": i + 1, "Producto": prod.nombre, "Unidades vendidas": prod.cantidad, "% del total": totalUnidades > 0 ? `${((prod.cantidad / totalUnidades) * 100).toFixed(1)}%` : "0%" }));
       datos.push({ "Ranking": "", "Producto": "TOTAL", "Unidades vendidas": totalUnidades, "% del total": "100%" });
       exportarExcel(`productos_vendidos_${tagRp}.xlsx`, [{ name: "Productos", data: datos }]);
     };
     const exportarProdPDF = () => {
-      const filas = listaProductos.map((prod, i) => [
-        i + 1, prod.nombre, prod.cantidad,
-        totalUnidades > 0 ? `${((prod.cantidad / totalUnidades) * 100).toFixed(1)}%` : "0%",
-      ]);
+      const filas = listaProductos.map((prod, i) => [i + 1, prod.nombre, prod.cantidad, totalUnidades > 0 ? `${((prod.cantidad / totalUnidades) * 100).toFixed(1)}%` : "0%"]);
       const subt = (rpDesde || rpHasta) ? `Desde ${rpDesde || "inicio"} hasta ${rpHasta || "hoy"}` : "Todas las fechas";
-      exportarPDF(`productos_vendidos_${tagRp}.pdf`, "Productos Vendidos",
-        ["#", "Producto", "Unidades", "% del total"],
-        filas, `Total: ${totalUnidades} unidades  ·  ${pedidosBase.length} pedidos`, subt);
+      exportarPDF(`productos_vendidos_${tagRp}.pdf`, "Productos Vendidos", ["#", "Producto", "Unidades", "% del total"], filas, `Total: ${totalUnidades} unidades  ·  ${pedidosBase.length} pedidos`, subt);
     };
     return (
       <div style={s.wrap}>
@@ -1498,64 +1487,36 @@ function PanelApp({ usuario }) {
               <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rpDesde} onChange={e => setRpDesde(e.target.value)} />
               <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
               <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rpHasta} onChange={e => setRpHasta(e.target.value)} />
-              {(rpDesde || rpHasta) && (
-                <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }}
-                  onClick={() => { setRpDesde(""); setRpHasta(""); }}>✕ Limpiar</button>
-              )}
-              {listaProductos.length > 0 && (
-                <>
-                  <button style={btnExportar("#F68B32")} onClick={exportarProdExcel}>📊 Excel</button>
-                  <button style={btnExportar("#c0392b")} onClick={exportarProdPDF}>📄 PDF</button>
-                </>
-              )}
+              {(rpDesde || rpHasta) && <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setRpDesde(""); setRpHasta(""); }}>✕ Limpiar</button>}
+              {listaProductos.length > 0 && (<><button style={btnExportar("#F68B32")} onClick={exportarProdExcel}>📊 Excel</button><button style={btnExportar("#c0392b")} onClick={exportarProdPDF}>📄 PDF</button></>)}
             </div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
-            <div style={{ background: "#F68B32", border: "1px solid #F68B32", borderRadius: 8, padding: "12px 14px" }}>
-              <div style={{ fontSize: 11, color: "#a8d5b5", marginBottom: 4 }}>TOTAL UNIDADES</div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: "#fff" }}>{totalUnidades}</div>
-              <div style={{ fontSize: 11, color: "#a8d5b5" }}>{pedidosBase.length} pedidos</div>
-            </div>
-            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
-              <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>PRODUCTOS DISTINTOS</div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: "#333" }}>{listaProductos.length}</div>
-            </div>
+            <div style={{ background: "#F68B32", border: "1px solid #F68B32", borderRadius: 8, padding: "12px 14px" }}><div style={{ fontSize: 11, color: "#a8d5b5", marginBottom: 4 }}>TOTAL UNIDADES</div><div style={{ fontSize: 22, fontWeight: 700, color: "#fff" }}>{totalUnidades}</div><div style={{ fontSize: 11, color: "#a8d5b5" }}>{pedidosBase.length} pedidos</div></div>
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}><div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>PRODUCTOS DISTINTOS</div><div style={{ fontSize: 22, fontWeight: 700, color: "#333" }}>{listaProductos.length}</div></div>
           </div>
           <div style={s.lista}>
             <div style={s.cabecera}>
-              <span style={{ ...s.col, flex: 0.5, textAlign: "center" }}>#</span>
-              <span style={{ ...s.col, flex: 3 }}>Producto</span>
-              <span style={{ ...s.col, flex: 1, textAlign: "center" }}>Unidades vendidas</span>
-              <span style={{ ...s.col, flex: 1, textAlign: "center" }}>% del total</span>
+              <span style={{ ...s.col, flex: 0.5, textAlign: "center" }}>#</span><span style={{ ...s.col, flex: 3 }}>Producto</span>
+              <span style={{ ...s.col, flex: 1, textAlign: "center" }}>Unidades vendidas</span><span style={{ ...s.col, flex: 1, textAlign: "center" }}>% del total</span>
             </div>
             {listaProductos.length === 0 && <div style={s.empty}>No hay ventas en ese rango.</div>}
             {listaProductos.map((prod, i) => (
               <div key={prod.nombre} style={s.fila}>
                 <div style={{ ...s.filaTop, cursor: "default" }}>
                   <span style={{ ...s.cel, flex: 0.5, textAlign: "center", color: "#aaa", fontWeight: 600 }}>{i + 1}</span>
-                  <span style={{ ...s.cel, flex: 3, fontWeight: i < 3 ? 600 : 400 }}>
-                    {i === 0 && <span style={{ marginRight: 6 }}>🥇</span>}
-                    {i === 1 && <span style={{ marginRight: 6 }}>🥈</span>}
-                    {i === 2 && <span style={{ marginRight: 6 }}>🥉</span>}
-                    {prod.nombre}
-                  </span>
+                  <span style={{ ...s.cel, flex: 3, fontWeight: i < 3 ? 600 : 400 }}>{i === 0 && <span style={{ marginRight: 6 }}>🥇</span>}{i === 1 && <span style={{ marginRight: 6 }}>🥈</span>}{i === 2 && <span style={{ marginRight: 6 }}>🥉</span>}{prod.nombre}</span>
                   <span style={{ ...s.cel, flex: 1, textAlign: "center", fontWeight: 600, color: "#F68B32", fontSize: 14 }}>{prod.cantidad}</span>
                   <span style={{ ...s.cel, flex: 1, textAlign: "center" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
-                      <div style={{ width: 80, height: 6, background: "#eee", borderRadius: 3, overflow: "hidden" }}>
-                        <div style={{ width: `${Math.round((prod.cantidad / listaProductos[0].cantidad) * 100)}%`, height: "100%", background: "#F68B32", borderRadius: 3 }} />
-                      </div>
+                      <div style={{ width: 80, height: 6, background: "#eee", borderRadius: 3, overflow: "hidden" }}><div style={{ width: `${Math.round((prod.cantidad / listaProductos[0].cantidad) * 100)}%`, height: "100%", background: "#F68B32", borderRadius: 3 }} /></div>
                       <span style={{ fontSize: 11, color: "#888" }}>{Math.round((prod.cantidad / totalUnidades) * 100)}%</span>
                     </div>
                   </span>
                 </div>
               </div>
             ))}
-            {listaProductos.length > 0 && (
-              <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#F68B32" }}>
-                Total unidades: {totalUnidades}
-              </div>
-            )}
+            {listaProductos.length > 0 && <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#F68B32" }}>Total unidades: {totalUnidades}</div>}
           </div>
         </div>
       </div>
@@ -1584,33 +1545,19 @@ function PanelApp({ usuario }) {
     });
     const listaProduccion = Object.values(productosMap).sort((a, b) => b.cantidad - a.cantidad);
     const totalUnidades = listaProduccion.reduce((a, p) => a + p.cantidad, 0);
-
     const localTag = prodLocal === "todos" ? "todos" : prodLocal.toLowerCase().replace(/[.\s]/g, "");
     const localLabel2 = prodLocal === "todos" ? "Ambos locales" : prodLocal;
-
     const exportarProduccionExcel = () => {
-      const datos = listaProduccion.map(prod => ({
-        "Producto": prod.nombre,
-        "Cantidad a producir": prod.cantidad,
-      }));
+      const datos = listaProduccion.map(prod => ({ "Producto": prod.nombre, "Cantidad a producir": prod.cantidad }));
       datos.push({ "Producto": "TOTAL", "Cantidad a producir": totalUnidades });
       exportarExcel(`produccion_${prodFecha}_${localTag}.xlsx`, [{ name: "Producción", data: datos }]);
     };
     const exportarProduccionPDF = () => {
       const filas = listaProduccion.map(prod => [prod.nombre, prod.cantidad]);
       const fechaLabel = new Date(prodFecha + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
-      exportarPDF(`produccion_${prodFecha}_${localTag}.pdf`, "Análisis de Producción",
-        ["Producto", "Cantidad"],
-        filas, `Total a producir: ${totalUnidades} unidades  ·  ${pedidosProduccion.length} pedidos`,
-        `Fecha: ${fechaLabel}  ·  Local: ${localLabel2}`);
+      exportarPDF(`produccion_${prodFecha}_${localTag}.pdf`, "Análisis de Producción", ["Producto", "Cantidad"], filas, `Total a producir: ${totalUnidades} unidades  ·  ${pedidosProduccion.length} pedidos`, `Fecha: ${fechaLabel}  ·  Local: ${localLabel2}`);
     };
-
-    const fechasDisponibles = [...new Set(
-      pedidosProcesados.filter(p => {
-        const est = pedidosLocales[p.id]?.estado || p.estado;
-        return est !== "Entregado" && est !== "Anulado" && p.fechaDisplay && p.fechaDisplay >= HOY;
-      }).map(p => p.fechaDisplay)
-    )].sort();
+    const fechasDisponibles = [...new Set(pedidosProcesados.filter(p => { const est = pedidosLocales[p.id]?.estado || p.estado; return est !== "Entregado" && est !== "Anulado" && p.fechaDisplay && p.fechaDisplay >= HOY; }).map(p => p.fechaDisplay))].sort();
     return (
       <div style={s.wrap}>
         <Header />
@@ -1625,89 +1572,52 @@ function PanelApp({ usuario }) {
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   {fechasDisponibles.map(f => (
                     <button key={f} onClick={() => setProdFecha(f)}
-                      style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid", cursor: "pointer",
-                        borderColor: prodFecha === f ? "#F68B32" : "#ddd", background: prodFecha === f ? "#F68B32" : "#fff",
-                        color: prodFecha === f ? "#fff" : "#555" }}>
+                      style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid", cursor: "pointer", borderColor: prodFecha === f ? "#F68B32" : "#ddd", background: prodFecha === f ? "#F68B32" : "#fff", color: prodFecha === f ? "#fff" : "#555" }}>
                       {new Date(f + "T12:00:00").toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "short" })}
                     </button>
                   ))}
                 </div>
               )}
-              {listaProduccion.length > 0 && (
-                <>
-                  <button style={btnExportar("#F68B32")} onClick={exportarProduccionExcel}>📊 Excel</button>
-                  <button style={btnExportar("#c0392b")} onClick={exportarProduccionPDF}>📄 PDF</button>
-                </>
-              )}
+              {listaProduccion.length > 0 && (<><button style={btnExportar("#F68B32")} onClick={exportarProduccionExcel}>📊 Excel</button><button style={btnExportar("#c0392b")} onClick={exportarProduccionPDF}>📄 PDF</button></>)}
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
             <span style={{ fontSize: 12, color: "#888", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3 }}>Sucursal:</span>
-            {[
-              { id: "todos", label: "🏭 Ambos" },
-              { id: "A. Thomas", label: "📍 A. Thomas" },
-              { id: "French", label: "📍 French" },
-            ].map(opt => (
+            {[{ id: "todos", label: "🏭 Ambos" }, { id: "A. Thomas", label: "📍 A. Thomas" }, { id: "French", label: "📍 French" }].map(opt => (
               <button key={opt.id} onClick={() => setProdLocal(opt.id)}
-                style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer",
-                  borderColor: prodLocal === opt.id ? "#F68B32" : "#ddd",
-                  background: prodLocal === opt.id ? "#F68B32" : "#fff",
-                  color: prodLocal === opt.id ? "#fff" : "#555",
-                  fontWeight: prodLocal === opt.id ? 600 : 400 }}>
+                style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer", borderColor: prodLocal === opt.id ? "#F68B32" : "#ddd", background: prodLocal === opt.id ? "#F68B32" : "#fff", color: prodLocal === opt.id ? "#fff" : "#555", fontWeight: prodLocal === opt.id ? 600 : 400 }}>
                 {opt.label}
               </button>
             ))}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
-            <div style={{ background: "#F68B32", border: "1px solid #F68B32", borderRadius: 8, padding: "12px 14px" }}>
-              <div style={{ fontSize: 11, color: "#a8d5b5", marginBottom: 4 }}>UNIDADES A PRODUCIR</div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: "#fff" }}>{totalUnidades}</div>
-              <div style={{ fontSize: 11, color: "#a8d5b5" }}>{pedidosProduccion.length} pedidos</div>
-            </div>
-            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
-              <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>PRODUCTOS DISTINTOS</div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: "#333" }}>{listaProduccion.length}</div>
-            </div>
-            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
-              <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>FECHA</div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "#333", textTransform: "capitalize" }}>
-                {new Date(prodFecha + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}
-              </div>
-            </div>
+            <div style={{ background: "#F68B32", border: "1px solid #F68B32", borderRadius: 8, padding: "12px 14px" }}><div style={{ fontSize: 11, color: "#a8d5b5", marginBottom: 4 }}>UNIDADES A PRODUCIR</div><div style={{ fontSize: 22, fontWeight: 700, color: "#fff" }}>{totalUnidades}</div><div style={{ fontSize: 11, color: "#a8d5b5" }}>{pedidosProduccion.length} pedidos</div></div>
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}><div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>PRODUCTOS DISTINTOS</div><div style={{ fontSize: 22, fontWeight: 700, color: "#333" }}>{listaProduccion.length}</div></div>
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}><div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>FECHA</div><div style={{ fontSize: 14, fontWeight: 700, color: "#333", textTransform: "capitalize" }}>{new Date(prodFecha + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}</div></div>
           </div>
           {pedidosProduccion.length === 0 ? (
-            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 40, textAlign: "center", color: "#aaa", fontSize: 13 }}>
-              No hay pedidos activos para esta fecha.
-            </div>
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 40, textAlign: "center", color: "#aaa", fontSize: 13 }}>No hay pedidos activos para esta fecha.</div>
           ) : (
             <div style={s.lista}>
               <div style={s.cabecera}>
-                <span style={{ ...s.col, flex: 0.5, textAlign: "center" }}>#</span>
-                <span style={{ ...s.col, flex: 3 }}>Producto</span>
-                <span style={{ ...s.col, flex: 0.8, textAlign: "center" }}>Total</span>
-                <span style={{ ...s.col, flex: 3 }}>Detalle por pedido</span>
+                <span style={{ ...s.col, flex: 0.5, textAlign: "center" }}>#</span><span style={{ ...s.col, flex: 3 }}>Producto</span>
+                <span style={{ ...s.col, flex: 0.8, textAlign: "center" }}>Total</span><span style={{ ...s.col, flex: 3 }}>Detalle por pedido</span>
               </div>
               {listaProduccion.map((prod, i) => (
                 <div key={prod.nombre} style={s.fila}>
                   <div style={{ ...s.filaTop, cursor: "default", alignItems: "flex-start", paddingTop: 10, paddingBottom: 10 }}>
                     <span style={{ ...s.cel, flex: 0.5, textAlign: "center", color: "#aaa", fontWeight: 600, paddingTop: 2 }}>{i + 1}</span>
                     <span style={{ ...s.cel, flex: 3, fontWeight: 600, paddingTop: 2 }}>{prod.nombre}</span>
-                    <span style={{ ...s.cel, flex: 0.8, textAlign: "center" }}>
-                      <span style={{ fontSize: 18, fontWeight: 700, color: "#F68B32" }}>{prod.cantidad}</span>
-                    </span>
+                    <span style={{ ...s.cel, flex: 0.8, textAlign: "center" }}><span style={{ fontSize: 18, fontWeight: 700, color: "#F68B32" }}>{prod.cantidad}</span></span>
                     <div style={{ flex: 3, display: "flex", flexWrap: "wrap", gap: 4 }}>
                       {prod.pedidos.map((pd, j) => (
-                        <span key={j} style={{ fontSize: 11, background: "#f0f0ee", color: "#555", padding: "2px 8px", borderRadius: 4, whiteSpace: "nowrap" }}>
-                          {pd.numero} · {pd.cliente} · x{pd.cantidad} · {pd.franja}
-                        </span>
+                        <span key={j} style={{ fontSize: 11, background: "#f0f0ee", color: "#555", padding: "2px 8px", borderRadius: 4, whiteSpace: "nowrap" }}>{pd.numero} · {pd.cliente} · x{pd.cantidad} · {pd.franja}</span>
                       ))}
                     </div>
                   </div>
                 </div>
               ))}
-              <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#F68B32" }}>
-                Total a producir: {totalUnidades} unidades
-              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#F68B32" }}>Total a producir: {totalUnidades} unidades</div>
             </div>
           )}
         </div>
@@ -1723,51 +1633,26 @@ function PanelApp({ usuario }) {
         if (filtroRepartidor && (pedidosLocales[p.id]?.repartidor || "Sin asignar") !== filtroRepartidor) return false;
         return true;
       })
-      .sort((a, b) => {
-        if (!a.fechaDisplay) return 1;
-        if (!b.fechaDisplay) return -1;
-        return b.fechaDisplay.localeCompare(a.fechaDisplay);
-      });
+      .sort((a, b) => { if (!a.fechaDisplay) return 1; if (!b.fechaDisplay) return -1; return b.fechaDisplay.localeCompare(a.fechaDisplay); });
     const entregados = finalizadosOrdenados.filter(p => (pedidosLocales[p.id]?.estado || p.estado) === "Entregado");
     const anulados = finalizadosOrdenados.filter(p => (pedidosLocales[p.id]?.estado || p.estado) === "Anulado");
     const listaMostrada = tabFin === "entregados" ? entregados : anulados;
-
     const tagFin = fechaTagArchivo(filtroFinDesde, filtroFinHasta);
     const exportarFinalizadosExcel = () => {
-      const datos = listaMostrada.map(p => ({
-        "Nº": p.numero,
-        "Cliente": p.cliente,
-        "Teléfono": p.telefono,
-        "Dirección": p.direccion + (p.barrio ? `, ${p.barrio}` : ""),
-        "Productos": p.productos,
-        "Medio de pago": p.medioPago,
-        "Total": p.totalNum,
-        "Fecha": p.fechaDisplay || "",
-        "Local": p.local,
-        "Estado": pedidosLocales[p.id]?.estado || p.estado,
-        "Repartidor": pedidosLocales[p.id]?.repartidor || "Sin asignar",
-      }));
-      exportarExcel(`pedidos_${tabFin}_${tagFin}.xlsx`, [
-        { name: tabFin === "entregados" ? "Entregados" : "Anulados", data: datos },
-      ]);
+      const datos = listaMostrada.map(p => ({ "Nº": p.numero, "Cliente": p.cliente, "Teléfono": p.telefono, "Dirección": p.direccion + (p.barrio ? `, ${p.barrio}` : ""), "Productos": p.productos, "Medio de pago": p.medioPago, "Total": p.totalNum, "Fecha": p.fechaDisplay || "", "Local": p.local, "Estado": pedidosLocales[p.id]?.estado || p.estado, "Repartidor": pedidosLocales[p.id]?.repartidor || "Sin asignar" }));
+      exportarExcel(`pedidos_${tabFin}_${tagFin}.xlsx`, [{ name: tabFin === "entregados" ? "Entregados" : "Anulados", data: datos }]);
     };
     const exportarFinalizadosPDF = () => {
-      const filas = listaMostrada.map(p => [
-        p.numero, p.cliente, p.telefono,
-        (p.productos.length > 40 ? p.productos.substring(0, 40) + "..." : p.productos),
-        p.medioPago, fmt(p.totalNum), p.fechaDisplay || "—", p.local,
-      ]);
+      const filas = listaMostrada.map(p => [p.numero, p.cliente, p.telefono, (p.productos.length > 40 ? p.productos.substring(0, 40) + "..." : p.productos), p.medioPago, fmt(p.totalNum), p.fechaDisplay || "—", p.local]);
       const totalSum = listaMostrada.reduce((a, p) => a + p.totalNum, 0);
       const subt = (filtroFinDesde || filtroFinHasta) ? `Desde ${filtroFinDesde || "inicio"} hasta ${filtroFinHasta || "hoy"}` : "Todas las fechas";
-      const titulo = tabFin === "entregados" ? "Pedidos Entregados" : "Pedidos Anulados";
-      exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, titulo,
-        ["Nº", "Cliente", "Teléfono", "Productos", "Pago", "Total", "Fecha", "Local"],
-        filas, `Total: ${fmt(totalSum)}  ·  ${listaMostrada.length} pedidos`, subt);
+      exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedidos Entregados" : "Pedidos Anulados", ["Nº", "Cliente", "Teléfono", "Productos", "Pago", "Total", "Fecha", "Local"], filas, `Total: ${fmt(listaMostrada.reduce((a, p) => a + p.totalNum, 0))}  ·  ${listaMostrada.length} pedidos`, subt);
     };
     return (
       <div style={s.wrap}>
         <Header />
         {facturando && <ModalFacturacion p={facturando} onCerrar={cerrarModal} />}
+        {modalEmailMPNode}
         <div style={{ padding: "24px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
             <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -1781,41 +1666,20 @@ function PanelApp({ usuario }) {
                 <option value="">Todos los repartidores</option>
                 {REPARTIDORES.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
-              {(filtroFinDesde || filtroFinHasta || filtroRepartidor) && (
-                <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setFiltroFinDesde(""); setFiltroFinHasta(""); setFiltroRepartidor(""); }}>✕ Limpiar</button>
-              )}
-              {listaMostrada.length > 0 && (
-                <>
-                  <button style={btnExportar("#F68B32")} onClick={exportarFinalizadosExcel}>📊 Excel</button>
-                  <button style={btnExportar("#c0392b")} onClick={exportarFinalizadosPDF}>📄 PDF</button>
-                </>
-              )}
+              {(filtroFinDesde || filtroFinHasta || filtroRepartidor) && <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setFiltroFinDesde(""); setFiltroFinHasta(""); setFiltroRepartidor(""); }}>✕ Limpiar</button>}
+              {listaMostrada.length > 0 && (<><button style={btnExportar("#F68B32")} onClick={exportarFinalizadosExcel}>📊 Excel</button><button style={btnExportar("#c0392b")} onClick={exportarFinalizadosPDF}>📄 PDF</button></>)}
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-            <button onClick={() => setTabFin("entregados")}
-              style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer",
-                borderColor: tabFin === "entregados" ? "#F68B32" : "#ddd", background: tabFin === "entregados" ? "#F68B32" : "#fff",
-                color: tabFin === "entregados" ? "#fff" : "#555", fontWeight: tabFin === "entregados" ? 600 : 400 }}>
-              ✅ Entregados ({entregados.length})
-            </button>
-            <button onClick={() => setTabFin("anulados")}
-              style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer",
-                borderColor: tabFin === "anulados" ? "#c0392b" : "#ddd", background: tabFin === "anulados" ? "#c0392b" : "#fff",
-                color: tabFin === "anulados" ? "#fff" : "#555", fontWeight: tabFin === "anulados" ? 600 : 400 }}>
-              🚫 Anulados ({anulados.length})
-            </button>
+            <button onClick={() => setTabFin("entregados")} style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer", borderColor: tabFin === "entregados" ? "#F68B32" : "#ddd", background: tabFin === "entregados" ? "#F68B32" : "#fff", color: tabFin === "entregados" ? "#fff" : "#555", fontWeight: tabFin === "entregados" ? 600 : 400 }}>✅ Entregados ({entregados.length})</button>
+            <button onClick={() => setTabFin("anulados")} style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer", borderColor: tabFin === "anulados" ? "#c0392b" : "#ddd", background: tabFin === "anulados" ? "#c0392b" : "#fff", color: tabFin === "anulados" ? "#fff" : "#555", fontWeight: tabFin === "anulados" ? 600 : 400 }}>🚫 Anulados ({anulados.length})</button>
           </div>
           <div style={s.lista}>
             <div style={s.cabecera}>
-              <span style={{ ...s.col, flex: 0.6 }}>Nº</span>
-              <span style={{ ...s.col, flex: 1.2 }}>Cliente</span>
-              <span style={{ ...s.col, flex: 1 }}>Teléfono</span>
-              <span style={{ ...s.col, flex: 1.5 }}>Dirección</span>
-              <span style={{ ...s.col, flex: 1 }}>Productos</span>
-              <span style={{ ...s.col, flex: 0.8 }}>Medio pago</span>
-              <span style={{ ...s.col, flex: 0.7, textAlign: "right" }}>Total</span>
-              <span style={{ ...s.col, flex: 0.8, textAlign: "center" }}>Fecha</span>
+              <span style={{ ...s.col, flex: 0.6 }}>Nº</span><span style={{ ...s.col, flex: 1.2 }}>Cliente</span>
+              <span style={{ ...s.col, flex: 1 }}>Teléfono</span><span style={{ ...s.col, flex: 1.5 }}>Dirección</span>
+              <span style={{ ...s.col, flex: 1 }}>Productos</span><span style={{ ...s.col, flex: 0.8 }}>Medio pago</span>
+              <span style={{ ...s.col, flex: 0.7, textAlign: "right" }}>Total</span><span style={{ ...s.col, flex: 0.8, textAlign: "center" }}>Fecha</span>
               <span style={{ ...s.col, flex: 0.7, textAlign: "center" }}>Local</span>
             </div>
             {listaMostrada.length === 0 && <div style={s.empty}>No hay pedidos en esta sección.</div>}
@@ -1829,12 +1693,8 @@ function PanelApp({ usuario }) {
                   <span style={{ ...s.cel, flex: 1, color: "#666" }}>{p.productos}</span>
                   <span style={{ ...s.cel, flex: 0.8 }}>{p.medioPago}</span>
                   <span style={{ ...s.cel, flex: 0.7, textAlign: "right", fontWeight: 600 }}>{p.total}</span>
-                  <span style={{ ...s.cel, flex: 0.8, textAlign: "center", color: "#555" }}>
-                    {p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"short"}) : "—"}
-                  </span>
-                  <span style={{ ...s.cel, flex: 0.7, textAlign: "center" }}>
-                    <span style={{ fontSize: 11, background: "#eaf3de", color: "#27500a", padding: "2px 7px", borderRadius: 4 }}>{p.local}</span>
-                  </span>
+                  <span style={{ ...s.cel, flex: 0.8, textAlign: "center", color: "#555" }}>{p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"short"}) : "—"}</span>
+                  <span style={{ ...s.cel, flex: 0.7, textAlign: "center" }}><span style={{ fontSize: 11, background: "#eaf3de", color: "#27500a", padding: "2px 7px", borderRadius: 4 }}>{p.local}</span></span>
                   <span style={s.chevron}>{expandido === p.id ? "▲" : "▼"}</span>
                 </div>
                 {expandido === p.id && (
@@ -1979,6 +1839,7 @@ function PanelApp({ usuario }) {
     );
   }
 
+  // ─── PANEL PRINCIPAL (tabs activas) ──────────────────────────────
   return (
     <div style={s.wrap}>
       {facturando && <ModalFacturacion p={facturando} onCerrar={cerrarModal} />}
@@ -1994,6 +1855,7 @@ function PanelApp({ usuario }) {
           }}
         />
       )}
+      {modalEmailMPNode}
       <Header />
       <TabBar />
       <div style={s.stats}>
@@ -2068,13 +1930,9 @@ function PanelApp({ usuario }) {
                       <span style={{ ...s.cel, flex: 1, color: "#666" }}>{p.barrio}</span>
                       <span style={{ ...s.cel, flex: 1.2 }}><span style={s.zonaTag}>{p.zona}</span></span>
                       <span style={{ ...s.cel, flex: 0.8, textAlign: "right", fontWeight: 600 }}>{p.total}</span>
-                      <span style={{ ...s.cel, flex: 1, textAlign: "center", color: "#555" }}>
-                        {p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"short"}) : "—"}
-                      </span>
+                      <span style={{ ...s.cel, flex: 1, textAlign: "center", color: "#555" }}>{p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"short"}) : "—"}</span>
                       <span style={{ ...s.cel, flex: 0.9, textAlign: "center" }}><span style={s.franjaTag}>{p.franjaDisplay}</span></span>
-                      <span style={{ ...s.cel, flex: 0.8, textAlign: "center" }}>
-                        <span style={{ ...s.estadoTag, background: ec.bg, color: ec.text }}>{estadoActual}</span>
-                      </span>
+                      <span style={{ ...s.cel, flex: 0.8, textAlign: "center" }}><span style={{ ...s.estadoTag, background: ec.bg, color: ec.text }}>{estadoActual}</span></span>
                       <span style={s.chevron}>{abierto ? "▲" : "▼"}</span>
                     </div>
                     {abierto && (
@@ -2112,6 +1970,7 @@ function PanelApp({ usuario }) {
                             ✏️ Editar productos
                           </button>
                           <BtnFacturar p={p} version={facturaVersion} onAbrir={setFacturando} />
+                          <BtnPagoMP p={p} onEmailRequerido={setPedidoEmailMP} />
                           <button style={{ ...s.btnImprimir, borderColor: "#c0392b", color: "#c0392b", background: "#fdecea" }}
                             onClick={e => anularPedido(p, e)}>
                             🚫 Anular pedido
@@ -2136,10 +1995,7 @@ export default function App() {
   const [validandoSesion, setValidandoSesion] = useState(true);
 
   useEffect(() => {
-    validarSesion().then(user => {
-      setUsuario(user);
-      setValidandoSesion(false);
-    });
+    validarSesion().then(user => { setUsuario(user); setValidandoSesion(false); });
   }, []);
 
   if (validandoSesion) {
@@ -2150,10 +2006,7 @@ export default function App() {
     );
   }
 
-  if (!usuario) {
-    return <Login onLogin={setUsuario} />;
-  }
-
+  if (!usuario) return <Login onLogin={setUsuario} />;
   return <PanelApp usuario={usuario} />;
 }
 
