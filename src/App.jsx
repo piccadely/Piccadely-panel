@@ -175,6 +175,31 @@ function reproducirBeep() {
   } catch (e) { console.warn("No se pudo reproducir el beep:", e); }
 }
 
+// ─── INPUT CON COMMIT ON BLUR ────────────────────────────────────────
+// Componente con state interno propio. Mientras el usuario escribe, no
+// actualiza al padre (evita que se reagrupen/reordenen los pedidos y se
+// pierda el foco). Solo informa al padre al hacer blur (TAB, click afuera).
+function InputBlur({ initialValue, onCommit, style, placeholder, type = "text", ...rest }) {
+  const [value, setValue] = useState(initialValue ?? "");
+  // Si cambia desde afuera (ej. otra pestaña), sincronizar mientras no esté siendo editado
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    if (!focused) setValue(initialValue ?? "");
+  }, [initialValue, focused]);
+  return (
+    <input
+      type={type}
+      style={style}
+      placeholder={placeholder}
+      value={value}
+      onFocus={() => setFocused(true)}
+      onChange={e => setValue(e.target.value)}
+      onBlur={() => { setFocused(false); if (value !== (initialValue ?? "")) onCommit(value); }}
+      {...rest}
+    />
+  );
+}
+
 // ─── BTN FACTURAR ────────────────────────────────────────────────────
 function BtnFacturar({ p, version, onAbrir }) {
   const [tieneFactura, setTieneFactura] = useState(null);
@@ -2074,8 +2099,8 @@ function PanelApp({ usuario }) {
                               {estadoActual !== "Entregado" && <button style={s.btnEstado} onClick={e => cambiarEstado(p.id, e)}>→ {nextEstado(estadoActual)}</button>}
                             </div>
                           </div>
-                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Fecha de entrega</div><input type="date" style={s.inputField} value={fechaManual} onChange={e => cambiarFecha(p.id, e.target.value)} onBlur={() => guardarLocalEnDB(p.id)} onClick={e => e.stopPropagation()} /></div>
-                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Horario de entrega</div><input type="text" placeholder="ej: 14:00 – 16:00" style={s.inputField} value={franjaManual} onChange={e => cambiarFranja(p.id, e.target.value)} onBlur={() => guardarLocalEnDB(p.id)} onClick={e => e.stopPropagation()} /></div>
+                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Fecha de entrega</div><InputBlur type="date" style={s.inputField} initialValue={fechaManual} onCommit={v => { actualizarLocalSinGuardar(p.id, { fechaManual: v }); guardarLocalEnDB(p.id); }} onClick={e => e.stopPropagation()} /></div>
+                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Horario de entrega</div><InputBlur type="text" placeholder="ej: 14:00 – 16:00" style={s.inputField} initialValue={franjaManual} onCommit={v => { actualizarLocalSinGuardar(p.id, { franjaManual: v }); guardarLocalEnDB(p.id); }} onClick={e => e.stopPropagation()} /></div>
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Mover a sección</div><select style={s.inputField} value={tabActual} onChange={e => cambiarTab(p.id, e.target.value)}>{TABS.filter(t => t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}</select></div>
                         </div>
                         <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
