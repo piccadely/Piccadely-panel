@@ -176,6 +176,21 @@ function InputBlur({ initialValue, onCommit, style, placeholder, type = "text", 
   );
 }
 
+// ─── TEXTAREA CON COMMIT ON BLUR ─────────────────────────────────────
+function TextareaBlur({ initialValue, onCommit, style, placeholder }) {
+  const [value, setValue] = useState(initialValue ?? "");
+  const [focused, setFocused] = useState(false);
+  useEffect(() => { if (!focused) setValue(initialValue ?? ""); }, [initialValue, focused]);
+  return (
+    <textarea
+      style={style} placeholder={placeholder} value={value}
+      onFocus={() => setFocused(true)}
+      onChange={e => setValue(e.target.value)}
+      onBlur={() => { setFocused(false); if (value !== (initialValue ?? "")) onCommit(value); }}
+    />
+  );
+}
+
 // ─── BTN FACTURAR ────────────────────────────────────────────────────
 function BtnFacturar({ p, version, onAbrir }) {
   const [tieneFactura, setTieneFactura] = useState(null);
@@ -975,6 +990,7 @@ function PanelApp({ usuario }) {
   const [prodLocal, setProdLocal] = useState("todos");
   const [editandoProductos, setEditandoProductos] = useState(null);
   const [productosOverride, setProductosOverride] = useState({});
+  const [pedidosDatosOverride, setPedidosDatosOverride] = useState({});
   const menuRef = useRef(null);
 
   const [productos, setProductos] = useState([]);
@@ -1029,6 +1045,22 @@ function PanelApp({ usuario }) {
       });
       setPedidosLocales(locales);
       setPedidosManuales(resManuales.data);
+
+      // Inicializar overrides de datos desde estados
+      const datosInit = {};
+      Object.entries(resEstados.data).forEach(([id, est]) => {
+        const ov = {};
+        if (est.clienteOverride) ov.cliente = est.clienteOverride;
+        if (est.telefonoOverride) ov.telefono = est.telefonoOverride;
+        if (est.direccionOverride) ov.direccion = est.direccionOverride;
+        if (est.barrioOverride) ov.barrio = est.barrioOverride;
+        if (est.zonaOverride) ov.zona = est.zonaOverride;
+        if (est.medioPagoOverride) ov.medioPago = est.medioPagoOverride;
+        if (est.notaOverride !== undefined && est.notaOverride !== null) ov.nota = est.notaOverride;
+        if (Object.keys(ov).length > 0) datosInit[id] = ov;
+      });
+      setPedidosDatosOverride(datosInit);
+
       setLoading(false);
       const ids = [...resOrders.data.map(p => String(p.id)), ...resManuales.data.map(p => p.id)];
       cargarProductosOverride(ids);
@@ -1100,19 +1132,26 @@ function PanelApp({ usuario }) {
       const tabActual = local.tabManual || tabAuto;
       const totalNum = Number(p.total);
       const ov = productosOverride[String(p.id)];
+      const ovDatos = pedidosDatosOverride[String(p.id)] || {};
+      const direccionOriginal = `${p.shipping_address?.address || ""} ${p.shipping_address?.number || ""}${p.shipping_address?.floor ? ` ${p.shipping_address.floor}` : ""}`.trim();
       return {
-        id: p.id, numero: `#${p.number}`, cliente: p.contact_name, telefono: p.contact_phone,
-        direccion: `${p.shipping_address?.address || ""} ${p.shipping_address?.number || ""}${p.shipping_address?.floor ? ` ${p.shipping_address.floor}` : ""}`.trim(),
-        barrio: p.shipping_address?.locality || p.shipping_address?.city || "",
-        zona, fecha, franja, fechaDisplay: local.fechaManual || fecha, franjaDisplay: local.franjaManual || franja || "Sin franja",
+        id: p.id, numero: `#${p.number}`,
+        cliente: ovDatos.cliente || p.contact_name,
+        telefono: ovDatos.telefono || p.contact_phone,
+        direccion: ovDatos.direccion || direccionOriginal,
+        barrio: ovDatos.barrio || p.shipping_address?.locality || p.shipping_address?.city || "",
+        zona: ovDatos.zona || zona,
+        fecha, franja, fechaDisplay: local.fechaManual || fecha, franjaDisplay: local.franjaManual || franja || "Sin franja",
         productos: ov ? ov.productos : prods,
         totalNum: ov ? Number(ov.total_num) : totalNum,
         total: ov ? `$${Number(ov.total_num).toLocaleString("es-AR")}` : `$${totalNum.toLocaleString("es-AR")}`,
         pago: p.payment_status === "paid" ? "Pagado" : "Pendiente",
-        medioPago: medioPagoLabel(p.gateway), gateway: p.gateway,
+        medioPago: ovDatos.medioPago || medioPagoLabel(p.gateway), gateway: p.gateway,
         esTakeaway: p.fulfillments?.[0]?.shipping?.type === "pickup",
         estado: local.estado, repartidor: local.repartidor, cobrar: local.cobrar,
-        tabActual, local: localLabel(tabActual), nota: p.note || "", esManual: false, entreCalles: "",
+        tabActual, local: localLabel(tabActual),
+        nota: ovDatos.nota !== undefined ? ovDatos.nota : (p.note || ""),
+        esManual: false, entreCalles: "",
         identificacion: p.identification?.number || "", email: p.contact_email || "",
       };
     }),
@@ -1120,8 +1159,17 @@ function PanelApp({ usuario }) {
       const local = pedidosLocales[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.cobrar };
       const tabActual = local.tabManual || p.tabActual;
       const ov = productosOverride[String(p.id)];
+      const ovDatos = pedidosDatosOverride[String(p.id)] || {};
       return {
-        ...p, estado: local.estado, repartidor: local.repartidor,
+        ...p,
+        cliente: ovDatos.cliente !== undefined ? ovDatos.cliente : p.cliente,
+        telefono: ovDatos.telefono !== undefined ? ovDatos.telefono : p.telefono,
+        direccion: ovDatos.direccion !== undefined ? ovDatos.direccion : p.direccion,
+        barrio: ovDatos.barrio !== undefined ? ovDatos.barrio : p.barrio,
+        zona: ovDatos.zona !== undefined ? ovDatos.zona : p.zona,
+        medioPago: ovDatos.medioPago !== undefined ? ovDatos.medioPago : p.medioPago,
+        nota: ovDatos.nota !== undefined ? ovDatos.nota : (p.nota || ""),
+        estado: local.estado, repartidor: local.repartidor,
         cobrar: local.cobrar !== undefined ? local.cobrar : p.cobrar,
         tabActual, local: localLabel(tabActual),
         fechaDisplay: local.fechaManual || p.fecha, franjaDisplay: local.franjaManual || p.franja || "Sin franja",
@@ -1197,6 +1245,30 @@ function PanelApp({ usuario }) {
   function cambiarTab(id, valor) { actualizarLocal(id, { tabManual: valor }); }
   function cambiarCobrar(id, valor) { actualizarLocal(id, { cobrar: valor }); }
   function toggleExpandido(id) { setExpandido(prev => prev === id ? null : id); }
+
+  // ─── ACTUALIZAR DATO DE PEDIDO (cliente, telefono, dirección, etc.) ──
+  function actualizarDato(p, campo, valor) {
+    const id = String(p.id);
+    const actualOverrides = pedidosDatosOverride[id] || {};
+    const nuevosOverrides = { ...actualOverrides, [campo]: valor };
+    setPedidosDatosOverride(prev => ({ ...prev, [id]: nuevosOverrides }));
+    if (p.esManual) {
+      const campoMap = { medioPago: "medioPago" };
+      const k = campoMap[campo] || campo;
+      setPedidosManuales(prev => prev.map(m => String(m.id) === id ? { ...m, [k]: valor } : m));
+    }
+    const datosDB = {
+      esManual: p.esManual,
+      cliente: nuevosOverrides.cliente ?? p.cliente,
+      telefono: nuevosOverrides.telefono ?? p.telefono,
+      direccion: nuevosOverrides.direccion ?? p.direccion,
+      barrio: nuevosOverrides.barrio ?? p.barrio,
+      zona: nuevosOverrides.zona ?? p.zona,
+      medioPago: nuevosOverrides.medioPago ?? p.medioPago,
+      nota: nuevosOverrides.nota !== undefined ? nuevosOverrides.nota : (p.nota || ""),
+    };
+    axios.patch(`${API}/api/pedidos/${id}/datos`, datosDB).catch(console.error);
+  }
 
   function agregarAlCarrito(prod) {
     const precio = Number(prod.variants[0].price);
@@ -1937,11 +2009,63 @@ function PanelApp({ usuario }) {
                     </div>
                     {abierto && (
                       <div style={s.detalle}>
+                        {/* DATOS EDITABLES */}
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#F68B32", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+                          📋 Datos del pedido <span style={{ color: "#aaa", fontWeight: 400 }}>(guardado automático al salir del campo)</span>
+                        </div>
+                        <div style={{ ...s.detalleGrid, marginBottom: 14 }}>
+                          <div style={s.detalleBloque}>
+                            <div style={s.detalleLabel}>Cliente</div>
+                            <InputBlur style={s.inputField} initialValue={p.cliente} placeholder="Nombre"
+                              onCommit={v => actualizarDato(p, "cliente", v)} onClick={e => e.stopPropagation()} />
+                          </div>
+                          <div style={s.detalleBloque}>
+                            <div style={s.detalleLabel}>Teléfono</div>
+                            <InputBlur style={s.inputField} initialValue={p.telefono} placeholder="Teléfono"
+                              onCommit={v => actualizarDato(p, "telefono", v)} onClick={e => e.stopPropagation()} />
+                          </div>
+                          <div style={s.detalleBloque}>
+                            <div style={s.detalleLabel}>Dirección</div>
+                            <InputBlur style={s.inputField} initialValue={p.direccion} placeholder="Dirección"
+                              onCommit={v => actualizarDato(p, "direccion", v)} onClick={e => e.stopPropagation()} />
+                          </div>
+                          <div style={s.detalleBloque}>
+                            <div style={s.detalleLabel}>Barrio</div>
+                            <InputBlur style={s.inputField} initialValue={p.barrio} placeholder="Barrio"
+                              onCommit={v => actualizarDato(p, "barrio", v)} onClick={e => e.stopPropagation()} />
+                          </div>
+                          <div style={s.detalleBloque}>
+                            <div style={s.detalleLabel}>Zona</div>
+                            <InputBlur style={s.inputField} initialValue={p.zona} placeholder="Zona"
+                              onCommit={v => actualizarDato(p, "zona", v)} onClick={e => e.stopPropagation()} />
+                          </div>
+                          <div style={s.detalleBloque}>
+                            <div style={s.detalleLabel}>Medio de pago</div>
+                            <select style={s.inputField} value={p.medioPago}
+                              onChange={e => { e.stopPropagation(); actualizarDato(p, "medioPago", e.target.value); }}
+                              onClick={e => e.stopPropagation()}>
+                              {MEDIOS_PAGO.map(m => <option key={m}>{m}</option>)}
+                            </select>
+                          </div>
+                          <div style={{ ...s.detalleBloque, gridColumn: "span 2" }}>
+                            <div style={s.detalleLabel}>Nota</div>
+                            <TextareaBlur
+                              style={{ ...s.inputField, height: 56, resize: "vertical", width: "100%", boxSizing: "border-box" }}
+                              initialValue={p.nota || ""} placeholder="Nota del pedido..."
+                              onCommit={v => actualizarDato(p, "nota", v)} />
+                          </div>
+                          <div style={s.detalleBloque}>
+                            <div style={s.detalleLabel}>Productos</div>
+                            <div style={s.detalleVal}>{p.productos}</div>
+                          </div>
+                          <div style={s.detalleBloque}>
+                            <div style={s.detalleLabel}>Pago</div>
+                            <div style={{ ...s.detalleVal, color: p.pago === "Pagado" ? "#F68B32" : "#c0392b", fontWeight: 600 }}>{p.pago}</div>
+                          </div>
+                        </div>
+                        {/* OPERACIONES */}
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, borderTop: "1px solid #eee", paddingTop: 10 }}>⚙️ Operaciones</div>
                         <div style={s.detalleGrid}>
-                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Productos</div><div style={s.detalleVal}>{p.productos}</div></div>
-                          {p.nota && <div style={s.detalleBloque}><div style={s.detalleLabel}>Nota</div><div style={{ ...s.detalleVal, color: "#666", fontStyle: "italic" }}>{p.nota}</div></div>}
-                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Medio de pago</div><div style={s.detalleVal}>{p.medioPago}</div></div>
-                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Pago</div><div style={{ ...s.detalleVal, color: p.pago === "Pagado" ? "#F68B32" : "#c0392b", fontWeight: 600 }}>{p.pago}</div></div>
                           <div style={s.detalleBloque}>
                             <div style={s.detalleLabel}>Cobrar en entrega</div>
                             <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
@@ -1961,7 +2085,7 @@ function PanelApp({ usuario }) {
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Horario de entrega</div><InputBlur type="text" placeholder="ej: 14:00 – 16:00" style={s.inputField} initialValue={franjaManual} onCommit={v => { actualizarLocalSinGuardar(p.id, { franjaManual: v }); guardarLocalEnDB(p.id); }} onClick={e => e.stopPropagation()} /></div>
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Mover a sección</div><select style={s.inputField} value={tabActual} onChange={e => cambiarTab(p.id, e.target.value)}>{TABS.filter(t => t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}</select></div>
                         </div>
-                        <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
                           <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>
                             🖨️ Imprimir comanda {comandasImpresas[p.id] ? <span style={{ marginLeft: 4, background: "#f39c12", color: "#fff", borderRadius: 99, fontSize: 10, padding: "1px 6px", fontWeight: 700 }}>{comandasImpresas[p.id]}</span> : null}
                           </button>
