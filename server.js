@@ -1037,7 +1037,7 @@ app.get("/api/admin/snapshot-pendientes", requireAdmin, async (req, res) => {
     }
 
     // === HEADER GLOBAL ===
-    doc.fontSize(20).fillColor("#2a7a4b").font("Helvetica-Bold").text("Piccadely — Pedidos pendientes", MARGIN, doc.y);
+    doc.fontSize(20).fillColor("#F68B32").font("Helvetica-Bold").text("Piccadely — Pedidos pendientes", MARGIN, doc.y);
     doc.moveDown(0.3);
     doc.fontSize(10).fillColor("#666").font("Helvetica");
     doc.text(`Snapshot generado: ${new Date().toLocaleString("es-AR", { dateStyle: "long", timeStyle: "short" })}`, MARGIN, doc.y);
@@ -1062,7 +1062,7 @@ app.get("/api/admin/snapshot-pendientes", requireAdmin, async (req, res) => {
       const headerY = doc.y;
       const headerH = 24;
       doc.save();
-      doc.rect(MARGIN, headerY, INNER_WIDTH, headerH).fill("#2a7a4b");
+      doc.rect(MARGIN, headerY, INNER_WIDTH, headerH).fill("#F68B32");
       doc.restore();
 
       // Texto del header: fecha a la izquierda, count a la derecha
@@ -1106,7 +1106,7 @@ app.get("/api/admin/snapshot-pendientes", requireAdmin, async (req, res) => {
         // === LÍNEA 1: Número + Cliente (izq) | Horario (der) ===
         const y1 = cardY + 7;
         // Número en verde
-        doc.fillColor("#2a7a4b").fontSize(11).font("Helvetica-Bold");
+        doc.fillColor("#F68B32").fontSize(11).font("Helvetica-Bold");
         doc.text(p.numero, CONTENT_X, y1, { width: 70, lineBreak: false });
         // Cliente en negro, después del número
         doc.fillColor("#000").fontSize(11).font("Helvetica-Bold");
@@ -1264,4 +1264,3 @@ app.post("/api/admin/webhooks/setup", requireAdmin, async (req, res) => {
 app.listen(process.env.PORT || 3001, () => {
   console.log("Servidor corriendo");
 });
-// rebuild trigger 2026-05-21

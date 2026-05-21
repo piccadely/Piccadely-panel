@@ -143,7 +143,7 @@ export default function Usuarios({ onVolver }) {
   const rolColor = {
     admin: { bg: "#fef9e7", text: "#856404", border: "#f39c12" },
     a_thomas: { bg: "#e6f1fb", text: "#0c447c", border: "#3b82f6" },
-    french: { bg: "#eaf3de", text: "#27500a", border: "#2a7a4b" },
+    french: { bg: "#eaf3de", text: "#27500a", border: "#F68B32" },
   };
 
   return (
@@ -151,7 +151,7 @@ export default function Usuarios({ onVolver }) {
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
         <button style={st.btnVolver} onClick={onVolver}>← Volver</button>
         <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>👥 Usuarios del sistema</h2>
-        <button style={{ marginLeft: "auto", fontSize: 12, padding: "7px 14px", borderRadius: 6, border: "none", background: "#2a7a4b", color: "#fff", cursor: "pointer", fontWeight: 600 }}
+        <button style={{ marginLeft: "auto", fontSize: 12, padding: "7px 14px", borderRadius: 6, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer", fontWeight: 600 }}
           onClick={abrirNuevo}>+ Nuevo usuario</button>
       </div>
 
@@ -159,7 +159,7 @@ export default function Usuarios({ onVolver }) {
         <div style={{ marginBottom: 16, padding: "10px 14px", borderRadius: 8, fontSize: 13, fontWeight: 500,
           background: mensaje.tipo === "error" ? "#fdecea" : "#eaf3de",
           color: mensaje.tipo === "error" ? "#c0392b" : "#27500a",
-          border: `1px solid ${mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b"}` }}>
+          border: `1px solid ${mensaje.tipo === "error" ? "#c0392b" : "#F68B32"}` }}>
           {mensaje.tipo === "error" ? "❌ " : "✅ "}{mensaje.texto}
         </div>
       )}
@@ -181,7 +181,7 @@ export default function Usuarios({ onVolver }) {
             return (
               <div key={u.id} style={{ ...st.fila, opacity: u.activo ? 1 : 0.55 }}>
                 <span style={{ ...st.cel, flex: 0.4, textAlign: "center", color: "#aaa", fontWeight: 600 }}>#{u.id}</span>
-                <span style={{ ...st.cel, flex: 1, fontWeight: 600, color: "#2a7a4b" }}>{u.username}</span>
+                <span style={{ ...st.cel, flex: 1, fontWeight: 600, color: "#F68B32" }}>{u.username}</span>
                 <span style={{ ...st.cel, flex: 1.6 }}>{u.nombre_completo}</span>
                 <span style={{ ...st.cel, flex: 0.9, textAlign: "center" }}>
                   <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 4, background: rc.bg, color: rc.text, border: `1px solid ${rc.border}` }}>
@@ -190,13 +190,13 @@ export default function Usuarios({ onVolver }) {
                 </span>
                 <span style={{ ...st.cel, flex: 0.6, textAlign: "center" }}>
                   {u.activo
-                    ? <span style={{ fontSize: 11, fontWeight: 600, color: "#2a7a4b" }}>● Activo</span>
+                    ? <span style={{ fontSize: 11, fontWeight: 600, color: "#F68B32" }}>● Activo</span>
                     : <span style={{ fontSize: 11, fontWeight: 600, color: "#aaa" }}>○ Inactivo</span>}
                 </span>
                 <span style={{ ...st.cel, flex: 1.8, textAlign: "right", display: "flex", justifyContent: "flex-end", gap: 4, flexWrap: "wrap" }}>
                   <button style={st.btnAccion} onClick={() => abrirEditar(u)}>✏️ Editar</button>
                   <button style={st.btnAccion} onClick={() => abrirPassword(u)}>🔑 Password</button>
-                  <button style={{ ...st.btnAccion, color: u.activo ? "#856404" : "#27500a", borderColor: u.activo ? "#f39c12" : "#2a7a4b" }} onClick={() => toggleActivo(u)}>
+                  <button style={{ ...st.btnAccion, color: u.activo ? "#856404" : "#27500a", borderColor: u.activo ? "#f39c12" : "#F68B32" }} onClick={() => toggleActivo(u)}>
                     {u.activo ? "⊘ Desactivar" : "✓ Activar"}
                   </button>
                   <button style={{ ...st.btnAccion, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => eliminarUsuario(u)}>🗑</button>
@@ -307,5 +307,5 @@ const st = {
   btnCerrar: { border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#aaa" },
   label: { fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4, display: "block" },
   input: { fontSize: 13, padding: "8px 12px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", outline: "none" },
-  btnPrimary: { width: "100%", padding: 11, borderRadius: 8, border: "none", background: "#2a7a4b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" },
+  btnPrimary: { width: "100%", padding: 11, borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" },
 };

@@ -145,7 +145,7 @@ export default function Login({ onLogin }) {
             padding: 11,
             borderRadius: 8,
             border: "none",
-            background: (cargando || !username || !password) ? "#ccc" : "#2a7a4b",
+            background: (cargando || !username || !password) ? "#ccc" : "#F68B32",
             color: "#fff",
             fontSize: 14,
             fontWeight: 600,
