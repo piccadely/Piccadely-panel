@@ -50,6 +50,7 @@ const pool = new Pool({
 });
 
 async function initDB() {
+  await pool.query("SET search_path TO public");
   await pool.query(`
     CREATE TABLE IF NOT EXISTS pedidos_estados (
       id TEXT PRIMARY KEY,
