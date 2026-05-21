@@ -54,20 +54,12 @@ export function mpRouter(pool, mailTransporter) {
           },
           notification_url:
             "https://piccadely-panel-production.up.railway.app/api/mp/webhook",
+          external_reference: String(pedidoId),
         },
       });
 
-      await pool.query(
-        "UPDATE pedidos_manuales SET mp_preference_id = $1 WHERE id = $2",
-        [response.id, pedidoId]
-      ).catch(() => {});
-
-      await pool.query(
-        "UPDATE pedidos_tn SET mp_preference_id = $1 WHERE id = $2",
-        [response.id, pedidoId]
-      ).catch(() => {});
-
       console.log(`MP preference creada: ${response.id} para pedido ${pedidoId}`);
+
       // Mandar el link por mail al cliente
       if (email && mailTransporter) {
         mailTransporter.sendMail({
@@ -108,7 +100,6 @@ export function mpRouter(pool, mailTransporter) {
       }
 
       res.json({ init_point: response.init_point });
-    
     } catch (err) {
       console.error("MP create-preference error:", err);
       res.status(500).json({ error: "Error al crear preferencia de pago" });
@@ -116,22 +107,19 @@ export function mpRouter(pool, mailTransporter) {
   });
 
   // ─── POST /api/mp/webhook ───────────────────────────────────────────
-  // Maneja tanto el formato nuevo (JSON body) como IPN viejo (query params)
   router.post("/webhook", async (req, res) => {
     res.sendStatus(200);
 
-    // Detectar formato: nuevo webhook o IPN viejo
-    const topic = req.body?.type || req.query?.topic;
-    const dataId = req.body?.data?.id || req.query?.id;
+    const topic = req.body?.type || req.body?.topic || req.query?.topic;
+    const dataId = req.body?.data?.id || req.body?.dataId || req.query?.id;
 
-    console.log("MP webhook recibido:", JSON.stringify({ topic, dataId, body: req.body, query: req.query }));
+    console.log("MP webhook recibido:", JSON.stringify({ topic, dataId }));
 
     if (!dataId) {
       console.log("MP webhook: sin ID, ignorando");
       return;
     }
 
-    // IPN viejo puede enviar topic "payment" o "merchant_order"
     if (topic && topic !== "payment") {
       console.log(`MP webhook: topic '${topic}' ignorado`);
       return;
@@ -144,18 +132,23 @@ export function mpRouter(pool, mailTransporter) {
       const paymentClient = new Payment(client);
       const payment = await paymentClient.get({ id: dataId });
 
-    console.log(`MP pago ${dataId}: status=${payment.status} preference_id=${payment.preference_id}`);
-console.log(`MP pago objeto keys:`, Object.keys(payment));
+      console.log(`MP pago ${dataId}: status=${payment.status} external_reference=${payment.external_reference}`);
 
       if (payment.status !== "approved") return;
 
-      const paymentId = payment.id;
-      const preferenceId = payment.preference_id;
+      const pedidoId = payment.external_reference;
 
-      // Buscar pedido en ambas tablas
+      if (!pedidoId) {
+        console.log("MP webhook: sin external_reference, ignorando");
+        return;
+      }
+
+      const paymentId = payment.id;
+
+      // Buscar pedido en pedidos_manuales
       const manual = await pool.query(
-        "SELECT * FROM pedidos_manuales WHERE mp_preference_id = $1",
-        [preferenceId]
+        "SELECT * FROM pedidos_manuales WHERE id = $1",
+        [pedidoId]
       );
       const esTN = manual.rows.length === 0;
       let pedido, clienteEmail, clienteNombre, pedidoNumero;
@@ -167,11 +160,11 @@ console.log(`MP pago objeto keys:`, Object.keys(payment));
         pedidoNumero = pedido.numero;
       } else {
         const tn = await pool.query(
-          "SELECT * FROM pedidos_tn WHERE mp_preference_id = $1",
-          [preferenceId]
+          "SELECT * FROM pedidos_tn WHERE id = $1",
+          [pedidoId]
         );
         if (!tn.rows[0]) {
-          console.log(`MP webhook: no se encontró pedido con preference_id ${preferenceId}`);
+          console.log(`MP webhook: no se encontró pedido con id ${pedidoId}`);
           return;
         }
         pedido = tn.rows[0];
@@ -180,6 +173,7 @@ console.log(`MP pago objeto keys:`, Object.keys(payment));
         pedidoNumero = `#${pedido.data?.number || pedido.id}`;
       }
 
+      // Fecha/hora Buenos Aires
       const ahora = new Date().toLocaleString("es-AR", {
         timeZone: "America/Argentina/Buenos_Aires",
         day: "2-digit", month: "2-digit", year: "numeric",
@@ -199,7 +193,11 @@ console.log(`MP pago objeto keys:`, Object.keys(payment));
           [nuevaNota, String(paymentId), pedido.id]
         );
       } else {
-        const dataActualizada = { ...pedido.data, _mp_nota: nuevaNota, _mp_payment_id: String(paymentId) };
+        const dataActualizada = {
+          ...pedido.data,
+          _mp_nota: nuevaNota,
+          _mp_payment_id: String(paymentId),
+        };
         await pool.query(
           "UPDATE pedidos_tn SET mp_payment_id = $1, data = $2 WHERE id = $3",
           [String(paymentId), JSON.stringify(dataActualizada), pedido.id]
@@ -229,7 +227,7 @@ console.log(`MP pago objeto keys:`, Object.keys(payment));
                 <div style="padding:24px;">
                   <p style="font-size:16px;color:#333;">Hola <strong>${clienteNombre || ""}</strong>,</p>
                   <p style="font-size:14px;color:#555;">
-                    Confirmamos que recibimos tu pago para el pedido <strong>${pedidoNumero}</strong>. 
+                    Confirmamos que recibimos tu pago para el pedido <strong>${pedidoNumero}</strong>.
                     ¡Tu picada está en camino! 🧀🍷
                   </p>
                   <p style="font-size:13px;color:#F68B32;font-style:italic;text-align:center;font-weight:bold;">
