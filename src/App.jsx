@@ -85,7 +85,7 @@ function localLabel(tabActual) {
 }
 
 const FORM_INICIAL = {
-  cliente: "", telefono: "", direccion: "", entreCalles: "", barrio: "", zona: "",
+  cliente: "", telefono: "", email: "", direccion: "", entreCalles: "", barrio: "", zona: "",
   fecha: "", franja: "", nota: "", medioPago: "Mercado Pago",
   seccion: "delivery-at", cobrar: false,
 };
@@ -1148,6 +1148,7 @@ function PanelApp({ usuario }) {
     const productosStr = carrito.map(i => `${i.nombre} x${i.cantidad}`).join(", ");
     const nuevoPedido = {
       id, numero: `#M${Date.now().toString().slice(-4)}`, cliente: form.cliente, telefono: form.telefono,
+      email: form.email || "",
       direccion: form.direccion, barrio: form.barrio, entreCalles: form.entreCalles || "",
       zona: form.zona || "Sin zona", fecha: form.fecha, franja: form.franja,
       fechaDisplay: form.fecha, franjaDisplay: form.franja || "Sin franja",
@@ -1843,6 +1844,7 @@ function PanelApp({ usuario }) {
               <div style={s.formGrid}>
                 <div style={s.formBloque}><label style={s.formLabel}>Nombre *</label><input style={s.formInput} value={form.cliente} onChange={e => setForm(f => ({...f, cliente: e.target.value}))} placeholder="Nombre completo" /></div>
                 <div style={s.formBloque}><label style={s.formLabel}>Teléfono</label><input style={s.formInput} value={form.telefono} onChange={e => setForm(f => ({...f, telefono: e.target.value}))} placeholder="+54 11..." /></div>
+                <div style={{ ...s.formBloque, gridColumn: "span 2" }}><label style={s.formLabel}>Email (opcional, se envía confirmación automática)</label><input type="email" style={s.formInput} value={form.email || ""} onChange={e => setForm(f => ({...f, email: e.target.value}))} placeholder="cliente@ejemplo.com" /></div>
                 <div style={{ ...s.formBloque, gridColumn: "span 2" }}><label style={s.formLabel}>Dirección</label><input style={s.formInput} value={form.direccion} onChange={e => setForm(f => ({...f, direccion: e.target.value}))} placeholder="Calle y número" /></div>
                 <div style={{ ...s.formBloque, gridColumn: "span 2" }}><label style={s.formLabel}>Entre calles</label><input style={s.formInput} value={form.entreCalles || ""} onChange={e => setForm(f => ({...f, entreCalles: e.target.value}))} placeholder="ej: Entre Gorriti y Cabrera" /></div>
                 <div style={s.formBloque}><label style={s.formLabel}>Barrio</label><input style={s.formInput} value={form.barrio} onChange={e => setForm(f => ({...f, barrio: e.target.value}))} placeholder="Barrio" /></div>

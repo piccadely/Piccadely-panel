@@ -4,6 +4,7 @@ import axios from "axios";
 import pg from "pg";
 import crypto from "crypto";
 import PDFDocument from "pdfkit";
+import nodemailer from "nodemailer";
 import { initAuthDB, setupAuth } from "./auth.js";
 
 const { Pool } = pg;
@@ -59,7 +60,7 @@ async function initDB() {
     );
     CREATE TABLE IF NOT EXISTS pedidos_manuales (
       id TEXT PRIMARY KEY,
-      numero TEXT, cliente TEXT, telefono TEXT,
+      numero TEXT, cliente TEXT, telefono TEXT, email TEXT,
       direccion TEXT, entre_calles TEXT, barrio TEXT, zona TEXT,
       fecha TEXT, franja TEXT, productos TEXT,
       total_num NUMERIC, total TEXT, pago TEXT, medio_pago TEXT,
@@ -116,6 +117,11 @@ async function initDB() {
       UNIQUE(event_type, resource_id, signature)
     );
   `);
+
+  // Migración: agregar columna email a pedidos_manuales si no existe
+  // (necesario para DBs que se crearon antes del feature de mail al cliente)
+  await pool.query(`ALTER TABLE pedidos_manuales ADD COLUMN IF NOT EXISTS email TEXT;`);
+
   console.log("DB inicializada");
   await initAuthDB(pool);
 }
@@ -218,6 +224,166 @@ function formatoPesos(n) {
   return `$${Number(n || 0).toLocaleString("es-AR")}`;
 }
 
+// ─── ENVÍO DE MAILS AL CLIENTE ───────────────────────────────────────
+// Reutiliza la cuenta SMTP de Gmail ya configurada (GMAIL_USER, GMAIL_APP_PASSWORD)
+// Si las variables no están configuradas, las funciones logean y siguen sin romper
+const mailTransporter = (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD)
+  ? nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true,
+      auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
+    })
+  : null;
+
+const DIRECCION_A_THOMAS = "Alvarez Thomas 1558, Villa Ortúzar";
+const DIRECCION_FRENCH = "French 2615, Recoleta";
+const WHATSAPP_PICCADELY = "11-6239-3600";
+const COLOR_NARANJA = "#F68B32";
+
+function htmlMailConfirmacion(pedido) {
+  const esRetiro = String(pedido.tabActual || "").startsWith("retiro");
+  const esFrench = pedido.local === "French";
+  const direccionLocal = esFrench ? DIRECCION_FRENCH : DIRECCION_A_THOMAS;
+
+  let fechaTxt = pedido.fechaDisplay || pedido.fecha || "";
+  try {
+    fechaTxt = new Date(fechaTxt + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
+  } catch (e) {}
+
+  const productosLista = (pedido.productos || "").split(", ").filter(Boolean).map(p => `<li style="margin:4px 0;">${p}</li>`).join("");
+
+  const cobrarBlock = pedido.cobrar
+    ? `<tr><td style="padding:6px 0;color:#c0392b;font-weight:bold;">⚠ A cobrar en entrega:</td><td style="padding:6px 0;color:#c0392b;font-weight:bold;text-align:right;">${formatoPesos(pedido.totalNum || pedido.total_num)}</td></tr>`
+    : `<tr><td style="padding:6px 0;color:#666;">Pago:</td><td style="padding:6px 0;text-align:right;">${pedido.medioPago || "—"} (abonado)</td></tr>`;
+
+  const direccionBlock = esRetiro
+    ? `<tr><td style="padding:6px 0;color:#666;">🏪 Retirar en:</td><td style="padding:6px 0;text-align:right;">${direccionLocal}</td></tr>`
+    : `<tr><td style="padding:6px 0;color:#666;">📍 Dirección de entrega:</td><td style="padding:6px 0;text-align:right;">${pedido.direccion || ""}${pedido.barrio ? ", " + pedido.barrio : ""}</td></tr>`;
+
+  const notaBlock = pedido.nota
+    ? `<tr><td colspan="2" style="padding:10px 0;color:#666;font-style:italic;border-top:1px solid #eee;">📝 Nota: ${pedido.nota}</td></tr>`
+    : "";
+
+  return `
+<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;background:#ffffff;">
+    <!-- Header naranja -->
+    <div style="background:${COLOR_NARANJA};padding:30px 24px;text-align:center;">
+      <h1 style="margin:0;color:#ffffff;font-size:28px;letter-spacing:1px;">Piccadely</h1>
+      <p style="margin:8px 0 0;color:#ffffff;font-size:14px;opacity:0.95;">Confirmación de pedido</p>
+    </div>
+
+    <!-- Saludo -->
+    <div style="padding:24px;">
+      <p style="margin:0 0 8px;font-size:16px;color:#333;">Hola <strong>${pedido.cliente || ""}</strong>,</p>
+      <p style="margin:0 0 20px;font-size:14px;color:#555;line-height:1.5;">
+        Gracias por tu pedido en Piccadely. Confirmamos los siguientes datos:
+      </p>
+
+      <!-- Caja de datos del pedido -->
+      <div style="background:#fafafa;border:1px solid #eee;border-radius:6px;padding:18px 20px;">
+        <h2 style="margin:0 0 14px;color:${COLOR_NARANJA};font-size:16px;">📋 Pedido ${pedido.numero || ""}</h2>
+        <table style="width:100%;font-size:14px;color:#333;border-collapse:collapse;">
+          <tr><td style="padding:6px 0;color:#666;">📅 Entrega:</td><td style="padding:6px 0;text-align:right;text-transform:capitalize;">${fechaTxt}</td></tr>
+          <tr><td style="padding:6px 0;color:#666;">🕐 Horario:</td><td style="padding:6px 0;text-align:right;">${pedido.franjaDisplay || pedido.franja || "A confirmar"}</td></tr>
+          ${direccionBlock}
+          <tr><td style="padding:6px 0;color:#666;">🏪 Sucursal:</td><td style="padding:6px 0;text-align:right;">${pedido.local || ""}</td></tr>
+          ${notaBlock}
+        </table>
+
+        <h3 style="margin:18px 0 8px;color:#333;font-size:14px;">🛒 Productos:</h3>
+        <ul style="margin:0 0 14px;padding-left:20px;color:#333;font-size:14px;">
+          ${productosLista}
+        </ul>
+
+        <table style="width:100%;font-size:14px;color:#333;border-collapse:collapse;border-top:2px solid ${COLOR_NARANJA};margin-top:14px;">
+          <tr><td style="padding:10px 0 6px;color:#666;font-weight:bold;">Total:</td><td style="padding:10px 0 6px;text-align:right;font-weight:bold;font-size:16px;">${formatoPesos(pedido.totalNum || pedido.total_num)}</td></tr>
+          ${cobrarBlock}
+        </table>
+      </div>
+
+      <!-- Mensaje de contacto -->
+      <p style="margin:22px 0 6px;font-size:14px;color:#555;line-height:1.5;">
+        Si tenés alguna duda, respondé este mail o escribinos al WhatsApp <strong>${WHATSAPP_PICCADELY}</strong>.
+      </p>
+      <p style="margin:14px 0 0;font-size:13px;color:${COLOR_NARANJA};font-style:italic;text-align:center;font-weight:bold;">
+        Si hay piccada, que sea Piccadely. Piccadely, con doble C.
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div style="background:#f5f5f5;padding:16px 24px;text-align:center;color:#999;font-size:11px;">
+      Piccadely · ${DIRECCION_A_THOMAS} · ${DIRECCION_FRENCH}
+    </div>
+  </div>
+</body></html>`;
+}
+
+function htmlMailAnulacion(pedido) {
+  return `
+<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;background:#ffffff;">
+    <div style="background:${COLOR_NARANJA};padding:30px 24px;text-align:center;">
+      <h1 style="margin:0;color:#ffffff;font-size:28px;letter-spacing:1px;">Piccadely</h1>
+      <p style="margin:8px 0 0;color:#ffffff;font-size:14px;opacity:0.95;">Pedido cancelado</p>
+    </div>
+    <div style="padding:24px;">
+      <p style="margin:0 0 12px;font-size:16px;color:#333;">Hola <strong>${pedido.cliente || ""}</strong>,</p>
+      <p style="margin:0 0 16px;font-size:14px;color:#555;line-height:1.5;">
+        Te confirmamos que tu pedido <strong>${pedido.numero || ""}</strong> fue cancelado. No vas a recibir entrega ni se va a procesar.
+      </p>
+      <p style="margin:0 0 16px;font-size:14px;color:#555;line-height:1.5;">
+        Si esto fue un error o tenés consultas, respondé este mail o escribinos al WhatsApp <strong>${WHATSAPP_PICCADELY}</strong>.
+      </p>
+      <p style="margin:20px 0 0;font-size:13px;color:${COLOR_NARANJA};font-style:italic;text-align:center;font-weight:bold;">
+        Si hay piccada, que sea Piccadely. Piccadely, con doble C.
+      </p>
+    </div>
+    <div style="background:#f5f5f5;padding:16px 24px;text-align:center;color:#999;font-size:11px;">
+      Piccadely · ${DIRECCION_A_THOMAS} · ${DIRECCION_FRENCH}
+    </div>
+  </div>
+</body></html>`;
+}
+
+async function enviarMailConfirmacion(pedido) {
+  if (!mailTransporter) {
+    console.warn("Mail confirmación: GMAIL_USER/APP_PASSWORD no configurados, no se envía.");
+    return;
+  }
+  if (!pedido.email) return;
+  try {
+    await mailTransporter.sendMail({
+      from: `Piccadely <${process.env.GMAIL_USER}>`,
+      to: pedido.email,
+      subject: `Piccadely · Confirmación de tu pedido ${pedido.numero || ""}`,
+      html: htmlMailConfirmacion(pedido),
+    });
+    console.log(`✉ Mail confirmación enviado a ${pedido.email} para pedido ${pedido.numero}`);
+  } catch (err) {
+    console.error(`Error enviando confirmación a ${pedido.email}:`, err.message);
+  }
+}
+
+async function enviarMailAnulacion(pedido) {
+  if (!mailTransporter) return;
+  if (!pedido.email) return;
+  try {
+    await mailTransporter.sendMail({
+      from: `Piccadely <${process.env.GMAIL_USER}>`,
+      to: pedido.email,
+      subject: `Piccadely · Pedido ${pedido.numero || ""} cancelado`,
+      html: htmlMailAnulacion(pedido),
+    });
+    console.log(`✉ Mail anulación enviado a ${pedido.email} para pedido ${pedido.numero}`);
+  } catch (err) {
+    console.error(`Error enviando anulación a ${pedido.email}:`, err.message);
+  }
+}
+
 // TIENDA NUBE - Lee desde Neon (mantenido fresh por webhooks + backfill)
 app.get("/api/orders", async (req, res) => {
   try {
@@ -275,6 +441,24 @@ app.post("/api/estados/:id", async (req, res) => {
   const { id } = req.params;
   const { estado, repartidor, tabManual, fechaManual, franjaManual, cobrar } = req.body;
   try {
+    // Detectar si está pasando a "Anulado" para disparar mail al cliente.
+    // Solo si era un pedido manual con email registrado.
+    let mailAnularPedido = null;
+    if (estado === "Anulado") {
+      const previo = await pool.query("SELECT estado FROM pedidos_estados WHERE id=$1", [id]);
+      const estadoPrevio = previo.rows[0]?.estado;
+      if (estadoPrevio !== "Anulado") {
+        // Es un cambio "X → Anulado". Buscar el pedido manual si corresponde.
+        const manual = await pool.query("SELECT * FROM pedidos_manuales WHERE id=$1", [id]);
+        if (manual.rows[0] && manual.rows[0].email) {
+          const r = manual.rows[0];
+          mailAnularPedido = {
+            numero: r.numero, cliente: r.cliente, email: r.email,
+          };
+        }
+      }
+    }
+
     await pool.query(`
       INSERT INTO pedidos_estados (id, estado, repartidor, tab_manual, fecha_manual, franja_manual, cobrar, updated_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
@@ -283,6 +467,12 @@ app.post("/api/estados/:id", async (req, res) => {
         tab_manual=EXCLUDED.tab_manual, fecha_manual=EXCLUDED.fecha_manual,
         franja_manual=EXCLUDED.franja_manual, cobrar=EXCLUDED.cobrar, updated_at=NOW()
     `, [id, estado, repartidor, tabManual, fechaManual, franjaManual, cobrar]);
+
+    // Disparar mail de anulación en background si corresponde
+    if (mailAnularPedido) {
+      enviarMailAnulacion(mailAnularPedido).catch(err => console.error("Mail anulación falló:", err.message));
+    }
+
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: "Error guardando estado" });
@@ -295,6 +485,7 @@ app.get("/api/pedidos-manuales", async (req, res) => {
     const result = await pool.query("SELECT * FROM pedidos_manuales ORDER BY created_at DESC");
     const pedidos = result.rows.map(r => ({
       id: r.id, numero: r.numero, cliente: r.cliente, telefono: r.telefono,
+      email: r.email || "",
       direccion: r.direccion, entreCalles: r.entre_calles, barrio: r.barrio,
       zona: r.zona, fecha: r.fecha, franja: r.franja,
       fechaDisplay: r.fecha, franjaDisplay: r.franja || "Sin franja",
@@ -314,9 +505,16 @@ app.post("/api/pedidos-manuales", async (req, res) => {
   try {
     await pool.query(`
       INSERT INTO pedidos_manuales
-        (id, numero, cliente, telefono, direccion, entre_calles, barrio, zona, fecha, franja, productos, total_num, total, pago, medio_pago, cobrar, tab_actual, local, nota)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
-    `, [p.id, p.numero, p.cliente, p.telefono, p.direccion, p.entreCalles, p.barrio, p.zona, p.fecha, p.franja, p.productos, p.totalNum, p.total, p.pago, p.medioPago, p.cobrar, p.tabActual, p.local, p.nota]);
+        (id, numero, cliente, telefono, email, direccion, entre_calles, barrio, zona, fecha, franja, productos, total_num, total, pago, medio_pago, cobrar, tab_actual, local, nota)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+    `, [p.id, p.numero, p.cliente, p.telefono, p.email || "", p.direccion, p.entreCalles, p.barrio, p.zona, p.fecha, p.franja, p.productos, p.totalNum, p.total, p.pago, p.medioPago, p.cobrar, p.tabActual, p.local, p.nota]);
+
+    // Disparar mail de confirmación en background (no bloquea la respuesta).
+    // Si falla el envío, el pedido SE GUARDA igual; solo se loguea el error.
+    if (p.email && p.email.trim()) {
+      enviarMailConfirmacion(p).catch(err => console.error("Mail confirmación falló:", err.message));
+    }
+
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: "Error guardando pedido manual" });
