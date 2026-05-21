@@ -430,6 +430,13 @@ app.get("/api/estados", async (req, res) => {
         estado: r.estado, repartidor: r.repartidor,
         tabManual: r.tab_manual, fechaManual: r.fecha_manual,
         franjaManual: r.franja_manual, cobrar: r.cobrar,
+        clienteOverride: r.cliente_override,
+        telefonoOverride: r.telefono_override,
+        direccionOverride: r.direccion_override,
+        barrioOverride: r.barrio_override,
+        zonaOverride: r.zona_override,
+        medioPagoOverride: r.medio_pago_override,
+        notaOverride: r.nota_override,
       };
     });
     res.json(estados);
@@ -498,6 +505,41 @@ app.get("/api/pedidos-manuales", async (req, res) => {
     res.json(pedidos);
   } catch (err) {
     res.status(500).json({ error: "Error trayendo pedidos manuales" });
+  }
+});
+app.patch("/api/pedidos/:id/datos", async (req, res) => {
+  const { id } = req.params;
+  const { esManual, cliente, telefono, direccion, barrio, zona, medioPago, nota } = req.body;
+  try {
+    if (esManual) {
+      await pool.query(
+        `UPDATE pedidos_manuales SET
+          cliente = $1, telefono = $2, direccion = $3,
+          barrio = $4, zona = $5, medio_pago = $6, nota = $7
+         WHERE id = $8`,
+        [cliente, telefono, direccion, barrio, zona, medioPago, nota, id]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO pedidos_estados
+          (id, cliente_override, telefono_override, direccion_override,
+           barrio_override, zona_override, medio_pago_override, nota_override, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+         ON CONFLICT (id) DO UPDATE SET
+           cliente_override = EXCLUDED.cliente_override,
+           telefono_override = EXCLUDED.telefono_override,
+           direccion_override = EXCLUDED.direccion_override,
+           barrio_override = EXCLUDED.barrio_override,
+           zona_override = EXCLUDED.zona_override,
+           medio_pago_override = EXCLUDED.medio_pago_override,
+           nota_override = EXCLUDED.nota_override,
+           updated_at = NOW()`,
+        [id, cliente, telefono, direccion, barrio, zona, medioPago, nota]
+      );
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 app.patch("/api/pedidos-manuales/:id/email", async (req, res) => {
