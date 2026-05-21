@@ -1024,7 +1024,12 @@ app.get("/api/admin/snapshot-pendientes", requireAdmin, async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename="piccadely_pendientes_${hoyStr}.pdf"`);
     doc.pipe(res);
 
-    // Helper de paginación: garantiza espacio antes de dibujar; agrega página si no
+    const PAGE_WIDTH = doc.page.width;
+    const MARGIN = 36;
+    const INNER_WIDTH = PAGE_WIDTH - MARGIN * 2;
+    const CONTENT_X = MARGIN + 8; // padding interior de las cards
+    const CONTENT_WIDTH = INNER_WIDTH - 16;
+
     function asegurarEspacio(altura) {
       if (doc.y + altura > doc.page.height - doc.page.margins.bottom) {
         doc.addPage();
@@ -1032,15 +1037,16 @@ app.get("/api/admin/snapshot-pendientes", requireAdmin, async (req, res) => {
     }
 
     // === HEADER GLOBAL ===
-    doc.fontSize(20).fillColor("#2a7a4b").font("Helvetica-Bold").text("Piccadely — Pedidos pendientes");
+    doc.fontSize(20).fillColor("#2a7a4b").font("Helvetica-Bold").text("Piccadely — Pedidos pendientes", MARGIN, doc.y);
+    doc.moveDown(0.3);
     doc.fontSize(10).fillColor("#666").font("Helvetica");
-    doc.text(`Snapshot generado: ${new Date().toLocaleString("es-AR", { dateStyle: "long", timeStyle: "short" })}`);
-    doc.text(`Horizonte: próximos ${DIAS_HORIZONTE} días (del ${hoyStr} al ${limiteStr})`);
-    doc.text(`Total de pedidos pendientes: ${pedidos.length}`);
+    doc.text(`Snapshot generado: ${new Date().toLocaleString("es-AR", { dateStyle: "long", timeStyle: "short" })}`, MARGIN, doc.y);
+    doc.text(`Horizonte: próximos ${DIAS_HORIZONTE} días (del ${hoyStr} al ${limiteStr})`, MARGIN, doc.y);
+    doc.text(`Total de pedidos pendientes: ${pedidos.length}`, MARGIN, doc.y);
     doc.moveDown(1);
 
     if (pedidos.length === 0) {
-      doc.fontSize(13).fillColor("#666").text("No hay pedidos pendientes para los próximos 15 días.", { align: "center" });
+      doc.fontSize(13).fillColor("#666").text("No hay pedidos pendientes para los próximos 15 días.", MARGIN, doc.y, { width: INNER_WIDTH, align: "center" });
       doc.end();
       return;
     }
@@ -1051,81 +1057,143 @@ app.get("/api/admin/snapshot-pendientes", requireAdmin, async (req, res) => {
       const fecha = fechasOrdenadas[i];
       const grupo = porFecha[fecha];
 
-      // Header del día
-      asegurarEspacio(40);
-      doc.rect(36, doc.y, doc.page.width - 72, 22).fill("#2a7a4b");
-      doc.fillColor("#ffffff").fontSize(12).font("Helvetica-Bold");
-      doc.text(formatoFechaLarga(fecha).toUpperCase(), 44, doc.y - 17, { width: doc.page.width - 90 });
+      // ── Header del día (rectángulo verde) ──
+      asegurarEspacio(34);
+      const headerY = doc.y;
+      const headerH = 24;
+      doc.save();
+      doc.rect(MARGIN, headerY, INNER_WIDTH, headerH).fill("#2a7a4b");
+      doc.restore();
+
+      // Texto del header: fecha a la izquierda, count a la derecha
+      doc.fillColor("#ffffff").fontSize(11).font("Helvetica-Bold");
+      doc.text(formatoFechaLarga(fecha).toUpperCase(), MARGIN + 10, headerY + 7, {
+        width: INNER_WIDTH - 120,
+        lineBreak: false,
+      });
       doc.fontSize(10).font("Helvetica");
-      doc.text(`${grupo.length} pedido${grupo.length > 1 ? "s" : ""}`, 36, doc.y - 15, { width: doc.page.width - 50, align: "right" });
-      doc.fillColor("#000000");
-      doc.moveDown(1.2);
+      doc.text(
+        `${grupo.length} pedido${grupo.length > 1 ? "s" : ""}`,
+        MARGIN, headerY + 8,
+        { width: INNER_WIDTH - 10, align: "right", lineBreak: false }
+      );
 
-      // Cada pedido como una card
+      // Mover cursor abajo del header
+      doc.fillColor("#000000").font("Helvetica");
+      doc.y = headerY + headerH + 6;
+
+      // ── Cada pedido como card ──
       for (const p of grupo) {
-        // Estimamos altura de la card (~ 95-115px según contenido)
-        const lineasProductos = Math.ceil(p.productos.length / 90) || 1;
-        const lineasNota = p.nota ? Math.ceil(p.nota.length / 90) || 1 : 0;
-        const altura = 60 + (lineasProductos * 11) + (lineasNota * 11) + (p.cobrar ? 12 : 0);
-        asegurarEspacio(altura + 10);
+        // Calcular altura necesaria
+        const productosTxt = `Prod: ${p.productos}`;
+        const lineasProd = Math.max(1, Math.ceil(productosTxt.length / 95));
+        const lineasNota = p.nota ? Math.max(1, Math.ceil(p.nota.length / 95)) : 0;
+        const tieneDireccion = p.tipo === "Delivery";
 
-        const yInicio = doc.y;
+        // Altura: header (22) + dir? (14) + productos + nota? + footer (16) + padding
+        const altura = 22 + (tieneDireccion ? 14 : 0) + (lineasProd * 12) + (lineasNota * 12) + 18 + 8;
+        asegurarEspacio(altura + 8);
+
+        const cardY = doc.y;
         const borderColor = p.cobrar ? "#c0392b" : "#dddddd";
-        doc.rect(36, yInicio, doc.page.width - 72, altura).lineWidth(p.cobrar ? 1.5 : 0.5).stroke(borderColor);
 
-        // Línea 1: Nº + Cliente (izquierda) | Horario (derecha)
+        doc.save();
+        doc.lineWidth(p.cobrar ? 1.5 : 0.5)
+           .rect(MARGIN, cardY, INNER_WIDTH, altura)
+           .stroke(borderColor);
+        doc.restore();
+
+        // === LÍNEA 1: Número + Cliente (izq) | Horario (der) ===
+        const y1 = cardY + 7;
+        // Número en verde
         doc.fillColor("#2a7a4b").fontSize(11).font("Helvetica-Bold");
-        doc.text(p.numero, 44, yInicio + 6, { continued: true, width: 60 });
-        doc.fillColor("#000").font("Helvetica-Bold");
-        doc.text(`  ${p.cliente}`, { continued: false });
-        doc.fontSize(10).fillColor("#444").font("Helvetica");
-        doc.text(p.franjaDisplay, 36, yInicio + 6, { width: doc.page.width - 50, align: "right" });
+        doc.text(p.numero, CONTENT_X, y1, { width: 70, lineBreak: false });
+        // Cliente en negro, después del número
+        doc.fillColor("#000").fontSize(11).font("Helvetica-Bold");
+        doc.text(p.cliente || "—", CONTENT_X + 72, y1, {
+          width: CONTENT_WIDTH - 72 - 110,
+          lineBreak: false,
+        });
+        // Horario a la derecha
+        doc.fillColor("#444").fontSize(10).font("Helvetica");
+        doc.text(p.franjaDisplay, MARGIN, y1, {
+          width: INNER_WIDTH - 10,
+          align: "right",
+          lineBreak: false,
+        });
 
-        // Línea 2: Teléfono | Sucursal + Tipo
-        doc.fontSize(9).fillColor("#666");
-        doc.text(`Tel: ${p.telefono || "—"}`, 44, yInicio + 22, { continued: false });
-        const sucTipo = `${p.tipo} · ${p.sucursal}`;
-        doc.fillColor(p.sucursal === "French" ? "#7c3aed" : "#0c447c").font("Helvetica-Bold");
-        doc.text(sucTipo, 36, yInicio + 22, { width: doc.page.width - 50, align: "right" });
-        doc.fillColor("#000").font("Helvetica");
+        // === LÍNEA 2: Teléfono (izq) | Tipo · Sucursal (der) ===
+        const y2 = cardY + 22;
+        doc.fillColor("#666").fontSize(9).font("Helvetica");
+        doc.text(`Tel: ${p.telefono || "—"}`, CONTENT_X, y2, {
+          width: CONTENT_WIDTH - 150,
+          lineBreak: false,
+        });
+        // Sucursal con color
+        const sucColor = p.sucursal === "French" ? "#7c3aed" : "#0c447c";
+        doc.fillColor(sucColor).fontSize(9).font("Helvetica-Bold");
+        doc.text(`${p.tipo} · ${p.sucursal}`, MARGIN, y2, {
+          width: INNER_WIDTH - 10,
+          align: "right",
+          lineBreak: false,
+        });
 
-        // Línea 3: Dirección
-        if (p.tipo === "Delivery") {
-          doc.fontSize(9).fillColor("#333");
-          doc.text(`Dir: ${p.direccion}${p.barrio ? ", " + p.barrio : ""}`, 44, yInicio + 36, { width: doc.page.width - 90 });
+        let cursorY = cardY + 36;
+
+        // === LÍNEA 3: Dirección (solo si es Delivery) ===
+        if (tieneDireccion) {
+          doc.fillColor("#333").fontSize(9).font("Helvetica");
+          doc.text(
+            `Dir: ${p.direccion}${p.barrio ? ", " + p.barrio : ""}`,
+            CONTENT_X, cursorY,
+            { width: CONTENT_WIDTH, lineBreak: false, ellipsis: true }
+          );
+          cursorY += 14;
         }
 
-        // Línea 4: Productos
-        const yProd = p.tipo === "Delivery" ? yInicio + 50 : yInicio + 36;
-        doc.fontSize(9).fillColor("#000");
-        doc.text(`Prod: ${p.productos}`, 44, yProd, { width: doc.page.width - 90 });
+        // === LÍNEA 4: Productos ===
+        doc.fillColor("#000").fontSize(9).font("Helvetica");
+        doc.text(productosTxt, CONTENT_X, cursorY, {
+          width: CONTENT_WIDTH,
+        });
+        cursorY += lineasProd * 12 + 2;
 
-        // Línea 5: Nota (opcional)
-        let yPostProd = yProd + (lineasProductos * 11);
+        // === LÍNEA 5: Nota (opcional) ===
         if (p.nota) {
-          doc.fontSize(8).fillColor("#888").font("Helvetica-Oblique");
-          doc.text(`Nota: ${p.nota}`, 44, yPostProd, { width: doc.page.width - 90 });
+          doc.fillColor("#888").fontSize(8).font("Helvetica-Oblique");
+          doc.text(`Nota: ${p.nota}`, CONTENT_X, cursorY, {
+            width: CONTENT_WIDTH,
+          });
           doc.font("Helvetica");
-          yPostProd += lineasNota * 11;
+          cursorY += lineasNota * 12 + 2;
         }
 
-        // Línea final: Total + Medio pago + Cobrar
-        doc.fontSize(10).fillColor("#000").font("Helvetica-Bold");
-        doc.text(`Total: ${formatoPesos(p.total)}`, 44, yPostProd + 2, { continued: true });
-        doc.font("Helvetica").fillColor("#666");
-        doc.text(`   Pago: ${p.medioPago}`, { continued: false });
-
+        // === LÍNEA FINAL: Total + Pago (izq) | COBRAR (der) ===
+        doc.fillColor("#000").fontSize(10).font("Helvetica-Bold");
+        doc.text(`Total: ${formatoPesos(p.total)}`, CONTENT_X, cursorY, {
+          width: 180,
+          lineBreak: false,
+        });
+        doc.fillColor("#666").fontSize(9).font("Helvetica");
+        doc.text(`Pago: ${p.medioPago}`, CONTENT_X + 130, cursorY + 1, {
+          width: 200,
+          lineBreak: false,
+        });
         if (p.cobrar) {
-          doc.fontSize(10).fillColor("#c0392b").font("Helvetica-Bold");
-          doc.text("⚠ COBRAR EN ENTREGA", 36, yPostProd + 2, { width: doc.page.width - 50, align: "right" });
-          doc.font("Helvetica").fillColor("#000");
+          doc.fillColor("#c0392b").fontSize(10).font("Helvetica-Bold");
+          doc.text("⚠ COBRAR EN ENTREGA", MARGIN, cursorY, {
+            width: INNER_WIDTH - 10,
+            align: "right",
+            lineBreak: false,
+          });
         }
 
-        // Mover cursor abajo de la card
-        doc.y = yInicio + altura + 6;
+        // Mover cursor al final de la card
+        doc.fillColor("#000").font("Helvetica");
+        doc.y = cardY + altura + 6;
       }
 
-      doc.moveDown(0.5);
+      doc.moveDown(0.3);
     }
 
     doc.end();
