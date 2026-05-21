@@ -10,7 +10,7 @@ export function mpRouter(pool, mailTransporter) {
     const { pedidoId } = req.body;
     try {
       const client = new MercadoPagoConfig({
-        accessToken: process.env.MP_ACCESS_TOKEN_TEST,
+        accessToken: process.env.MP_ACCESS_TOKEN_PROD,
       });
 
       const { rows } = await pool.query(
@@ -139,7 +139,7 @@ export function mpRouter(pool, mailTransporter) {
 
     try {
       const client = new MercadoPagoConfig({
-        accessToken: process.env.MP_ACCESS_TOKEN_TEST,
+        accessToken: process.env.MP_ACCESS_TOKEN_PROD,
       });
       const paymentClient = new Payment(client);
       const payment = await paymentClient.get({ id: dataId });
