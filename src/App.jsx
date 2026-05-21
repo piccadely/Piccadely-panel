@@ -242,8 +242,6 @@ function BtnPagoMP({ p, onEmailRequerido }) {
   const [linkGenerado, setLinkGenerado] = useState(null);
   const [copiado, setCopiado] = useState(false);
 
-  if (p.pago !== "Pendiente") return null;
-
   async function generarLink() {
     if (!p.email || !p.email.trim()) {
       onEmailRequerido(p);
