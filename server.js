@@ -3,6 +3,7 @@ import cors from "cors";
 import axios from "axios";
 import pg from "pg";
 import crypto from "crypto";
+import PDFDocument from "pdfkit";
 import { initAuthDB, setupAuth } from "./auth.js";
 
 const { Pool } = pg;
@@ -157,6 +158,64 @@ function fechaVencimiento(dias = 30) {
   const d = new Date();
   d.setDate(d.getDate() + dias);
   return `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;
+}
+
+// ─── HELPERS PARA SNAPSHOT DIARIO ────────────────────────────────────
+// (mismo criterio que el frontend en src/App.jsx)
+const TN_CODE_FRENCH = "01KQ7S2Z0799JKAT5A1VTH12EQ"; // Recoleta (sucursal French)
+const TN_CODE_AT = "01KQ7TFQPTTZQ7CFFKCKVWEZQV";     // Villa Ortuzar (sucursal A. Thomas)
+
+function clasificarPedidoBackend(p) {
+  const ff = p.fulfillments?.[0];
+  const tipo = ff?.shipping?.type || "";
+  const optionName = (ff?.shipping?.option?.name || "").toLowerCase();
+  const optionCode = ff?.shipping?.option?.code || "";
+  const esPickup = tipo === "pickup" || optionName.includes("retiro") || optionName.includes("pickup") || optionName.includes("local");
+
+  let esFrench;
+  if (optionCode === TN_CODE_FRENCH) esFrench = true;
+  else if (optionCode === TN_CODE_AT) esFrench = false;
+  else esFrench = optionName.includes("recoleta");
+
+  if (esPickup) return esFrench ? "retiro-fr" : "retiro-at";
+  return esFrench ? "delivery-fr" : "delivery-at";
+}
+
+function localLabelBackend(tabActual) {
+  if (tabActual === "retiro-at" || tabActual === "delivery-at") return "A. Thomas";
+  if (tabActual === "retiro-fr" || tabActual === "delivery-fr") return "French";
+  return "—";
+}
+
+function parsearFranjaBackend(ownerNote) {
+  if (!ownerNote) return { fecha: null, franja: null };
+  const match = ownerNote.match(/(\d+\/\d+\/\d+), entre las (\d+:\d+) y las (\d+:\d+)/);
+  if (!match) return { fecha: null, franja: null };
+  const [, fecha, inicio, fin] = match;
+  const [dia, mes, anio] = fecha.split("/");
+  return {
+    fecha: `${anio}-${mes.padStart(2,"0")}-${dia.padStart(2,"0")}`,
+    franja: `${inicio} – ${fin}`,
+  };
+}
+
+function medioPagoLabelBackend(gateway) {
+  if (!gateway) return "Otro";
+  if (gateway.includes("mercado-pago")) return "Mercado Pago";
+  if (gateway.includes("offline") || gateway.includes("efectivo")) return "Efectivo";
+  if (gateway.includes("transfer")) return "Transferencia";
+  if (gateway === "not-provided") return "Efectivo";
+  return "Otro";
+}
+
+function formatoFechaLarga(yyyymmdd) {
+  if (!yyyymmdd) return "";
+  const d = new Date(yyyymmdd + "T12:00:00");
+  return d.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}
+
+function formatoPesos(n) {
+  return `$${Number(n || 0).toLocaleString("es-AR")}`;
 }
 
 // TIENDA NUBE - Lee desde Neon (mantenido fresh por webhooks + backfill)
@@ -824,6 +883,259 @@ app.post("/api/admin/backfill-orders", requireAdmin, async (req, res) => {
 });
 
 // ============================
+// SNAPSHOT DIARIO DE PEDIDOS PENDIENTES (PDF)
+// ============================
+// Genera un PDF con todos los pedidos pendientes (fecha de entrega de hoy a +15 días,
+// estado != Entregado/Anulado). Pensado para enviar por mail desde GitHub Actions
+// como red de seguridad operativa.
+app.get("/api/admin/snapshot-pendientes", requireAdmin, async (req, res) => {
+  try {
+    const DIAS_HORIZONTE = 15;
+    const hoy = new Date();
+    const limite = new Date();
+    limite.setDate(hoy.getDate() + DIAS_HORIZONTE);
+    const hoyStr = hoy.toISOString().split("T")[0];
+    const limiteStr = limite.toISOString().split("T")[0];
+
+    // Traer todos los estados de una para hacer lookup en memoria
+    const estadosRes = await pool.query("SELECT * FROM pedidos_estados");
+    const estadosMap = {};
+    estadosRes.rows.forEach(r => {
+      estadosMap[r.id] = {
+        estado: r.estado,
+        repartidor: r.repartidor,
+        tabManual: r.tab_manual,
+        fechaManual: r.fecha_manual,
+        franjaManual: r.franja_manual,
+        cobrar: r.cobrar,
+      };
+    });
+
+    // Traer override de productos también
+    const overridesRes = await pool.query("SELECT * FROM pedidos_productos");
+    const overridesMap = {};
+    overridesRes.rows.forEach(r => {
+      overridesMap[r.pedido_id] = { productos: r.productos, total_num: Number(r.total_num) };
+    });
+
+    // Traer pedidos TN
+    const tnRes = await pool.query("SELECT data FROM pedidos_tn ORDER BY tn_created_at DESC LIMIT 500");
+    const manualesRes = await pool.query("SELECT * FROM pedidos_manuales ORDER BY created_at DESC");
+
+    const pedidos = [];
+
+    // Procesar pedidos de TN
+    for (const row of tnRes.rows) {
+      const p = row.data;
+      const local = estadosMap[String(p.id)] || {};
+      const { fecha, franja } = parsearFranjaBackend(p.owner_note);
+      const fechaDisplay = local.fechaManual || fecha;
+      const estado = local.estado || "Por empaquetar";
+
+      if (estado === "Entregado" || estado === "Anulado") continue;
+      if (!fechaDisplay) continue;
+      if (fechaDisplay < hoyStr || fechaDisplay > limiteStr) continue;
+
+      const tabAuto = clasificarPedidoBackend(p);
+      const tabActual = local.tabManual || tabAuto;
+      const sucursal = localLabelBackend(tabActual);
+      const tipo = tabActual.startsWith("retiro") ? "Retiro" : "Delivery";
+      const ov = overridesMap[String(p.id)];
+
+      pedidos.push({
+        numero: `#${p.number}`,
+        cliente: p.contact_name || "",
+        telefono: p.contact_phone || "",
+        direccion: `${p.shipping_address?.address || ""} ${p.shipping_address?.number || ""}${p.shipping_address?.floor ? ` ${p.shipping_address.floor}` : ""}`.trim(),
+        barrio: p.shipping_address?.locality || p.shipping_address?.city || "",
+        fechaDisplay,
+        franjaDisplay: local.franjaManual || franja || "Sin franja",
+        productos: ov ? ov.productos : p.products.map(pr => `${pr.name} x${pr.quantity}`).join(", "),
+        total: ov ? ov.total_num : Number(p.total),
+        medioPago: medioPagoLabelBackend(p.gateway),
+        cobrar: !!local.cobrar,
+        nota: p.note || "",
+        sucursal,
+        tipo,
+        repartidor: local.repartidor || "Sin asignar",
+        estado,
+      });
+    }
+
+    // Procesar pedidos manuales
+    for (const p of manualesRes.rows) {
+      const local = estadosMap[p.id] || {};
+      const fechaDisplay = local.fechaManual || p.fecha;
+      const estado = local.estado || "Por empaquetar";
+
+      if (estado === "Entregado" || estado === "Anulado") continue;
+      if (!fechaDisplay) continue;
+      if (fechaDisplay < hoyStr || fechaDisplay > limiteStr) continue;
+
+      const tabActual = local.tabManual || p.tab_actual;
+      const sucursal = localLabelBackend(tabActual);
+      const tipo = tabActual.startsWith("retiro") ? "Retiro" : "Delivery";
+      const ov = overridesMap[p.id];
+
+      pedidos.push({
+        numero: p.numero,
+        cliente: p.cliente || "",
+        telefono: p.telefono || "",
+        direccion: `${p.direccion || ""}${p.entre_calles ? ` (${p.entre_calles})` : ""}`.trim(),
+        barrio: p.barrio || "",
+        fechaDisplay,
+        franjaDisplay: local.franjaManual || p.franja || "Sin franja",
+        productos: ov ? ov.productos : p.productos,
+        total: ov ? ov.total_num : Number(p.total_num),
+        medioPago: p.medio_pago || "Otro",
+        cobrar: local.cobrar !== undefined && local.cobrar !== null ? !!local.cobrar : !!p.cobrar,
+        nota: p.nota || "",
+        sucursal,
+        tipo,
+        repartidor: local.repartidor || "Sin asignar",
+        estado,
+      });
+    }
+
+    // Agrupar por fecha
+    const porFecha = {};
+    pedidos.forEach(p => {
+      if (!porFecha[p.fechaDisplay]) porFecha[p.fechaDisplay] = [];
+      porFecha[p.fechaDisplay].push(p);
+    });
+
+    // Dentro de cada día, ordenar por hora (parseando la primera hora de la franja)
+    Object.values(porFecha).forEach(grupo => {
+      grupo.sort((a, b) => {
+        const ha = (a.franjaDisplay.match(/(\d{1,2}):(\d{2})/) || [])[0] || "99:99";
+        const hb = (b.franjaDisplay.match(/(\d{1,2}):(\d{2})/) || [])[0] || "99:99";
+        return ha.localeCompare(hb);
+      });
+    });
+
+    // Generar PDF
+    const doc = new PDFDocument({
+      size: "A4",
+      margin: 36,
+      info: { Title: `Piccadely - Pendientes ${hoyStr}`, Author: "Piccadely Panel" },
+    });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="piccadely_pendientes_${hoyStr}.pdf"`);
+    doc.pipe(res);
+
+    // Helper de paginación: garantiza espacio antes de dibujar; agrega página si no
+    function asegurarEspacio(altura) {
+      if (doc.y + altura > doc.page.height - doc.page.margins.bottom) {
+        doc.addPage();
+      }
+    }
+
+    // === HEADER GLOBAL ===
+    doc.fontSize(20).fillColor("#2a7a4b").font("Helvetica-Bold").text("Piccadely — Pedidos pendientes");
+    doc.fontSize(10).fillColor("#666").font("Helvetica");
+    doc.text(`Snapshot generado: ${new Date().toLocaleString("es-AR", { dateStyle: "long", timeStyle: "short" })}`);
+    doc.text(`Horizonte: próximos ${DIAS_HORIZONTE} días (del ${hoyStr} al ${limiteStr})`);
+    doc.text(`Total de pedidos pendientes: ${pedidos.length}`);
+    doc.moveDown(1);
+
+    if (pedidos.length === 0) {
+      doc.fontSize(13).fillColor("#666").text("No hay pedidos pendientes para los próximos 15 días.", { align: "center" });
+      doc.end();
+      return;
+    }
+
+    // === POR DÍA ===
+    const fechasOrdenadas = Object.keys(porFecha).sort();
+    for (let i = 0; i < fechasOrdenadas.length; i++) {
+      const fecha = fechasOrdenadas[i];
+      const grupo = porFecha[fecha];
+
+      // Header del día
+      asegurarEspacio(40);
+      doc.rect(36, doc.y, doc.page.width - 72, 22).fill("#2a7a4b");
+      doc.fillColor("#ffffff").fontSize(12).font("Helvetica-Bold");
+      doc.text(formatoFechaLarga(fecha).toUpperCase(), 44, doc.y - 17, { width: doc.page.width - 90 });
+      doc.fontSize(10).font("Helvetica");
+      doc.text(`${grupo.length} pedido${grupo.length > 1 ? "s" : ""}`, 36, doc.y - 15, { width: doc.page.width - 50, align: "right" });
+      doc.fillColor("#000000");
+      doc.moveDown(1.2);
+
+      // Cada pedido como una card
+      for (const p of grupo) {
+        // Estimamos altura de la card (~ 95-115px según contenido)
+        const lineasProductos = Math.ceil(p.productos.length / 90) || 1;
+        const lineasNota = p.nota ? Math.ceil(p.nota.length / 90) || 1 : 0;
+        const altura = 60 + (lineasProductos * 11) + (lineasNota * 11) + (p.cobrar ? 12 : 0);
+        asegurarEspacio(altura + 10);
+
+        const yInicio = doc.y;
+        const borderColor = p.cobrar ? "#c0392b" : "#dddddd";
+        doc.rect(36, yInicio, doc.page.width - 72, altura).lineWidth(p.cobrar ? 1.5 : 0.5).stroke(borderColor);
+
+        // Línea 1: Nº + Cliente (izquierda) | Horario (derecha)
+        doc.fillColor("#2a7a4b").fontSize(11).font("Helvetica-Bold");
+        doc.text(p.numero, 44, yInicio + 6, { continued: true, width: 60 });
+        doc.fillColor("#000").font("Helvetica-Bold");
+        doc.text(`  ${p.cliente}`, { continued: false });
+        doc.fontSize(10).fillColor("#444").font("Helvetica");
+        doc.text(p.franjaDisplay, 36, yInicio + 6, { width: doc.page.width - 50, align: "right" });
+
+        // Línea 2: Teléfono | Sucursal + Tipo
+        doc.fontSize(9).fillColor("#666");
+        doc.text(`Tel: ${p.telefono || "—"}`, 44, yInicio + 22, { continued: false });
+        const sucTipo = `${p.tipo} · ${p.sucursal}`;
+        doc.fillColor(p.sucursal === "French" ? "#7c3aed" : "#0c447c").font("Helvetica-Bold");
+        doc.text(sucTipo, 36, yInicio + 22, { width: doc.page.width - 50, align: "right" });
+        doc.fillColor("#000").font("Helvetica");
+
+        // Línea 3: Dirección
+        if (p.tipo === "Delivery") {
+          doc.fontSize(9).fillColor("#333");
+          doc.text(`Dir: ${p.direccion}${p.barrio ? ", " + p.barrio : ""}`, 44, yInicio + 36, { width: doc.page.width - 90 });
+        }
+
+        // Línea 4: Productos
+        const yProd = p.tipo === "Delivery" ? yInicio + 50 : yInicio + 36;
+        doc.fontSize(9).fillColor("#000");
+        doc.text(`Prod: ${p.productos}`, 44, yProd, { width: doc.page.width - 90 });
+
+        // Línea 5: Nota (opcional)
+        let yPostProd = yProd + (lineasProductos * 11);
+        if (p.nota) {
+          doc.fontSize(8).fillColor("#888").font("Helvetica-Oblique");
+          doc.text(`Nota: ${p.nota}`, 44, yPostProd, { width: doc.page.width - 90 });
+          doc.font("Helvetica");
+          yPostProd += lineasNota * 11;
+        }
+
+        // Línea final: Total + Medio pago + Cobrar
+        doc.fontSize(10).fillColor("#000").font("Helvetica-Bold");
+        doc.text(`Total: ${formatoPesos(p.total)}`, 44, yPostProd + 2, { continued: true });
+        doc.font("Helvetica").fillColor("#666");
+        doc.text(`   Pago: ${p.medioPago}`, { continued: false });
+
+        if (p.cobrar) {
+          doc.fontSize(10).fillColor("#c0392b").font("Helvetica-Bold");
+          doc.text("⚠ COBRAR EN ENTREGA", 36, yPostProd + 2, { width: doc.page.width - 50, align: "right" });
+          doc.font("Helvetica").fillColor("#000");
+        }
+
+        // Mover cursor abajo de la card
+        doc.y = yInicio + altura + 6;
+      }
+
+      doc.moveDown(0.5);
+    }
+
+    doc.end();
+  } catch (err) {
+    console.error("Error generando snapshot:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================
 // ADMIN WEBHOOKS TIENDA NUBE
 // ============================
 
@@ -884,3 +1196,4 @@ app.post("/api/admin/webhooks/setup", requireAdmin, async (req, res) => {
 app.listen(process.env.PORT || 3001, () => {
   console.log("Servidor corriendo");
 });
+// rebuild trigger 2026-05-21
