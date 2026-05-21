@@ -68,7 +68,47 @@ export function mpRouter(pool, mailTransporter) {
       ).catch(() => {});
 
       console.log(`MP preference creada: ${response.id} para pedido ${pedidoId}`);
+      // Mandar el link por mail al cliente
+      if (email && mailTransporter) {
+        mailTransporter.sendMail({
+          from: `Piccadely <${process.env.GMAIL_USER}>`,
+          to: email,
+          subject: `💳 Tu link de pago - Piccadely ${numero}`,
+          html: `
+            <!DOCTYPE html>
+            <html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,sans-serif;">
+              <div style="max-width:600px;margin:0 auto;background:#fff;">
+                <div style="background:#F68B32;padding:30px 24px;text-align:center;">
+                  <h1 style="margin:0;color:#fff;font-size:28px;">Piccadely</h1>
+                  <p style="margin:8px 0 0;color:#fff;font-size:14px;">Link de pago</p>
+                </div>
+                <div style="padding:24px;">
+                  <p style="font-size:15px;color:#333;">Hola! Te enviamos el link para abonar tu pedido <strong>${numero}</strong>.</p>
+                  <div style="text-align:center;margin:28px 0;">
+                    <a href="${response.init_point}"
+                      style="background:#009ee3;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:16px;font-weight:700;display:inline-block;">
+                      💳 Pagar con Mercado Pago
+                    </a>
+                  </div>
+                  <p style="font-size:13px;color:#888;text-align:center;">
+                    O copiá este link: <a href="${response.init_point}" style="color:#009ee3;">${response.init_point}</a>
+                  </p>
+                  <p style="font-size:13px;color:#F68B32;font-style:italic;text-align:center;font-weight:bold;">
+                    Si hay piccada, que sea Piccadely. Piccadely, con doble C.
+                  </p>
+                </div>
+                <div style="background:#f5f5f5;padding:16px 24px;text-align:center;color:#999;font-size:11px;">
+                  Piccadely · Alvarez Thomas 1558 · French 2615
+                </div>
+              </div>
+            </body></html>
+          `,
+        }).catch(err => console.error("Mail link MP falló:", err.message));
+        console.log(`💳 Mail link MP enviado a ${email} para pedido ${numero}`);
+      }
+
       res.json({ init_point: response.init_point });
+    
     } catch (err) {
       console.error("MP create-preference error:", err);
       res.status(500).json({ error: "Error al crear preferencia de pago" });

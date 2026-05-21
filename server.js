@@ -1471,6 +1471,7 @@ app.post("/api/admin/webhooks/setup", requireAdmin, async (req, res) => {
     res.status(500).json({ error: err.response?.data || err.message });
   }
 });
+
 app.use("/api/mp", mpRouter(pool, mailTransporter));
 
 app.listen(process.env.PORT || 3001, () => {
