@@ -6,6 +6,7 @@ import crypto from "crypto";
 import PDFDocument from "pdfkit";
 import nodemailer from "nodemailer";
 import { initAuthDB, setupAuth } from "./auth.js";
+import { mpRouter } from "./Routes/mp.js";
 
 const { Pool } = pg;
 
@@ -1458,6 +1459,7 @@ app.post("/api/admin/webhooks/setup", requireAdmin, async (req, res) => {
     res.status(500).json({ error: err.response?.data || err.message });
   }
 });
+app.use("/api/mp", mpRouter(pool, mailTransporter));
 
 app.listen(process.env.PORT || 3001, () => {
   console.log("Servidor corriendo");
