@@ -1098,6 +1098,17 @@ function PanelApp({ usuario }) {
   function actualizarLocal(id, cambios) {
     setPedidosLocales(prev => { const nuevo = { ...prev, [id]: { ...prev[id], ...cambios } }; guardarEstadoDB(id, nuevo[id]); return nuevo; });
   }
+  // Variante: actualiza solo state local sin pegarle al backend (para inputs de texto donde guardamos onBlur)
+  function actualizarLocalSinGuardar(id, cambios) {
+    setPedidosLocales(prev => ({ ...prev, [id]: { ...prev[id], ...cambios } }));
+  }
+  // Guarda el estado local actual al backend (se llama onBlur)
+  function guardarLocalEnDB(id) {
+    setPedidosLocales(prev => {
+      if (prev[id]) guardarEstadoDB(id, prev[id]);
+      return prev;
+    });
+  }
   function cambiarEstado(id, e) {
     e.stopPropagation();
     setPedidosLocales(prev => {
@@ -1124,8 +1135,8 @@ function PanelApp({ usuario }) {
 
   function cambiarRepartidor(id, valor) { actualizarLocal(id, { repartidor: valor }); }
   function cambiarTab(id, valor) { actualizarLocal(id, { tabManual: valor }); }
-  function cambiarFecha(id, valor) { actualizarLocal(id, { fechaManual: valor }); }
-  function cambiarFranja(id, valor) { actualizarLocal(id, { franjaManual: valor }); }
+  function cambiarFecha(id, valor) { actualizarLocalSinGuardar(id, { fechaManual: valor }); }
+  function cambiarFranja(id, valor) { actualizarLocalSinGuardar(id, { franjaManual: valor }); }
   function cambiarCobrar(id, valor) { actualizarLocal(id, { cobrar: valor }); }
   function toggleExpandido(id) { setExpandido(prev => prev === id ? null : id); }
 
@@ -2063,8 +2074,8 @@ function PanelApp({ usuario }) {
                               {estadoActual !== "Entregado" && <button style={s.btnEstado} onClick={e => cambiarEstado(p.id, e)}>→ {nextEstado(estadoActual)}</button>}
                             </div>
                           </div>
-                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Fecha de entrega</div><input type="date" style={s.inputField} value={fechaManual} onChange={e => cambiarFecha(p.id, e.target.value)} onClick={e => e.stopPropagation()} /></div>
-                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Horario de entrega</div><input type="text" placeholder="ej: 14:00 – 16:00" style={s.inputField} value={franjaManual} onChange={e => cambiarFranja(p.id, e.target.value)} onClick={e => e.stopPropagation()} /></div>
+                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Fecha de entrega</div><input type="date" style={s.inputField} value={fechaManual} onChange={e => cambiarFecha(p.id, e.target.value)} onBlur={() => guardarLocalEnDB(p.id)} onClick={e => e.stopPropagation()} /></div>
+                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Horario de entrega</div><input type="text" placeholder="ej: 14:00 – 16:00" style={s.inputField} value={franjaManual} onChange={e => cambiarFranja(p.id, e.target.value)} onBlur={() => guardarLocalEnDB(p.id)} onClick={e => e.stopPropagation()} /></div>
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Mover a sección</div><select style={s.inputField} value={tabActual} onChange={e => cambiarTab(p.id, e.target.value)}>{TABS.filter(t => t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}</select></div>
                         </div>
                         <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
