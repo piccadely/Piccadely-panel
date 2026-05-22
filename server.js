@@ -18,7 +18,8 @@ const REQUIRED_ENV = [
   "TN_CLIENT_SECRET",
   "TF_APIKEY",
   "TF_APITOKEN",
-  "TF_USERTOKEN",
+  "TF_USERTOKEN_AT",
+  "TF_USERTOKEN_FR",
   "JWT_SECRET",
   "ADMIN_SECRET",
 ];
@@ -26,7 +27,6 @@ const REQUIRED_ENV = [
 const missing = REQUIRED_ENV.filter(k => !process.env[k]);
 if (missing.length > 0) {
   console.error("❌ FATAL: faltan variables de entorno:", missing.join(", "));
-  console.error("Configurá estas variables en Railway antes de iniciar el servidor.");
   process.exit(1);
 }
 
@@ -98,62 +98,49 @@ async function initDB() {
     );
     CREATE TABLE IF NOT EXISTS pedidos_tn (
       id BIGINT PRIMARY KEY,
-      store_id TEXT,
-      numero TEXT,
-      estado_tn TEXT,
-      payment_status TEXT,
-      total NUMERIC,
-      contact_email TEXT,
-      contact_name TEXT,
-      contact_phone TEXT,
-      data JSONB,
-      tn_created_at TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT NOW()
+      store_id TEXT, numero TEXT, estado_tn TEXT, payment_status TEXT,
+      total NUMERIC, contact_email TEXT, contact_name TEXT, contact_phone TEXT,
+      data JSONB, tn_created_at TIMESTAMP, updated_at TIMESTAMP DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS webhook_events (
       id SERIAL PRIMARY KEY,
-      event_type TEXT NOT NULL,
-      resource_id BIGINT NOT NULL,
-      signature TEXT NOT NULL,
+      event_type TEXT NOT NULL, resource_id BIGINT NOT NULL, signature TEXT NOT NULL,
       processed_at TIMESTAMP DEFAULT NOW(),
       UNIQUE(event_type, resource_id, signature)
     );
   `);
 
-  // Migración: agregar columna email a pedidos_manuales si no existe
-  // (necesario para DBs que se crearon antes del feature de mail al cliente)
+  // Migraciones
   await pool.query(`ALTER TABLE pedidos_manuales ADD COLUMN IF NOT EXISTS email TEXT;`);
+  await pool.query(`ALTER TABLE pedidos_manuales ADD COLUMN IF NOT EXISTS mp_preference_id TEXT;`);
+  await pool.query(`ALTER TABLE pedidos_manuales ADD COLUMN IF NOT EXISTS mp_payment_id TEXT;`);
+  await pool.query(`ALTER TABLE pedidos_tn ADD COLUMN IF NOT EXISTS mp_preference_id TEXT;`);
+  await pool.query(`ALTER TABLE pedidos_tn ADD COLUMN IF NOT EXISTS mp_payment_id TEXT;`);
+  await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS cliente_override TEXT;`);
+  await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS telefono_override TEXT;`);
+  await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS direccion_override TEXT;`);
+  await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS barrio_override TEXT;`);
+  await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS zona_override TEXT;`);
+  await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS medio_pago_override TEXT;`);
+  await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS nota_override TEXT;`);
+  await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS email_override TEXT;`);
+  await pool.query(`ALTER TABLE facturas ADD COLUMN IF NOT EXISTS local TEXT;`);
 
   console.log("DB inicializada");
   await initAuthDB(pool);
 }
 initDB().catch(console.error);
 
-// Montar sistema de autenticación (devuelve los middlewares)
 const { requireAuth, requireAdmin, requireRole } = setupAuth(app, pool);
 
 // ─── HEALTH CHECK ────────────────────────────────────────────────────
-// Endpoint público para monitoreo externo (UptimeRobot, etc.)
-// 200 + status "healthy" si server y DB responden. 503 si la DB no responde.
 app.get("/api/health", async (req, res) => {
   const start = Date.now();
   try {
     await pool.query("SELECT 1");
-    res.json({
-      status: "healthy",
-      server: "ok",
-      database: "ok",
-      database_latency_ms: Date.now() - start,
-      timestamp: new Date().toISOString(),
-    });
+    res.json({ status: "healthy", server: "ok", database: "ok", database_latency_ms: Date.now() - start, timestamp: new Date().toISOString() });
   } catch (err) {
-    console.error("Health check fallido:", err.message);
-    res.status(503).json({
-      status: "unhealthy",
-      server: "ok",
-      database: "error",
-      timestamp: new Date().toISOString(),
-    });
+    res.status(503).json({ status: "unhealthy", server: "ok", database: "error", timestamp: new Date().toISOString() });
   }
 });
 
@@ -168,10 +155,8 @@ function fechaVencimiento(dias = 30) {
   return `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;
 }
 
-// ─── HELPERS PARA SNAPSHOT DIARIO ────────────────────────────────────
-// (mismo criterio que el frontend en src/App.jsx)
-const TN_CODE_FRENCH = "01KQ7S2Z0799JKAT5A1VTH12EQ"; // Recoleta (sucursal French)
-const TN_CODE_AT = "01KQ7TFQPTTZQ7CFFKCKVWEZQV";     // Villa Ortuzar (sucursal A. Thomas)
+const TN_CODE_FRENCH = "01KQ7S2Z0799JKAT5A1VTH12EQ";
+const TN_CODE_AT = "01KQ7TFQPTTZQ7CFFKCKVWEZQV";
 
 function clasificarPedidoBackend(p) {
   const ff = p.fulfillments?.[0];
@@ -179,12 +164,10 @@ function clasificarPedidoBackend(p) {
   const optionName = (ff?.shipping?.option?.name || "").toLowerCase();
   const optionCode = ff?.shipping?.option?.code || "";
   const esPickup = tipo === "pickup" || optionName.includes("retiro") || optionName.includes("pickup") || optionName.includes("local");
-
   let esFrench;
   if (optionCode === TN_CODE_FRENCH) esFrench = true;
   else if (optionCode === TN_CODE_AT) esFrench = false;
   else esFrench = optionName.includes("recoleta");
-
   if (esPickup) return esFrench ? "retiro-fr" : "retiro-at";
   return esFrench ? "delivery-fr" : "delivery-at";
 }
@@ -201,10 +184,7 @@ function parsearFranjaBackend(ownerNote) {
   if (!match) return { fecha: null, franja: null };
   const [, fecha, inicio, fin] = match;
   const [dia, mes, anio] = fecha.split("/");
-  return {
-    fecha: `${anio}-${mes.padStart(2,"0")}-${dia.padStart(2,"0")}`,
-    franja: `${inicio} – ${fin}`,
-  };
+  return { fecha: `${anio}-${mes.padStart(2,"0")}-${dia.padStart(2,"0")}`, franja: `${inicio} – ${fin}` };
 }
 
 function medioPagoLabelBackend(gateway) {
@@ -222,20 +202,29 @@ function formatoFechaLarga(yyyymmdd) {
   return d.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 }
 
-function formatoPesos(n) {
-  return `$${Number(n || 0).toLocaleString("es-AR")}`;
+function formatoPesos(n) { return `$${Number(n || 0).toLocaleString("es-AR")}`; }
+
+// ─── TUSFACTURAS — CREDENCIALES POR SUCURSAL ─────────────────────────
+const TF_APIKEY = process.env.TF_APIKEY;
+const TF_APITOKEN = process.env.TF_APITOKEN;
+const TF_CUIT_EMISOR = process.env.TF_CUIT_EMISOR || "30712271503";
+
+function getTFCredentials(local) {
+  if (local === "French") {
+    return {
+      usertoken: process.env.TF_USERTOKEN_FR,
+      pdv: process.env.TF_PDV_FR || "00018",
+    };
+  }
+  return {
+    usertoken: process.env.TF_USERTOKEN_AT,
+    pdv: process.env.TF_PDV_AT || "00017",
+  };
 }
 
-// ─── ENVÍO DE MAILS AL CLIENTE ───────────────────────────────────────
-// Reutiliza la cuenta SMTP de Gmail ya configurada (GMAIL_USER, GMAIL_APP_PASSWORD)
-// Si las variables no están configuradas, las funciones logean y siguen sin romper
+// ─── MAIL ─────────────────────────────────────────────────────────────
 const mailTransporter = (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD)
-  ? nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 465,
-      secure: true,
-      auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
-    })
+  ? nodemailer.createTransport({ host: "smtp.gmail.com", port: 465, secure: true, auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD } })
   : null;
 
 const DIRECCION_A_THOMAS = "Alvarez Thomas 1558, Villa Ortúzar";
@@ -247,44 +236,25 @@ function htmlMailConfirmacion(pedido) {
   const esRetiro = String(pedido.tabActual || "").startsWith("retiro");
   const esFrench = pedido.local === "French";
   const direccionLocal = esFrench ? DIRECCION_FRENCH : DIRECCION_A_THOMAS;
-
   let fechaTxt = pedido.fechaDisplay || pedido.fecha || "";
-  try {
-    fechaTxt = new Date(fechaTxt + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
-  } catch (e) {}
-
+  try { fechaTxt = new Date(fechaTxt + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" }); } catch (e) {}
   const productosLista = (pedido.productos || "").split(", ").filter(Boolean).map(p => `<li style="margin:4px 0;">${p}</li>`).join("");
-
   const cobrarBlock = pedido.cobrar
     ? `<tr><td style="padding:6px 0;color:#c0392b;font-weight:bold;">⚠ A cobrar en entrega:</td><td style="padding:6px 0;color:#c0392b;font-weight:bold;text-align:right;">${formatoPesos(pedido.totalNum || pedido.total_num)}</td></tr>`
     : `<tr><td style="padding:6px 0;color:#666;">Pago:</td><td style="padding:6px 0;text-align:right;">${pedido.medioPago || "—"} (abonado)</td></tr>`;
-
   const direccionBlock = esRetiro
     ? `<tr><td style="padding:6px 0;color:#666;">🏪 Retirar en:</td><td style="padding:6px 0;text-align:right;">${direccionLocal}</td></tr>`
     : `<tr><td style="padding:6px 0;color:#666;">📍 Dirección de entrega:</td><td style="padding:6px 0;text-align:right;">${pedido.direccion || ""}${pedido.barrio ? ", " + pedido.barrio : ""}</td></tr>`;
-
-  const notaBlock = pedido.nota
-    ? `<tr><td colspan="2" style="padding:10px 0;color:#666;font-style:italic;border-top:1px solid #eee;">📝 Nota: ${pedido.nota}</td></tr>`
-    : "";
-
-  return `
-<!DOCTYPE html>
-<html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,sans-serif;">
+  const notaBlock = pedido.nota ? `<tr><td colspan="2" style="padding:10px 0;color:#666;font-style:italic;border-top:1px solid #eee;">📝 Nota: ${pedido.nota}</td></tr>` : "";
+  return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;background:#ffffff;">
-    <!-- Header naranja -->
     <div style="background:${COLOR_NARANJA};padding:30px 24px;text-align:center;">
-      <h1 style="margin:0;color:#ffffff;font-size:28px;letter-spacing:1px;">Piccadely</h1>
-      <p style="margin:8px 0 0;color:#ffffff;font-size:14px;opacity:0.95;">Confirmación de pedido</p>
+      <h1 style="margin:0;color:#ffffff;font-size:28px;">Piccadely</h1>
+      <p style="margin:8px 0 0;color:#ffffff;font-size:14px;">Confirmación de pedido</p>
     </div>
-
-    <!-- Saludo -->
     <div style="padding:24px;">
       <p style="margin:0 0 8px;font-size:16px;color:#333;">Hola <strong>${pedido.cliente || ""}</strong>,</p>
-      <p style="margin:0 0 20px;font-size:14px;color:#555;line-height:1.5;">
-        Gracias por tu pedido en Piccadely. Confirmamos los siguientes datos:
-      </p>
-
-      <!-- Caja de datos del pedido -->
+      <p style="margin:0 0 20px;font-size:14px;color:#555;line-height:1.5;">Gracias por tu pedido en Piccadely. Confirmamos los siguientes datos:</p>
       <div style="background:#fafafa;border:1px solid #eee;border-radius:6px;padding:18px 20px;">
         <h2 style="margin:0 0 14px;color:${COLOR_NARANJA};font-size:16px;">📋 Pedido ${pedido.numero || ""}</h2>
         <table style="width:100%;font-size:14px;color:#333;border-collapse:collapse;">
@@ -294,134 +264,85 @@ function htmlMailConfirmacion(pedido) {
           <tr><td style="padding:6px 0;color:#666;">🏪 Sucursal:</td><td style="padding:6px 0;text-align:right;">${pedido.local || ""}</td></tr>
           ${notaBlock}
         </table>
-
         <h3 style="margin:18px 0 8px;color:#333;font-size:14px;">🛒 Productos:</h3>
-        <ul style="margin:0 0 14px;padding-left:20px;color:#333;font-size:14px;">
-          ${productosLista}
-        </ul>
-
+        <ul style="margin:0 0 14px;padding-left:20px;color:#333;font-size:14px;">${productosLista}</ul>
         <table style="width:100%;font-size:14px;color:#333;border-collapse:collapse;border-top:2px solid ${COLOR_NARANJA};margin-top:14px;">
           <tr><td style="padding:10px 0 6px;color:#666;font-weight:bold;">Total:</td><td style="padding:10px 0 6px;text-align:right;font-weight:bold;font-size:16px;">${formatoPesos(pedido.totalNum || pedido.total_num)}</td></tr>
           ${cobrarBlock}
         </table>
       </div>
-
-      <!-- Mensaje de contacto -->
-      <p style="margin:22px 0 6px;font-size:14px;color:#555;line-height:1.5;">
-        Si tenés alguna duda, respondé este mail o escribinos al WhatsApp <strong>${WHATSAPP_PICCADELY}</strong>.
-      </p>
-      <p style="margin:14px 0 0;font-size:13px;color:${COLOR_NARANJA};font-style:italic;text-align:center;font-weight:bold;">
-        Si hay piccada, que sea Piccadely. Piccadely, con doble C.
-      </p>
+      <p style="margin:22px 0 6px;font-size:14px;color:#555;line-height:1.5;">Si tenés alguna duda, respondé este mail o escribinos al WhatsApp <strong>${WHATSAPP_PICCADELY}</strong>.</p>
+      <p style="margin:14px 0 0;font-size:13px;color:${COLOR_NARANJA};font-style:italic;text-align:center;font-weight:bold;">Si hay piccada, que sea Piccadely. Piccadely, con doble C.</p>
     </div>
-
-    <!-- Footer -->
-    <div style="background:#f5f5f5;padding:16px 24px;text-align:center;color:#999;font-size:11px;">
-      Piccadely · ${DIRECCION_A_THOMAS} · ${DIRECCION_FRENCH}
-    </div>
+    <div style="background:#f5f5f5;padding:16px 24px;text-align:center;color:#999;font-size:11px;">Piccadely · ${DIRECCION_A_THOMAS} · ${DIRECCION_FRENCH}</div>
   </div>
 </body></html>`;
 }
 
 function htmlMailAnulacion(pedido) {
-  return `
-<!DOCTYPE html>
-<html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,sans-serif;">
+  return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;background:#ffffff;">
     <div style="background:${COLOR_NARANJA};padding:30px 24px;text-align:center;">
-      <h1 style="margin:0;color:#ffffff;font-size:28px;letter-spacing:1px;">Piccadely</h1>
-      <p style="margin:8px 0 0;color:#ffffff;font-size:14px;opacity:0.95;">Pedido cancelado</p>
+      <h1 style="margin:0;color:#ffffff;font-size:28px;">Piccadely</h1>
+      <p style="margin:8px 0 0;color:#ffffff;font-size:14px;">Pedido cancelado</p>
     </div>
     <div style="padding:24px;">
       <p style="margin:0 0 12px;font-size:16px;color:#333;">Hola <strong>${pedido.cliente || ""}</strong>,</p>
-      <p style="margin:0 0 16px;font-size:14px;color:#555;line-height:1.5;">
-        Te confirmamos que tu pedido <strong>${pedido.numero || ""}</strong> fue cancelado. No vas a recibir entrega ni se va a procesar.
-      </p>
-      <p style="margin:0 0 16px;font-size:14px;color:#555;line-height:1.5;">
-        Si esto fue un error o tenés consultas, respondé este mail o escribinos al WhatsApp <strong>${WHATSAPP_PICCADELY}</strong>.
-      </p>
-      <p style="margin:20px 0 0;font-size:13px;color:${COLOR_NARANJA};font-style:italic;text-align:center;font-weight:bold;">
-        Si hay piccada, que sea Piccadely. Piccadely, con doble C.
-      </p>
+      <p style="margin:0 0 16px;font-size:14px;color:#555;line-height:1.5;">Te confirmamos que tu pedido <strong>${pedido.numero || ""}</strong> fue cancelado.</p>
+      <p style="margin:0 0 16px;font-size:14px;color:#555;line-height:1.5;">Si esto fue un error o tenés consultas, respondé este mail o escribinos al WhatsApp <strong>${WHATSAPP_PICCADELY}</strong>.</p>
+      <p style="margin:20px 0 0;font-size:13px;color:${COLOR_NARANJA};font-style:italic;text-align:center;font-weight:bold;">Si hay piccada, que sea Piccadely. Piccadely, con doble C.</p>
     </div>
-    <div style="background:#f5f5f5;padding:16px 24px;text-align:center;color:#999;font-size:11px;">
-      Piccadely · ${DIRECCION_A_THOMAS} · ${DIRECCION_FRENCH}
-    </div>
+    <div style="background:#f5f5f5;padding:16px 24px;text-align:center;color:#999;font-size:11px;">Piccadely · ${DIRECCION_A_THOMAS} · ${DIRECCION_FRENCH}</div>
   </div>
 </body></html>`;
 }
 
 async function enviarMailConfirmacion(pedido) {
-  if (!mailTransporter) {
-    console.warn("Mail confirmación: GMAIL_USER/APP_PASSWORD no configurados, no se envía.");
-    return;
-  }
-  if (!pedido.email) return;
+  if (!mailTransporter || !pedido.email) return;
   try {
-    await mailTransporter.sendMail({
-      from: `Piccadely <${process.env.GMAIL_USER}>`,
-      to: pedido.email,
-      subject: `Piccadely · Confirmación de tu pedido ${pedido.numero || ""}`,
-      html: htmlMailConfirmacion(pedido),
-    });
+    await mailTransporter.sendMail({ from: `Piccadely <${process.env.GMAIL_USER}>`, to: pedido.email, subject: `Piccadely · Confirmación de tu pedido ${pedido.numero || ""}`, html: htmlMailConfirmacion(pedido) });
     console.log(`✉ Mail confirmación enviado a ${pedido.email} para pedido ${pedido.numero}`);
-  } catch (err) {
-    console.error(`Error enviando confirmación a ${pedido.email}:`, err.message);
-  }
+  } catch (err) { console.error(`Error enviando confirmación:`, err.message); }
 }
 
 async function enviarMailAnulacion(pedido) {
-  if (!mailTransporter) return;
-  if (!pedido.email) return;
+  if (!mailTransporter || !pedido.email) return;
   try {
-    await mailTransporter.sendMail({
-      from: `Piccadely <${process.env.GMAIL_USER}>`,
-      to: pedido.email,
-      subject: `Piccadely · Pedido ${pedido.numero || ""} cancelado`,
-      html: htmlMailAnulacion(pedido),
-    });
+    await mailTransporter.sendMail({ from: `Piccadely <${process.env.GMAIL_USER}>`, to: pedido.email, subject: `Piccadely · Pedido ${pedido.numero || ""} cancelado`, html: htmlMailAnulacion(pedido) });
     console.log(`✉ Mail anulación enviado a ${pedido.email} para pedido ${pedido.numero}`);
-  } catch (err) {
-    console.error(`Error enviando anulación a ${pedido.email}:`, err.message);
-  }
+  } catch (err) { console.error(`Error enviando anulación:`, err.message); }
 }
 
-// TIENDA NUBE - Lee desde Neon (mantenido fresh por webhooks + backfill)
+// ─── MERCADO PAGO ─────────────────────────────────────────────────────
+app.use("/api/mp", mpRouter(pool, mailTransporter));
+
+// ─── ORDERS ───────────────────────────────────────────────────────────
 app.get("/api/orders", async (req, res) => {
   try {
-    const result = await pool.query(
-      "SELECT data FROM pedidos_tn ORDER BY tn_created_at DESC LIMIT 200"
-    );
+    const result = await pool.query("SELECT data FROM pedidos_tn ORDER BY tn_created_at DESC LIMIT 200");
     if (result.rows.length === 0) {
       const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/orders?aggregates=fulfillment_orders`, { headers });
       return res.json(r.data);
     }
     res.json(result.rows.map(r => r.data));
-  } catch (err) {
-    console.error("Error /api/orders:", err.response?.data || err.message);
-    res.status(500).json({ error: "Error trayendo pedidos" });
-  }
+  } catch (err) { console.error("Error /api/orders:", err.message); res.status(500).json({ error: "Error trayendo pedidos" }); }
 });
 
 app.get("/api/products", async (req, res) => {
   try {
     const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/products?per_page=200`, { headers });
     res.json(r.data);
-  } catch (err) {
-    res.status(500).json({ error: "Error trayendo productos" });
-  }
+  } catch (err) { res.status(500).json({ error: "Error trayendo productos" }); }
 });
 
 app.get("/api/categories", async (req, res) => {
   try {
     const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/categories`, { headers });
     res.json(r.data);
-  } catch (err) {
-    res.status(500).json({ error: "Error trayendo categorías" });
-  }
+  } catch (err) { res.status(500).json({ error: "Error trayendo categorías" }); }
 });
 
-// ESTADOS
+// ─── ESTADOS ──────────────────────────────────────────────────────────
 app.get("/api/estados", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM pedidos_estados");
@@ -438,36 +359,27 @@ app.get("/api/estados", async (req, res) => {
         zonaOverride: r.zona_override,
         medioPagoOverride: r.medio_pago_override,
         notaOverride: r.nota_override,
+        emailOverride: r.email_override,
       };
     });
     res.json(estados);
-  } catch (err) {
-    res.status(500).json({ error: "Error trayendo estados" });
-  }
+  } catch (err) { res.status(500).json({ error: "Error trayendo estados" }); }
 });
 
 app.post("/api/estados/:id", async (req, res) => {
   const { id } = req.params;
   const { estado, repartidor, tabManual, fechaManual, franjaManual, cobrar } = req.body;
   try {
-    // Detectar si está pasando a "Anulado" para disparar mail al cliente.
-    // Solo si era un pedido manual con email registrado.
     let mailAnularPedido = null;
     if (estado === "Anulado") {
       const previo = await pool.query("SELECT estado FROM pedidos_estados WHERE id=$1", [id]);
-      const estadoPrevio = previo.rows[0]?.estado;
-      if (estadoPrevio !== "Anulado") {
-        // Es un cambio "X → Anulado". Buscar el pedido manual si corresponde.
+      if (previo.rows[0]?.estado !== "Anulado") {
         const manual = await pool.query("SELECT * FROM pedidos_manuales WHERE id=$1", [id]);
         if (manual.rows[0] && manual.rows[0].email) {
-          const r = manual.rows[0];
-          mailAnularPedido = {
-            numero: r.numero, cliente: r.cliente, email: r.email,
-          };
+          mailAnularPedido = { numero: manual.rows[0].numero, cliente: manual.rows[0].cliente, email: manual.rows[0].email };
         }
       }
     }
-
     await pool.query(`
       INSERT INTO pedidos_estados (id, estado, repartidor, tab_manual, fecha_manual, franja_manual, cobrar, updated_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
@@ -476,108 +388,76 @@ app.post("/api/estados/:id", async (req, res) => {
         tab_manual=EXCLUDED.tab_manual, fecha_manual=EXCLUDED.fecha_manual,
         franja_manual=EXCLUDED.franja_manual, cobrar=EXCLUDED.cobrar, updated_at=NOW()
     `, [id, estado, repartidor, tabManual, fechaManual, franjaManual, cobrar]);
-
-    // Disparar mail de anulación en background si corresponde
-    if (mailAnularPedido) {
-      enviarMailAnulacion(mailAnularPedido).catch(err => console.error("Mail anulación falló:", err.message));
-    }
-
+    if (mailAnularPedido) enviarMailAnulacion(mailAnularPedido).catch(console.error);
     res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: "Error guardando estado" });
-  }
+  } catch (err) { res.status(500).json({ error: "Error guardando estado" }); }
 });
 
-// PEDIDOS MANUALES
+// ─── DATOS EDITABLES DE PEDIDO ────────────────────────────────────────
+app.patch("/api/pedidos/:id/datos", async (req, res) => {
+  const { id } = req.params;
+  const { esManual, cliente, telefono, direccion, barrio, zona, medioPago, nota, email } = req.body;
+  try {
+    if (esManual) {
+      await pool.query(
+        `UPDATE pedidos_manuales SET cliente=$1, telefono=$2, direccion=$3, barrio=$4, zona=$5, medio_pago=$6, nota=$7, email=$8 WHERE id=$9`,
+        [cliente, telefono, direccion, barrio, zona, medioPago, nota, email, id]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO pedidos_estados (id, cliente_override, telefono_override, direccion_override, barrio_override, zona_override, medio_pago_override, nota_override, email_override, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+         ON CONFLICT (id) DO UPDATE SET
+           cliente_override=EXCLUDED.cliente_override, telefono_override=EXCLUDED.telefono_override,
+           direccion_override=EXCLUDED.direccion_override, barrio_override=EXCLUDED.barrio_override,
+           zona_override=EXCLUDED.zona_override, medio_pago_override=EXCLUDED.medio_pago_override,
+           nota_override=EXCLUDED.nota_override, email_override=EXCLUDED.email_override, updated_at=NOW()`,
+        [id, cliente, telefono, direccion, barrio, zona, medioPago, nota, email]
+      );
+    }
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── PEDIDOS MANUALES ─────────────────────────────────────────────────
+app.patch("/api/pedidos-manuales/:id/email", async (req, res) => {
+  const { id } = req.params;
+  const { email } = req.body;
+  try {
+    await pool.query("UPDATE pedidos_manuales SET email=$1 WHERE id=$2", [email, id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get("/api/pedidos-manuales", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM pedidos_manuales ORDER BY created_at DESC");
     const pedidos = result.rows.map(r => ({
-      id: r.id, numero: r.numero, cliente: r.cliente, telefono: r.telefono,
-      email: r.email || "",
-      direccion: r.direccion, entreCalles: r.entre_calles, barrio: r.barrio,
-      zona: r.zona, fecha: r.fecha, franja: r.franja,
-      fechaDisplay: r.fecha, franjaDisplay: r.franja || "Sin franja",
+      id: r.id, numero: r.numero, cliente: r.cliente, telefono: r.telefono, email: r.email || "",
+      direccion: r.direccion, entreCalles: r.entre_calles, barrio: r.barrio, zona: r.zona,
+      fecha: r.fecha, franja: r.franja, fechaDisplay: r.fecha, franjaDisplay: r.franja || "Sin franja",
       productos: r.productos, totalNum: Number(r.total_num), total: r.total,
       pago: r.pago, medioPago: r.medio_pago, cobrar: r.cobrar,
       tabActual: r.tab_actual, local: r.local, nota: r.nota,
       esManual: true, estado: "Por empaquetar", repartidor: "Sin asignar",
     }));
     res.json(pedidos);
-  } catch (err) {
-    res.status(500).json({ error: "Error trayendo pedidos manuales" });
-  }
+  } catch (err) { res.status(500).json({ error: "Error trayendo pedidos manuales" }); }
 });
-app.patch("/api/pedidos/:id/datos", async (req, res) => {
-  const { id } = req.params;
-  const { esManual, cliente, telefono, direccion, barrio, zona, medioPago, nota } = req.body;
-  try {
-    if (esManual) {
-      await pool.query(
-        `UPDATE pedidos_manuales SET
-          cliente = $1, telefono = $2, direccion = $3,
-          barrio = $4, zona = $5, medio_pago = $6, nota = $7
-         WHERE id = $8`,
-        [cliente, telefono, direccion, barrio, zona, medioPago, nota, id]
-      );
-    } else {
-      await pool.query(
-        `INSERT INTO pedidos_estados
-          (id, cliente_override, telefono_override, direccion_override,
-           barrio_override, zona_override, medio_pago_override, nota_override, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
-         ON CONFLICT (id) DO UPDATE SET
-           cliente_override = EXCLUDED.cliente_override,
-           telefono_override = EXCLUDED.telefono_override,
-           direccion_override = EXCLUDED.direccion_override,
-           barrio_override = EXCLUDED.barrio_override,
-           zona_override = EXCLUDED.zona_override,
-           medio_pago_override = EXCLUDED.medio_pago_override,
-           nota_override = EXCLUDED.nota_override,
-           updated_at = NOW()`,
-        [id, cliente, telefono, direccion, barrio, zona, medioPago, nota]
-      );
-    }
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-app.patch("/api/pedidos-manuales/:id/email", async (req, res) => {
-  const { id } = req.params;
-  const { email } = req.body;
-  try {
-    await pool.query(
-      "UPDATE pedidos_manuales SET email = $1 WHERE id = $2",
-      [email, id]
-    );
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+
 app.post("/api/pedidos-manuales", async (req, res) => {
   const p = req.body;
   try {
     await pool.query(`
-      INSERT INTO pedidos_manuales
-        (id, numero, cliente, telefono, email, direccion, entre_calles, barrio, zona, fecha, franja, productos, total_num, total, pago, medio_pago, cobrar, tab_actual, local, nota)
+      INSERT INTO pedidos_manuales (id, numero, cliente, telefono, email, direccion, entre_calles, barrio, zona, fecha, franja, productos, total_num, total, pago, medio_pago, cobrar, tab_actual, local, nota)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
     `, [p.id, p.numero, p.cliente, p.telefono, p.email || "", p.direccion, p.entreCalles, p.barrio, p.zona, p.fecha, p.franja, p.productos, p.totalNum, p.total, p.pago, p.medioPago, p.cobrar, p.tabActual, p.local, p.nota]);
-
-    // Disparar mail de confirmación en background (no bloquea la respuesta).
-    // Si falla el envío, el pedido SE GUARDA igual; solo se loguea el error.
-    if (p.email && p.email.trim()) {
-      enviarMailConfirmacion(p).catch(err => console.error("Mail confirmación falló:", err.message));
-    }
-
+    if (p.email && p.email.trim()) enviarMailConfirmacion(p).catch(console.error);
     res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: "Error guardando pedido manual" });
-  }
+  } catch (err) { res.status(500).json({ error: "Error guardando pedido manual" }); }
 });
 
-// CAJA
+// ─── CAJA ──────────────────────────────────────────────────────────────
 app.post("/api/caja/apertura", async (req, res) => {
   const { local, fecha, montoInicial } = req.body;
   try {
@@ -586,9 +466,7 @@ app.post("/api/caja/apertura", async (req, res) => {
     await pool.query("INSERT INTO caja_aperturas (local, fecha, monto_inicial) VALUES ($1,$2,$3)", [local, fecha, montoInicial]);
     await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'apertura','Apertura de caja',$2,$3)", [local, montoInicial, fecha]);
     res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: "Error en apertura de caja" });
-  }
+  } catch (err) { res.status(500).json({ error: "Error en apertura de caja" }); }
 });
 
 app.get("/api/caja/estado/:local/:fecha", async (req, res) => {
@@ -597,9 +475,7 @@ app.get("/api/caja/estado/:local/:fecha", async (req, res) => {
     const apertura = await pool.query("SELECT * FROM caja_aperturas WHERE local=$1 AND fecha=$2", [local, fecha]);
     const movimientos = await pool.query("SELECT * FROM caja_movimientos WHERE local=$1 AND fecha=$2 ORDER BY created_at ASC", [local, fecha]);
     res.json({ apertura: apertura.rows[0] || null, movimientos: movimientos.rows });
-  } catch (err) {
-    res.status(500).json({ error: "Error trayendo estado de caja" });
-  }
+  } catch (err) { res.status(500).json({ error: "Error trayendo estado de caja" }); }
 });
 
 app.post("/api/caja/ajuste", async (req, res) => {
@@ -607,9 +483,7 @@ app.post("/api/caja/ajuste", async (req, res) => {
   try {
     await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,$2,$3,$4,$5)", [local, tipo, concepto, monto, fecha]);
     res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: "Error registrando ajuste" });
-  }
+  } catch (err) { res.status(500).json({ error: "Error registrando ajuste" }); }
 });
 
 app.post("/api/caja/cierre", async (req, res) => {
@@ -618,530 +492,227 @@ app.post("/api/caja/cierre", async (req, res) => {
     await pool.query("UPDATE caja_aperturas SET cerrada=true, monto_cierre=$1 WHERE local=$2 AND fecha=$3", [montoCierre, local, fecha]);
     await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'cierre','Cierre Z',$2,$3)", [local, montoCierre, fecha]);
     res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: "Error en cierre de caja" });
-  }
+  } catch (err) { res.status(500).json({ error: "Error en cierre de caja" }); }
 });
 
-// FACTURACIÓN
-const TF_APIKEY = process.env.TF_APIKEY;
-const TF_APITOKEN = process.env.TF_APITOKEN;
-const TF_USERTOKEN = process.env.TF_USERTOKEN;
-const TF_PDV = process.env.TF_PDV || "00007";
-const TF_CUIT_EMISOR = process.env.TF_CUIT_EMISOR || "30712271503";
+app.get("/api/caja/historial/:local", async (req, res) => {
+  const { local } = req.params;
+  try {
+    const aperturas = await pool.query("SELECT * FROM caja_aperturas WHERE local=$1 ORDER BY fecha DESC LIMIT 30", [decodeURIComponent(local)]);
+    const resultado = [];
+    for (const apertura of aperturas.rows) {
+      const movimientos = await pool.query("SELECT * FROM caja_movimientos WHERE local=$1 AND fecha=$2 ORDER BY created_at ASC", [decodeURIComponent(local), apertura.fecha]);
+      resultado.push({ apertura, movimientos: movimientos.rows });
+    }
+    res.json(resultado);
+  } catch (err) { res.status(500).json({ error: "Error trayendo historial" }); }
+});
 
-function esNotaCredito(f) {
-  return String(f.tipo || "").toUpperCase().includes("NOTA DE CREDITO");
-}
+// ─── FACTURACIÓN ───────────────────────────────────────────────────────
+function esNotaCredito(f) { return String(f.tipo || "").toUpperCase().includes("NOTA DE CREDITO"); }
 
 function obtenerFacturaActiva(facturas) {
   const facturasEmitidas = facturas.filter(f => !esNotaCredito(f));
   const notasCredito = facturas.filter(f => esNotaCredito(f));
-  if (facturasEmitidas.length > notasCredito.length) {
-    return facturasEmitidas[facturasEmitidas.length - 1];
-  }
+  if (facturasEmitidas.length > notasCredito.length) return facturasEmitidas[facturasEmitidas.length - 1];
   return null;
 }
 
 function numeroSinPuntoVenta(numero) {
   const s = String(numero || "");
-  if (s.includes("-")) {
-    const partes = s.split("-");
-    return partes[partes.length - 1].replace(/^0+/, "") || partes[partes.length - 1];
-  }
+  if (s.includes("-")) { const partes = s.split("-"); return partes[partes.length - 1].replace(/^0+/, "") || partes[partes.length - 1]; }
   return s.replace(/^0+/, "") || s;
 }
 
 function puntoVentaDesdeNumero(numero) {
   const s = String(numero || "");
-  if (s.includes("-")) {
-    return s.split("-")[0].replace(/^0+/, "") || String(Number(TF_PDV));
-  }
-  return String(Number(TF_PDV));
+  if (s.includes("-")) return s.split("-")[0].replace(/^0+/, "") || "17";
+  return "17";
 }
 
 app.get("/api/facturas/:pedidoId", async (req, res) => {
-  const { pedidoId } = req.params;
   try {
-    const result = await pool.query(
-      "SELECT * FROM facturas WHERE pedido_id=$1 ORDER BY created_at ASC",
-      [pedidoId]
-    );
+    const result = await pool.query("SELECT * FROM facturas WHERE pedido_id=$1 ORDER BY created_at ASC", [req.params.pedidoId]);
     res.json(result.rows);
-  } catch (err) {
-    console.error("Error trayendo facturas:", err.message);
-    res.status(500).json({ error: "Error trayendo facturas" });
-  }
+  } catch (err) { res.status(500).json({ error: "Error trayendo facturas" }); }
 });
 
 app.post("/api/facturar", async (req, res) => {
-  const { pedidoId, tipo, cliente, documentoTipo, documentoNro, razonSocial, domicilio, email, total, productos } = req.body;
-
+  const { pedidoId, tipo, cliente, documentoTipo, documentoNro, razonSocial, domicilio, email, total, productos, local } = req.body;
+  const { usertoken: TF_USERTOKEN, pdv: TF_PDV } = getTFCredentials(local);
   const esFacturaA = tipo === "FACTURA A";
   const esExento = tipo === "FACTURA B EXENTO";
   const sinDatos = !documentoNro || String(documentoNro).trim() === "";
-
   const totalNum = (() => {
     const raw = String(total).trim();
     if (/^\d+(\.\d+)?$/.test(raw)) return Number(raw);
     return Number(raw.replace(/[$\s]/g, "").replace(/\./g, "").replace(",", "."));
   })();
-
-  console.log("FACTURAR:", { tipo, total, totalNum, documentoNro, sinDatos });
-
-  if (!totalNum || totalNum <= 0) {
-    return res.json({ ok: false, error: "Total inválido: " + total });
-  }
-
+  if (!totalNum || totalNum <= 0) return res.json({ ok: false, error: "Total inválido: " + total });
   try {
-    const existentes = await pool.query(
-      "SELECT * FROM facturas WHERE pedido_id=$1 ORDER BY created_at ASC",
-      [pedidoId]
-    );
+    const existentes = await pool.query("SELECT * FROM facturas WHERE pedido_id=$1 ORDER BY created_at ASC", [pedidoId]);
     const facturaActiva = obtenerFacturaActiva(existentes.rows);
-    if (facturaActiva) {
-      return res.json({
-        ok: false,
-        yaFacturado: true,
-        error: "Este pedido ya tiene una factura activa. Primero anulala con nota de crédito.",
-        factura: facturaActiva,
-      });
-    }
-  } catch (err) {
-    console.error("Error validando factura existente:", err.message);
-    return res.status(500).json({ ok: false, error: "Error validando si el pedido ya estaba facturado" });
-  }
+    if (facturaActiva) return res.json({ ok: false, yaFacturado: true, error: "Este pedido ya tiene una factura activa.", factura: facturaActiva });
+  } catch (err) { return res.status(500).json({ ok: false, error: "Error validando factura existente" }); }
   const tipoComprobante = esFacturaA ? "FACTURA A" : "FACTURA B";
-
   const clienteObj = (sinDatos && !esFacturaA) ? {
-    documento_tipo: "DNI",
-    documento_nro: "0",
-    razon_social: "Consumidor Final",
-    email: "",
-    domicilio: "Sin domicilio",
-    provincia: "2",
-    condicion_pago: "201",
-    condicion_iva: "CF",
-    condicion_iva_operacion: "CF",
-    envia_por_mail: "N",
-    reclama_deuda: "N",
+    documento_tipo: "DNI", documento_nro: "0", razon_social: "Consumidor Final", email: "",
+    domicilio: "Sin domicilio", provincia: "2", condicion_pago: "201", condicion_iva: "CF",
+    condicion_iva_operacion: "CF", envia_por_mail: "N", reclama_deuda: "N",
   } : {
-    documento_tipo: documentoTipo,
-    documento_nro: String(documentoNro).trim() || "0",
-    razon_social: razonSocial || cliente,
-    email: email || "",
-    domicilio: domicilio || "Sin domicilio",
-    provincia: "2",
-    condicion_pago: "201",
-    condicion_iva: esFacturaA ? "RI" : "CF",
-    condicion_iva_operacion: esFacturaA ? "RI" : "CF",
-    envia_por_mail: email ? "S" : "N",
-    reclama_deuda: "N",
+    documento_tipo: documentoTipo, documento_nro: String(documentoNro).trim() || "0",
+    razon_social: razonSocial || cliente, email: email || "", domicilio: domicilio || "Sin domicilio",
+    provincia: "2", condicion_pago: "201", condicion_iva: esFacturaA ? "RI" : "CF",
+    condicion_iva_operacion: esFacturaA ? "RI" : "CF", envia_por_mail: email ? "S" : "N", reclama_deuda: "N",
   };
-
   const descripcion = productos.map(p => p.descripcion).join(", ").substring(0, 200);
   const precioSinIva = esExento ? totalNum : Math.round((totalNum / 1.21) * 100) / 100;
-
-  const detalle = [{
-    cantidad: 1,
-    bonificacion_porcentaje: 0,
-    afecta_stock: "N",
-    producto: {
-      descripcion,
-      codigo: "VENTA",
-      lista_precios: "standard",
-      leyenda: "",
-      unidad_bulto: 1,
-      alicuota: esExento ? 0 : 21,
-      precio_unitario_sin_iva: precioSinIva,
-      actualiza_precio: "S",
-    },
-  }];
-
-  const body = {
-    apitoken: TF_APITOKEN,
-    usertoken: TF_USERTOKEN,
-    apikey: TF_APIKEY,
-    cliente: clienteObj,
-    comprobante: {
-      fecha: fechaHoy(),
-      vencimiento: fechaVencimiento(30),
-      tipo: tipoComprobante,
-      operacion: "V",
-      moneda: "PES",
-      cotizacion: 1,
-      punto_venta: TF_PDV,
-      rubro: "Alimentos y bebidas",
-      rubro_grupo_contable: "Alimentos",
-      bonificacion: 0,
-      total: totalNum,
-      external_reference: String(pedidoId) || `pedido-${Date.now()}`,
-      detalle,
-    },
-  };
-
-  console.log("TF body:", JSON.stringify(body, null, 2));
-
+  const detalle = [{ cantidad: 1, bonificacion_porcentaje: 0, afecta_stock: "N", producto: { descripcion, codigo: "VENTA", lista_precios: "standard", leyenda: "", unidad_bulto: 1, alicuota: esExento ? 0 : 21, precio_unitario_sin_iva: precioSinIva, actualiza_precio: "S" } }];
+  const body = { apitoken: TF_APITOKEN, usertoken: TF_USERTOKEN, apikey: TF_APIKEY, cliente: clienteObj, comprobante: { fecha: fechaHoy(), vencimiento: fechaVencimiento(30), tipo: tipoComprobante, operacion: "V", moneda: "PES", cotizacion: 1, punto_venta: TF_PDV, rubro: "Alimentos y bebidas", rubro_grupo_contable: "Alimentos", bonificacion: 0, total: totalNum, external_reference: String(pedidoId) || `pedido-${Date.now()}`, detalle } };
+  console.log(`Facturando pedido ${pedidoId} - Local: ${local} - PDV: ${TF_PDV}`);
   try {
-    const response = await axios.post(
-      "https://www.tusfacturas.app/app/api/v2/facturacion/nuevo",
-      body,
-      { headers: { "Content-Type": "application/json" } }
-    );
+    const response = await axios.post("https://www.tusfacturas.app/app/api/v2/facturacion/nuevo", body, { headers: { "Content-Type": "application/json" } });
     const data = response.data;
-    console.log("TF response:", JSON.stringify(data));
     if (data.error === "N") {
-      await pool.query(`
-        INSERT INTO facturas (pedido_id, tipo, numero, cae, vencimiento_cae, cliente, documento_tipo, documento_nro, total, pdf_url, fecha, datos_raw)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-      `, [pedidoId, tipo, data.comprobante_nro, data.cae, data.vencimiento_cae,
-          clienteObj.razon_social, clienteObj.documento_tipo, clienteObj.documento_nro,
-          totalNum, data.comprobante_pdf_url || "", fechaHoy(), JSON.stringify(data)]);
+      await pool.query(`INSERT INTO facturas (pedido_id, tipo, numero, cae, vencimiento_cae, cliente, documento_tipo, documento_nro, total, pdf_url, fecha, datos_raw, local) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        [pedidoId, tipo, data.comprobante_nro, data.cae, data.vencimiento_cae, clienteObj.razon_social, clienteObj.documento_tipo, clienteObj.documento_nro, totalNum, data.comprobante_pdf_url || "", fechaHoy(), JSON.stringify(data), local]);
       res.json({ ok: true, data });
-    } else {
-      res.json({ ok: false, error: data.errores || data });
-    }
-  } catch (err) {
-    console.error(err.response?.data || err.message);
-    res.status(500).json({ ok: false, error: err.message });
-  }
+    } else { res.json({ ok: false, error: data.errores || data }); }
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 app.post("/api/nota-credito", async (req, res) => {
   const { facturaId, pedidoId } = req.body;
-
   try {
-    const facturaRes = await pool.query(
-      "SELECT * FROM facturas WHERE id=$1 AND pedido_id=$2",
-      [facturaId, pedidoId]
-    );
-
-    if (facturaRes.rows.length === 0) {
-      return res.json({ ok: false, error: "Factura no encontrada para este pedido" });
-    }
-
+    const facturaRes = await pool.query("SELECT * FROM facturas WHERE id=$1 AND pedido_id=$2", [facturaId, pedidoId]);
+    if (facturaRes.rows.length === 0) return res.json({ ok: false, error: "Factura no encontrada" });
     const factura = facturaRes.rows[0];
-
-    const todasRes = await pool.query(
-      "SELECT * FROM facturas WHERE pedido_id=$1 ORDER BY created_at ASC",
-      [pedidoId]
-    );
-
+    const todasRes = await pool.query("SELECT * FROM facturas WHERE pedido_id=$1 ORDER BY created_at ASC", [pedidoId]);
     const facturaActiva = obtenerFacturaActiva(todasRes.rows);
+    if (!facturaActiva || Number(facturaActiva.id) !== Number(factura.id)) return res.json({ ok: false, error: "Esta factura ya no está activa." });
 
-    if (!facturaActiva || Number(facturaActiva.id) !== Number(factura.id)) {
-      return res.json({ ok: false, error: "Esta factura ya no está activa o ya fue anulada." });
-    }
+    // Usar las mismas credenciales con las que se emitió la factura original
+    const localFactura = factura.local || "A. Thomas";
+    const { usertoken: TF_USERTOKEN, pdv: TF_PDV } = getTFCredentials(localFactura);
 
     const tipoFacturaOriginal = String(factura.tipo).includes("FACTURA A") ? "FACTURA A" : "FACTURA B";
     const tipoNC = tipoFacturaOriginal === "FACTURA A" ? "NOTA DE CREDITO A" : "NOTA DE CREDITO B";
     const totalNum = Number(factura.total);
     const esExento = String(factura.tipo).includes("EXENTO");
     const precioSinIva = esExento ? totalNum : Math.round((totalNum / 1.21) * 100) / 100;
-
-    const clienteObj = {
-      documento_tipo: factura.documento_tipo || "DNI",
-      documento_nro: factura.documento_nro || "0",
-      razon_social: factura.cliente || "Consumidor Final",
-      email: "",
-      domicilio: "Sin domicilio",
-      provincia: "2",
-      condicion_pago: "201",
-      condicion_iva: tipoFacturaOriginal === "FACTURA A" ? "RI" : "CF",
-      condicion_iva_operacion: tipoFacturaOriginal === "FACTURA A" ? "RI" : "CF",
-      envia_por_mail: "N",
-      reclama_deuda: "N",
-    };
-
-    const body = {
-      apitoken: TF_APITOKEN,
-      usertoken: TF_USERTOKEN,
-      apikey: TF_APIKEY,
-      cliente: clienteObj,
-      comprobante: {
-        fecha: fechaHoy(),
-        vencimiento: fechaVencimiento(30),
-        tipo: tipoNC,
-        operacion: "V",
-        moneda: "PES",
-        cotizacion: 1,
-        punto_venta: TF_PDV,
-        rubro: "Alimentos y bebidas",
-        rubro_grupo_contable: "Alimentos",
-        bonificacion: 0,
-        total: totalNum,
-        external_reference: `${pedidoId}-NC-${factura.id}`,
-        comprobantes_asociados: [{
-          tipo_comprobante: tipoFacturaOriginal,
-          punto_venta: puntoVentaDesdeNumero(factura.numero),
-          numero: numeroSinPuntoVenta(factura.numero),
-          comprobante_fecha: factura.fecha,
-          cuit: TF_CUIT_EMISOR,
-        }],
-        detalle: [{
-          cantidad: 1,
-          bonificacion_porcentaje: 0,
-          afecta_stock: "N",
-          producto: {
-            descripcion: `Anulación de ${tipoFacturaOriginal} Nº ${factura.numero}`,
-            codigo: "NC",
-            lista_precios: "standard",
-            leyenda: "",
-            unidad_bulto: 1,
-            alicuota: esExento ? 0 : 21,
-            precio_unitario_sin_iva: precioSinIva,
-            actualiza_precio: "N",
-          },
-        }],
-      },
-    };
-
-    const response = await axios.post(
-      "https://www.tusfacturas.app/app/api/v2/facturacion/nuevo",
-      body,
-      { headers: { "Content-Type": "application/json" } }
-    );
-
+    const clienteObj = { documento_tipo: factura.documento_tipo || "DNI", documento_nro: factura.documento_nro || "0", razon_social: factura.cliente || "Consumidor Final", email: "", domicilio: "Sin domicilio", provincia: "2", condicion_pago: "201", condicion_iva: tipoFacturaOriginal === "FACTURA A" ? "RI" : "CF", condicion_iva_operacion: tipoFacturaOriginal === "FACTURA A" ? "RI" : "CF", envia_por_mail: "N", reclama_deuda: "N" };
+    const body = { apitoken: TF_APITOKEN, usertoken: TF_USERTOKEN, apikey: TF_APIKEY, cliente: clienteObj, comprobante: { fecha: fechaHoy(), vencimiento: fechaVencimiento(30), tipo: tipoNC, operacion: "V", moneda: "PES", cotizacion: 1, punto_venta: TF_PDV, rubro: "Alimentos y bebidas", rubro_grupo_contable: "Alimentos", bonificacion: 0, total: totalNum, external_reference: `${pedidoId}-NC-${factura.id}`, comprobantes_asociados: [{ tipo_comprobante: tipoFacturaOriginal, punto_venta: puntoVentaDesdeNumero(factura.numero), numero: numeroSinPuntoVenta(factura.numero), comprobante_fecha: factura.fecha, cuit: TF_CUIT_EMISOR }], detalle: [{ cantidad: 1, bonificacion_porcentaje: 0, afecta_stock: "N", producto: { descripcion: `Anulación de ${tipoFacturaOriginal} Nº ${factura.numero}`, codigo: "NC", lista_precios: "standard", leyenda: "", unidad_bulto: 1, alicuota: esExento ? 0 : 21, precio_unitario_sin_iva: precioSinIva, actualiza_precio: "N" } }] } };
+    const response = await axios.post("https://www.tusfacturas.app/app/api/v2/facturacion/nuevo", body, { headers: { "Content-Type": "application/json" } });
     const data = response.data;
-
     if (data.error === "N") {
-      await pool.query(`
-        INSERT INTO facturas (pedido_id, tipo, numero, cae, vencimiento_cae, cliente, documento_tipo, documento_nro, total, pdf_url, fecha, datos_raw)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-      `, [
-        pedidoId, tipoNC, data.comprobante_nro, data.cae, data.vencimiento_cae,
-        clienteObj.razon_social, clienteObj.documento_tipo, clienteObj.documento_nro,
-        totalNum, data.comprobante_pdf_url || "", fechaHoy(), JSON.stringify(data),
-      ]);
+      await pool.query(`INSERT INTO facturas (pedido_id, tipo, numero, cae, vencimiento_cae, cliente, documento_tipo, documento_nro, total, pdf_url, fecha, datos_raw, local) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        [pedidoId, tipoNC, data.comprobante_nro, data.cae, data.vencimiento_cae, clienteObj.razon_social, clienteObj.documento_tipo, clienteObj.documento_nro, totalNum, data.comprobante_pdf_url || "", fechaHoy(), JSON.stringify(data), localFactura]);
       return res.json({ ok: true, data });
     }
-
     return res.json({ ok: false, error: data.errores || data });
-
-  } catch (err) {
-    console.error("Error emitiendo nota de crédito:", err.response?.data || err.message);
-    res.status(500).json({ ok: false, error: err.response?.data || err.message });
-  }
+  } catch (err) { res.status(500).json({ ok: false, error: err.response?.data || err.message }); }
 });
 
-app.get("/api/caja/historial/:local", async (req, res) => {
-  const { local } = req.params;
-  try {
-    const aperturas = await pool.query(
-      "SELECT * FROM caja_aperturas WHERE local=$1 ORDER BY fecha DESC LIMIT 30",
-      [decodeURIComponent(local)]
-    );
-    const resultado = [];
-    for (const apertura of aperturas.rows) {
-      const movimientos = await pool.query(
-        "SELECT * FROM caja_movimientos WHERE local=$1 AND fecha=$2 ORDER BY created_at ASC",
-        [decodeURIComponent(local), apertura.fecha]
-      );
-      resultado.push({ apertura, movimientos: movimientos.rows });
-    }
-    res.json(resultado);
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ error: "Error trayendo historial" });
-  }
+// ─── TUSFACTURAS WEBHOOK ──────────────────────────────────────────────
+app.post("/api/tusfacturas/webhook", async (req, res) => {
+  console.log("TusFacturas webhook:", JSON.stringify(req.body));
+  res.sendStatus(200);
 });
 
+// ─── PEDIDOS PRODUCTOS ─────────────────────────────────────────────────
 app.post("/api/pedidos/productos/:id", async (req, res) => {
   const { id } = req.params;
   const { productos, totalNum } = req.body;
   try {
-    await pool.query(
-      `INSERT INTO pedidos_productos (pedido_id, productos, total_num)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (pedido_id) DO UPDATE SET productos=$2, total_num=$3`,
-      [id, productos, totalNum]
-    );
+    await pool.query(`INSERT INTO pedidos_productos (pedido_id, productos, total_num) VALUES ($1,$2,$3) ON CONFLICT (pedido_id) DO UPDATE SET productos=$2, total_num=$3`, [id, productos, totalNum]);
     res.json({ ok: true });
-  } catch(err) {
-    console.error(err.message);
-    res.status(500).json({ error: err.message });
-  }
+  } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get("/api/pedidos/productos/:id", async (req, res) => {
-  const { id } = req.params;
   try {
-    const result = await pool.query("SELECT * FROM pedidos_productos WHERE pedido_id=$1", [id]);
+    const result = await pool.query("SELECT * FROM pedidos_productos WHERE pedido_id=$1", [req.params.id]);
     res.json(result.rows[0] || null);
-  } catch(err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
-// ============================
-// WEBHOOKS TIENDA NUBE
-// ============================
-
+// ─── WEBHOOKS TIENDA NUBE ──────────────────────────────────────────────
 function verifyTNSignature(rawBody, signature) {
   if (!TN_CLIENT_SECRET || !signature || !rawBody) return false;
-  const expected = crypto
-    .createHmac("sha256", TN_CLIENT_SECRET)
-    .update(rawBody)
-    .digest("hex");
+  const expected = crypto.createHmac("sha256", TN_CLIENT_SECRET).update(rawBody).digest("hex");
   try {
     const sigBuf = Buffer.from(signature, "utf8");
     const expBuf = Buffer.from(expected, "utf8");
     if (sigBuf.length !== expBuf.length) return false;
     return crypto.timingSafeEqual(sigBuf, expBuf);
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 async function upsertOrderFromTN(orderId) {
   try {
-    // API 2025-03: pedimos los fulfillment_orders embebidos con aggregates
-    const response = await axios.get(
-      `https://api.tiendanube.com/2025-03/${STORE_ID}/orders/${orderId}?aggregates=fulfillment_orders`,
-      { headers }
-    );
+    const response = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/orders/${orderId}?aggregates=fulfillment_orders`, { headers });
     const o = response.data;
     await pool.query(`
-      INSERT INTO pedidos_tn
-        (id, store_id, numero, estado_tn, payment_status, total,
-         contact_email, contact_name, contact_phone, data, tn_created_at, updated_at)
+      INSERT INTO pedidos_tn (id, store_id, numero, estado_tn, payment_status, total, contact_email, contact_name, contact_phone, data, tn_created_at, updated_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
-      ON CONFLICT (id) DO UPDATE SET
-        numero = EXCLUDED.numero,
-        estado_tn = EXCLUDED.estado_tn,
-        payment_status = EXCLUDED.payment_status,
-        total = EXCLUDED.total,
-        contact_email = EXCLUDED.contact_email,
-        contact_name = EXCLUDED.contact_name,
-        contact_phone = EXCLUDED.contact_phone,
-        data = EXCLUDED.data,
-        updated_at = NOW()
-    `, [
-      o.id, String(o.store_id || ""), o.number || null, o.status || null,
-      o.payment_status || null, parseFloat(o.total) || 0,
-      o.contact_email || null, o.contact_name || null, o.contact_phone || null,
-      JSON.stringify(o), o.created_at || null
-    ]);
+      ON CONFLICT (id) DO UPDATE SET numero=EXCLUDED.numero, estado_tn=EXCLUDED.estado_tn, payment_status=EXCLUDED.payment_status, total=EXCLUDED.total, contact_email=EXCLUDED.contact_email, contact_name=EXCLUDED.contact_name, contact_phone=EXCLUDED.contact_phone, data=EXCLUDED.data, updated_at=NOW()
+    `, [o.id, String(o.store_id || ""), o.number || null, o.status || null, o.payment_status || null, parseFloat(o.total) || 0, o.contact_email || null, o.contact_name || null, o.contact_phone || null, JSON.stringify(o), o.created_at || null]);
     console.log(`Pedido TN ${orderId} sincronizado`);
-  } catch (err) {
-    console.error(`Error sincronizando pedido ${orderId}:`, err.response?.data || err.message);
-  }
+  } catch (err) { console.error(`Error sincronizando pedido ${orderId}:`, err.message); }
 }
 
 async function processWebhookEvent(event, resourceId) {
   if (!event || !resourceId) return;
   if (event === "order/cancelled" || event === "order/voided") {
-    await pool.query(
-      "UPDATE pedidos_tn SET estado_tn = 'cancelled', updated_at = NOW() WHERE id = $1",
-      [resourceId]
-    );
+    await pool.query("UPDATE pedidos_tn SET estado_tn='cancelled', updated_at=NOW() WHERE id=$1", [resourceId]);
     return;
   }
-  if (event.startsWith("order/")) {
-    await upsertOrderFromTN(resourceId);
-  }
+  if (event.startsWith("order/")) await upsertOrderFromTN(resourceId);
 }
 
-app.get("/api/webhooks/tiendanube", (req, res) => {
-  res.json({ ok: true, message: "Webhook endpoint activo" });
-});
+app.get("/api/webhooks/tiendanube", (req, res) => res.json({ ok: true, message: "Webhook endpoint activo" }));
 
 app.post("/api/webhooks/tiendanube", async (req, res) => {
   try {
     const signature = req.headers["x-linkedstore-hmac-sha256"];
-    if (!verifyTNSignature(req.rawBody, signature)) {
-      console.warn("Webhook con firma inválida");
-      return res.status(401).json({ error: "Invalid signature" });
-    }
+    if (!verifyTNSignature(req.rawBody, signature)) { console.warn("Webhook con firma inválida"); return res.status(401).json({ error: "Invalid signature" }); }
     const { event, id: resourceId } = req.body || {};
-    if (!event || !resourceId) {
-      return res.status(400).json({ error: "Payload inválido" });
-    }
+    if (!event || !resourceId) return res.status(400).json({ error: "Payload inválido" });
     try {
-      await pool.query(
-        `INSERT INTO webhook_events (event_type, resource_id, signature) VALUES ($1, $2, $3)`,
-        [event, resourceId, signature]
-      );
+      await pool.query(`INSERT INTO webhook_events (event_type, resource_id, signature) VALUES ($1,$2,$3)`, [event, resourceId, signature]);
     } catch (err) {
-      if (err.code === "23505") {
-        console.log(`Webhook duplicado ignorado: ${event} ${resourceId}`);
-        return res.json({ ok: true, duplicate: true });
-      }
+      if (err.code === "23505") { console.log(`Webhook duplicado ignorado: ${event} ${resourceId}`); return res.json({ ok: true, duplicate: true }); }
       throw err;
     }
     res.json({ ok: true });
-    processWebhookEvent(event, resourceId).catch(err => {
-      console.error("Error procesando webhook:", err);
-    });
-  } catch (err) {
-    console.error("Webhook error:", err);
-    res.status(500).json({ error: err.message });
-  }
+    processWebhookEvent(event, resourceId).catch(console.error);
+  } catch (err) { console.error("Webhook error:", err); res.status(500).json({ error: err.message }); }
 });
 
-// ============================
-// BACKFILL: importar todos los pedidos de TN a Neon
-// ============================
+// ─── ADMIN ─────────────────────────────────────────────────────────────
 app.post("/api/admin/backfill-orders", requireAdmin, async (req, res) => {
   try {
-    let page = 1;
-    let totalSynced = 0;
-    let totalPages = 0;
-
+    let page = 1, totalSynced = 0, totalPages = 0;
     while (true) {
-      // API 2025-03: pedimos los fulfillment_orders embebidos con aggregates
-      const response = await axios.get(
-        `https://api.tiendanube.com/2025-03/${STORE_ID}/orders?per_page=50&page=${page}&aggregates=fulfillment_orders`,
-        { headers }
-      );
+      const response = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/orders?per_page=50&page=${page}&aggregates=fulfillment_orders`, { headers });
       const orders = response.data;
       if (!orders || orders.length === 0) break;
-
       for (const o of orders) {
-        await pool.query(`
-          INSERT INTO pedidos_tn
-            (id, store_id, numero, estado_tn, payment_status, total,
-             contact_email, contact_name, contact_phone, data, tn_created_at, updated_at)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
-          ON CONFLICT (id) DO UPDATE SET
-            numero = EXCLUDED.numero,
-            estado_tn = EXCLUDED.estado_tn,
-            payment_status = EXCLUDED.payment_status,
-            total = EXCLUDED.total,
-            contact_email = EXCLUDED.contact_email,
-            contact_name = EXCLUDED.contact_name,
-            contact_phone = EXCLUDED.contact_phone,
-            data = EXCLUDED.data,
-            updated_at = NOW()
-        `, [
-          o.id, String(o.store_id || ""), o.number || null, o.status || null,
-          o.payment_status || null, parseFloat(o.total) || 0,
-          o.contact_email || null, o.contact_name || null, o.contact_phone || null,
-          JSON.stringify(o), o.created_at || null
-        ]);
+        await pool.query(`INSERT INTO pedidos_tn (id, store_id, numero, estado_tn, payment_status, total, contact_email, contact_name, contact_phone, data, tn_created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW()) ON CONFLICT (id) DO UPDATE SET numero=EXCLUDED.numero, estado_tn=EXCLUDED.estado_tn, payment_status=EXCLUDED.payment_status, total=EXCLUDED.total, contact_email=EXCLUDED.contact_email, contact_name=EXCLUDED.contact_name, contact_phone=EXCLUDED.contact_phone, data=EXCLUDED.data, updated_at=NOW()`,
+          [o.id, String(o.store_id || ""), o.number || null, o.status || null, o.payment_status || null, parseFloat(o.total) || 0, o.contact_email || null, o.contact_name || null, o.contact_phone || null, JSON.stringify(o), o.created_at || null]);
         totalSynced++;
       }
-
       totalPages++;
       console.log(`Backfill: página ${page} procesada, ${orders.length} pedidos`);
       if (orders.length < 50) break;
       page++;
       if (totalPages > 100) break;
     }
-
     res.json({ ok: true, totalSynced, totalPages });
-  } catch (err) {
-    console.error("Backfill error:", err.response?.data || err.message);
-    res.status(500).json({ error: err.response?.data || err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ============================
-// SNAPSHOT DIARIO DE PEDIDOS PENDIENTES (PDF)
-// ============================
-// Genera un PDF con todos los pedidos pendientes (fecha de entrega de hoy a +15 días,
-// estado != Entregado/Anulado). Pensado para enviar por mail desde GitHub Actions
-// como red de seguridad operativa.
+// ─── SNAPSHOT DIARIO ───────────────────────────────────────────────────
 app.get("/api/admin/snapshot-pendientes", requireAdmin, async (req, res) => {
   try {
     const DIAS_HORIZONTE = 15;
@@ -1150,373 +721,122 @@ app.get("/api/admin/snapshot-pendientes", requireAdmin, async (req, res) => {
     limite.setDate(hoy.getDate() + DIAS_HORIZONTE);
     const hoyStr = hoy.toISOString().split("T")[0];
     const limiteStr = limite.toISOString().split("T")[0];
-
-    // Traer todos los estados de una para hacer lookup en memoria
     const estadosRes = await pool.query("SELECT * FROM pedidos_estados");
     const estadosMap = {};
-    estadosRes.rows.forEach(r => {
-      estadosMap[r.id] = {
-        estado: r.estado,
-        repartidor: r.repartidor,
-        tabManual: r.tab_manual,
-        fechaManual: r.fecha_manual,
-        franjaManual: r.franja_manual,
-        cobrar: r.cobrar,
-      };
-    });
-
-    // Traer override de productos también
+    estadosRes.rows.forEach(r => { estadosMap[r.id] = { estado: r.estado, repartidor: r.repartidor, tabManual: r.tab_manual, fechaManual: r.fecha_manual, franjaManual: r.franja_manual, cobrar: r.cobrar }; });
     const overridesRes = await pool.query("SELECT * FROM pedidos_productos");
     const overridesMap = {};
-    overridesRes.rows.forEach(r => {
-      overridesMap[r.pedido_id] = { productos: r.productos, total_num: Number(r.total_num) };
-    });
-
-    // Traer pedidos TN
+    overridesRes.rows.forEach(r => { overridesMap[r.pedido_id] = { productos: r.productos, total_num: Number(r.total_num) }; });
     const tnRes = await pool.query("SELECT data FROM pedidos_tn ORDER BY tn_created_at DESC LIMIT 500");
     const manualesRes = await pool.query("SELECT * FROM pedidos_manuales ORDER BY created_at DESC");
-
     const pedidos = [];
-
-    // Procesar pedidos de TN
     for (const row of tnRes.rows) {
       const p = row.data;
       const local = estadosMap[String(p.id)] || {};
       const { fecha, franja } = parsearFranjaBackend(p.owner_note);
       const fechaDisplay = local.fechaManual || fecha;
       const estado = local.estado || "Por empaquetar";
-
       if (estado === "Entregado" || estado === "Anulado") continue;
-      if (!fechaDisplay) continue;
-      if (fechaDisplay < hoyStr || fechaDisplay > limiteStr) continue;
-
+      if (!fechaDisplay || fechaDisplay < hoyStr || fechaDisplay > limiteStr) continue;
       const tabAuto = clasificarPedidoBackend(p);
       const tabActual = local.tabManual || tabAuto;
-      const sucursal = localLabelBackend(tabActual);
-      const tipo = tabActual.startsWith("retiro") ? "Retiro" : "Delivery";
       const ov = overridesMap[String(p.id)];
-
-      pedidos.push({
-        numero: `#${p.number}`,
-        cliente: p.contact_name || "",
-        telefono: p.contact_phone || "",
-        direccion: `${p.shipping_address?.address || ""} ${p.shipping_address?.number || ""}${p.shipping_address?.floor ? ` ${p.shipping_address.floor}` : ""}`.trim(),
-        barrio: p.shipping_address?.locality || p.shipping_address?.city || "",
-        fechaDisplay,
-        franjaDisplay: local.franjaManual || franja || "Sin franja",
-        productos: ov ? ov.productos : p.products.map(pr => `${pr.name} x${pr.quantity}`).join(", "),
-        total: ov ? ov.total_num : Number(p.total),
-        medioPago: medioPagoLabelBackend(p.gateway),
-        cobrar: !!local.cobrar,
-        nota: p.note || "",
-        sucursal,
-        tipo,
-        repartidor: local.repartidor || "Sin asignar",
-        estado,
-      });
+      pedidos.push({ numero: `#${p.number}`, cliente: p.contact_name || "", telefono: p.contact_phone || "", direccion: `${p.shipping_address?.address || ""} ${p.shipping_address?.number || ""}`.trim(), barrio: p.shipping_address?.locality || "", fechaDisplay, franjaDisplay: local.franjaManual || franja || "Sin franja", productos: ov ? ov.productos : p.products.map(pr => `${pr.name} x${pr.quantity}`).join(", "), total: ov ? ov.total_num : Number(p.total), medioPago: medioPagoLabelBackend(p.gateway), cobrar: !!local.cobrar, nota: p.note || "", sucursal: localLabelBackend(tabActual), tipo: tabActual.startsWith("retiro") ? "Retiro" : "Delivery", repartidor: local.repartidor || "Sin asignar", estado });
     }
-
-    // Procesar pedidos manuales
     for (const p of manualesRes.rows) {
       const local = estadosMap[p.id] || {};
       const fechaDisplay = local.fechaManual || p.fecha;
       const estado = local.estado || "Por empaquetar";
-
       if (estado === "Entregado" || estado === "Anulado") continue;
-      if (!fechaDisplay) continue;
-      if (fechaDisplay < hoyStr || fechaDisplay > limiteStr) continue;
-
+      if (!fechaDisplay || fechaDisplay < hoyStr || fechaDisplay > limiteStr) continue;
       const tabActual = local.tabManual || p.tab_actual;
-      const sucursal = localLabelBackend(tabActual);
-      const tipo = tabActual.startsWith("retiro") ? "Retiro" : "Delivery";
       const ov = overridesMap[p.id];
-
-      pedidos.push({
-        numero: p.numero,
-        cliente: p.cliente || "",
-        telefono: p.telefono || "",
-        direccion: `${p.direccion || ""}${p.entre_calles ? ` (${p.entre_calles})` : ""}`.trim(),
-        barrio: p.barrio || "",
-        fechaDisplay,
-        franjaDisplay: local.franjaManual || p.franja || "Sin franja",
-        productos: ov ? ov.productos : p.productos,
-        total: ov ? ov.total_num : Number(p.total_num),
-        medioPago: p.medio_pago || "Otro",
-        cobrar: local.cobrar !== undefined && local.cobrar !== null ? !!local.cobrar : !!p.cobrar,
-        nota: p.nota || "",
-        sucursal,
-        tipo,
-        repartidor: local.repartidor || "Sin asignar",
-        estado,
-      });
+      pedidos.push({ numero: p.numero, cliente: p.cliente || "", telefono: p.telefono || "", direccion: `${p.direccion || ""}${p.entre_calles ? ` (${p.entre_calles})` : ""}`.trim(), barrio: p.barrio || "", fechaDisplay, franjaDisplay: local.franjaManual || p.franja || "Sin franja", productos: ov ? ov.productos : p.productos, total: ov ? ov.total_num : Number(p.total_num), medioPago: p.medio_pago || "Otro", cobrar: local.cobrar !== undefined ? !!local.cobrar : !!p.cobrar, nota: p.nota || "", sucursal: localLabelBackend(tabActual), tipo: tabActual.startsWith("retiro") ? "Retiro" : "Delivery", repartidor: local.repartidor || "Sin asignar", estado });
     }
-
-    // Agrupar por fecha
     const porFecha = {};
-    pedidos.forEach(p => {
-      if (!porFecha[p.fechaDisplay]) porFecha[p.fechaDisplay] = [];
-      porFecha[p.fechaDisplay].push(p);
-    });
-
-    // Dentro de cada día, ordenar por hora (parseando la primera hora de la franja)
-    Object.values(porFecha).forEach(grupo => {
-      grupo.sort((a, b) => {
-        const ha = (a.franjaDisplay.match(/(\d{1,2}):(\d{2})/) || [])[0] || "99:99";
-        const hb = (b.franjaDisplay.match(/(\d{1,2}):(\d{2})/) || [])[0] || "99:99";
-        return ha.localeCompare(hb);
-      });
-    });
-
-    // Generar PDF
-    const doc = new PDFDocument({
-      size: "A4",
-      margin: 36,
-      info: { Title: `Piccadely - Pendientes ${hoyStr}`, Author: "Piccadely Panel" },
-    });
-
+    pedidos.forEach(p => { if (!porFecha[p.fechaDisplay]) porFecha[p.fechaDisplay] = []; porFecha[p.fechaDisplay].push(p); });
+    Object.values(porFecha).forEach(grupo => { grupo.sort((a, b) => { const ha = (a.franjaDisplay.match(/(\d{1,2}):(\d{2})/) || [])[0] || "99:99"; const hb = (b.franjaDisplay.match(/(\d{1,2}):(\d{2})/) || [])[0] || "99:99"; return ha.localeCompare(hb); }); });
+    const doc = new PDFDocument({ size: "A4", margin: 36 });
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="piccadely_pendientes_${hoyStr}.pdf"`);
     doc.pipe(res);
-
-    const PAGE_WIDTH = doc.page.width;
     const MARGIN = 36;
-    const INNER_WIDTH = PAGE_WIDTH - MARGIN * 2;
-    const CONTENT_X = MARGIN + 8; // padding interior de las cards
+    const INNER_WIDTH = doc.page.width - MARGIN * 2;
+    const CONTENT_X = MARGIN + 8;
     const CONTENT_WIDTH = INNER_WIDTH - 16;
-
-    function asegurarEspacio(altura) {
-      if (doc.y + altura > doc.page.height - doc.page.margins.bottom) {
-        doc.addPage();
-      }
-    }
-
-    // === HEADER GLOBAL ===
+    function asegurarEspacio(altura) { if (doc.y + altura > doc.page.height - doc.page.margins.bottom) doc.addPage(); }
     doc.fontSize(20).fillColor("#F68B32").font("Helvetica-Bold").text("Piccadely — Pedidos pendientes", MARGIN, doc.y);
     doc.moveDown(0.3);
     doc.fontSize(10).fillColor("#666").font("Helvetica");
-    doc.text(`Snapshot generado: ${new Date().toLocaleString("es-AR", { dateStyle: "long", timeStyle: "short" })}`, MARGIN, doc.y);
-    doc.text(`Horizonte: próximos ${DIAS_HORIZONTE} días (del ${hoyStr} al ${limiteStr})`, MARGIN, doc.y);
-    doc.text(`Total de pedidos pendientes: ${pedidos.length}`, MARGIN, doc.y);
+    doc.text(`Snapshot: ${new Date().toLocaleString("es-AR", { dateStyle: "long", timeStyle: "short" })}`, MARGIN, doc.y);
+    doc.text(`Horizonte: ${hoyStr} al ${limiteStr} · Total: ${pedidos.length} pedidos`, MARGIN, doc.y);
     doc.moveDown(1);
-
-    if (pedidos.length === 0) {
-      doc.fontSize(13).fillColor("#666").text("No hay pedidos pendientes para los próximos 15 días.", MARGIN, doc.y, { width: INNER_WIDTH, align: "center" });
-      doc.end();
-      return;
-    }
-
-    // === POR DÍA ===
-    const fechasOrdenadas = Object.keys(porFecha).sort();
-    for (let i = 0; i < fechasOrdenadas.length; i++) {
-      const fecha = fechasOrdenadas[i];
+    if (pedidos.length === 0) { doc.fontSize(13).fillColor("#666").text("No hay pedidos pendientes.", MARGIN, doc.y, { align: "center" }); doc.end(); return; }
+    for (const fecha of Object.keys(porFecha).sort()) {
       const grupo = porFecha[fecha];
-
-      // ── Header del día (rectángulo verde) ──
       asegurarEspacio(34);
       const headerY = doc.y;
-      const headerH = 24;
-      doc.save();
-      doc.rect(MARGIN, headerY, INNER_WIDTH, headerH).fill("#F68B32");
-      doc.restore();
-
-      // Texto del header: fecha a la izquierda, count a la derecha
-      doc.fillColor("#ffffff").fontSize(11).font("Helvetica-Bold");
-      doc.text(formatoFechaLarga(fecha).toUpperCase(), MARGIN + 10, headerY + 7, {
-        width: INNER_WIDTH - 120,
-        lineBreak: false,
-      });
-      doc.fontSize(10).font("Helvetica");
-      doc.text(
-        `${grupo.length} pedido${grupo.length > 1 ? "s" : ""}`,
-        MARGIN, headerY + 8,
-        { width: INNER_WIDTH - 10, align: "right", lineBreak: false }
-      );
-
-      // Mover cursor abajo del header
-      doc.fillColor("#000000").font("Helvetica");
-      doc.y = headerY + headerH + 6;
-
-      // ── Cada pedido como card ──
+      doc.save().rect(MARGIN, headerY, INNER_WIDTH, 24).fill("#F68B32").restore();
+      doc.fillColor("#fff").fontSize(11).font("Helvetica-Bold").text(formatoFechaLarga(fecha).toUpperCase(), MARGIN + 10, headerY + 7, { width: INNER_WIDTH - 120, lineBreak: false });
+      doc.fontSize(10).font("Helvetica").text(`${grupo.length} pedido${grupo.length > 1 ? "s" : ""}`, MARGIN, headerY + 8, { width: INNER_WIDTH - 10, align: "right", lineBreak: false });
+      doc.fillColor("#000").font("Helvetica");
+      doc.y = headerY + 30;
       for (const p of grupo) {
-        // Calcular altura necesaria
         const productosTxt = `Prod: ${p.productos}`;
         const lineasProd = Math.max(1, Math.ceil(productosTxt.length / 95));
         const lineasNota = p.nota ? Math.max(1, Math.ceil(p.nota.length / 95)) : 0;
         const tieneDireccion = p.tipo === "Delivery";
-
-        // Altura: header (22) + dir? (14) + productos + nota? + footer (16) + padding
         const altura = 22 + (tieneDireccion ? 14 : 0) + (lineasProd * 12) + (lineasNota * 12) + 18 + 8;
         asegurarEspacio(altura + 8);
-
         const cardY = doc.y;
-        const borderColor = p.cobrar ? "#c0392b" : "#dddddd";
-
-        doc.save();
-        doc.lineWidth(p.cobrar ? 1.5 : 0.5)
-           .rect(MARGIN, cardY, INNER_WIDTH, altura)
-           .stroke(borderColor);
-        doc.restore();
-
-        // === LÍNEA 1: Número + Cliente (izq) | Horario (der) ===
-        const y1 = cardY + 7;
-        // Número en verde
-        doc.fillColor("#F68B32").fontSize(11).font("Helvetica-Bold");
-        doc.text(p.numero, CONTENT_X, y1, { width: 70, lineBreak: false });
-        // Cliente en negro, después del número
-        doc.fillColor("#000").fontSize(11).font("Helvetica-Bold");
-        doc.text(p.cliente || "—", CONTENT_X + 72, y1, {
-          width: CONTENT_WIDTH - 72 - 110,
-          lineBreak: false,
-        });
-        // Horario a la derecha
-        doc.fillColor("#444").fontSize(10).font("Helvetica");
-        doc.text(p.franjaDisplay, MARGIN, y1, {
-          width: INNER_WIDTH - 10,
-          align: "right",
-          lineBreak: false,
-        });
-
-        // === LÍNEA 2: Teléfono (izq) | Tipo · Sucursal (der) ===
-        const y2 = cardY + 22;
-        doc.fillColor("#666").fontSize(9).font("Helvetica");
-        doc.text(`Tel: ${p.telefono || "—"}`, CONTENT_X, y2, {
-          width: CONTENT_WIDTH - 150,
-          lineBreak: false,
-        });
-        // Sucursal con color
+        doc.save().lineWidth(p.cobrar ? 1.5 : 0.5).rect(MARGIN, cardY, INNER_WIDTH, altura).stroke(p.cobrar ? "#c0392b" : "#ddd").restore();
+        doc.fillColor("#F68B32").fontSize(11).font("Helvetica-Bold").text(p.numero, CONTENT_X, cardY + 7, { width: 70, lineBreak: false });
+        doc.fillColor("#000").text(p.cliente || "—", CONTENT_X + 72, cardY + 7, { width: CONTENT_WIDTH - 182, lineBreak: false });
+        doc.fillColor("#444").fontSize(10).font("Helvetica").text(p.franjaDisplay, MARGIN, cardY + 7, { width: INNER_WIDTH - 10, align: "right", lineBreak: false });
+        doc.fillColor("#666").fontSize(9).text(`Tel: ${p.telefono || "—"}`, CONTENT_X, cardY + 22, { width: CONTENT_WIDTH - 150, lineBreak: false });
         const sucColor = p.sucursal === "French" ? "#7c3aed" : "#0c447c";
-        doc.fillColor(sucColor).fontSize(9).font("Helvetica-Bold");
-        doc.text(`${p.tipo} · ${p.sucursal}`, MARGIN, y2, {
-          width: INNER_WIDTH - 10,
-          align: "right",
-          lineBreak: false,
-        });
-
+        doc.fillColor(sucColor).font("Helvetica-Bold").text(`${p.tipo} · ${p.sucursal}`, MARGIN, cardY + 22, { width: INNER_WIDTH - 10, align: "right", lineBreak: false });
         let cursorY = cardY + 36;
-
-        // === LÍNEA 3: Dirección (solo si es Delivery) ===
-        if (tieneDireccion) {
-          doc.fillColor("#333").fontSize(9).font("Helvetica");
-          doc.text(
-            `Dir: ${p.direccion}${p.barrio ? ", " + p.barrio : ""}`,
-            CONTENT_X, cursorY,
-            { width: CONTENT_WIDTH, lineBreak: false, ellipsis: true }
-          );
-          cursorY += 14;
-        }
-
-        // === LÍNEA 4: Productos ===
-        doc.fillColor("#000").fontSize(9).font("Helvetica");
-        doc.text(productosTxt, CONTENT_X, cursorY, {
-          width: CONTENT_WIDTH,
-        });
-        cursorY += lineasProd * 12 + 2;
-
-        // === LÍNEA 5: Nota (opcional) ===
-        if (p.nota) {
-          doc.fillColor("#888").fontSize(8).font("Helvetica-Oblique");
-          doc.text(`Nota: ${p.nota}`, CONTENT_X, cursorY, {
-            width: CONTENT_WIDTH,
-          });
-          doc.font("Helvetica");
-          cursorY += lineasNota * 12 + 2;
-        }
-
-        // === LÍNEA FINAL: Total + Pago (izq) | COBRAR (der) ===
-        doc.fillColor("#000").fontSize(10).font("Helvetica-Bold");
-        doc.text(`Total: ${formatoPesos(p.total)}`, CONTENT_X, cursorY, {
-          width: 180,
-          lineBreak: false,
-        });
-        doc.fillColor("#666").fontSize(9).font("Helvetica");
-        doc.text(`Pago: ${p.medioPago}`, CONTENT_X + 130, cursorY + 1, {
-          width: 200,
-          lineBreak: false,
-        });
-        if (p.cobrar) {
-          doc.fillColor("#c0392b").fontSize(10).font("Helvetica-Bold");
-          doc.text("⚠ COBRAR EN ENTREGA", MARGIN, cursorY, {
-            width: INNER_WIDTH - 10,
-            align: "right",
-            lineBreak: false,
-          });
-        }
-
-        // Mover cursor al final de la card
+        if (tieneDireccion) { doc.fillColor("#333").fontSize(9).font("Helvetica").text(`Dir: ${p.direccion}${p.barrio ? ", " + p.barrio : ""}`, CONTENT_X, cursorY, { width: CONTENT_WIDTH, lineBreak: false, ellipsis: true }); cursorY += 14; }
+        doc.fillColor("#000").text(productosTxt, CONTENT_X, cursorY, { width: CONTENT_WIDTH }); cursorY += lineasProd * 12 + 2;
+        if (p.nota) { doc.fillColor("#888").fontSize(8).font("Helvetica-Oblique").text(`Nota: ${p.nota}`, CONTENT_X, cursorY, { width: CONTENT_WIDTH }); doc.font("Helvetica"); cursorY += lineasNota * 12 + 2; }
+        doc.fillColor("#000").fontSize(10).font("Helvetica-Bold").text(`Total: ${formatoPesos(p.total)}`, CONTENT_X, cursorY, { width: 180, lineBreak: false });
+        doc.fillColor("#666").fontSize(9).font("Helvetica").text(`Pago: ${p.medioPago}`, CONTENT_X + 130, cursorY + 1, { width: 200, lineBreak: false });
+        if (p.cobrar) { doc.fillColor("#c0392b").fontSize(10).font("Helvetica-Bold").text("⚠ COBRAR EN ENTREGA", MARGIN, cursorY, { width: INNER_WIDTH - 10, align: "right", lineBreak: false }); }
         doc.fillColor("#000").font("Helvetica");
         doc.y = cardY + altura + 6;
       }
-
       doc.moveDown(0.3);
     }
-
     doc.end();
-  } catch (err) {
-    console.error("Error generando snapshot:", err.message);
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { console.error("Error generando snapshot:", err.message); res.status(500).json({ error: err.message }); }
 });
 
-// ============================
-// ADMIN WEBHOOKS TIENDA NUBE
-// ============================
-
 const WEBHOOK_URL = process.env.WEBHOOK_URL || "https://piccadely-panel-production.up.railway.app/api/webhooks/tiendanube";
-const WEBHOOK_EVENTS = [
-  "order/created",
-  "order/paid",
-  "order/updated",
-  "order/cancelled",
-  "order/voided"
-];
+const WEBHOOK_EVENTS = ["order/created", "order/paid", "order/updated", "order/cancelled", "order/voided"];
 
 app.get("/api/admin/webhooks", requireAdmin, async (req, res) => {
   try {
-    const response = await axios.get(
-      `https://api.tiendanube.com/2025-03/${STORE_ID}/webhooks`,
-      { headers }
-    );
+    const response = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/webhooks`, { headers });
     res.json(response.data);
-  } catch (err) {
-    res.status(500).json({ error: err.response?.data || err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post("/api/admin/webhooks/setup", requireAdmin, async (req, res) => {
   try {
-    const existing = await axios.get(
-      `https://api.tiendanube.com/2025-03/${STORE_ID}/webhooks`,
-      { headers }
-    );
+    const existing = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/webhooks`, { headers });
     const existingHooks = existing.data || [];
-    const created = [];
-    const skipped = [];
-
+    const created = [], skipped = [];
     for (const event of WEBHOOK_EVENTS) {
       const exists = existingHooks.find(h => h.event === event && h.url === WEBHOOK_URL);
-      if (exists) {
-        skipped.push({ event, id: exists.id });
-        continue;
-      }
+      if (exists) { skipped.push({ event, id: exists.id }); continue; }
       try {
-        const response = await axios.post(
-          `https://api.tiendanube.com/2025-03/${STORE_ID}/webhooks`,
-          { event, url: WEBHOOK_URL },
-          { headers: { ...headers, "Content-Type": "application/json" } }
-        );
+        const response = await axios.post(`https://api.tiendanube.com/2025-03/${STORE_ID}/webhooks`, { event, url: WEBHOOK_URL }, { headers: { ...headers, "Content-Type": "application/json" } });
         created.push({ event, id: response.data.id });
-      } catch (err) {
-        created.push({ event, error: err.response?.data || err.message });
-      }
+      } catch (err) { created.push({ event, error: err.message }); }
     }
     res.json({ ok: true, created, skipped });
-  } catch (err) {
-    res.status(500).json({ error: err.response?.data || err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.use("/api/mp", mpRouter(pool, mailTransporter));
-
-app.listen(process.env.PORT || 3001, () => {
-  console.log("Servidor corriendo");
-});
+app.listen(process.env.PORT || 3001, () => { console.log("Servidor corriendo"); }); 
