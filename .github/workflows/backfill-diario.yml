@@ -1,0 +1,38 @@
+name: Backfill diario de pedidos TN
+
+on:
+  schedule:
+    - cron: "0 9 * * *"  # 06:00 Argentina (UTC-3)
+  workflow_dispatch:
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ejecutar backfill de pedidos TN
+        env:
+          RAILWAY_URL: ${{ secrets.RAILWAY_URL }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          if [ -z "$RAILWAY_URL" ] || [ -z "$ADMIN_TOKEN" ]; then
+            echo "❌ Faltan secrets RAILWAY_URL o ADMIN_TOKEN"
+            exit 1
+          fi
+          
+          RESPONSE=$(curl -s -X POST \
+            "${RAILWAY_URL}/api/admin/backfill-orders" \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --max-time 120)
+          
+          echo "Respuesta: $RESPONSE"
+          
+          OK=$(echo $RESPONSE | grep -o '"ok":true')
+          if [ -z "$OK" ]; then
+            echo "❌ Backfill falló"
+            exit 1
+          fi
+          
+          SYNCED=$(echo $RESPONSE | grep -o '"totalSynced":[0-9]*' | grep -o '[0-9]*')
+          echo "✅ Backfill exitoso: $SYNCED pedidos sincronizados"
