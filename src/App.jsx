@@ -401,11 +401,12 @@ function ModalFacturacion({ p, onCerrar }) {
     if (!totalLimpio || totalLimpio <= 0) { alert("Error: no se pudo determinar el total"); return; }
     setEmitiendo(true); setResultado(null);
     try {
-      const res = await axios.post(`${API}/api/facturar`, {
-        pedidoId: p.id, tipo, cliente: p.cliente, documentoTipo: docTipo,
-        documentoNro: docNro.trim(), razonSocial, domicilio, email,
-        total: totalLimpio, productos: productosFactura,
-      });
+     const res = await axios.post(`${API}/api/facturar`, {
+  pedidoId: p.id, tipo, cliente: p.cliente, documentoTipo: docTipo,
+  documentoNro: docNro.trim(), razonSocial, domicilio, email,
+  total: totalLimpio, productos: productosFactura,
+  local: p.local,
+});
       setResultado(res.data);
       if (res.data.ok) await cargarFacturas();
     } catch (e) { setResultado({ ok: false, error: e.message }); }
