@@ -242,6 +242,8 @@ function BtnPagoMP({ p, onEmailRequerido }) {
   const [linkGenerado, setLinkGenerado] = useState(null);
   const [copiado, setCopiado] = useState(false);
 
+  if (p.pago !== "Pendiente") return null;
+
   async function generarLink() {
     if (!p.email || !p.email.trim()) {
       onEmailRequerido(p);
@@ -401,12 +403,11 @@ function ModalFacturacion({ p, onCerrar }) {
     if (!totalLimpio || totalLimpio <= 0) { alert("Error: no se pudo determinar el total"); return; }
     setEmitiendo(true); setResultado(null);
     try {
-     const res = await axios.post(`${API}/api/facturar`, {
-  pedidoId: p.id, tipo, cliente: p.cliente, documentoTipo: docTipo,
-  documentoNro: docNro.trim(), razonSocial, domicilio, email,
-  total: totalLimpio, productos: productosFactura,
-  local: p.local,
-});
+      const res = await axios.post(`${API}/api/facturar`, {
+        pedidoId: p.id, tipo, cliente: p.cliente, documentoTipo: docTipo,
+        documentoNro: docNro.trim(), razonSocial, domicilio, email,
+        total: totalLimpio, productos: productosFactura,
+      });
       setResultado(res.data);
       if (res.data.ok) await cargarFacturas();
     } catch (e) { setResultado({ ok: false, error: e.message }); }
@@ -1151,7 +1152,7 @@ function PanelApp({ usuario }) {
         tabActual, local: localLabel(tabActual),
         nota: ovDatos.nota !== undefined ? ovDatos.nota : (p.note || ""),
         esManual: false, entreCalles: "",
-        identificacion: p.identification?.number || "", email: p.contact_email || "",
+        identificacion: p.identification?.number || "", email: ovDatos.email !== undefined ? ovDatos.email : (p.contact_email || ""),
       };
     }),
     ...pedidosManuales.map(p => {
@@ -1168,6 +1169,7 @@ function PanelApp({ usuario }) {
         zona: ovDatos.zona !== undefined ? ovDatos.zona : p.zona,
         medioPago: ovDatos.medioPago !== undefined ? ovDatos.medioPago : p.medioPago,
         nota: ovDatos.nota !== undefined ? ovDatos.nota : (p.nota || ""),
+        email: ovDatos.email !== undefined ? ovDatos.email : (p.email || ""),
         estado: local.estado, repartidor: local.repartidor,
         cobrar: local.cobrar !== undefined ? local.cobrar : p.cobrar,
         tabActual, local: localLabel(tabActual),
@@ -1265,6 +1267,7 @@ function PanelApp({ usuario }) {
       zona: nuevosOverrides.zona ?? p.zona,
       medioPago: nuevosOverrides.medioPago ?? p.medioPago,
       nota: nuevosOverrides.nota !== undefined ? nuevosOverrides.nota : (p.nota || ""),
+      email: nuevosOverrides.email !== undefined ? nuevosOverrides.email : (p.email || ""),
     };
     axios.patch(`${API}/api/pedidos/${id}/datos`, datosDB).catch(console.error);
   }
@@ -2037,6 +2040,11 @@ function PanelApp({ usuario }) {
                             <div style={s.detalleLabel}>Zona</div>
                             <InputBlur style={s.inputField} initialValue={p.zona} placeholder="Zona"
                               onCommit={v => actualizarDato(p, "zona", v)} onClick={e => e.stopPropagation()} />
+                          </div>
+                          <div style={s.detalleBloque}>
+                            <div style={s.detalleLabel}>Email</div>
+                            <InputBlur style={s.inputField} initialValue={p.email || ""} placeholder="cliente@ejemplo.com"
+                              onCommit={v => actualizarDato(p, "email", v)} onClick={e => e.stopPropagation()} />
                           </div>
                           <div style={s.detalleBloque}>
                             <div style={s.detalleLabel}>Medio de pago</div>
