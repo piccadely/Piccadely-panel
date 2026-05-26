@@ -242,8 +242,6 @@ function BtnPagoMP({ p, onEmailRequerido }) {
   const [linkGenerado, setLinkGenerado] = useState(null);
   const [copiado, setCopiado] = useState(false);
 
-  if (p.pago !== "Pendiente") return null;
-
   async function generarLink() {
     if (!p.email || !p.email.trim()) {
       onEmailRequerido(p);
@@ -1463,7 +1461,7 @@ yNvfREM3VsoSbEMGnHUweT0=
           for (let i = 0; i < binaryDer.length; i++) binaryArray[i] = binaryDer.charCodeAt(i);
           const key = await window.crypto.subtle.importKey(
             "pkcs8", binaryArray.buffer,
-            { name: "RSASSA-PKCS1-v1_5", hash: "SHA-1" },
+            { name: "RSASSA-PKCS1-v1_5", hash: "SHA-512" },
             false, ["sign"]
           );
           const signature = await window.crypto.subtle.sign(
@@ -1474,15 +1472,10 @@ yNvfREM3VsoSbEMGnHUweT0=
         } catch (e) { reject(e); }
       });
 
-      if (!qz.websocket.isActive()) await qz.websocket.connect();
-      const printers = await qz.printers.find();
-const nombreImpresora = printers.find(pr =>
-  pr.includes("GP-80160") || pr.includes("POS-80") || pr.includes("POS-90") ||
-  pr.includes("POS Printer") || pr.includes("203DPI") || pr.includes("Thermal") || pr.includes("Receipt")
-) || printers[0];
-const config = qz.configs.create(nombreImpresora, { encoding: "IBM858" });
+      await qz.websocket.connect();
+      const config = qz.configs.create("GP-80160(Cut) Series", { encoding: "IBM858" });
       await qz.print(config, [{ type: "raw", format: "command", data: lineas.join("") }]);
-      // no desconectar, mantener conexión activa
+      await qz.websocket.disconnect();
     } catch (err) {
       console.error("Error QZ Tray:", err);
       fallback();
