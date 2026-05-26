@@ -302,6 +302,126 @@ function BtnPagoMP({ p, onEmailRequerido }) {
   );
 }
 
+// ─── AGENTE IA FLOTANTE ──────────────────────────────────────────────
+function AgenteIA() {
+  const [abierto, setAbierto] = useState(false);
+  const [messages, setMessages] = useState([
+    { role: "assistant", content: "¡Hola! Soy el asistente de Piccadely 🧀 ¿En qué te puedo ayudar?" }
+  ]);
+  const [input, setInput] = useState("");
+  const [cargando, setCargando] = useState(false);
+  const bottomRef = useRef(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, abierto]);
+
+  async function enviar() {
+    const texto = input.trim();
+    if (!texto || cargando) return;
+    const nuevos = [...messages, { role: "user", content: texto }];
+    setMessages(nuevos);
+    setInput("");
+    setCargando(true);
+    try {
+      const res = await axios.post(`${API}/api/agente`, {
+        messages: nuevos.filter(m => m.role !== "assistant" || nuevos.indexOf(m) > 0)
+          .map(m => ({ role: m.role, content: m.content }))
+      });
+      setMessages([...nuevos, { role: "assistant", content: res.data.reply }]);
+    } catch {
+      setMessages([...nuevos, { role: "assistant", content: "Tuve un problema para responder. Intentá de nuevo." }]);
+    }
+    setCargando(false);
+  }
+
+  return (
+    <>
+      {/* Botón flotante */}
+      <button
+        onClick={() => setAbierto(a => !a)}
+        style={{
+          position: "fixed", bottom: 24, right: 24, zIndex: 2000,
+          width: 52, height: 52, borderRadius: "50%",
+          background: NARANJA_AGENT, border: "none", cursor: "pointer",
+          boxShadow: "0 4px 16px rgba(246,139,50,0.4)",
+          fontSize: 22, display: "flex", alignItems: "center", justifyContent: "center",
+          transition: "transform 0.2s",
+        }}
+        title="Asistente Piccadely"
+      >
+        {abierto ? "✕" : "💬"}
+      </button>
+
+      {/* Ventana de chat */}
+      {abierto && (
+        <div style={{
+          position: "fixed", bottom: 88, right: 24, zIndex: 2000,
+          width: 340, height: 480, background: "#fff",
+          borderRadius: 14, boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
+          display: "flex", flexDirection: "column", overflow: "hidden",
+          border: "1px solid #eee",
+        }}>
+          {/* Header */}
+          <div style={{ background: NARANJA_AGENT, padding: "12px 16px", display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 20 }}>🧀</span>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>Asistente Piccadely</div>
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.8)" }}>Preguntame lo que quieras sobre el panel</div>
+            </div>
+          </div>
+
+          {/* Mensajes */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+            {messages.map((m, i) => (
+              <div key={i} style={{
+                display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start",
+              }}>
+                <div style={{
+                  maxWidth: "82%", padding: "8px 12px", borderRadius: m.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
+                  background: m.role === "user" ? NARANJA_AGENT : "#f0f0ee",
+                  color: m.role === "user" ? "#fff" : "#333",
+                  fontSize: 12, lineHeight: 1.5,
+                }}>
+                  {m.content}
+                </div>
+              </div>
+            ))}
+            {cargando && (
+              <div style={{ display: "flex", justifyContent: "flex-start" }}>
+                <div style={{ background: "#f0f0ee", borderRadius: "12px 12px 12px 2px", padding: "8px 14px", fontSize: 18, color: "#aaa" }}>
+                  ···
+                </div>
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          {/* Input */}
+          <div style={{ padding: "10px 12px", borderTop: "1px solid #eee", display: "flex", gap: 8 }}>
+            <input
+              style={{ flex: 1, fontSize: 12, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", outline: "none" }}
+              placeholder="Escribí tu pregunta..."
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && enviar()}
+              disabled={cargando}
+            />
+            <button
+              style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: cargando ? "#ddd" : NARANJA_AGENT, color: "#fff", cursor: cargando ? "default" : "pointer", fontSize: 14 }}
+              onClick={enviar}
+              disabled={cargando}
+            >
+              ➤
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+const NARANJA_AGENT = "#F68B32";
+
 // ─── MODAL PEDIR EMAIL PARA MP ───────────────────────────────────────
 function ModalEmailMP({ pedido, onConfirmar, onCerrar }) {
   const [email, setEmail] = useState("");
@@ -2278,7 +2398,12 @@ export default function App() {
   }
 
   if (!usuario) return <Login onLogin={setUsuario} />;
-  return <PanelApp usuario={usuario} />;
+  return (
+    <>
+      <PanelApp usuario={usuario} />
+      <AgenteIA />
+    </>
+  );
 }
 
 // ─── ESTILOS ─────────────────────────────────────────────────────────
