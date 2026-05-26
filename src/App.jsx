@@ -1315,37 +1315,90 @@ function PanelApp({ usuario }) {
       (!categoriaFiltro || p.categories?.some(c => c.id === Number(categoriaFiltro) || c.parent === Number(categoriaFiltro)));
   });
 
-  function imprimirComanda(p) {
-    setComandasImpresas(prev => ({ ...prev, [p.id]: (prev[p.id] || 0) + 1 }));
+  async function imprimirComanda(p) {
+  setComandasImpresas(prev => ({ ...prev, [p.id]: (prev[p.id] || 0) + 1 }));
+  const estadoActual = pedidosLocales[p.id]?.estado || "Por empaquetar";
+  const repartidorActual = pedidosLocales[p.id]?.repartidor || "Sin asignar";
+  const cobrar = pedidosLocales[p.id]?.cobrar;
+
+  const lineas = [
+    "\x1B\x40",           // Reset impresora
+    "\x1B\x61\x01",       // Centrar
+    "\x1B\x21\x30",       // Doble alto y ancho
+    "PICCADELY\n",
+    "\x1B\x21\x00",       // Normal
+    "comanda de pedido\n",
+    "--------------------------------\n",
+    "\x1B\x61\x00",       // Izquierda
+    `${p.numero}  ${p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"long"}) : "—"}\n`,
+    `${p.franjaDisplay}  ${p.zona}\n`,
+    "--------------------------------\n",
+    "\x1B\x21\x08",       // Bold
+    "CLIENTE\n",
+    "\x1B\x21\x00",
+    `${p.cliente}\n`,
+    `${p.telefono}\n`,
+    "\x1B\x21\x08",
+    "DIRECCION\n",
+    "\x1B\x21\x00",
+    `${p.direccion}${p.barrio ? ", " + p.barrio : ""}\n`,
+    p.entreCalles ? `${p.entreCalles}\n` : "",
+    "--------------------------------\n",
+    "\x1B\x21\x08",
+    "PRODUCTOS\n",
+    "\x1B\x21\x00",
+    ...p.productos.split(", ").map(pr => `• ${pr}\n`),
+    p.nota ? "--------------------------------\n" : "",
+    p.nota ? `\x1B\x21\x08NOTA\n\x1B\x21\x00${p.nota}\n` : "",
+    "--------------------------------\n",
+    `Medio de pago: ${p.medioPago}\n`,
+    "\x1B\x21\x10",       // Alto doble para total
+    `TOTAL: ${p.total}\n`,
+    "\x1B\x21\x00",
+    cobrar ? "\x1B\x21\x30★ COBRAR EN ENTREGA ★\n\x1B\x21\x00" : "",
+    "--------------------------------\n",
+    `Repartidor: ${repartidorActual}\n`,
+    `Estado: ${estadoActual}\n`,
+    "--------------------------------\n",
+    "\x1B\x61\x01",
+    "Piccadely — juntadely\n",
+    "\x1B\x61\x00",
+    "\n\n\n",
+    "\x1D\x56\x00",       // Corte de papel
+  ].filter(Boolean);
+
+  try {
+    await qz.websocket.connect();
+    const config = qz.configs.create("GP-80160(Cut) Series");
+    await qz.print(config, [{
+      type: "raw",
+      format: "command",
+      data: lineas.join(""),
+    }]);
+    await qz.websocket.disconnect();
+  } catch (err) {
+    console.error("Error QZ Tray:", err);
+    // Fallback: abrir ventana de impresión normal
     const ventana = window.open("", "_blank", "width=400,height=600");
-    const estadoActual = pedidosLocales[p.id]?.estado || "Por empaquetar";
-    const repartidorActual = pedidosLocales[p.id]?.repartidor || "Sin asignar";
-    const cobrar = pedidosLocales[p.id]?.cobrar;
+    const estadoActualFB = pedidosLocales[p.id]?.estado || "Por empaquetar";
+    const cobrarFB = pedidosLocales[p.id]?.cobrar;
     ventana.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Comanda ${p.numero}</title>
-      <style>* { margin:0; padding:0; box-sizing:border-box; } body { font-family:'Courier New',monospace; font-size:12px; width:80mm; padding:4mm; color:#000; } .centro { text-align:center; } .titulo { font-size:18px; font-weight:bold; margin-bottom:2px; } .subtitulo { font-size:11px; color:#555; margin-bottom:6px; } .linea { border-top:1px dashed #000; margin:6px 0; } .fila { display:flex; justify-content:space-between; margin:2px 0; } .label { font-weight:bold; font-size:10px; text-transform:uppercase; color:#555; margin-top:6px; margin-bottom:1px; } .valor { font-size:12px; } .producto { padding:2px 0; } .total { font-size:15px; font-weight:bold; text-align:right; margin-top:4px; } .cobrar { text-align:center; font-size:16px; font-weight:bold; border:2px solid #000; padding:6px; margin:8px 0; letter-spacing:2px; } .estado { text-align:center; font-size:11px; margin-top:6px; padding:3px; border:1px solid #000; } .nota { font-style:italic; font-size:11px; color:#333; } @media print { body { width:80mm; } @page { margin:0; size:80mm auto; } }</style></head><body>
-      <div class="centro"><div class="titulo">Piccadely</div><div class="subtitulo">comanda de pedido</div></div>
-      <div class="linea"></div>
-      <div class="fila"><span><b>${p.numero}</b></span><span>${p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"long"}) : "—"}</span></div>
-      <div class="fila"><span>${p.franjaDisplay}</span><span>${p.zona}</span></div>
-      <div class="linea"></div>
-      <div class="label">Cliente</div><div class="valor">${p.cliente}</div><div class="valor">${p.telefono}</div>
-      <div class="label">Dirección</div><div class="valor">${p.direccion}${p.barrio ? `, ${p.barrio}` : ""}</div>${p.entreCalles ? `<div class="valor" style="font-style:italic;color:#555;">${p.entreCalles}</div>` : ""}
-      <div class="linea"></div>
-      <div class="label">Productos</div>${p.productos.split(", ").map(pr => `<div class="producto">• ${pr}</div>`).join("")}
-      ${p.nota ? `<div class="linea"></div><div class="label">Nota</div><div class="nota">${p.nota}</div>` : ""}
-      <div class="linea"></div>
-      <div class="fila"><span class="label">Medio de pago</span><span class="valor">${p.medioPago}</span></div>
-      <div class="total">${p.total}</div>
-      ${cobrar ? `<div class="cobrar">★ COBRAR ★</div>` : ""}
-      <div class="linea"></div>
-      <div class="fila"><span class="label">Repartidor</span><span class="valor">${repartidorActual}</span></div>
-      <div class="estado">${estadoActual}</div>
-      <div class="linea"></div>
-      <div class="centro" style="font-size:10px;color:#888;margin-top:4px;">Piccadely — juntadely</div>
-      <script>window.onload=function(){window.print();}</script></body></html>`);
+      <style>* { margin:0; padding:0; box-sizing:border-box; } body { font-family:'Courier New',monospace; font-size:12px; width:80mm; padding:4mm; } @media print { @page { margin:0; size:80mm auto; } }</style></head><body>
+      <div style="text-align:center;font-size:18px;font-weight:bold;">Piccadely</div>
+      <div style="text-align:center;font-size:11px;margin-bottom:6px;">comanda de pedido</div>
+      <hr><b>${p.numero}</b> — ${p.fechaDisplay || "—"}<br>${p.franjaDisplay}<hr>
+      <b>Cliente:</b> ${p.cliente}<br>${p.telefono}<br>
+      <b>Dir:</b> ${p.direccion}${p.barrio ? ", "+p.barrio : ""}<hr>
+      <b>Productos:</b><br>${p.productos.split(", ").map(pr => `• ${pr}`).join("<br>")}
+      ${p.nota ? `<hr><b>Nota:</b> ${p.nota}` : ""}
+      <hr>Medio: ${p.medioPago}<br><b style="font-size:14px;">TOTAL: ${p.total}</b>
+      ${cobrarFB ? "<br><b>★ COBRAR EN ENTREGA ★</b>" : ""}
+      <hr>Repartidor: ${repartidorActual}<hr>
+      <div style="text-align:center;font-size:10px;">Piccadely — juntadely</div>
+      <script>window.onload=function(){window.print();}<\/script></body></html>`);
     ventana.document.close();
   }
-
+}
   const conteos = {};
   TABS.forEach(t => { conteos[t.id] = pedidosActivos.filter(p => p.tabActual === t.id).length; });
   const totalFiltrados = filtrados.length;
