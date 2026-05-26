@@ -970,8 +970,8 @@ async function resyncPedidosRecientes() {
   } catch (err) { console.error("Re-sync error:", err.message); }
 }
 
-// Correr cada 1 minuto
-setInterval(resyncPedidosRecientes, 1 * 60 * 1000);
+// Correr cada 5 minuto
+setInterval(resyncPedidosRecientes, 5 * 60 * 1000);
 // Correr una vez al arrancar el servidor (después de 30 segundos)
 setTimeout(resyncPedidosRecientes, 30000);
 app.listen(process.env.PORT || 3001, () => { console.log("Servidor corriendo"); });
