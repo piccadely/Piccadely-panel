@@ -1328,8 +1328,13 @@ function PanelApp({ usuario }) {
     if (!porFranja[key]) porFranja[key] = [];
     porFranja[key].push(p);
   });
-  const franjas = Object.keys(porFranja).sort();
-
+const franjas = Object.keys(porFranja).sort((a, b) => {
+  const aSinFecha = a.startsWith("sin-fecha");
+  const bSinFecha = b.startsWith("sin-fecha");
+  if (aSinFecha && !bSinFecha) return -1;
+  if (!aSinFecha && bSinFecha) return 1;
+  return a.localeCompare(b);
+});
   function actualizarLocal(id, cambios) {
     setPedidosLocales(prev => { const nuevo = { ...prev, [id]: { ...prev[id], ...cambios } }; guardarEstadoDB(id, nuevo[id]); return nuevo; });
   }
