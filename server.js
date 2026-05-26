@@ -950,5 +950,28 @@ app.post("/api/agente", async (req, res) => {
     res.status(500).json({ error: "Error al consultar el agente" });
   }
 });
+// ─── RE-SYNC PERIÓDICO DE PEDIDOS RECIENTES ─────────────────────────
+async function resyncPedidosRecientes() {
+  try {
+    const hace48hs = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const response = await axios.get(
+      `https://api.tiendanube.com/2025-03/${STORE_ID}/orders?per_page=50&created_at_min=${hace48hs}&aggregates=fulfillment_orders`,
+      { headers }
+    );
+    const orders = response.data || [];
+    for (const o of orders) {
+      await pool.query(`
+        INSERT INTO pedidos_tn (id, store_id, numero, estado_tn, payment_status, total, contact_email, contact_name, contact_phone, data, tn_created_at, updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
+        ON CONFLICT (id) DO UPDATE SET numero=EXCLUDED.numero, estado_tn=EXCLUDED.estado_tn, payment_status=EXCLUDED.payment_status, total=EXCLUDED.total, contact_email=EXCLUDED.contact_email, contact_name=EXCLUDED.contact_name, contact_phone=EXCLUDED.contact_phone, data=EXCLUDED.data, updated_at=NOW()
+      `, [o.id, String(o.store_id || ""), o.number || null, o.status || null, o.payment_status || null, parseFloat(o.total) || 0, o.contact_email || null, o.contact_name || null, o.contact_phone || null, JSON.stringify(o), o.created_at || null]);
+    }
+    console.log(`Re-sync: ${orders.length} pedidos refrescados`);
+  } catch (err) { console.error("Re-sync error:", err.message); }
+}
 
+// Correr cada 1 minuto
+setInterval(resyncPedidosRecientes, 1 * 60 * 1000);
+// Correr una vez al arrancar el servidor (después de 30 segundos)
+setTimeout(resyncPedidosRecientes, 30000);
 app.listen(process.env.PORT || 3001, () => { console.log("Servidor corriendo"); });
