@@ -1653,6 +1653,19 @@ yNvfREM3VsoSbEMGnHUweT0=
           {menuAbierto && (
             <div style={s.dropdown}>
               {usuario.rol === "admin" && <button style={s.dropItem} onClick={() => { setVista("usuarios"); setMenuAbierto(false); }}>👥 Usuarios</button>}
+              {usuario.rol === "admin" && (
+  <button style={s.dropItem} onClick={async () => {
+    setMenuAbierto(false);
+    if (!window.confirm("¿Resincronizar TODOS los pedidos desde Tienda Nube? Puede tardar 1-2 minutos.")) return;
+    try {
+      const res = await axios.post(`${API}/api/admin/backfill-orders`);
+      alert(`✅ Resincronización completa: ${res.data.totalSynced} pedidos actualizados en ${res.data.totalPages} páginas.`);
+      window.location.reload();
+    } catch (err) {
+      alert("❌ Error: " + (err.response?.data?.error || err.message));
+    }
+  }}>🔄 Resincronizar TN</button>
+)}
               <button style={s.dropItem} onClick={() => { setVista("caja"); setMenuAbierto(false); }}>💰 Caja</button>
               <button style={s.dropItem} onClick={() => { setVista("finalizados"); setMenuAbierto(false); }}>📋 Pedidos finalizados</button>
               <button style={s.dropItem} onClick={() => { setVista("reporteVentas"); setMenuAbierto(false); }}>📊 Reporte de ventas</button>
