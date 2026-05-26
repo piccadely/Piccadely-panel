@@ -1475,7 +1475,12 @@ yNvfREM3VsoSbEMGnHUweT0=
       });
 
       await qz.websocket.connect();
-      const config = qz.configs.create("GP-80160(Cut) Series", { encoding: "IBM858" });
+      const printers = await qz.printers.find();
+const nombreImpresora = printers.find(pr =>
+  pr.includes("GP-80160") || pr.includes("POS-80") || pr.includes("POS-90") ||
+  pr.includes("POS Printer") || pr.includes("203DPI") || pr.includes("Thermal") || pr.includes("Receipt")
+) || printers[0];
+const config = qz.configs.create(nombreImpresora, { encoding: "IBM858" });
       await qz.print(config, [{ type: "raw", format: "command", data: lineas.join("") }]);
       await qz.websocket.disconnect();
     } catch (err) {
