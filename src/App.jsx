@@ -1463,7 +1463,7 @@ yNvfREM3VsoSbEMGnHUweT0=
           for (let i = 0; i < binaryDer.length; i++) binaryArray[i] = binaryDer.charCodeAt(i);
           const key = await window.crypto.subtle.importKey(
             "pkcs8", binaryArray.buffer,
-            { name: "RSASSA-PKCS1-v1_5", hash: "SHA-512" },
+            { name: "RSASSA-PKCS1-v1_5", hash: "SHA-1" },
             false, ["sign"]
           );
           const signature = await window.crypto.subtle.sign(
