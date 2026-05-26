@@ -1474,7 +1474,7 @@ yNvfREM3VsoSbEMGnHUweT0=
         } catch (e) { reject(e); }
       });
 
-      await qz.websocket.connect();
+      if (!qz.websocket.isActive()) await qz.websocket.connect();
       const printers = await qz.printers.find();
 const nombreImpresora = printers.find(pr =>
   pr.includes("GP-80160") || pr.includes("POS-80") || pr.includes("POS-90") ||
@@ -1482,7 +1482,7 @@ const nombreImpresora = printers.find(pr =>
 ) || printers[0];
 const config = qz.configs.create(nombreImpresora, { encoding: "IBM858" });
       await qz.print(config, [{ type: "raw", format: "command", data: lineas.join("") }]);
-      await qz.websocket.disconnect();
+      // no desconectar, mantener conexión activa
     } catch (err) {
       console.error("Error QZ Tray:", err);
       fallback();
