@@ -79,7 +79,7 @@ function localLabel(tabActual) {
 
 const FORM_INICIAL = {
   cliente: "", telefono: "", email: "", direccion: "", entreCalles: "", barrio: "", zona: "",
-  fecha: "", franja: "", nota: "", medioPago: "Mercado Pago",
+  fecha: "", franjaInicio: "", franjaFin: "", nota: "", medioPago: "Mercado Pago",
   seccion: "delivery-at", cobrar: false,
 };
 
@@ -1416,15 +1416,15 @@ const franjas = Object.keys(porFranja).sort((a, b) => {
       id, numero: `#M${Date.now().toString().slice(-4)}`, cliente: form.cliente, telefono: form.telefono,
       email: form.email || "",
       direccion: form.direccion, barrio: form.barrio, entreCalles: form.entreCalles || "",
-      zona: form.zona || "Sin zona", fecha: form.fecha, franja: form.franja,
-      fechaDisplay: form.fecha, franjaDisplay: form.franja || "Sin franja",
+      zona: form.zona || "Sin zona", fecha: form.fecha, franja: (form.franjaInicio && form.franjaFin) ? `${form.franjaInicio} – ${form.franjaFin}` : "",
+      fechaDisplay: form.fecha, franjaDisplay: (form.franjaInicio && form.franjaFin) ? `${form.franjaInicio} – ${form.franjaFin}` : "Sin franja",
       productos: productosStr, totalNum: totalCarrito, total: `$${totalCarrito.toLocaleString("es-AR")}`,
       pago: form.medioPago === "Efectivo" ? "Pendiente" : "Pagado",
       medioPago: form.medioPago, cobrar: form.cobrar, tabActual: form.seccion, local: localLabel(form.seccion),
       nota: form.nota, esManual: true, estado: "Por empaquetar", repartidor: "Sin asignar",
     };
     await axios.post(`${API}/api/pedidos-manuales`, nuevoPedido).catch(console.error);
-    const estadoInicial = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: form.fecha, franjaManual: form.franja, cobrar: form.cobrar };
+    const estadoInicial = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: form.fecha, franjaManual: (form.franjaInicio && form.franjaFin) ? `${form.franjaInicio} – ${form.franjaFin}` : "", cobrar: form.cobrar };
     await axios.post(`${API}/api/estados/${id}`, estadoInicial).catch(console.error);
     setPedidosManuales(prev => [...prev, nuevoPedido]);
     setPedidosLocales(prev => ({ ...prev, [id]: estadoInicial }));
@@ -2099,7 +2099,7 @@ yNvfREM3VsoSbEMGnHUweT0=
                 <div style={s.formBloque}><label style={s.formLabel}>Barrio</label><input style={s.formInput} value={form.barrio} onChange={e => setForm(f => ({...f, barrio: e.target.value}))} placeholder="Barrio" /></div>
                 <div style={s.formBloque}><label style={s.formLabel}>Zona de entrega</label><input style={s.formInput} value={form.zona} onChange={e => setForm(f => ({...f, zona: e.target.value}))} placeholder="ej: CABA, Zona Norte 1..." /></div>
                 <div style={s.formBloque}><label style={s.formLabel}>Fecha de entrega</label><input type="date" style={s.formInput} value={form.fecha} onChange={e => setForm(f => ({...f, fecha: e.target.value}))} /></div>
-                <div style={s.formBloque}><label style={s.formLabel}>Horario</label><input style={s.formInput} value={form.franja} onChange={e => setForm(f => ({...f, franja: e.target.value}))} placeholder="ej: 14:00 – 16:00" /></div>
+<div style={s.formBloque}><label style={s.formLabel}>Horario</label><div style={{ display: "flex", gap: 6, alignItems: "center" }}><input type="time" style={{ ...s.formInput, flex: 1 }} value={form.franjaInicio} onChange={e => setForm(f => ({...f, franjaInicio: e.target.value}))} /><span style={{ color: "#888", fontSize: 14 }}>–</span><input type="time" style={{ ...s.formInput, flex: 1 }} value={form.franjaFin} onChange={e => setForm(f => ({...f, franjaFin: e.target.value}))} /></div></div>
                 <div style={s.formBloque}><label style={s.formLabel}>Medio de pago</label><select style={s.formInput} value={form.medioPago} onChange={e => setForm(f => ({...f, medioPago: e.target.value}))}>{MEDIOS_PAGO.map(m => <option key={m}>{m}</option>)}</select></div>
                 <div style={s.formBloque}><label style={s.formLabel}>Sección</label><select style={s.formInput} value={form.seccion} onChange={e => setForm(f => ({...f, seccion: e.target.value}))}>{TABS.filter(t => t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}</select></div>
                 <div style={{ ...s.formBloque, gridColumn: "span 2" }}><label style={s.formLabel}>Nota</label><textarea style={{ ...s.formInput, height: 60, resize: "vertical" }} value={form.nota} onChange={e => setForm(f => ({...f, nota: e.target.value}))} placeholder="Nota adicional..." /></div>
