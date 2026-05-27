@@ -126,7 +126,13 @@ async function initDB() {
   await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS email_override TEXT;`);
   await pool.query(`ALTER TABLE facturas ADD COLUMN IF NOT EXISTS local TEXT;`);
 await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
-  await pool.query(`INSERT INTO repartidores (nombre) VALUES ('Sin asignar') ON CONFLICT (nombre) DO NOTHING;`);
+await pool.query(`CREATE TABLE IF NOT EXISTS geocoding_cache (
+    address_key TEXT PRIMARY KEY,
+    lat NUMERIC NOT NULL,
+    lng NUMERIC NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+  );`);  
+await pool.query(`INSERT INTO repartidores (nombre) VALUES ('Sin asignar') ON CONFLICT (nombre) DO NOTHING;`);
   console.log("DB inicializada");
   await initAuthDB(pool);
 }
@@ -488,6 +494,108 @@ app.delete("/api/repartidores/:id", requireAdmin, async (req, res) => {
     await pool.query("UPDATE repartidores SET activo = false WHERE id = $1 AND nombre != 'Sin asignar'", [req.params.id]);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+// ─── MAPA DE PEDIDOS ───────────────────────────────────────────────────
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || "";
+
+async function geocodificar(direccionCompleta) {
+  // Check cache
+  const key = direccionCompleta.toLowerCase().trim();
+  try {
+    const cached = await pool.query("SELECT lat, lng FROM geocoding_cache WHERE address_key=$1", [key]);
+    if (cached.rows.length > 0) return { lat: Number(cached.rows[0].lat), lng: Number(cached.rows[0].lng), cached: true };
+  } catch(e) {}
+
+  // Call Google Geocoding API
+  if (!GOOGLE_MAPS_API_KEY) return null;
+  try {
+    const res = await axios.get("https://maps.googleapis.com/maps/api/geocode/json", {
+      params: { address: direccionCompleta, key: GOOGLE_MAPS_API_KEY, region: "ar", language: "es" }
+    });
+    if (res.data.status === "OK" && res.data.results[0]) {
+      const loc = res.data.results[0].geometry.location;
+      await pool.query("INSERT INTO geocoding_cache (address_key, lat, lng) VALUES ($1,$2,$3) ON CONFLICT (address_key) DO NOTHING", [key, loc.lat, loc.lng]);
+      return { lat: loc.lat, lng: loc.lng, cached: false };
+    }
+  } catch(e) { console.error("Geocoding error:", e.message); }
+  return null;
+}
+
+app.get("/api/mapa/pedidos/:fecha", async (req, res) => {
+  const { fecha } = req.params;
+  try {
+    // Pedidos TN
+    const tnRes = await pool.query("SELECT data FROM pedidos_tn ORDER BY tn_created_at DESC LIMIT 500");
+    const estadosRes = await pool.query("SELECT * FROM pedidos_estados");
+    const estadosMap = {};
+    estadosRes.rows.forEach(r => { estadosMap[r.id] = { estado: r.estado, repartidor: r.repartidor, fechaManual: r.fecha_manual, franjaManual: r.franja_manual, cobrar: r.cobrar, tabManual: r.tab_manual }; });
+    const overridesRes = await pool.query("SELECT * FROM pedidos_productos");
+    const overridesMap = {};
+    overridesRes.rows.forEach(r => { overridesMap[r.pedido_id] = { productos: r.productos, total_num: Number(r.total_num) }; });
+
+    const pedidos = [];
+
+    for (const row of tnRes.rows) {
+      const p = row.data;
+      const est = estadosMap[String(p.id)] || {};
+      const estado = est.estado || "Por empaquetar";
+      if (estado === "Entregado" || estado === "Anulado") continue;
+      const { fecha: fechaP, franja } = parsearFranjaBackend(p.owner_note);
+      const fechaDisplay = est.fechaManual || fechaP;
+      if (fechaDisplay !== fecha) continue;
+      const tabAuto = clasificarPedidoBackend(p);
+      const tabActual = est.tabManual || tabAuto;
+      if (tabActual.startsWith("retiro")) continue; // solo delivery
+      const dir = `${p.shipping_address?.address || ""} ${p.shipping_address?.number || ""}`.trim();
+      const barrio = p.shipping_address?.locality || p.shipping_address?.city || "";
+      const ov = overridesMap[String(p.id)];
+      pedidos.push({
+        id: String(p.id), numero: `#${p.number}`, cliente: p.contact_name || "",
+        telefono: p.contact_phone || "", direccion: dir, barrio,
+        franjaDisplay: est.franjaManual || franja || "Sin franja",
+        productos: ov ? ov.productos : p.products.map(pr => `${pr.name} x${pr.quantity}`).join(", "),
+        total: ov ? ov.total_num : Number(p.total),
+        estado, repartidor: est.repartidor || "Sin asignar",
+        cobrar: !!est.cobrar, local: localLabelBackend(tabActual),
+        addressFull: `${dir}, ${barrio}, Buenos Aires, Argentina`,
+      });
+    }
+
+    // Pedidos manuales
+    const manualesRes = await pool.query("SELECT * FROM pedidos_manuales ORDER BY created_at DESC");
+    for (const p of manualesRes.rows) {
+      const est = estadosMap[p.id] || {};
+      const estado = est.estado || "Por empaquetar";
+      if (estado === "Entregado" || estado === "Anulado") continue;
+      const fechaDisplay = est.fechaManual || p.fecha;
+      if (fechaDisplay !== fecha) continue;
+      const tabActual = est.tabManual || p.tab_actual;
+      if (tabActual.startsWith("retiro")) continue;
+      const ov = overridesMap[p.id];
+      pedidos.push({
+        id: p.id, numero: p.numero, cliente: p.cliente || "",
+        telefono: p.telefono || "", direccion: p.direccion || "", barrio: p.barrio || "",
+        franjaDisplay: est.franjaManual || p.franja || "Sin franja",
+        productos: ov ? ov.productos : p.productos,
+        total: ov ? ov.total_num : Number(p.total_num),
+        estado, repartidor: est.repartidor || "Sin asignar",
+        cobrar: est.cobrar !== undefined ? !!est.cobrar : !!p.cobrar,
+        local: localLabelBackend(tabActual),
+        addressFull: `${p.direccion || ""}, ${p.barrio || ""}, Buenos Aires, Argentina`,
+      });
+    }
+
+    // Geocodificar todos
+    for (const p of pedidos) {
+      const geo = await geocodificar(p.addressFull);
+      if (geo) { p.lat = geo.lat; p.lng = geo.lng; }
+    }
+
+    res.json(pedidos.filter(p => p.lat && p.lng));
+  } catch (err) {
+    console.error("Error mapa pedidos:", err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 // ─── CAJA ──────────────────────────────────────────────────────────────
 app.post("/api/caja/apertura", async (req, res) => {
