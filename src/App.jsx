@@ -807,6 +807,7 @@
     const [fecha, setFecha] = useState(HOY);
     const [pedidos, setPedidos] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [filtroFranja, setFiltroFranja] = useState("");
     const [mapLoaded, setMapLoaded] = useState(false);
     const mapRef = useRef(null);
     const mapInstanceRef = useRef(null);
@@ -850,12 +851,12 @@
       if (!mapInstanceRef.current || !mapLoaded) return;
       markersRef.current.forEach(m => m.setMap(null));
       markersRef.current = [];
-      if (pedidos.length === 0) return;
+      if (pedidosFiltrados.length === 0) return;
 
       const bounds = new window.google.maps.LatLngBounds();
       const ESTADO_PIN = { "Por empaquetar": "#888", "Listo": "#F68B32", "En camino": "#0c447c" };
 
-      pedidos.forEach(p => {
+      pedidosFiltrados.forEach(p => {
         const pos = { lat: p.lat, lng: p.lng };
         bounds.extend(pos);
         const color = ESTADO_PIN[p.estado] || "#888";
@@ -865,13 +866,13 @@
           title: `${p.numero} — ${p.franjaDisplay}`,
           icon: {
             path: window.google.maps.SymbolPath.CIRCLE,
-            scale: 10,
+            scale: 14,
             fillColor: color,
             fillOpacity: 0.9,
             strokeColor: "#fff",
             strokeWeight: 2,
           },
-          label: { text: p.numero.replace("#", ""), color: "#fff", fontSize: "8px", fontWeight: "bold" },
+          label: { text: p.numero.replace("#", ""), color: "#fff", fontSize: "9px", fontWeight: "bold" },
         });
         marker.addListener("click", () => {
           infoRef.current.setContent(`
@@ -893,10 +894,12 @@
         markersRef.current.push(marker);
       });
       mapInstanceRef.current.fitBounds(bounds, 60);
-    }, [pedidos, mapLoaded]);
+    }, [pedidos, mapLoaded, filtroFranja]);
 
-    const porEstado = { "Por empaquetar": 0, "Listo": 0, "En camino": 0 };
-    pedidos.forEach(p => { if (porEstado[p.estado] !== undefined) porEstado[p.estado]++; });
+    const franjasDisponibles = [...new Set(pedidos.map(p => p.franjaDisplay).filter(Boolean))].sort();
+  const pedidosFiltrados = filtroFranja ? pedidos.filter(p => p.franjaDisplay === filtroFranja) : pedidos;
+  const porEstado = { "Por empaquetar": 0, "Listo": 0, "En camino": 0 };
+  pedidosFiltrados.forEach(p => { if (porEstado[p.estado] !== undefined) porEstado[p.estado]++; });
 
     return (
       <div style={{ fontFamily: "system-ui, sans-serif", minHeight: "100vh", background: "#f7f7f5" }}>
@@ -908,6 +911,11 @@
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <input type="date" style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }}
               value={fecha} onChange={e => setFecha(e.target.value)} />
+            <select style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }}
+            value={filtroFranja} onChange={e => setFiltroFranja(e.target.value)}>
+            <option value="">Todas las franjas</option>
+            {franjasDisponibles.map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
             <div style={{ display: "flex", gap: 8 }}>
               {[["Por empaquetar", "#888"], ["Listo", "#F68B32"], ["En camino", "#0c447c"]].map(([est, col]) => (
                 <span key={est} style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
@@ -916,7 +924,7 @@
                 </span>
               ))}
             </div>
-            <span style={{ fontSize: 13, fontWeight: 600, color: "#F68B32" }}>{pedidos.length} pedidos</span>
+<span style={{ fontSize: 13, fontWeight: 600, color: "#F68B32" }}>{pedidosFiltrados.length} pedidos</span>
           </div>
         </div>
         {loading && <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 10, background: "#fff", padding: "12px 24px", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.15)", fontSize: 13, color: "#555" }}>Cargando pedidos...</div>}
