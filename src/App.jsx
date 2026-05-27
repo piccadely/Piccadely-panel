@@ -1599,10 +1599,11 @@ yNvfREM3VsoSbEMGnHUweT0=
 
       if (!qz.websocket.isActive()) await qz.websocket.connect();
       const printers = await qz.printers.find();
-      const nombreImpresora = printers.find(pr =>
-        pr.includes("GP-80160") || pr.includes("POS-80") || pr.includes("POS-90") ||
-        pr.includes("POS Printer") || pr.includes("203DPI") || pr.includes("Thermal") || pr.includes("Receipt")
-      ) || printers[0];
+      const nombreImpresora = 
+  printers.find(pr => pr.includes("GP-80160")) ||
+  printers.find(pr => pr.includes("POS-80") || pr.includes("POS-90") || pr.includes("Thermal") || pr.includes("Receipt")) ||
+  printers.find(pr => pr.includes("POS Printer") || pr.includes("203DPI")) ||
+  printers[0];
       const config = qz.configs.create(nombreImpresora, { encoding: "IBM858" });
       await qz.print(config, [{ type: "raw", format: "command", data: lineas.join("") }]);
     } catch (err) {
