@@ -125,20 +125,39 @@ async function initDB() {
   await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS nota_override TEXT;`);
   await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS email_override TEXT;`);
   await pool.query(`ALTER TABLE facturas ADD COLUMN IF NOT EXISTS local TEXT;`);
-await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
-await pool.query(`CREATE TABLE IF NOT EXISTS geocoding_cache (
+  await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS geocoding_cache (
     address_key TEXT PRIMARY KEY,
     lat NUMERIC NOT NULL,
     lng NUMERIC NOT NULL,
     created_at TIMESTAMP DEFAULT NOW()
-  );`);  
-await pool.query(`INSERT INTO repartidores (nombre) VALUES ('Sin asignar') ON CONFLICT (nombre) DO NOTHING;`);
+  );`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS auditoria (
+    id SERIAL PRIMARY KEY,
+    usuario TEXT NOT NULL,
+    accion TEXT NOT NULL,
+    entidad_tipo TEXT NOT NULL,
+    entidad_id TEXT NOT NULL,
+    detalle JSONB,
+    created_at TIMESTAMP DEFAULT NOW()
+  );`);
+  await pool.query(`INSERT INTO repartidores (nombre) VALUES ('Sin asignar') ON CONFLICT (nombre) DO NOTHING;`);
   console.log("DB inicializada");
   await initAuthDB(pool);
 }
 initDB().catch(console.error);
 
 const { requireAuth, requireAdmin, requireRole } = setupAuth(app, pool);
+
+// ─── AUDITORIA HELPER ────────────────────────────────────────────────
+async function registrarAuditoria(usuario, accion, entidadTipo, entidadId, detalle = {}) {
+  try {
+    await pool.query(
+      "INSERT INTO auditoria (usuario, accion, entidad_tipo, entidad_id, detalle) VALUES ($1,$2,$3,$4,$5)",
+      [usuario || "Sistema", accion, entidadTipo, String(entidadId), JSON.stringify(detalle)]
+    );
+  } catch (e) { console.error("Error auditoria:", e.message); }
+}
 
 // ─── HEALTH CHECK ────────────────────────────────────────────────────
 app.get("/api/health", async (req, res) => {
@@ -218,15 +237,9 @@ const TF_CUIT_EMISOR = process.env.TF_CUIT_EMISOR || "30712271503";
 
 function getTFCredentials(local) {
   if (local === "French") {
-    return {
-      usertoken: process.env.TF_USERTOKEN_FR,
-      pdv: process.env.TF_PDV_FR || "00018",
-    };
+    return { usertoken: process.env.TF_USERTOKEN_FR, pdv: process.env.TF_PDV_FR || "00018" };
   }
-  return {
-    usertoken: process.env.TF_USERTOKEN_AT,
-    pdv: process.env.TF_PDV_AT || "00017",
-  };
+  return { usertoken: process.env.TF_USERTOKEN_AT, pdv: process.env.TF_PDV_AT || "00017" };
 }
 
 // ─── MAIL ─────────────────────────────────────────────────────────────
@@ -359,14 +372,10 @@ app.get("/api/estados", async (req, res) => {
         estado: r.estado, repartidor: r.repartidor,
         tabManual: r.tab_manual, fechaManual: r.fecha_manual,
         franjaManual: r.franja_manual, cobrar: r.cobrar,
-        clienteOverride: r.cliente_override,
-        telefonoOverride: r.telefono_override,
-        direccionOverride: r.direccion_override,
-        barrioOverride: r.barrio_override,
-        zonaOverride: r.zona_override,
-        medioPagoOverride: r.medio_pago_override,
-        notaOverride: r.nota_override,
-        emailOverride: r.email_override,
+        clienteOverride: r.cliente_override, telefonoOverride: r.telefono_override,
+        direccionOverride: r.direccion_override, barrioOverride: r.barrio_override,
+        zonaOverride: r.zona_override, medioPagoOverride: r.medio_pago_override,
+        notaOverride: r.nota_override, emailOverride: r.email_override,
       };
     });
     res.json(estados);
@@ -375,12 +384,15 @@ app.get("/api/estados", async (req, res) => {
 
 app.post("/api/estados/:id", async (req, res) => {
   const { id } = req.params;
-  const { estado, repartidor, tabManual, fechaManual, franjaManual, cobrar } = req.body;
+  const { estado, repartidor, tabManual, fechaManual, franjaManual, cobrar, usuario: usuarioAudit } = req.body;
   try {
+    // Leer estado previo para auditoria
+    const previo = await pool.query("SELECT * FROM pedidos_estados WHERE id=$1", [id]);
+    const prevData = previo.rows[0] || {};
+
     let mailAnularPedido = null;
     if (estado === "Anulado") {
-      const previo = await pool.query("SELECT estado FROM pedidos_estados WHERE id=$1", [id]);
-      if (previo.rows[0]?.estado !== "Anulado") {
+      if (prevData.estado !== "Anulado") {
         const manual = await pool.query("SELECT * FROM pedidos_manuales WHERE id=$1", [id]);
         if (manual.rows[0] && manual.rows[0].email) {
           mailAnularPedido = { numero: manual.rows[0].numero, cliente: manual.rows[0].cliente, email: manual.rows[0].email };
@@ -397,13 +409,19 @@ app.post("/api/estados/:id", async (req, res) => {
     `, [id, estado, repartidor, tabManual, fechaManual, franjaManual, cobrar]);
     if (mailAnularPedido) enviarMailAnulacion(mailAnularPedido).catch(console.error);
     res.json({ ok: true });
+
+    // Auditoria (no bloquea la respuesta)
+    if (estado && estado !== prevData.estado) registrarAuditoria(usuarioAudit, "cambio_estado", "pedido", id, { anterior: prevData.estado || "Por empaquetar", nuevo: estado });
+    if (estado === "Anulado" && prevData.estado !== "Anulado") registrarAuditoria(usuarioAudit, "anulacion", "pedido", id, {});
+    if (fechaManual && fechaManual !== prevData.fecha_manual) registrarAuditoria(usuarioAudit, "cambio_fecha", "pedido", id, { anterior: prevData.fecha_manual, nuevo: fechaManual });
+    if (franjaManual && franjaManual !== prevData.franja_manual) registrarAuditoria(usuarioAudit, "cambio_franja", "pedido", id, { anterior: prevData.franja_manual, nuevo: franjaManual });
   } catch (err) { res.status(500).json({ error: "Error guardando estado" }); }
 });
 
 // ─── DATOS EDITABLES DE PEDIDO ────────────────────────────────────────
 app.patch("/api/pedidos/:id/datos", async (req, res) => {
   const { id } = req.params;
-  const { esManual, cliente, telefono, direccion, barrio, zona, medioPago, nota, email } = req.body;
+  const { esManual, cliente, telefono, direccion, barrio, zona, medioPago, nota, email, usuario: usuarioAudit } = req.body;
   try {
     if (esManual) {
       await pool.query(
@@ -423,6 +441,7 @@ app.patch("/api/pedidos/:id/datos", async (req, res) => {
       );
     }
     res.json({ ok: true });
+    registrarAuditoria(usuarioAudit, "edicion_datos", "pedido", id, { cliente, telefono, direccion, barrio, zona, medioPago, nota, email });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -461,6 +480,7 @@ app.post("/api/pedidos-manuales", async (req, res) => {
     `, [p.id, p.numero, p.cliente, p.telefono, p.email || "", p.direccion, p.entreCalles, p.barrio, p.zona, p.fecha, p.franja, p.productos, p.totalNum, p.total, p.pago, p.medioPago, p.cobrar, p.tabActual, p.local, p.nota]);
     if (p.email && p.email.trim()) enviarMailConfirmacion(p).catch(console.error);
     res.json({ ok: true });
+    registrarAuditoria(p.usuario || "Sistema", "creacion_manual", "pedido", p.id, { numero: p.numero, cliente: p.cliente });
   } catch (err) { res.status(500).json({ error: "Error guardando pedido manual" }); }
 });
 
@@ -495,18 +515,16 @@ app.delete("/api/repartidores/:id", requireAdmin, async (req, res) => {
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
 // ─── MAPA DE PEDIDOS ───────────────────────────────────────────────────
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || "";
 
 async function geocodificar(direccionCompleta) {
-  // Check cache
   const key = direccionCompleta.toLowerCase().trim();
   try {
     const cached = await pool.query("SELECT lat, lng FROM geocoding_cache WHERE address_key=$1", [key]);
     if (cached.rows.length > 0) return { lat: Number(cached.rows[0].lat), lng: Number(cached.rows[0].lng), cached: true };
   } catch(e) {}
-
-  // Call Google Geocoding API
   if (!GOOGLE_MAPS_API_KEY) return null;
   try {
     const res = await axios.get("https://maps.googleapis.com/maps/api/geocode/json", {
@@ -524,7 +542,6 @@ async function geocodificar(direccionCompleta) {
 app.get("/api/mapa/pedidos/:fecha", async (req, res) => {
   const { fecha } = req.params;
   try {
-    // Pedidos TN
     const tnRes = await pool.query("SELECT data FROM pedidos_tn ORDER BY tn_created_at DESC LIMIT 500");
     const estadosRes = await pool.query("SELECT * FROM pedidos_estados");
     const estadosMap = {};
@@ -532,9 +549,7 @@ app.get("/api/mapa/pedidos/:fecha", async (req, res) => {
     const overridesRes = await pool.query("SELECT * FROM pedidos_productos");
     const overridesMap = {};
     overridesRes.rows.forEach(r => { overridesMap[r.pedido_id] = { productos: r.productos, total_num: Number(r.total_num) }; });
-
     const pedidos = [];
-
     for (const row of tnRes.rows) {
       const p = row.data;
       const est = estadosMap[String(p.id)] || {};
@@ -545,7 +560,7 @@ app.get("/api/mapa/pedidos/:fecha", async (req, res) => {
       if (fechaDisplay !== fecha) continue;
       const tabAuto = clasificarPedidoBackend(p);
       const tabActual = est.tabManual || tabAuto;
-      if (tabActual.startsWith("retiro")) continue; // solo delivery
+      if (tabActual.startsWith("retiro")) continue;
       const dir = `${p.shipping_address?.address || ""} ${p.shipping_address?.number || ""}`.trim();
       const barrio = p.shipping_address?.locality || p.shipping_address?.city || "";
       const ov = overridesMap[String(p.id)];
@@ -560,8 +575,6 @@ app.get("/api/mapa/pedidos/:fecha", async (req, res) => {
         addressFull: `${dir}, ${barrio}, Buenos Aires, Argentina`,
       });
     }
-
-    // Pedidos manuales
     const manualesRes = await pool.query("SELECT * FROM pedidos_manuales ORDER BY created_at DESC");
     for (const p of manualesRes.rows) {
       const est = estadosMap[p.id] || {};
@@ -584,28 +597,38 @@ app.get("/api/mapa/pedidos/:fecha", async (req, res) => {
         addressFull: `${p.direccion || ""}, ${p.barrio || ""}, Buenos Aires, Argentina`,
       });
     }
-
-    // Geocodificar todos
     for (const p of pedidos) {
       const geo = await geocodificar(p.addressFull);
       if (geo) { p.lat = geo.lat; p.lng = geo.lng; }
     }
-
     res.json(pedidos.filter(p => p.lat && p.lng));
   } catch (err) {
     console.error("Error mapa pedidos:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
+
+// ─── AUDITORIA ─────────────────────────────────────────────────────
+app.get("/api/auditoria/:entidadId", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM auditoria WHERE entidad_id=$1 ORDER BY created_at DESC LIMIT 50",
+      [req.params.entidadId]
+    );
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── CAJA ──────────────────────────────────────────────────────────────
 app.post("/api/caja/apertura", async (req, res) => {
-  const { local, fecha, montoInicial } = req.body;
+  const { local, fecha, montoInicial, usuario: usuarioAudit } = req.body;
   try {
     const existe = await pool.query("SELECT id FROM caja_aperturas WHERE local=$1 AND fecha=$2", [local, fecha]);
     if (existe.rows.length > 0) return res.json({ ok: true, yaExiste: true });
     await pool.query("INSERT INTO caja_aperturas (local, fecha, monto_inicial) VALUES ($1,$2,$3)", [local, fecha, montoInicial]);
     await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'apertura','Apertura de caja',$2,$3)", [local, montoInicial, fecha]);
     res.json({ ok: true });
+    registrarAuditoria(usuarioAudit, "apertura_caja", "caja", local, { fecha, montoInicial });
   } catch (err) { res.status(500).json({ error: "Error en apertura de caja" }); }
 });
 
@@ -619,19 +642,21 @@ app.get("/api/caja/estado/:local/:fecha", async (req, res) => {
 });
 
 app.post("/api/caja/ajuste", async (req, res) => {
-  const { local, fecha, tipo, concepto, monto } = req.body;
+  const { local, fecha, tipo, concepto, monto, usuario: usuarioAudit } = req.body;
   try {
     await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,$2,$3,$4,$5)", [local, tipo, concepto, monto, fecha]);
     res.json({ ok: true });
+    registrarAuditoria(usuarioAudit, "ajuste_caja", "caja", local, { fecha, tipo, concepto, monto });
   } catch (err) { res.status(500).json({ error: "Error registrando ajuste" }); }
 });
 
 app.post("/api/caja/cierre", async (req, res) => {
-  const { local, fecha, montoCierre } = req.body;
+  const { local, fecha, montoCierre, usuario: usuarioAudit } = req.body;
   try {
     await pool.query("UPDATE caja_aperturas SET cerrada=true, monto_cierre=$1 WHERE local=$2 AND fecha=$3", [montoCierre, local, fecha]);
     await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'cierre','Cierre Z',$2,$3)", [local, montoCierre, fecha]);
     res.json({ ok: true });
+    registrarAuditoria(usuarioAudit, "cierre_caja", "caja", local, { fecha, montoCierre });
   } catch (err) { res.status(500).json({ error: "Error en cierre de caja" }); }
 });
 
@@ -678,7 +703,7 @@ app.get("/api/facturas/:pedidoId", async (req, res) => {
 });
 
 app.post("/api/facturar", async (req, res) => {
-  const { pedidoId, tipo, cliente, documentoTipo, documentoNro, razonSocial, domicilio, email, total, productos, local } = req.body;
+  const { pedidoId, tipo, cliente, documentoTipo, documentoNro, razonSocial, domicilio, email, total, productos, local, usuario: usuarioAudit } = req.body;
   const { usertoken: TF_USERTOKEN, pdv: TF_PDV } = getTFCredentials(local);
   const esFacturaA = tipo === "FACTURA A";
   const esExento = tipo === "FACTURA B EXENTO";
@@ -716,13 +741,14 @@ app.post("/api/facturar", async (req, res) => {
     if (data.error === "N") {
       await pool.query(`INSERT INTO facturas (pedido_id, tipo, numero, cae, vencimiento_cae, cliente, documento_tipo, documento_nro, total, pdf_url, fecha, datos_raw, local) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
         [pedidoId, tipo, data.comprobante_nro, data.cae, data.vencimiento_cae, clienteObj.razon_social, clienteObj.documento_tipo, clienteObj.documento_nro, totalNum, data.comprobante_pdf_url || "", fechaHoy(), JSON.stringify(data), local]);
+      registrarAuditoria(usuarioAudit, "facturacion", "pedido", pedidoId, { tipo, numero: data.comprobante_nro, total: totalNum });
       res.json({ ok: true, data });
     } else { res.json({ ok: false, error: data.errores || data }); }
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 app.post("/api/nota-credito", async (req, res) => {
-  const { facturaId, pedidoId } = req.body;
+  const { facturaId, pedidoId, usuario: usuarioAudit } = req.body;
   try {
     const facturaRes = await pool.query("SELECT * FROM facturas WHERE id=$1 AND pedido_id=$2", [facturaId, pedidoId]);
     if (facturaRes.rows.length === 0) return res.json({ ok: false, error: "Factura no encontrada" });
@@ -731,7 +757,6 @@ app.post("/api/nota-credito", async (req, res) => {
     const facturaActiva = obtenerFacturaActiva(todasRes.rows);
     if (!facturaActiva || Number(facturaActiva.id) !== Number(factura.id)) return res.json({ ok: false, error: "Esta factura ya no está activa." });
 
-    // Usar las mismas credenciales con las que se emitió la factura original
     const localFactura = factura.local || "A. Thomas";
     const { usertoken: TF_USERTOKEN, pdv: TF_PDV } = getTFCredentials(localFactura);
 
@@ -747,6 +772,7 @@ app.post("/api/nota-credito", async (req, res) => {
     if (data.error === "N") {
       await pool.query(`INSERT INTO facturas (pedido_id, tipo, numero, cae, vencimiento_cae, cliente, documento_tipo, documento_nro, total, pdf_url, fecha, datos_raw, local) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
         [pedidoId, tipoNC, data.comprobante_nro, data.cae, data.vencimiento_cae, clienteObj.razon_social, clienteObj.documento_tipo, clienteObj.documento_nro, totalNum, data.comprobante_pdf_url || "", fechaHoy(), JSON.stringify(data), localFactura]);
+      registrarAuditoria(usuarioAudit, "nota_credito", "pedido", pedidoId, { factura_numero: factura.numero, tipo: tipoNC });
       return res.json({ ok: true, data });
     }
     return res.json({ ok: false, error: data.errores || data });
@@ -1090,6 +1116,7 @@ app.post("/api/agente", async (req, res) => {
     res.status(500).json({ error: "Error al consultar el agente" });
   }
 });
+
 // ─── RE-SYNC PERIÓDICO DE PEDIDOS RECIENTES ─────────────────────────
 async function resyncPedidosRecientes() {
   try {
@@ -1110,8 +1137,6 @@ async function resyncPedidosRecientes() {
   } catch (err) { console.error("Re-sync error:", err.message); }
 }
 
-// Correr cada 5 minuto
 setInterval(resyncPedidosRecientes, 5 * 60 * 1000);
-// Correr una vez al arrancar el servidor (después de 30 segundos)
 setTimeout(resyncPedidosRecientes, 30000);
 app.listen(process.env.PORT || 3001, () => { console.log("Servidor corriendo"); });

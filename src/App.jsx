@@ -85,9 +85,9 @@
 
   const HOY = new Date().toISOString().split("T")[0];
 
-  function guardarEstadoDB(id, estado) {
-    axios.post(`${API}/api/estados/${id}`, estado).catch(console.error);
-  }
+  function guardarEstadoDB(id, estado, usuario) {
+  axios.post(`${API}/api/estados/${id}`, { ...estado, usuario }).catch(console.error);
+}
 
   function fmt(n) { return `$${Number(n).toLocaleString("es-AR")}`; }
   function sumar(arr) { return arr.reduce((a, p) => a + p.totalNum, 0); }
@@ -802,6 +802,66 @@
       </div>
     );
   }
+  // ─── AUDITORIA INLINE ────────────────────────────────────────────────
+function AuditoriaInline({ pedidoId }) {
+  const [registros, setRegistros] = useState([]);
+  const [abierto, setAbierto] = useState(false);
+  const [cargado, setCargado] = useState(false);
+
+  function cargar() {
+    if (cargado) { setAbierto(a => !a); return; }
+    axios.get(`${API}/api/auditoria/${pedidoId}`)
+      .then(res => { setRegistros(res.data); setCargado(true); setAbierto(true); })
+      .catch(() => setCargado(true));
+  }
+
+  const ACCION_LABEL = {
+    cambio_estado: "Cambió estado",
+    anulacion: "Anuló pedido",
+    creacion_manual: "Creó pedido",
+    edicion_datos: "Editó datos",
+    facturacion: "Facturó",
+    nota_credito: "Nota de crédito",
+    cambio_fecha: "Cambió fecha",
+    cambio_franja: "Cambió horario",
+  };
+
+  function detalleTexto(r) {
+    const d = typeof r.detalle === "string" ? JSON.parse(r.detalle) : (r.detalle || {});
+    if (r.accion === "cambio_estado") return `${d.anterior || "—"} → ${d.nuevo || "—"}`;
+    if (r.accion === "cambio_fecha") return `${d.anterior || "sin fecha"} → ${d.nuevo || "—"}`;
+    if (r.accion === "cambio_franja") return `${d.anterior || "sin franja"} → ${d.nuevo || "—"}`;
+    if (r.accion === "facturacion") return `${d.tipo} Nº ${d.numero} · $${d.total}`;
+    if (r.accion === "nota_credito") return `Anuló ${d.factura_numero}`;
+    if (r.accion === "creacion_manual") return `${d.numero} — ${d.cliente}`;
+    if (r.accion === "edicion_datos") {
+      const campos = Object.entries(d).filter(([k, v]) => v && k !== "esManual").map(([k]) => k);
+      return campos.length > 0 ? `Campos: ${campos.join(", ")}` : "";
+    }
+    return "";
+  }
+
+  return (
+    <div style={{ marginTop: 10, borderTop: "1px solid #eee", paddingTop: 8 }}>
+      <button onClick={e => { e.stopPropagation(); cargar(); }}
+        style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #ddd", background: registros.length > 0 ? "#f9f9f7" : "#fff", cursor: "pointer", color: "#888" }}>
+        📜 Historial {cargado && `(${registros.length})`} {abierto ? "▲" : "▼"}
+      </button>
+      {abierto && (
+        <div style={{ marginTop: 8, maxHeight: 200, overflowY: "auto" }}>
+          {registros.length === 0 && <div style={{ fontSize: 11, color: "#aaa", padding: "4px 0" }}>Sin registros</div>}
+          {registros.map(r => (
+            <div key={r.id} style={{ display: "flex", gap: 8, padding: "5px 0", borderBottom: "1px solid #f5f5f5", fontSize: 11, alignItems: "flex-start" }}>
+              <span style={{ color: "#aaa", minWidth: 110, flexShrink: 0 }}>{new Date(r.created_at).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                           <span style={{ color: "#F68B32", fontWeight: 600, minWidth: 80, flexShrink: 0 }}>{r.usuario}</span>
+              <span style={{ color: "#555" }}><strong>{ACCION_LABEL[r.accion] || r.accion}</strong>{detalleTexto(r) ? ` — ${detalleTexto(r)}` : ""}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
   // ─── MAPA DE PEDIDOS ─────────────────────────────────────────────────
   function VistaMapa({ onVolver }) {
     const [fecha, setFecha] = useState(HOY);
@@ -1471,22 +1531,22 @@
     return a.localeCompare(b);
   });
     function actualizarLocal(id, cambios) {
-      setPedidosLocales(prev => { const nuevo = { ...prev, [id]: { ...prev[id], ...cambios } }; guardarEstadoDB(id, nuevo[id]); return nuevo; });
-    }
+    setPedidosLocales(prev => { const nuevo = { ...prev, [id]: { ...prev[id], ...cambios } }; guardarEstadoDB(id, nuevo[id], usuario.nombre_completo); return nuevo; });
+  }
     function actualizarLocalSinGuardar(id, cambios) {
       setPedidosLocales(prev => ({ ...prev, [id]: { ...prev[id], ...cambios } }));
     }
     function guardarLocalEnDB(id) {
-      setPedidosLocales(prev => { if (prev[id]) guardarEstadoDB(id, prev[id]); return prev; });
-    }
+    setPedidosLocales(prev => { if (prev[id]) guardarEstadoDB(id, prev[id], usuario.nombre_completo); return prev; });
+  }
     function cambiarEstado(id, e) {
-      e.stopPropagation();
-      setPedidosLocales(prev => {
-        const nuevoEstado = nextEstado(prev[id]?.estado || "Por empaquetar");
-        const nuevo = { ...prev, [id]: { ...prev[id], estado: nuevoEstado } };
-        guardarEstadoDB(id, nuevo[id]); return nuevo;
-      });
-    }
+    e.stopPropagation();
+    setPedidosLocales(prev => {
+      const nuevoEstado = nextEstado(prev[id]?.estado || "Por empaquetar");
+      const nuevo = { ...prev, [id]: { ...prev[id], estado: nuevoEstado } };
+      guardarEstadoDB(id, nuevo[id], usuario.nombre_completo); return nuevo;
+    });
+  }
 
     async function anularPedido(p, e) {
       e.stopPropagation();
@@ -1527,7 +1587,7 @@
         nota: nuevosOverrides.nota !== undefined ? nuevosOverrides.nota : (p.nota || ""),
         email: nuevosOverrides.email !== undefined ? nuevosOverrides.email : (p.email || ""),
       };
-      axios.patch(`${API}/api/pedidos/${id}/datos`, datosDB).catch(console.error);
+      axios.patch(`${API}/api/pedidos/${id}/datos`, { ...datosDB, usuario: usuario.nombre_completo }).catch(console.error);
     }
 
     function agregarAlCarrito(prod) {
@@ -1558,7 +1618,7 @@
         medioPago: form.medioPago, cobrar: form.cobrar, tabActual: form.seccion, local: localLabel(form.seccion),
         nota: form.nota, esManual: true, estado: "Por empaquetar", repartidor: "Sin asignar",
       };
-      await axios.post(`${API}/api/pedidos-manuales`, nuevoPedido).catch(console.error);
+      await axios.post(`${API}/api/pedidos-manuales`, { ...nuevoPedido, usuario: usuario.nombre_completo }).catch(console.error);
       const estadoInicial = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: form.fecha, franjaManual: (form.franjaInicio && form.franjaFin) ? `${form.franjaInicio} – ${form.franjaFin}` : "", cobrar: form.cobrar };
       await axios.post(`${API}/api/estados/${id}`, estadoInicial).catch(console.error);
       setPedidosManuales(prev => [...prev, nuevoPedido]);
@@ -2558,6 +2618,7 @@
                             <div style={s.detalleBloque}><div style={s.detalleLabel}>Horario de entrega</div><InputBlur type="text" placeholder="ej: 14:00 – 16:00" style={s.inputField} initialValue={franjaManual} onCommit={v => { actualizarLocalSinGuardar(p.id, { franjaManual: v }); guardarLocalEnDB(p.id); }} onClick={e => e.stopPropagation()} /></div>
                             <div style={s.detalleBloque}><div style={s.detalleLabel}>Mover a sección</div><select style={s.inputField} value={tabActual} onChange={e => cambiarTab(p.id, e.target.value)}>{TABS.filter(t => t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}</select></div>
                           </div>
+                           <AuditoriaInline pedidoId={String(p.id)} />
                           <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
                             <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>
                               🖨️ Imprimir comanda {comandasImpresas[p.id] ? <span style={{ marginLeft: 4, background: "#f39c12", color: "#fff", borderRadius: 99, fontSize: 10, padding: "1px 6px", fontWeight: 700 }}>{comandasImpresas[p.id]}</span> : null}
