@@ -34,7 +34,7 @@ const ESTADO_COLORS = {
   "Entregado":      { bg: "#eaf3de", text: "#27500a" },
 };
 
-const REPARTIDORES = ["Sin asignar", "Carlessy", "Paul", "Julio", "Ramón", "eventual", "Cabify"];
+const REPARTIDORES_DEFAULT = ["Sin asignar"];
 const MEDIOS_PAGO = ["Mercado Pago", "Efectivo", "Transferencia", "Rappi", "Pedidos Ya", "Otro"];
 
 const TABS = [
@@ -1120,6 +1120,7 @@ function PanelApp({ usuario }) {
   const [form, setForm] = useState(FORM_INICIAL);
   const [pedidoCreado, setPedidoCreado] = useState(false);
   const [comandasImpresas, setComandasImpresas] = useState({});
+  const [repartidoresLista, setRepartidoresLista] = useState(REPARTIDORES_DEFAULT);
   const [varNombre, setVarNombre] = useState("");
   const [varPrecio, setVarPrecio] = useState("");
   const [varCantidad, setVarCantidad] = useState("1");
@@ -1152,7 +1153,7 @@ function PanelApp({ usuario }) {
       axios.get(`${API}/api/orders`),
       axios.get(`${API}/api/estados`),
       axios.get(`${API}/api/pedidos-manuales`),
-    ]).then(([resOrders, resEstados, resManuales]) => {
+    ]).then(async ([resOrders, resEstados, resManuales]) => {
       setPedidosRaw(resOrders.data);
       const locales = {};
       resOrders.data.forEach(p => {
@@ -1178,7 +1179,7 @@ function PanelApp({ usuario }) {
         if (Object.keys(ov).length > 0) datosInit[id] = ov;
       });
       setPedidosDatosOverride(datosInit);
-
+try { const resRep = await axios.get(`${API}/api/repartidores`); setRepartidoresLista(resRep.data.map(r => r.nombre)); } catch(e) {}
       setLoading(false);
       const ids = [...resOrders.data.map(p => String(p.id)), ...resManuales.data.map(p => p.id)];
       cargarProductosOverride(ids);
@@ -1658,7 +1659,8 @@ yNvfREM3VsoSbEMGnHUweT0=
           </button>
           {menuAbierto && (
             <div style={s.dropdown}>
-              {usuario.rol === "admin" && <button style={s.dropItem} onClick={() => { setVista("usuarios"); setMenuAbierto(false); }}>👥 Usuarios</button>}
+{usuario.rol === "admin" && <button style={s.dropItem} onClick={() => { setVista("usuarios"); setMenuAbierto(false); }}>👥 Usuarios</button>}
+{usuario.rol === "admin" && <button style={s.dropItem} onClick={() => { setVista("repartidores"); setMenuAbierto(false); }}>🚚 Repartidores</button>}
               {usuario.rol === "admin" && (
   <button style={s.dropItem} onClick={async () => {
     setMenuAbierto(false);
@@ -1696,7 +1698,54 @@ yNvfREM3VsoSbEMGnHUweT0=
       ))}
     </div>
   );
-
+if (vista === "repartidores") {
+    return (
+      <div style={s.wrap}>
+        <Header />
+        <div style={{ padding: 24, maxWidth: 500 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+            <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
+            <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>🚚 Repartidores</h2>
+          </div>
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+              <input id="nuevoRep" style={{ ...s.formInput, flex: 1 }} placeholder="Nombre del nuevo repartidor" onKeyDown={e => { if (e.key === "Enter") document.getElementById("btnAddRep").click(); }} />
+              <button id="btnAddRep" style={{ fontSize: 12, padding: "7px 14px", borderRadius: 6, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer", fontWeight: 600 }}
+                onClick={async () => {
+                  const input = document.getElementById("nuevoRep");
+                  const nombre = input.value.trim();
+                  if (!nombre) return;
+                  try {
+                    await axios.post(`${API}/api/repartidores`, { nombre });
+                    input.value = "";
+                    const res = await axios.get(`${API}/api/repartidores`);
+                    setRepartidoresLista(res.data.map(r => r.nombre));
+                  } catch (err) { alert("Error: " + (err.response?.data?.error || err.message)); }
+                }}>+ Agregar</button>
+            </div>
+            {repartidoresLista.map((nombre, i) => (
+              <div key={nombre} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid #f5f5f5" }}>
+                <span style={{ fontSize: 13, color: "#333", fontWeight: nombre === "Sin asignar" ? 400 : 500 }}>{nombre}</span>
+                {nombre !== "Sin asignar" && (
+                  <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }}
+                    onClick={async () => {
+                      if (!window.confirm(`¿Eliminar a ${nombre}?`)) return;
+                      try {
+                        const resAll = await axios.get(`${API}/api/repartidores`);
+                        const rep = resAll.data.find(r => r.nombre === nombre);
+                        if (rep) await axios.delete(`${API}/api/repartidores/${rep.id}`);
+                        const res = await axios.get(`${API}/api/repartidores`);
+                        setRepartidoresLista(res.data.map(r => r.nombre));
+                      } catch (err) { alert("Error: " + (err.response?.data?.error || err.message)); }
+                    }}>✕ Eliminar</button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (vista === "usuarios") {
     return <div style={s.wrap}><Header /><Usuarios onVolver={() => setVista("panel")} /></div>;
   }
@@ -1746,7 +1795,7 @@ yNvfREM3VsoSbEMGnHUweT0=
               </select>
               <select style={{ ...s.select, padding: "5px 8px" }} value={rvRepartidor} onChange={e => setRvRepartidor(e.target.value)}>
                 <option value="">Todos los repartidores</option>
-                {REPARTIDORES.map(r => <option key={r} value={r}>{r}</option>)}
+                {repartidoresLista.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
               {(rvDesde || rvHasta || rvMedio || rvRepartidor) && (
                 <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setRvDesde(""); setRvHasta(""); setRvMedio(""); setRvRepartidor(""); }}>✕ Limpiar</button>
@@ -2017,7 +2066,7 @@ yNvfREM3VsoSbEMGnHUweT0=
               <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={filtroFinHasta} onChange={e => setFiltroFinHasta(e.target.value)} />
               <select style={{ ...s.select, padding: "5px 8px" }} value={filtroRepartidor} onChange={e => setFiltroRepartidor(e.target.value)}>
                 <option value="">Todos los repartidores</option>
-                {REPARTIDORES.map(r => <option key={r} value={r}>{r}</option>)}
+                {repartidoresLista.map(r => <option key={r} value={r}>{r}</option>)} 
               </select>
               {(filtroFinDesde || filtroFinHasta || filtroRepartidor) && <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setFiltroFinDesde(""); setFiltroFinHasta(""); setFiltroRepartidor(""); }}>✕ Limpiar</button>}
               {listaMostrada.length > 0 && (<><button style={btnExportar("#F68B32")} onClick={exportarFinalizadosExcel}>📊 Excel</button><button style={btnExportar("#c0392b")} onClick={exportarFinalizadosPDF}>📄 PDF</button></>)}
@@ -2360,7 +2409,7 @@ yNvfREM3VsoSbEMGnHUweT0=
                               <span style={{ fontSize: 12, color: cobrar ? "#c0392b" : "#888", fontWeight: cobrar ? 600 : 400 }}>{cobrar ? "⚠️ COBRAR" : "Ya cobrado"}</span>
                             </label>
                           </div>
-                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Repartidor</div><select style={s.inputField} value={repartidorActual} onChange={e => cambiarRepartidor(p.id, e.target.value)}>{REPARTIDORES.map(r => <option key={r}>{r}</option>)}</select></div>
+                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Repartidor</div><select style={s.inputField} value={repartidorActual} onChange={e => cambiarRepartidor(p.id, e.target.value)}>{repartidoresLista.map(r => <option key={r}>{r}</option>)}</select></div>
                           <div style={s.detalleBloque}>
                             <div style={s.detalleLabel}>Estado</div>
                             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>

@@ -125,7 +125,8 @@ async function initDB() {
   await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS nota_override TEXT;`);
   await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS email_override TEXT;`);
   await pool.query(`ALTER TABLE facturas ADD COLUMN IF NOT EXISTS local TEXT;`);
-
+await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
+  await pool.query(`INSERT INTO repartidores (nombre) VALUES ('Sin asignar') ON CONFLICT (nombre) DO NOTHING;`);
   console.log("DB inicializada");
   await initAuthDB(pool);
 }
@@ -457,6 +458,37 @@ app.post("/api/pedidos-manuales", async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Error guardando pedido manual" }); }
 });
 
+// ─── REPARTIDORES ──────────────────────────────────────────────────────
+app.get("/api/repartidores", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM repartidores WHERE activo = true ORDER BY CASE WHEN nombre = 'Sin asignar' THEN 0 ELSE 1 END, nombre ASC");
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/repartidores", requireAdmin, async (req, res) => {
+  const { nombre } = req.body;
+  if (!nombre || !nombre.trim()) return res.status(400).json({ error: "Nombre requerido" });
+  try {
+    const result = await pool.query("INSERT INTO repartidores (nombre) VALUES ($1) RETURNING *", [nombre.trim()]);
+    res.json({ ok: true, repartidor: result.rows[0] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.patch("/api/repartidores/:id", requireAdmin, async (req, res) => {
+  const { nombre, activo } = req.body;
+  try {
+    await pool.query("UPDATE repartidores SET nombre = COALESCE($1, nombre), activo = COALESCE($2, activo) WHERE id = $3", [nombre, activo, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete("/api/repartidores/:id", requireAdmin, async (req, res) => {
+  try {
+    await pool.query("UPDATE repartidores SET activo = false WHERE id = $1 AND nombre != 'Sin asignar'", [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 // ─── CAJA ──────────────────────────────────────────────────────────────
 app.post("/api/caja/apertura", async (req, res) => {
   const { local, fecha, montoInicial } = req.body;
