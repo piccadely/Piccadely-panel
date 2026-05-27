@@ -480,11 +480,11 @@ function ModalEmailMP({ pedido, onConfirmar, onCerrar }) {
 function ModalFacturacion({ p, onCerrar }) {
   const docRaw = p.identificacion || "";
   const docSinFormato = docRaw.replace(/[-\s]/g, "");
-  const esCuit = docSinFormato.length > 8;
+const esCuit = p.esFacturaA || docSinFormato.length > 8;
   const [tipo, setTipo] = useState(esCuit ? "FACTURA A" : "FACTURA B");
   const [docTipo, setDocTipo] = useState(esCuit ? "CUIT" : "DNI");
   const [docNro, setDocNro] = useState(docSinFormato);
-  const [razonSocial, setRazonSocial] = useState(p.cliente || "");
+  const [razonSocial, setRazonSocial] = useState(p.razonSocialFactura || p.cliente || "");
   const [email, setEmail] = useState(p.email || "");
   const [domicilio, setDomicilio] = useState(p.direccion || "");
   const [emitiendo, setEmitiendo] = useState(false);
@@ -1270,7 +1270,7 @@ function PanelApp({ usuario }) {
         tabActual, local: localLabel(tabActual),
         nota: ovDatos.nota !== undefined ? ovDatos.nota : (p.note || ""),
         esManual: false, entreCalles: "",
-        identificacion: p.identification?.number || "", email: ovDatos.email !== undefined ? ovDatos.email : (p.contact_email || ""),
+        identificacion: p.contact_identification || p.identification?.number || "", razonSocialFactura: p.billing_business_name || "", esFacturaA: p.billing_customer_type === "company" && p.billing_document_type === "cuit", email: ovDatos.email !== undefined ? ovDatos.email : (p.contact_email || ""),
       };
     }),
     ...pedidosManuales.map(p => {
@@ -2277,6 +2277,7 @@ yNvfREM3VsoSbEMGnHUweT0=
                         {cobrar && <span style={s.cobrarBadge}>COBRAR</span>}
                         {p.esManual && <span style={{ ...s.cobrarBadge, background: "#7c3aed" }}>MANUAL</span>}
                         {productosOverride[String(p.id)] && <span style={{ ...s.cobrarBadge, background: "#7c3aed" }}>EDITADO</span>}
+                        {p.esFacturaA && <span style={{ ...s.cobrarBadge, background: "#009ee3" }}>FACTURA A</span>}
                       </span>
                       <span style={{ ...s.cel, flex: 1, color: "#555" }}>{p.telefono}</span>
                       <span style={{ ...s.cel, flex: 2 }}>{p.direccion}</span>
