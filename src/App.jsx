@@ -195,7 +195,7 @@
     function BtnFacturar({ p, version, onAbrir }) {
       const [tieneFactura, setTieneFactura] = useState(null);
       const [pdfUrl, setPdfUrl] = useState(null);
-
+const [facturaLabel, setFacturaLabel] = useState(null);
       useEffect(() => {
         axios.get(`${API}/api/facturas/${p.id}`)
           .then(res => {
@@ -204,6 +204,7 @@
             const hayFactura = activas.length > ncs.length;
             setTieneFactura(hayFactura);
             setPdfUrl(hayFactura ? (activas[activas.length - 1]?.pdf_url || null) : null);
+            setFacturaLabel(hayFactura ? `${activas[activas.length - 1]?.tipo || ""} Nº ${activas[activas.length - 1]?.numero || ""}` : null);
           })
           .catch(() => setTieneFactura(false));
       }, [p.id, version]);
@@ -215,24 +216,11 @@
         <div style={{ display: "flex", gap: 6, marginLeft: 8 }}>
           {tieneFactura ? (
             <>
-              {pdfUrl && (
-                <button
-                  style={{ ...btnBase, border: "1px solid #F68B32", color: "#F68B32", background: "#eaf3de" }}
-                  onClick={async e => {
-                    e.stopPropagation();
-                    try {
-                      const factRes = await axios.get(`${API}/api/facturas/${p.id}`);
-                      const activas = factRes.data.filter(f => !f.tipo.includes("NOTA DE CREDITO"));
-                      const facturaActiva = activas[activas.length - 1];
-                      if (!facturaActiva) { alert("No se encontró la factura"); return; }
-                      const pdfRes = await axios.get(`${API}/api/facturas/${facturaActiva.id}/pdf-url`);
-                      if (pdfRes.data.ok) { window.open(pdfRes.data.pdf_url, "_blank"); }
-                      else { alert("Error obteniendo PDF: " + (pdfRes.data.error || "Intentá de nuevo")); }
-                    } catch (err) { alert("Error conectando con TusFacturas"); console.error(err); }
-                  }}>
-                  📄 PDF
-                </button>
-              )}  
+             {facturaLabel && (
+                <span style={{ fontSize: 11, color: "#F68B32", fontWeight: 600, padding: "7px 0", whiteSpace: "nowrap" }}>
+                  🧾 {facturaLabel}
+                </span>
+              )}
               <button style={{ ...btnBase, border: "1px solid #c0392b", color: "#c0392b", background: "#fdecea" }}
                 onClick={e => { e.stopPropagation(); onAbrir(p); }}>
                 🗑 Anular factura
@@ -1363,7 +1351,7 @@
       const [productosOverride, setProductosOverride] = useState({});
       const [pedidosDatosOverride, setPedidosDatosOverride] = useState({});
       const menuRef = useRef(null);
-
+const [facturasMap, setFacturasMap] = useState({});
       const [productos, setProductos] = useState([]);
       const [categorias, setCategorias] = useState([]);
       const [loadingProductos, setLoadingProductos] = useState(false);
@@ -1434,6 +1422,17 @@
           setPedidosDatosOverride(datosInit);
     try { const resRep = await axios.get(`${API}/api/repartidores`); setRepartidoresLista(resRep.data.map(r => r.nombre)); } catch(e) {}
           setLoading(false);
+          axios.get(`${API}/api/facturas-all`).then(resF => {
+            const grouped = {};
+            resF.data.forEach(f => { if (!grouped[f.pedido_id]) grouped[f.pedido_id] = []; grouped[f.pedido_id].push(f); });
+            const map = {};
+            Object.entries(grouped).forEach(([pid, facturas]) => {
+              const emitidas = facturas.filter(f => !f.tipo.includes("NOTA DE CREDITO"));
+              const ncs = facturas.filter(f => f.tipo.includes("NOTA DE CREDITO"));
+              if (emitidas.length > ncs.length) { const a = emitidas[emitidas.length - 1]; map[pid] = `${a.tipo} Nº ${a.numero}`; }
+            });
+            setFacturasMap(map);
+          }).catch(console.error);
           const ids = [...resOrders.data.map(p => String(p.id)), ...resManuales.data.map(p => p.id)];
           cargarProductosOverride(ids);
         }).catch(() => { setError("Error conectando con Tienda Nube"); setLoading(false); });
@@ -2297,14 +2296,14 @@
         const listaMostrada = tabFin === "entregados" ? entregados : anulados;
         const tagFin = fechaTagArchivo(filtroFinDesde, filtroFinHasta);
         const exportarFinalizadosExcel = () => {
-          const datos = listaMostrada.map(p => ({ "Nº": p.numero, "Cliente": p.cliente, "Teléfono": p.telefono, "Dirección": p.direccion + (p.barrio ? `, ${p.barrio}` : ""), "Productos": p.productos, "Medio de pago": p.medioPago, "Total": p.totalNum, "Fecha": p.fechaDisplay || "", "Local": p.local, "Estado": pedidosLocales[p.id]?.estado || p.estado, "Repartidor": pedidosLocales[p.id]?.repartidor || "Sin asignar" }));
+          const datos = listaMostrada.map(p => ({ "Nº": p.numero, "Cliente": p.cliente, "Teléfono": p.telefono, "Dirección": p.direccion + (p.barrio ? `, ${p.barrio}` : ""), "Productos": p.productos, "Medio de pago": p.medioPago, "Total": p.totalNum, "Fecha": p.fechaDisplay || "", "Local": p.local, "Factura": facturasMap[String(p.id)] || "", "Estado": pedidosLocales[p.id]?.estado || p.estado, "Repartidor": pedidosLocales[p.id]?.repartidor || "Sin asignar" }));
           exportarExcel(`pedidos_${tabFin}_${tagFin}.xlsx`, [{ name: tabFin === "entregados" ? "Entregados" : "Anulados", data: datos }]);
         };
         const exportarFinalizadosPDF = () => {
-          const filas = listaMostrada.map(p => [p.numero, p.cliente, p.telefono, (p.productos.length > 40 ? p.productos.substring(0, 40) + "..." : p.productos), p.medioPago, fmt(p.totalNum), p.fechaDisplay || "—", p.local]);
+          const filas = listaMostrada.map(p => [p.numero, p.cliente, p.telefono, (p.productos.length > 40 ? p.productos.substring(0, 40) + "..." : p.productos), p.medioPago, fmt(p.totalNum), p.fechaDisplay || "—", p.local, facturasMap[String(p.id)] || "—"]);
           const totalSum = listaMostrada.reduce((a, p) => a + p.totalNum, 0);
           const subt = (filtroFinDesde || filtroFinHasta) ? `Desde ${filtroFinDesde || "inicio"} hasta ${filtroFinHasta || "hoy"}` : "Todas las fechas";
-          exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedidos Entregados" : "Pedidos Anulados", ["Nº", "Cliente", "Teléfono", "Productos", "Pago", "Total", "Fecha", "Local"], filas, `Total: ${fmt(listaMostrada.reduce((a, p) => a + p.totalNum, 0))}  ·  ${listaMostrada.length} pedidos`, subt);
+          exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedidos Entregados" : "Pedidos Anulados", ["Nº", "Cliente", "Teléfono", "Productos", "Pago", "Total", "Fecha", "Local", "Factura"], filas, `Total: ${fmt(listaMostrada.reduce((a, p) => a + p.totalNum, 0))}  ·  ${listaMostrada.length} pedidos`, subt);
         };
         return (
           <div style={s.wrap}>
@@ -2339,6 +2338,7 @@
                   <span style={{ ...s.col, flex: 1 }}>Productos</span><span style={{ ...s.col, flex: 0.8 }}>Medio pago</span>
                   <span style={{ ...s.col, flex: 0.7, textAlign: "right" }}>Total</span><span style={{ ...s.col, flex: 0.8, textAlign: "center" }}>Fecha</span>
                   <span style={{ ...s.col, flex: 0.7, textAlign: "center" }}>Local</span>
+                  <span style={{ ...s.col, flex: 1.3 }}>Factura</span>
                 </div>
                 {listaMostrada.length === 0 && <div style={s.empty}>No hay pedidos en esta sección.</div>}
                 {listaMostrada.map(p => (
@@ -2353,6 +2353,7 @@
                       <span style={{ ...s.cel, flex: 0.7, textAlign: "right", fontWeight: 600 }}>{p.total}</span>
                       <span style={{ ...s.cel, flex: 0.8, textAlign: "center", color: "#555" }}>{p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"short"}) : "—"}</span>
                       <span style={{ ...s.cel, flex: 0.7, textAlign: "center" }}><span style={{ fontSize: 11, background: "#eaf3de", color: "#27500a", padding: "2px 7px", borderRadius: 4 }}>{p.local}</span></span>
+                      <span style={{ ...s.cel, flex: 1.3, fontSize: 11, color: "#F68B32", fontWeight: 600 }}>{facturasMap[String(p.id)] || "—"}</span>
                       <span style={s.chevron}>{expandido === p.id ? "▲" : "▼"}</span>
                     </div>
                     {expandido === p.id && (

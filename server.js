@@ -694,7 +694,14 @@ function puntoVentaDesdeNumero(numero) {
   if (s.includes("-")) return s.split("-")[0].replace(/^0+/, "") || "17";
   return "17";
 }
+
 // ─── PDF FRESCO DESDE TUSFACTURAS ────────────────────────────────────
+app.get("/api/facturas-all", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT id, pedido_id, tipo, numero FROM facturas ORDER BY created_at ASC");
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: "Error trayendo facturas" }); }
+});
 app.get("/api/facturas/:facturaId/pdf-url", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM facturas WHERE id=$1", [req.params.facturaId]);
