@@ -1009,6 +1009,8 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       const [ajuste, setAjuste] = useState({ tipo: "entrada", concepto: "", monto: "" });
       const [montoCierre, setMontoCierre] = useState("");
       const [mostrarAjuste, setMostrarAjuste] = useState(false);
+       const [mostrarSobre, setMostrarSobre] = useState(false);
+      const [sobre, setSobre] = useState({ monto: "", concepto: "" });
       const [guardando, setGuardando] = useState(false);
       const [historial, setHistorial] = useState([]);
       const [loadingHistorial, setLoadingHistorial] = useState(false);
@@ -1081,7 +1083,21 @@ const [facturaLabel, setFacturaLabel] = useState(null);
         await axios.post(`${API}/api/caja/apertura`, { local: localSeleccionado, fecha: HOY, montoInicial: Number(montoApertura) });
         setMontoApertura(""); await cargarEstado(); setGuardando(false);
       }
-
+async function registrarSobre() {
+        if (!sobre.monto) return;
+        setGuardando(true);
+        try {
+          await axios.post(`${API}/api/caja/sobre`, {
+            localOrigen: localSeleccionado, fecha: HOY,
+            monto: Number(sobre.monto), concepto: sobre.concepto,
+            usuario: usuario.nombre_completo
+          });
+          setSobre({ monto: "", concepto: "" });
+          setMostrarSobre(false);
+          await cargarEstado();
+        } catch (err) { alert("Error registrando sobre: " + err.message); }
+        setGuardando(false);
+      }
       async function registrarAjuste() {
         if (!ajuste.concepto || !ajuste.monto) return;
         setGuardando(true);
@@ -1185,8 +1201,19 @@ const [facturaLabel, setFacturaLabel] = useState(null);
                 <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>📋 Movimientos del día</div>
-                    {!cerrada && <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #F68B32", background: "none", color: "#F68B32", cursor: "pointer" }} onClick={() => setMostrarAjuste(m => !m)}>+ Ajuste</button>}
-                  </div>
+{!cerrada && <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #F68B32", background: "none", color: "#F68B32", cursor: "pointer" }} onClick={() => setMostrarAjuste(m => !m)}>+ Ajuste</button>}
+                    {!cerrada && localSeleccionado !== "Administración" && <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #7c3aed", background: "none", color: "#7c3aed", cursor: "pointer" }} onClick={() => setMostrarSobre(m => !m)}>💼 Sobre</button>}                  </div>
+                  {mostrarSobre && !cerrada && localSeleccionado !== "Administración" && (
+                    <div style={{ background: "#f5f0ff", borderRadius: 8, padding: 12, marginBottom: 12, border: "1px solid #7c3aed" }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#7c3aed", marginBottom: 8 }}>💼 Sobre a Administración</div>
+                      <div style={{ fontSize: 11, color: "#888", marginBottom: 8 }}>La plata sale de {localSeleccionado} y entra automáticamente en Administración.</div>
+                      <input type="number" style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 6 }} placeholder="Monto" value={sobre.monto} onChange={e => setSobre(s => ({...s, monto: e.target.value}))} />
+                      <input style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 8 }} placeholder="Concepto (opcional)" value={sobre.concepto} onChange={e => setSobre(s => ({...s, concepto: e.target.value}))} />
+                      <button style={{ width: "100%", padding: "7px", borderRadius: 6, border: "none", background: "#7c3aed", color: "#fff", fontSize: 12, cursor: "pointer", fontWeight: 600 }} onClick={registrarSobre} disabled={guardando || !sobre.monto}>
+                        {guardando ? "Registrando..." : "Registrar sobre"}
+                      </button>
+                    </div>
+                  )}
                   {mostrarAjuste && !cerrada && (
                     <div style={{ background: "#f9f9f7", borderRadius: 8, padding: 12, marginBottom: 12 }}>
                       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
@@ -1206,7 +1233,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
                     </div>
                   ))}
                 </div>
-                {! {!cerrada && localSeleccionado !== "Administración" && (
+                 {!cerrada && localSeleccionado !== "Administración" && (
                   <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: "#333", marginBottom: 14 }}>🔒 Cierre Z</div>
                     <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>Saldo esperado: <strong>{fmt(saldoEsperado)}</strong></div>

@@ -649,7 +649,27 @@ app.post("/api/caja/ajuste", async (req, res) => {
     registrarAuditoria(usuarioAudit, "ajuste_caja", "caja", local, { fecha, tipo, concepto, monto });
   } catch (err) { res.status(500).json({ error: "Error registrando ajuste" }); }
 });
-
+app.post("/api/caja/sobre", async (req, res) => {
+  const { localOrigen, fecha, monto, concepto, usuario: usuarioAudit } = req.body;
+  try {
+    const montoAbs = Math.abs(Number(monto));
+    if (!montoAbs || montoAbs <= 0) return res.status(400).json({ error: "Monto inválido" });
+    // 1. Salida en el local origen
+    await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'salida',$2,$3,$4)",
+      [localOrigen, concepto ? `Sobre: ${concepto}` : "Sobre a Administración", -montoAbs, fecha]);
+    // 2. Auto-abrir caja Administración si no existe
+    const existe = await pool.query("SELECT id FROM caja_aperturas WHERE local='Administración' AND fecha=$1", [fecha]);
+    if (existe.rows.length === 0) {
+      await pool.query("INSERT INTO caja_aperturas (local, fecha, monto_inicial) VALUES ('Administración',$1,0)", [fecha]);
+      await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ('Administración','apertura','Apertura de caja',0,$1)", [fecha]);
+    }
+    // 3. Entrada en Administración
+    await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ('Administración','entrada',$1,$2,$3)",
+      [concepto ? `Sobre desde ${localOrigen}: ${concepto}` : `Sobre desde ${localOrigen}`, montoAbs, fecha]);
+    res.json({ ok: true });
+    registrarAuditoria(usuarioAudit, "sobre_caja", "caja", localOrigen, { monto: montoAbs, concepto, fecha });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 app.post("/api/caja/cierre", async (req, res) => {
   const { local, fecha, montoCierre, usuario: usuarioAudit } = req.body;
   try {
