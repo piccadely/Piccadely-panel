@@ -1557,6 +1557,7 @@ const [facturasMap, setFacturasMap] = useState({});
             tabActual, local: localLabel(tabActual),
             nota: ovDatos.nota !== undefined ? ovDatos.nota : (p.note || ""),
             esManual: false, entreCalles: "",
+            transaccionMP: p.transactions?.[0]?.id || null,
             identificacion: p.contact_identification || p.identification?.number || "", razonSocialFactura: p.billing_business_name || "", esFacturaA: p.billing_customer_type === "company" && p.billing_document_type === "cuit", email: ovDatos.email !== undefined ? ovDatos.email : (p.contact_email || ""),
           };
         }),
@@ -2400,6 +2401,7 @@ const [facturasMap, setFacturasMap] = useState({});
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Horario</div><div style={s.detalleVal}>{p.franjaDisplay}</div></div>
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Repartidor</div><div style={s.detalleVal}>{pedidosLocales[p.id]?.repartidor || "Sin asignar"}</div></div>
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Email</div><div style={s.detalleVal}>{p.email || "—"}</div></div>
+                        {p.transaccionMP && <div style={s.detalleBloque}><div style={s.detalleLabel}>ID Transacción MP</div><div style={{ ...s.detalleVal, fontFamily: "monospace", fontSize: 12 }}>{p.transaccionMP}</div></div>}
                         </div>
                         <AuditoriaInline pedidoId={String(p.id)} />
                         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
@@ -2691,6 +2693,7 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                                 <div style={s.detalleLabel}>Pago</div>
                                 <div style={{ ...s.detalleVal, color: p.pago === "Pagado" ? "#F68B32" : "#c0392b", fontWeight: 600 }}>{p.pago}</div>
                               </div>
+                              {p.transaccionMP && <div style={s.detalleBloque}><div style={s.detalleLabel}>ID Transacción MP</div><div style={{ ...s.detalleVal, fontFamily: "monospace", fontSize: 12 }}>{p.transaccionMP}</div></div>}
                             </div>
                             {/* OPERACIONES */}
                             <div style={{ fontSize: 10, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, borderTop: "1px solid #eee", paddingTop: 10 }}>⚙️ Operaciones</div>
