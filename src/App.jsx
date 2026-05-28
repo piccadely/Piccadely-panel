@@ -1087,8 +1087,7 @@ function generarPDFCierre(local, fecha, montoIni, ventasEfectivo, ajustesList, s
       generarPDFCierre(localSeleccionado, HOY, montoInicial, totalEfectivo, ajustes, saldoEsperado, Number(montoCierre));
       setMontoCierre(""); await cargarEstado(); await cargarHistorial(); setGuardando(false);
     }
-    const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado");
-    const ventasPorMedio = MEDIOS_PAGO.reduce((acc, m) => { acc[m] = ventasLocal.filter(p => p.medioPago === m); return acc; }, {});
+const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === HOY);    const ventasPorMedio = MEDIOS_PAGO.reduce((acc, m) => { acc[m] = ventasLocal.filter(p => p.medioPago === m); return acc; }, {});
     const totalVentas = sumar(ventasLocal);
     const totalEfectivo = sumar(ventasPorMedio["Efectivo"] || []);
     const montoInicial = estadoCaja?.apertura?.monto_inicial || 0;
