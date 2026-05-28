@@ -1034,6 +1034,13 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       }
 
       useEffect(() => { cargarEstado(); cargarHistorial(); }, [localSeleccionado]);
+      useEffect(() => {
+        if (localSeleccionado === "Administración" && estadoCaja !== null && !estadoCaja?.apertura && !loadingCaja) {
+          axios.post(`${API}/api/caja/apertura`, { local: "Administración", fecha: HOY, montoInicial: 0 })
+            .then(() => cargarEstado())
+            .catch(console.error);
+        }
+      }, [localSeleccionado, estadoCaja, loadingCaja]);
   function generarPDFCierre(local, fecha, montoIni, ventasPorMedioData, ajustesList, saldoEsp, montoCierreVal) {
         const doc = new jsPDF();
         const fechaLabel = new Date(fecha + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
@@ -1199,7 +1206,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
                     </div>
                   ))}
                 </div>
-                {!cerrada && (
+                {! {!cerrada && localSeleccionado !== "Administración" && (
                   <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: "#333", marginBottom: 14 }}>🔒 Cierre Z</div>
                     <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>Saldo esperado: <strong>{fmt(saldoEsperado)}</strong></div>
