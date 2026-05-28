@@ -1,8 +1,6 @@
 name: Backfill diario de pedidos TN
 
 on:
-  schedule:
-    - cron: "0 9 * * *"  # 06:00 Argentina (UTC-3)
   workflow_dispatch:
 
 jobs:
