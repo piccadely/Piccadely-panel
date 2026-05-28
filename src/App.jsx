@@ -2560,10 +2560,10 @@
                     const franjaMatch = (p.franjaDisplay || "").match(/(\d{1,2}):(\d{2})/);
                     const horaInicio = franjaMatch ? new Date(`${fechaPedido}T${String(franjaMatch[1]).padStart(2,"0")}:${franjaMatch[2]}:00`) : null;
                     const minutosVencido = horaInicio ? Math.floor((ahora - horaInicio) / 60000) : 0;
-                    const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && estadoActual !== "En camino" && estadoActual !== "Entregado";
-                    const estaMuyVencido = estaVencido && minutosVencido >= 120;
+                    const estaProximo = horaInicio && ahora >= new Date(horaInicio.getTime() - 60 * 60000) && ahora < horaInicio && fechaPedido === HOY && estadoActual !== "En camino" && estadoActual !== "Entregado";
+const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && estadoActual !== "En camino" && estadoActual !== "Entregado";
                     return (
-                      <div key={p.id} style={{ ...s.fila, ...(abierto ? s.filaAbierta : {}), ...(estaMuyVencido ? { background: "#f5b7b1", borderLeft: "4px solid #922b21" } : estaVencido ? { background: "#fdecea", borderLeft: "4px solid #c0392b" } : {}) }}>
+                      <div key={p.id} style={{ ...s.fila, ...(abierto ? s.filaAbierta : {}), ...(estaVencido ? { background: "#f5b7b1", borderLeft: "4px solid #922b21" } : estaProximo ? { background: "#fdecea", borderLeft: "4px solid #c0392b" } : {}) }}>
                         <div style={s.filaTop} onClick={() => toggleExpandido(p.id)}>
                           <span style={{ ...s.cel, flex: 1.2 }}>
                             <span style={s.numero}>{p.numero}</span> {p.cliente}
