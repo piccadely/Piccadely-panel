@@ -146,7 +146,7 @@ async function initDB() {
     created_at TIMESTAMP DEFAULT NOW()
   );`);
   await pool.query(`INSERT INTO repartidores (nombre) VALUES ('Sin asignar') ON CONFLICT (nombre) DO NOTHING;`);
-  console.log("DB inicializada");
+     console.log("DB inicializada");
   await initAuthDB(pool);
 }
 initDB().catch(console.error);
