@@ -1034,7 +1034,37 @@ function AuditoriaInline({ pedidoId }) {
     }
 
     useEffect(() => { cargarEstado(); cargarHistorial(); }, [localSeleccionado]);
-
+function generarPDFCierre(local, fecha, montoIni, ventasEfectivo, ajustesList, saldoEsp, montoCierreVal) {
+      const doc = new jsPDF();
+      const fechaLabel = new Date(fecha + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+      doc.setFontSize(16); doc.setTextColor(246, 139, 50);
+      doc.text("Piccadely — Cierre Z", 14, 18);
+      doc.setFontSize(11); doc.setTextColor(80, 80, 80);
+      doc.text(`${local} · ${fechaLabel}`, 14, 26);
+      doc.text(`Generado: ${new Date().toLocaleString("es-AR")}`, 14, 32);
+      const filas = [
+        ["Monto inicial", `$${Number(montoIni).toLocaleString("es-AR")}`],
+        ["Ventas en efectivo", `$${Number(ventasEfectivo).toLocaleString("es-AR")}`],
+      ];
+      ajustesList.forEach(a => {
+        filas.push([`${Number(a.monto) >= 0 ? "↑" : "↓"} ${a.concepto}`, `$${Math.abs(Number(a.monto)).toLocaleString("es-AR")}`]);
+      });
+      filas.push(["Saldo esperado", `$${Number(saldoEsp).toLocaleString("es-AR")}`]);
+      filas.push(["Efectivo contado al cierre", `$${Number(montoCierreVal).toLocaleString("es-AR")}`]);
+      const diff = Number(montoCierreVal) - Number(saldoEsp);
+      filas.push(["Diferencia", `$${diff.toLocaleString("es-AR")}`]);
+      autoTable(doc, {
+        startY: 38, body: filas,
+        styles: { fontSize: 11, cellPadding: 4 },
+        columnStyles: { 0: { fontStyle: "bold", textColor: [80, 80, 80] }, 1: { halign: "right" } },
+        alternateRowStyles: { fillColor: [249, 249, 247] },
+        didParseCell: (data) => {
+          if (data.row.index === filas.length - 3) { data.cell.styles.fillColor = [246, 139, 50]; data.cell.styles.textColor = 255; data.cell.styles.fontStyle = "bold"; }
+          if (data.row.index === filas.length - 1) { data.cell.styles.textColor = diff >= 0 ? [42, 122, 75] : [192, 57, 43]; data.cell.styles.fontStyle = "bold"; }
+        },
+      });
+      doc.save(`cierre_z_${local.replace(/[\s.]/g, "_")}_${fecha}.pdf`);
+    }
     async function abrirCaja() {
       if (!montoApertura) return;
       setGuardando(true);
@@ -1053,10 +1083,10 @@ function AuditoriaInline({ pedidoId }) {
     async function cerrarCaja() {
       if (!montoCierre) return;
       setGuardando(true);
-      await axios.post(`${API}/api/caja/cierre`, { local: localSeleccionado, fecha: HOY, montoCierre: Number(montoCierre) });
+      await axios.post(`${API}/api/caja/cierre`, { local: localSeleccionado, fecha: HOY, montoCierre: Number(montoCierre), usuario: usuario.nombre_completo });
+      generarPDFCierre(localSeleccionado, HOY, montoInicial, totalEfectivo, ajustes, saldoEsperado, Number(montoCierre));
       setMontoCierre(""); await cargarEstado(); await cargarHistorial(); setGuardando(false);
     }
-
     const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado");
     const ventasPorMedio = MEDIOS_PAGO.reduce((acc, m) => { acc[m] = ventasLocal.filter(p => p.medioPago === m); return acc; }, {});
     const totalVentas = sumar(ventasLocal);
@@ -1250,6 +1280,16 @@ function AuditoriaInline({ pedidoId }) {
                           </div>
                           {movs.length > 0 && (
                             <div>
+                              {a.cerrada && (
+                            <button style={{ marginTop: 12, fontSize: 12, padding: "7px 14px", borderRadius: 6, border: "1px solid #c0392b", background: "#fff", color: "#c0392b", cursor: "pointer", fontWeight: 500 }}
+                              onClick={() => {
+                                const ventasEfLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.medioPago === "Efectivo" && p.fechaDisplay === a.fecha);
+                                const totalEfH = ventasEfLocal.reduce((acc, p) => acc + p.totalNum, 0);
+                                generarPDFCierre(localSeleccionado, a.fecha, a.monto_inicial, totalEfH, ajustesH, saldoEsperadoH, a.monto_cierre);
+                              }}>
+                              📄 Descargar PDF Cierre Z
+                            </button>
+                          )}
                               <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Movimientos</div>
                               {movs.map((m, i) => (
                                 <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: "1px solid #f0f0ee", fontSize: 12 }}>
