@@ -49,6 +49,10 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
+pool.on("connect", client => {
+  client.query("SET search_path TO public").catch(console.error);
+});
+
 async function initDB() {
   await pool.query("SET search_path TO public");
   await pool.query(`
