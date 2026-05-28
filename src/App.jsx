@@ -216,11 +216,23 @@
           {tieneFactura ? (
             <>
               {pdfUrl && (
-                <a href={pdfUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
-                  style={{ ...btnBase, border: "1px solid #F68B32", color: "#F68B32", background: "#eaf3de", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+                <button
+                  style={{ ...btnBase, border: "1px solid #F68B32", color: "#F68B32", background: "#eaf3de" }}
+                  onClick={async e => {
+                    e.stopPropagation();
+                    try {
+                      const factRes = await axios.get(`${API}/api/facturas/${p.id}`);
+                      const activas = factRes.data.filter(f => !f.tipo.includes("NOTA DE CREDITO"));
+                      const facturaActiva = activas[activas.length - 1];
+                      if (!facturaActiva) { alert("No se encontró la factura"); return; }
+                      const pdfRes = await axios.get(`${API}/api/facturas/${facturaActiva.id}/pdf-url`);
+                      if (pdfRes.data.ok) { window.open(pdfRes.data.pdf_url, "_blank"); }
+                      else { alert("Error obteniendo PDF: " + (pdfRes.data.error || "Intentá de nuevo")); }
+                    } catch (err) { alert("Error conectando con TusFacturas"); console.error(err); }
+                  }}>
                   📄 PDF
-                </a>
-              )}
+                </button>
+              )}  
               <button style={{ ...btnBase, border: "1px solid #c0392b", color: "#c0392b", background: "#fdecea" }}
                 onClick={e => { e.stopPropagation(); onAbrir(p); }}>
                 🗑 Anular factura

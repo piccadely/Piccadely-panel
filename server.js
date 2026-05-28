@@ -694,7 +694,29 @@ function puntoVentaDesdeNumero(numero) {
   if (s.includes("-")) return s.split("-")[0].replace(/^0+/, "") || "17";
   return "17";
 }
-
+// ─── PDF FRESCO DESDE TUSFACTURAS ────────────────────────────────────
+app.get("/api/facturas/:facturaId/pdf-url", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM facturas WHERE id=$1", [req.params.facturaId]);
+    if (result.rows.length === 0) return res.status(404).json({ error: "Factura no encontrada" });
+    const factura = result.rows[0];
+    const localFactura = factura.local || "A. Thomas";
+    const { usertoken: TF_USERTOKEN } = getTFCredentials(localFactura);
+    const pdv = puntoVentaDesdeNumero(factura.numero);
+    const num = numeroSinPuntoVenta(factura.numero);
+    const body = {
+      apitoken: TF_APITOKEN, usertoken: TF_USERTOKEN, apikey: TF_APIKEY,
+      comprobante: { tipo: factura.tipo, operacion: "V", punto_venta: pdv, numero: num }
+    };
+    const response = await axios.post("https://www.tusfacturas.app/app/api/v2/facturacion/comprobante", body, { headers: { "Content-Type": "application/json" } });
+    const data = response.data;
+    if (data.error === "N" && data.comprobante_pdf_url) {
+      await pool.query("UPDATE facturas SET pdf_url=$1 WHERE id=$2", [data.comprobante_pdf_url, factura.id]);
+      return res.json({ ok: true, pdf_url: data.comprobante_pdf_url });
+    }
+    return res.json({ ok: false, error: data.errores || "No se pudo obtener el PDF" });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
 app.get("/api/facturas/:pedidoId", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM facturas WHERE pedido_id=$1 ORDER BY created_at ASC", [req.params.pedidoId]);
