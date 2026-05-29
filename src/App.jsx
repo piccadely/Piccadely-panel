@@ -2735,8 +2735,11 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                                 <div style={{ ...s.detalleVal, color: p.pago === "Pagado" ? "#F68B32" : "#c0392b", fontWeight: 600 }}>{p.pago}</div>
                               </div>
                               {p.transaccionMP && <div style={s.detalleBloque}><div style={s.detalleLabel}>ID Transacción MP</div><div style={{ ...s.detalleVal, fontFamily: "monospace", fontSize: 12 }}>{p.transaccionMP}</div></div>}
-                            {p.codigoPago && <div style={s.detalleBloque}><div style={s.detalleLabel}>Código MKP</div><div style={{ ...s.detalleVal, fontFamily: "monospace", fontSize: 12 }}>{p.codigoPago}</div></div>}
-                            </div>
+<div style={s.detalleBloque}>
+                                <div style={s.detalleLabel}>Código MKP</div>
+                                <InputBlur style={s.inputField} initialValue={p.codigoPago || ""} placeholder="MP, Rappi, PedidosYa..."
+                                  onCommit={v => actualizarDato(p, "codigoPago", v)} onClick={e => e.stopPropagation()} />
+                              </div>                            </div>
                             {/* OPERACIONES */}
                             <div style={{ fontSize: 10, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, borderTop: "1px solid #eee", paddingTop: 10 }}>⚙️ Operaciones</div>
                             <div style={s.detalleGrid}>
