@@ -354,10 +354,8 @@ async function enviarMailAnulacion(pedido) {
 // ─── MERCADO PAGO ─────────────────────────────────────────────────────
 app.use("/api/mp", mpRouter(pool, mailTransporter));
 
-  // ─── ORDERS ───────────────────────────────────────────────────────────
-  app.get("/api/orders", async (req, res) => {
-    try {
-      app.get("/api/orders", async (req, res) => {
+ // ─── ORDERS ───────────────────────────────────────────────────────────
+app.get("/api/orders", async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT t.data
@@ -368,7 +366,6 @@ app.use("/api/mp", mpRouter(pool, mailTransporter));
       ORDER BY t.tn_created_at DESC
     `);
 
-    // Solo si pedidos_tn está REALMENTE vacía, caemos a la API en vivo
     if (result.rows.length === 0) {
       const check = await pool.query("SELECT 1 FROM pedidos_tn LIMIT 1");
       if (check.rows.length === 0) {
@@ -383,14 +380,6 @@ app.use("/api/mp", mpRouter(pool, mailTransporter));
     res.status(500).json({ error: "Error trayendo pedidos" });
   }
 });
-      if (result.rows.length === 0) {
-        const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/orders?aggregates=fulfillment_orders`, { headers });
-        return res.json(r.data);
-      }
-      res.json(result.rows.map(r => r.data));
-    } catch (err) { console.error("Error /api/orders:", err.message); res.status(500).json({ error: "Error trayendo pedidos" }); }
-  });
-
   app.get("/api/products", async (req, res) => {
     try {
       const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/products?per_page=200`, { headers });
