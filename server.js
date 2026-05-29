@@ -174,15 +174,26 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
+function fechaArgentinaISO(d = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+}
+
+function fechaArgentinaDDMMYYYY(d = new Date()) {
+  const partes = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(d);
+  const dd = partes.find(p => p.type === "day").value;
+  const mm = partes.find(p => p.type === "month").value;
+  const yyyy = partes.find(p => p.type === "year").value;
+  return `${dd}/${mm}/${yyyy}`;
+}
+
 function fechaHoy() {
-  const hoy = new Date();
-  return `${String(hoy.getDate()).padStart(2,"0")}/${String(hoy.getMonth()+1).padStart(2,"0")}/${hoy.getFullYear()}`;
+  return fechaArgentinaDDMMYYYY();
 }
 
 function fechaVencimiento(dias = 30) {
   const d = new Date();
   d.setDate(d.getDate() + dias);
-  return `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;
+  return fechaArgentinaDDMMYYYY(d);
 }
 
 const TN_CODE_FRENCH = "01KQ7S2Z0799JKAT5A1VTH12EQ";
@@ -649,20 +660,6 @@ app.post("/api/caja/reabrir", async (req, res) => {
     registrarAuditoria(usuarioAudit, "reapertura_caja", "caja", local, { fecha, montoInicial });
   } catch (err) { res.status(500).json({ error: "Error reabriendo caja" }); }
 });
-app.post("/api/caja/reabrir", async (req, res) => {
-  const { local, fecha, montoInicial, usuario: usuarioAudit } = req.body;
-  try {
-    const existe = await pool.query("SELECT id FROM caja_aperturas WHERE local=$1 AND fecha=$2", [local, fecha]);
-    if (existe.rows.length === 0) {
-      await pool.query("INSERT INTO caja_aperturas (local, fecha, monto_inicial) VALUES ($1,$2,$3)", [local, fecha, montoInicial || 0]);
-    } else {
-      await pool.query("UPDATE caja_aperturas SET cerrada=false, monto_cierre=NULL, monto_inicial=$1 WHERE local=$2 AND fecha=$3", [montoInicial || 0, local, fecha]);
-    }
-    await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'apertura','Reapertura de caja',$2,$3)", [local, montoInicial || 0, fecha]);
-    res.json({ ok: true });
-    registrarAuditoria(usuarioAudit, "reapertura_caja", "caja", local, { fecha, montoInicial });
-  } catch (err) { res.status(500).json({ error: "Error reabriendo caja" }); }
-});
 
 app.get("/api/caja/estado/:local/:fecha", async (req, res) => {
   const { local, fecha } = req.params;
@@ -974,8 +971,8 @@ app.get("/api/admin/snapshot-pendientes", requireAdmin, async (req, res) => {
     const hoy = new Date();
     const limite = new Date();
     limite.setDate(hoy.getDate() + DIAS_HORIZONTE);
-    const hoyStr = hoy.toISOString().split("T")[0];
-    const limiteStr = limite.toISOString().split("T")[0];
+    const hoyStr = fechaArgentinaISO(hoy);
+    const limiteStr = fechaArgentinaISO(limite);
     const estadosRes = await pool.query("SELECT * FROM pedidos_estados");
     const estadosMap = {};
     estadosRes.rows.forEach(r => { estadosMap[r.id] = { estado: r.estado, repartidor: r.repartidor, tabManual: r.tab_manual, fechaManual: r.fecha_manual, franjaManual: r.franja_manual, cobrar: r.cobrar }; });
