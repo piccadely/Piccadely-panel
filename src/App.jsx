@@ -83,8 +83,11 @@
       seccion: "delivery-at", cobrar: false,
     };
 
-    const HOY = new Date().toISOString().split("T")[0];
+    function fechaArgentina(d = new Date()) {
+      return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+    }
 
+    const HOY = fechaArgentina();
     function guardarEstadoDB(id, estado, usuario) {
     axios.post(`${API}/api/estados/${id}`, { ...estado, usuario }).catch(console.error);
   }
@@ -999,7 +1002,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
     }
     // ─── COMPONENTE CAJA ─────────────────────────────────────────────────
     function VistaCaja({ pedidosFinalizados, onVolver, usuario }) {
-            const HOY_CAJA = new Date().toISOString().split("T")[0];
+            const HOY_CAJA = fechaArgentina();
       const localesPermitidos = usuario.rol === "admin"
         ? ["A. Thomas", "French", "Administración"]
         : usuario.rol === "a_thomas" ? ["A. Thomas"] : ["French"];
