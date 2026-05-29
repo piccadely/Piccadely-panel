@@ -131,6 +131,7 @@ async function initDB() {
   await pool.query(`ALTER TABLE facturas ADD COLUMN IF NOT EXISTS local TEXT;`);
   await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS codigo_pago_override TEXT;`);
   await pool.query(`ALTER TABLE pedidos_manuales ADD COLUMN IF NOT EXISTS codigo_pago TEXT;`);
+  await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS comandas_impresas INTEGER DEFAULT 0;`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
   await pool.query(`CREATE TABLE IF NOT EXISTS geocoding_cache (
     address_key TEXT PRIMARY KEY,
@@ -394,6 +395,7 @@ app.get("/api/estados", async (req, res) => {
         zonaOverride: r.zona_override, medioPagoOverride: r.medio_pago_override,
         notaOverride: r.nota_override, emailOverride: r.email_override,
         codigoPagoOverride: r.codigo_pago_override,
+        comandasImpresas: r.comandas_impresas || 0,
       };
     });
     res.json(estados);
@@ -435,7 +437,23 @@ app.post("/api/estados/:id", async (req, res) => {
     if (franjaManual && franjaManual !== prevData.franja_manual) registrarAuditoria(usuarioAudit, "cambio_franja", "pedido", id, { anterior: prevData.franja_manual, nuevo: franjaManual });
   } catch (err) { res.status(500).json({ error: "Error guardando estado" }); }
 });
-
+// ─── CONTADOR DE COMANDAS IMPRESAS ────────────────────────────────────
+app.post("/api/pedidos/:id/imprimir", async (req, res) => {
+  const { id } = req.params;
+  const { usuario: usuarioAudit } = req.body;
+  try {
+    const result = await pool.query(
+      `INSERT INTO pedidos_estados (id, comandas_impresas, updated_at)
+       VALUES ($1, 1, NOW())
+       ON CONFLICT (id) DO UPDATE SET comandas_impresas = COALESCE(pedidos_estados.comandas_impresas, 0) + 1, updated_at = NOW()
+       RETURNING comandas_impresas`,
+      [id]
+    );
+    const nuevoValor = result.rows[0]?.comandas_impresas || 1;
+    res.json({ ok: true, comandasImpresas: nuevoValor });
+    registrarAuditoria(usuarioAudit, "impresion_comanda", "pedido", id, { total: nuevoValor });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 // ─── DATOS EDITABLES DE PEDIDO ────────────────────────────────────────
 app.patch("/api/pedidos/:id/datos", async (req, res) => {
   const { id } = req.params;

@@ -818,7 +818,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
         .catch(() => setCargado(true));
     }
 
-    const ACCION_LABEL = {
+   const ACCION_LABEL = {
       cambio_estado: "Cambió estado",
       anulacion: "Anuló pedido",
       creacion_manual: "Creó pedido",
@@ -827,6 +827,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       nota_credito: "Nota de crédito",
       cambio_fecha: "Cambió fecha",
       cambio_franja: "Cambió horario",
+      impresion_comanda: "Imprimió comanda",
     };
 
     function detalleTexto(r) {
@@ -1486,8 +1487,13 @@ const [facturasMap, setFacturasMap] = useState({});
             if (est.codigoPagoOverride) ov.codigoPago = est.codigoPagoOverride;
             if (Object.keys(ov).length > 0) datosInit[id] = ov;
           });
-          setPedidosDatosOverride(datosInit);
-    try { const resRep = await axios.get(`${API}/api/repartidores`); setRepartidoresLista(resRep.data.map(r => r.nombre)); } catch(e) {}
+setPedidosDatosOverride(datosInit);
+          // Inicializar contador de comandas impresas desde la base
+          const comandasInit = {};
+          Object.entries(resEstados.data).forEach(([id, est]) => {
+            if (est.comandasImpresas && est.comandasImpresas > 0) comandasInit[id] = est.comandasImpresas;
+          });
+          setComandasImpresas(comandasInit);    try { const resRep = await axios.get(`${API}/api/repartidores`); setRepartidoresLista(resRep.data.map(r => r.nombre)); } catch(e) {}
           setLoading(false);
           axios.get(`${API}/api/facturas-all`).then(resF => {
             const grouped = {};
@@ -1508,12 +1514,18 @@ const [facturasMap, setFacturasMap] = useState({});
       useEffect(() => {
         const refrescar = async () => {
           try {
-            const [resOrders, resManuales] = await Promise.all([
+            const [resOrders, resManuales, resEstados] = await Promise.all([
               axios.get(`${API}/api/orders`),
               axios.get(`${API}/api/pedidos-manuales`),
+              axios.get(`${API}/api/estados`),
             ]);
             setPedidosRaw(resOrders.data);
             setPedidosManuales(resManuales.data);
+            const comandasRefresh = {};
+            Object.entries(resEstados.data).forEach(([id, est]) => {
+              if (est.comandasImpresas && est.comandasImpresas > 0) comandasRefresh[id] = est.comandasImpresas;
+            });
+            setComandasImpresas(prev => ({ ...prev, ...comandasRefresh }));
             setPedidosLocales(prev => {
               const nuevo = { ...prev };
               resOrders.data.forEach(p => { if (!nuevo[p.id]) nuevo[p.id] = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.payment_status !== "paid" }; });
@@ -1763,7 +1775,12 @@ const [facturasMap, setFacturasMap] = useState({});
       });
 
       async function imprimirComanda(p) {
-        setComandasImpresas(prev => ({ ...prev, [p.id]: (prev[p.id] || 0) + 1 }));
+        try {
+          const res = await axios.post(`${API}/api/pedidos/${p.id}/imprimir`, { usuario: usuario.nombre_completo });
+          setComandasImpresas(prev => ({ ...prev, [p.id]: res.data.comandasImpresas }));
+        } catch (e) {
+          setComandasImpresas(prev => ({ ...prev, [p.id]: (prev[p.id] || 0) + 1 }));
+        }
         const estadoActual = pedidosLocales[p.id]?.estado || "Por empaquetar";
         const repartidorActual = pedidosLocales[p.id]?.repartidor || "Sin asignar";
         const cobrar = pedidosLocales[p.id]?.cobrar;
