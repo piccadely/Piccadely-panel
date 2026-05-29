@@ -79,7 +79,7 @@
 
     const FORM_INICIAL = {
       cliente: "", telefono: "", email: "", direccion: "", entreCalles: "", barrio: "", zona: "",
-      fecha: "", franjaInicio: "", franjaFin: "", nota: "", medioPago: "Mercado Pago",
+      fecha: "", franjaInicio: "", franjaFin: "", nota: "", medioPago: "Efectivo",
       seccion: "delivery-at", cobrar: false,
     };
 
