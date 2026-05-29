@@ -80,7 +80,7 @@
     const FORM_INICIAL = {
       cliente: "", telefono: "", email: "", direccion: "", entreCalles: "", barrio: "", zona: "",
       fecha: "", franjaInicio: "", franjaFin: "", nota: "", medioPago: "Efectivo",
-      seccion: "delivery-at", cobrar: false,
+      seccion: "delivery-at", cobrar: true,
     };
 
     function fechaArgentina(d = new Date()) {
@@ -1736,6 +1736,16 @@ setPedidosDatosOverride(datosInit);
           codigoPago: nuevosOverrides.codigoPago !== undefined ? nuevosOverrides.codigoPago : (p.codigoPago || ""),
         };
         axios.patch(`${API}/api/pedidos/${id}/datos`, { ...datosDB, usuario: usuario.nombre_completo }).catch(console.error);
+
+        // Si se carga/borra el código MKP, ajustar el estado de cobro
+        if (campo === "codigoPago") {
+          const requiereCodigo = ["Mercado Pago", "Rappi", "Pedidos Ya"].includes(p.medioPago);
+          if (valor && valor.trim()) {
+            actualizarLocal(p.id, { cobrar: false });
+          } else if (requiereCodigo) {
+            actualizarLocal(p.id, { cobrar: true });
+          }
+        }
       }
 
       function agregarAlCarrito(prod) {
@@ -1762,7 +1772,7 @@ setPedidosDatosOverride(datosInit);
           zona: form.zona || "Sin zona", fecha: form.fecha, franja: (form.franjaInicio && form.franjaFin) ? `${form.franjaInicio} – ${form.franjaFin}` : "",
           fechaDisplay: form.fecha, franjaDisplay: (form.franjaInicio && form.franjaFin) ? `${form.franjaInicio} – ${form.franjaFin}` : "Sin franja",
           productos: productosStr, totalNum: totalCarrito, total: `$${totalCarrito.toLocaleString("es-AR")}`,
-          pago: form.medioPago === "Efectivo" ? "Pendiente" : "Pagado",
+          pago: ["Efectivo", "Mercado Pago", "Rappi", "Pedidos Ya"].includes(form.medioPago) ? "Pendiente" : "Pagado",
           medioPago: form.medioPago, cobrar: form.cobrar, tabActual: form.seccion, local: localLabel(form.seccion),
           nota: form.nota, esManual: true, estado: "Por empaquetar", repartidor: "Sin asignar",
         };
@@ -2514,7 +2524,7 @@ let numeroAsignado = "";
                     <div style={s.formBloque}><label style={s.formLabel}>Zona de entrega</label><input style={s.formInput} value={form.zona} onChange={e => setForm(f => ({...f, zona: e.target.value}))} placeholder="ej: CABA, Zona Norte 1..." /></div>
                     <div style={s.formBloque}><label style={s.formLabel}>Fecha de entrega</label><input type="date" style={s.formInput} value={form.fecha} onChange={e => setForm(f => ({...f, fecha: e.target.value}))} /></div>
     <div style={s.formBloque}><label style={s.formLabel}>Horario</label><div style={{ display: "flex", gap: 6, alignItems: "center" }}><input type="time" style={{ ...s.formInput, flex: 1 }} value={form.franjaInicio} onChange={e => setForm(f => ({...f, franjaInicio: e.target.value}))} /><span style={{ color: "#888", fontSize: 14 }}>–</span><input type="time" style={{ ...s.formInput, flex: 1 }} value={form.franjaFin} onChange={e => setForm(f => ({...f, franjaFin: e.target.value}))} /></div></div>
-                    <div style={s.formBloque}><label style={s.formLabel}>Medio de pago</label><select style={s.formInput} value={form.medioPago} onChange={e => setForm(f => ({...f, medioPago: e.target.value}))}>{MEDIOS_PAGO.map(m => <option key={m}>{m}</option>)}</select></div>
+                    <div style={s.formBloque}><label style={s.formLabel}>Medio de pago</label><select style={s.formInput} value={form.medioPago} onChange={e => { const m = e.target.value; setForm(f => ({...f, medioPago: m, cobrar: ["Efectivo", "Mercado Pago", "Rappi", "Pedidos Ya"].includes(m)})); }}>{MEDIOS_PAGO.map(m => <option key={m}>{m}</option>)}</select></div>
                     <div style={s.formBloque}><label style={s.formLabel}>Sección</label><select style={s.formInput} value={form.seccion} onChange={e => setForm(f => ({...f, seccion: e.target.value}))}>{TABS.filter(t => t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}</select></div>
                     <div style={{ ...s.formBloque, gridColumn: "span 2" }}><label style={s.formLabel}>Nota</label><textarea style={{ ...s.formInput, height: 60, resize: "vertical" }} value={form.nota} onChange={e => setForm(f => ({...f, nota: e.target.value}))} placeholder="Nota adicional..." /></div>
                     <div style={{ ...s.formBloque, gridColumn: "span 2" }}>
