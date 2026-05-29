@@ -172,7 +172,11 @@ export function mpRouter(pool, mailTransporter) {
         clienteNombre = pedido.contact_name;
         pedidoNumero = `#${pedido.data?.number || pedido.id}`;
       }
-
+// Si este pago ya fue procesado, no repetir (MP manda el webhook varias veces)
+      if (String(pedido.mp_payment_id || "") === String(paymentId)) {
+        console.log(`MP webhook: pago ${paymentId} ya procesado para ${pedidoNumero}, ignorando duplicado`);
+        return;
+      }
       // Fecha/hora Buenos Aires
       const ahora = new Date().toLocaleString("es-AR", {
         timeZone: "America/Argentina/Buenos_Aires",
@@ -188,7 +192,7 @@ export function mpRouter(pool, mailTransporter) {
       if (!esTN) {
         await pool.query(
           `UPDATE pedidos_manuales
-           SET nota = $1, cobrar = false, pago = 'Pagado', mp_payment_id = $2
+           SET nota = $1, cobrar = false, pago = 'Pagado', mp_payment_id = $2, codigo_pago = $2
            WHERE id = $3`,
           [nuevaNota, String(paymentId), pedido.id]
         );
@@ -203,10 +207,10 @@ export function mpRouter(pool, mailTransporter) {
           [String(paymentId), JSON.stringify(dataActualizada), pedido.id]
         );
         await pool.query(
-          `INSERT INTO pedidos_estados (id, cobrar, updated_at)
-           VALUES ($1, false, NOW())
-           ON CONFLICT (id) DO UPDATE SET cobrar = false, updated_at = NOW()`,
-          [String(pedido.id)]
+          `INSERT INTO pedidos_estados (id, cobrar, codigo_pago_override, updated_at)
+           VALUES ($1, false, $2, NOW())
+           ON CONFLICT (id) DO UPDATE SET cobrar = false, codigo_pago_override = $2, updated_at = NOW()`,
+          [String(pedido.id), String(paymentId)]
         );
       }
 
