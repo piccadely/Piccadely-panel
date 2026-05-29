@@ -1111,8 +1111,10 @@ await axios.post(`${API}/api/caja/cierre`, { local: localSeleccionado, fecha: HO
       MEDIOS_PAGO.forEach(m => { ventasPorMedioPDF[m] = sumar(ventasPorMedio[m] || []); });
 generarPDFCierre(localSeleccionado, HOY_CAJA, montoInicial, ventasPorMedioPDF, ajustes, saldoEsperado, Number(montoCierre));      setMontoCierre(""); await cargarEstado(); await cargarHistorial(); setGuardando(false);
     }
-const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === HOY_CAJA);      const totalVentas = sumar(ventasLocal);
-      const totalEfectivo = sumar(ventasPorMedio["Efectivo"] || []);
+const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === HOY_CAJA);
+      const ventasPorMedio = MEDIOS_PAGO.reduce((acc, m) => { acc[m] = ventasLocal.filter(p => p.medioPago === m); return acc; }, {});
+      const totalVentas = sumar(ventasLocal);
+    const totalEfectivo = sumar(ventasPorMedio["Efectivo"] || []);
       const montoInicial = estadoCaja?.apertura?.monto_inicial || 0;
       const ajustes = estadoCaja?.movimientos?.filter(m => m.tipo === "entrada" || m.tipo === "salida") || [];
       const totalAjustes = ajustes.reduce((a, m) => a + Number(m.monto), 0);
