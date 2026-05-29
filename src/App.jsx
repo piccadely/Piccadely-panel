@@ -1602,8 +1602,8 @@ setPedidosDatosOverride(datosInit);
             tabActual, local: localLabel(tabActual),
             nota: ovDatos.nota !== undefined ? ovDatos.nota : (p.note || ""),
             esManual: false, entreCalles: "",
-            transaccionMP: p.transactions?.[0]?.id || null,
-            codigoPago: ovDatos.codigoPago !== undefined ? ovDatos.codigoPago : (p.transactions?.[0]?.id ? String(p.transactions[0].id) : ""),
+            transaccionMP: p.gateway_id || p.transactions?.[0]?.id || null,
+            codigoPago: ovDatos.codigoPago !== undefined ? ovDatos.codigoPago : (p.gateway_id ? String(p.gateway_id) : (p.transactions?.[0]?.id ? String(p.transactions[0].id) : "")),
             identificacion: p.contact_identification || p.identification?.number || "", razonSocialFactura: p.billing_business_name || "", esFacturaA: p.billing_customer_type === "company" && p.billing_document_type === "cuit", email: ovDatos.email !== undefined ? ovDatos.email : (p.contact_email || ""),
           };
         }),
