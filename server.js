@@ -635,8 +635,34 @@ app.post("/api/caja/apertura", async (req, res) => {
     registrarAuditoria(usuarioAudit, "apertura_caja", "caja", local, { fecha, montoInicial });
   } catch (err) { res.status(500).json({ error: "Error en apertura de caja" }); }
 });
-
-app.get("/api/caja/estado/:local/:fecha", async (req, res) => {
+app.post("/api/caja/reabrir", async (req, res) => {
+  const { local, fecha, montoInicial, usuario: usuarioAudit } = req.body;
+  try {
+    const existe = await pool.query("SELECT id FROM caja_aperturas WHERE local=$1 AND fecha=$2", [local, fecha]);
+    if (existe.rows.length === 0) {
+      await pool.query("INSERT INTO caja_aperturas (local, fecha, monto_inicial) VALUES ($1,$2,$3)", [local, fecha, montoInicial || 0]);
+    } else {
+      await pool.query("UPDATE caja_aperturas SET cerrada=false, monto_cierre=NULL, monto_inicial=$1 WHERE local=$2 AND fecha=$3", [montoInicial || 0, local, fecha]);
+    }
+    await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'apertura','Reapertura de caja',$2,$3)", [local, montoInicial || 0, fecha]);
+    res.json({ ok: true });
+    registrarAuditoria(usuarioAudit, "reapertura_caja", "caja", local, { fecha, montoInicial });
+  } catch (err) { res.status(500).json({ error: "Error reabriendo caja" }); }
+});
+app.post("/api/caja/reabrir", async (req, res) => {
+  const { local, fecha, montoInicial, usuario: usuarioAudit } = req.body;
+  try {
+    const existe = await pool.query("SELECT id FROM caja_aperturas WHERE local=$1 AND fecha=$2", [local, fecha]);
+    if (existe.rows.length === 0) {
+      await pool.query("INSERT INTO caja_aperturas (local, fecha, monto_inicial) VALUES ($1,$2,$3)", [local, fecha, montoInicial || 0]);
+    } else {
+      await pool.query("UPDATE caja_aperturas SET cerrada=false, monto_cierre=NULL, monto_inicial=$1 WHERE local=$2 AND fecha=$3", [montoInicial || 0, local, fecha]);
+    }
+    await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'apertura','Reapertura de caja',$2,$3)", [local, montoInicial || 0, fecha]);
+    res.json({ ok: true });
+    registrarAuditoria(usuarioAudit, "reapertura_caja", "caja", local, { fecha, montoInicial });
+  } catch (err) { res.status(500).json({ error: "Error reabriendo caja" }); }
+});
   const { local, fecha } = req.params;
   try {
     const apertura = await pool.query("SELECT * FROM caja_aperturas WHERE local=$1 AND fecha=$2", [local, fecha]);

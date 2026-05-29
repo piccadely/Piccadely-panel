@@ -1200,7 +1200,15 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
                       <div style={{ display: "flex", gap: 8 }}>
                         <input type="number" style={{ fontSize: 13, padding: "7px 10px", borderRadius: 6, border: "1px solid #ddd", flex: 1 }} placeholder="Monto inicial $0" value={montoApertura} onChange={e => setMontoApertura(e.target.value)} />
                         <button style={{ padding: "7px 14px", borderRadius: 6, border: "none", background: "#F68B32", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-                          onClick={async () => { setEstadoCaja(null); await cargarEstado(); }}
+                          onClick={async () => {
+                            setGuardando(true);
+                            try {
+                              await axios.post(`${API}/api/caja/reabrir`, { local: localSeleccionado, fecha: HOY_CAJA, montoInicial: Number(montoApertura) || 0, usuario: usuario.nombre_completo });
+                              setMontoApertura("");
+                              await cargarEstado();
+                            } catch (err) { alert("Error al reabrir la caja: " + err.message); }
+                            setGuardando(false);
+                          }}
                           disabled={guardando}>
                           🔓 Abrir nuevo día
                         </button>
