@@ -674,6 +674,14 @@ app.post("/api/caja/sobre", async (req, res) => {
     registrarAuditoria(usuarioAudit, "sobre_caja", "caja", localOrigen, { monto: montoAbs, concepto, fecha });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+app.post("/api/caja/cerrar-historico", async (req, res) => {
+  const { local, fecha, usuario: usuarioAudit } = req.body;
+  try {
+    await pool.query("UPDATE caja_aperturas SET cerrada=true, monto_cierre=monto_inicial WHERE local=$1 AND fecha=$2 AND cerrada=false", [local, fecha]);
+    res.json({ ok: true });
+    registrarAuditoria(usuarioAudit, "cierre_historico", "caja", local, { fecha });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 app.post("/api/caja/cierre", async (req, res) => {
   const { local, fecha, montoCierre, usuario: usuarioAudit } = req.body;
   try {

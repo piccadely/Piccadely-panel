@@ -999,6 +999,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
     }
     // ─── COMPONENTE CAJA ─────────────────────────────────────────────────
     function VistaCaja({ pedidosFinalizados, onVolver, usuario }) {
+            const HOY_CAJA = new Date().toISOString().split("T")[0];
       const localesPermitidos = usuario.rol === "admin"
         ? ["A. Thomas", "French", "Administración"]
         : usuario.rol === "a_thomas" ? ["A. Thomas"] : ["French"];
@@ -1020,8 +1021,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       async function cargarEstado() {
         setLoadingCaja(true);
         try {
-          const res = await axios.get(`${API}/api/caja/estado/${encodeURIComponent(localSeleccionado)}/${HOY}`);
-          setEstadoCaja(res.data);
+const res = await axios.get(`${API}/api/caja/estado/${encodeURIComponent(localSeleccionado)}/${HOY_CAJA}`);          setEstadoCaja(res.data);
         } catch (e) { console.error(e); }
         setLoadingCaja(false);
       }
@@ -1030,7 +1030,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
         setLoadingHistorial(true);
         try {
           const res = await axios.get(`${API}/api/caja/historial/${encodeURIComponent(localSeleccionado)}`);
-          setHistorial(res.data.filter(h => h.apertura.fecha !== HOY));
+          setHistorial(res.data.filter(h => h.apertura.fecha !== HOY_CAJA));
         } catch(e) { console.error(e); }
         setLoadingHistorial(false);
       }
@@ -1038,7 +1038,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       useEffect(() => { cargarEstado(); cargarHistorial(); }, [localSeleccionado]);
       useEffect(() => {
         if (localSeleccionado === "Administración" && estadoCaja !== null && !estadoCaja?.apertura && !loadingCaja) {
-          axios.post(`${API}/api/caja/apertura`, { local: "Administración", fecha: HOY, montoInicial: 0 })
+          axios.post(`${API}/api/caja/apertura`, { local: "Administración", fecha: HOY_CAJA, montoInicial: 0 })
             .then(() => cargarEstado())
             .catch(console.error);
         }
@@ -1080,15 +1080,14 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       async function abrirCaja() {
         if (!montoApertura) return;
         setGuardando(true);
-        await axios.post(`${API}/api/caja/apertura`, { local: localSeleccionado, fecha: HOY, montoInicial: Number(montoApertura) });
+        await axios.post(`${API}/api/caja/apertura`, { local: localSeleccionado, fecha: HOY_CAJA, montoInicial: Number(montoApertura) });
         setMontoApertura(""); await cargarEstado(); setGuardando(false);
       }
 async function registrarSobre() {
         if (!sobre.monto) return;
         setGuardando(true);
         try {
-          await axios.post(`${API}/api/caja/sobre`, {
-            localOrigen: localSeleccionado, fecha: HOY,
+          await axios.post(`${API}/api/caja/sobre`, { localOrigen: localSeleccionado, fecha: HOY_CAJA,
             monto: Number(sobre.monto), concepto: sobre.concepto,
             usuario: usuario.nombre_completo
           });
@@ -1102,21 +1101,17 @@ async function registrarSobre() {
         if (!ajuste.concepto || !ajuste.monto) return;
         setGuardando(true);
         const monto = ajuste.tipo === "salida" ? -Math.abs(Number(ajuste.monto)) : Math.abs(Number(ajuste.monto));
-        await axios.post(`${API}/api/caja/ajuste`, { local: localSeleccionado, fecha: HOY, tipo: ajuste.tipo, concepto: ajuste.concepto, monto });
-        setAjuste({ tipo: "entrada", concepto: "", monto: "" }); setMostrarAjuste(false); await cargarEstado(); setGuardando(false);
+await axios.post(`${API}/api/caja/ajuste`, { local: localSeleccionado, fecha: HOY_CAJA, tipo: ajuste.tipo, concepto: ajuste.concepto, monto });        setAjuste({ tipo: "entrada", concepto: "", monto: "" }); setMostrarAjuste(false); await cargarEstado(); setGuardando(false);
       }
 
        async function cerrarCaja() {
       if (!montoCierre) return;
       setGuardando(true);
-      await axios.post(`${API}/api/caja/cierre`, { local: localSeleccionado, fecha: HOY, montoCierre: Number(montoCierre), usuario: usuario.nombre_completo });
-      const ventasPorMedioPDF = {};
+await axios.post(`${API}/api/caja/cierre`, { local: localSeleccionado, fecha: HOY_CAJA, montoCierre: Number(montoCierre), usuario: usuario.nombre_completo });      const ventasPorMedioPDF = {};
       MEDIOS_PAGO.forEach(m => { ventasPorMedioPDF[m] = sumar(ventasPorMedio[m] || []); });
-      generarPDFCierre(localSeleccionado, HOY, montoInicial, ventasPorMedioPDF, ajustes, saldoEsperado, Number(montoCierre));
-      setMontoCierre(""); await cargarEstado(); await cargarHistorial(); setGuardando(false);
+generarPDFCierre(localSeleccionado, HOY_CAJA, montoInicial, ventasPorMedioPDF, ajustes, saldoEsperado, Number(montoCierre));      setMontoCierre(""); await cargarEstado(); await cargarHistorial(); setGuardando(false);
     }
-  const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === HOY);    const ventasPorMedio = MEDIOS_PAGO.reduce((acc, m) => { acc[m] = ventasLocal.filter(p => p.medioPago === m); return acc; }, {});
-      const totalVentas = sumar(ventasLocal);
+const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === HOY_CAJA);      const totalVentas = sumar(ventasLocal);
       const totalEfectivo = sumar(ventasPorMedio["Efectivo"] || []);
       const montoInicial = estadoCaja?.apertura?.monto_inicial || 0;
       const ajustes = estadoCaja?.movimientos?.filter(m => m.tipo === "entrada" || m.tipo === "salida") || [];
@@ -1191,27 +1186,38 @@ async function registrarSobre() {
                     <span style={{ fontSize: 14, fontWeight: 600 }}>Saldo esperado</span>
                     <span style={{ fontSize: 16, fontWeight: 700, color: "#F68B32" }}>{fmt(saldoEsperado)}</span>
                   </div>
-                  {cerrada && estadoCaja.apertura.monto_cierre !== null && (
+                 {cerrada && estadoCaja.apertura.monto_cierre !== null && (
                     <div style={{ background: "#f9f9f7", borderRadius: 8, padding: 12, marginTop: 10 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 13, color: "#666" }}>Efectivo contado al cierre</span><span style={{ fontSize: 13, fontWeight: 600 }}>{fmt(estadoCaja.apertura.monto_cierre)}</span></div>
                       <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 13, color: "#666" }}>Diferencia</span><span style={{ fontSize: 13, fontWeight: 600, color: (estadoCaja.apertura.monto_cierre - saldoEsperado) >= 0 ? "#F68B32" : "#c0392b" }}>{fmt(estadoCaja.apertura.monto_cierre - saldoEsperado)}</span></div>
                     </div>
                   )}
-                </div>
-                <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
+                  {cerrada && (
+                    <div style={{ marginTop: 14, padding: "12px 0", borderTop: "1px solid #eee" }}>
+                      <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>¿Necesitás abrir la caja de nuevo hoy?</div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <input type="number" style={{ fontSize: 13, padding: "7px 10px", borderRadius: 6, border: "1px solid #ddd", flex: 1 }} placeholder="Monto inicial $0" value={montoApertura} onChange={e => setMontoApertura(e.target.value)} />
+                        <button style={{ padding: "7px 14px", borderRadius: 6, border: "none", background: "#F68B32", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                          onClick={async () => { setEstadoCaja(null); await cargarEstado(); }}
+                          disabled={guardando}>
+                          🔓 Abrir nuevo día
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>📋 Movimientos del día</div>
-{!cerrada && <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #F68B32", background: "none", color: "#F68B32", cursor: "pointer" }} onClick={() => setMostrarAjuste(m => !m)}>+ Ajuste</button>}
-                    {!cerrada && localSeleccionado !== "Administración" && <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #7c3aed", background: "none", color: "#7c3aed", cursor: "pointer" }} onClick={() => setMostrarSobre(m => !m)}>💼 Sobre</button>}                  </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {!cerrada && <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #F68B32", background: "none", color: "#F68B32", cursor: "pointer" }} onClick={() => setMostrarAjuste(m => !m)}>+ Ajuste</button>}
+                      {!cerrada && localSeleccionado !== "Administración" && <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #7c3aed", background: "none", color: "#7c3aed", cursor: "pointer" }} onClick={() => setMostrarSobre(m => !m)}>💼 Sobre</button>}
+                    </div>
+                  </div>
                   {mostrarSobre && !cerrada && localSeleccionado !== "Administración" && (
-                    <div style={{ background: "#f5f0ff", borderRadius: 8, padding: 12, marginBottom: 12, border: "1px solid #7c3aed" }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: "#7c3aed", marginBottom: 8 }}>💼 Sobre a Administración</div>
-                      <div style={{ fontSize: 11, color: "#888", marginBottom: 8 }}>La plata sale de {localSeleccionado} y entra automáticamente en Administración.</div>
-                      <input type="number" style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 6 }} placeholder="Monto" value={sobre.monto} onChange={e => setSobre(s => ({...s, monto: e.target.value}))} />
-                      <input style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 8 }} placeholder="Concepto (opcional)" value={sobre.concepto} onChange={e => setSobre(s => ({...s, concepto: e.target.value}))} />
-                      <button style={{ width: "100%", padding: "7px", borderRadius: 6, border: "none", background: "#7c3aed", color: "#fff", fontSize: 12, cursor: "pointer", fontWeight: 600 }} onClick={registrarSobre} disabled={guardando || !sobre.monto}>
-                        {guardando ? "Registrando..." : "Registrar sobre"}
-                      </button>
+                    <div style={{ background: "#f5f3ff", border: "1px solid #7c3aed", borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#7c3aed", marginBottom: 8 }}>💼 Enviar sobre a Administración</div>
+                      <input style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 6 }} placeholder="Concepto (opcional)" value={sobre.concepto} onChange={e => setSobre(s => ({...s, concepto: e.target.value}))} />
+                      <input type="number" style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 8 }} placeholder="Monto" value={sobre.monto} onChange={e => setSobre(s => ({...s, monto: e.target.value}))} />
+                      <button style={{ width: "100%", padding: "7px", borderRadius: 6, border: "none", background: "#7c3aed", color: "#fff", fontSize: 12, cursor: "pointer" }} onClick={registrarSobre} disabled={guardando}>Registrar sobre</button>
                     </div>
                   )}
                   {mostrarAjuste && !cerrada && (
@@ -1318,6 +1324,19 @@ async function registrarSobre() {
                             </div>
                             {movs.length > 0 && (
                               <div>
+                                {!a.cerrada && (
+                              <div style={{ marginBottom: 12, background: "#fef9e7", border: "1px solid #f39c12", borderRadius: 8, padding: 12 }}>
+                                <div style={{ fontSize: 12, color: "#856404", marginBottom: 8 }}>⚠️ Este día quedó sin cerrar. Podés cerrarlo ahora.</div>
+                                <button style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "none", background: "#f39c12", color: "#fff", cursor: "pointer", fontWeight: 600 }}
+                                  onClick={async () => {
+                                    if (!window.confirm(`¿Cerrar la caja del ${a.fecha}?`)) return;
+                                    await axios.post(`${API}/api/caja/cerrar-historico`, { local: localSeleccionado, fecha: a.fecha, usuario: usuario.nombre_completo });
+                                    await cargarHistorial();
+                                  }}>
+                                  🔒 Cerrar este día
+                                </button>
+                              </div>
+                            )}
                                 {a.cerrada && (
                               <button style={{ marginTop: 12, fontSize: 12, padding: "7px 14px", borderRadius: 6, border: "1px solid #c0392b", background: "#fff", color: "#c0392b", cursor: "pointer", fontWeight: 500 }}
                                 onClick={() => {
