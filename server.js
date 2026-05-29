@@ -148,6 +148,7 @@ async function initDB() {
     detalle JSONB,
     created_at TIMESTAMP DEFAULT NOW()
   );`);
+  await pool.query(`CREATE SEQUENCE IF NOT EXISTS pedidos_manuales_seq START 1;`);
   await pool.query(`INSERT INTO repartidores (nombre) VALUES ('Sin asignar') ON CONFLICT (nombre) DO NOTHING;`);
      console.log("DB inicializada");
   await initAuthDB(pool);
@@ -524,13 +525,16 @@ codigoPago: r.codigo_pago || "", esManual: true, estado: "Por empaquetar", repar
 app.post("/api/pedidos-manuales", async (req, res) => {
   const p = req.body;
   try {
+    const seqRes = await pool.query("SELECT nextval('pedidos_manuales_seq') AS n");
+    const numero = `#M${seqRes.rows[0].n}`;
     await pool.query(`
       INSERT INTO pedidos_manuales (id, numero, cliente, telefono, email, direccion, entre_calles, barrio, zona, fecha, franja, productos, total_num, total, pago, medio_pago, cobrar, tab_actual, local, nota)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
-    `, [p.id, p.numero, p.cliente, p.telefono, p.email || "", p.direccion, p.entreCalles, p.barrio, p.zona, p.fecha, p.franja, p.productos, p.totalNum, p.total, p.pago, p.medioPago, p.cobrar, p.tabActual, p.local, p.nota]);
-    if (p.email && p.email.trim()) enviarMailConfirmacion(p).catch(console.error);
-    res.json({ ok: true });
-    registrarAuditoria(p.usuario || "Sistema", "creacion_manual", "pedido", p.id, { numero: p.numero, cliente: p.cliente });
+    `, [p.id, numero, p.cliente, p.telefono, p.email || "", p.direccion, p.entreCalles, p.barrio, p.zona, p.fecha, p.franja, p.productos, p.totalNum, p.total, p.pago, p.medioPago, p.cobrar, p.tabActual, p.local, p.nota]);
+    const pedidoConNumero = { ...p, numero };
+    if (p.email && p.email.trim()) enviarMailConfirmacion(pedidoConNumero).catch(console.error);
+    res.json({ ok: true, numero });
+    registrarAuditoria(p.usuario || "Sistema", "creacion_manual", "pedido", p.id, { numero, cliente: p.cliente });
   } catch (err) { res.status(500).json({ error: "Error guardando pedido manual" }); }
 });
 

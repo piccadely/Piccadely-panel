@@ -1756,7 +1756,7 @@ setPedidosDatosOverride(datosInit);
         const id = `manual-${Date.now()}`;
         const productosStr = carrito.map(i => `${i.nombre} x${i.cantidad}`).join(", ");
         const nuevoPedido = {
-          id, numero: `#M${Date.now().toString().slice(-4)}`, cliente: form.cliente, telefono: form.telefono,
+         id, numero: "", cliente: form.cliente, telefono: form.telefono,
           email: form.email || "",
           direccion: form.direccion, barrio: form.barrio, entreCalles: form.entreCalles || "",
           zona: form.zona || "Sin zona", fecha: form.fecha, franja: (form.franjaInicio && form.franjaFin) ? `${form.franjaInicio} – ${form.franjaFin}` : "",
@@ -1766,8 +1766,13 @@ setPedidosDatosOverride(datosInit);
           medioPago: form.medioPago, cobrar: form.cobrar, tabActual: form.seccion, local: localLabel(form.seccion),
           nota: form.nota, esManual: true, estado: "Por empaquetar", repartidor: "Sin asignar",
         };
-        await axios.post(`${API}/api/pedidos-manuales`, { ...nuevoPedido, usuario: usuario.nombre_completo }).catch(console.error);
-        const estadoInicial = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: form.fecha, franjaManual: (form.franjaInicio && form.franjaFin) ? `${form.franjaInicio} – ${form.franjaFin}` : "", cobrar: form.cobrar };
+let numeroAsignado = "";
+        try {
+          const respManual = await axios.post(`${API}/api/pedidos-manuales`, { ...nuevoPedido, usuario: usuario.nombre_completo });
+          numeroAsignado = respManual.data?.numero || "";
+        } catch (e) { console.error(e); }
+        nuevoPedido.numero = numeroAsignado;
+                const estadoInicial = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: form.fecha, franjaManual: (form.franjaInicio && form.franjaFin) ? `${form.franjaInicio} – ${form.franjaFin}` : "", cobrar: form.cobrar };
         await axios.post(`${API}/api/estados/${id}`, estadoInicial).catch(console.error);
         setPedidosManuales(prev => [...prev, nuevoPedido]);
         setPedidosLocales(prev => ({ ...prev, [id]: estadoInicial }));
