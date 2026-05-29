@@ -1679,8 +1679,15 @@ setPedidosDatosOverride(datosInit);
       function guardarLocalEnDB(id) {
       setPedidosLocales(prev => { if (prev[id]) guardarEstadoDB(id, prev[id], usuario.nombre_completo); return prev; });
     }
-      function cambiarEstado(id, e) {
+      function cambiarEstado(p, e) {
       e.stopPropagation();
+      const id = p.id;
+      const requiereCodigo = ["Mercado Pago", "Rappi", "Pedidos Ya"].includes(p.medioPago);
+      const sinCodigo = !p.codigoPago || !String(p.codigoPago).trim();
+      if (requiereCodigo && sinCodigo) {
+        const seguir = window.confirm(`⚠️ FALTA CÓDIGO\n\nEl pedido ${p.numero} (${p.medioPago}) no tiene código de pago cargado.\nVerificá que el pago esté confirmado antes de continuar.\n\n¿Cambiar el estado igual?`);
+        if (!seguir) return;
+      }
       setPedidosLocales(prev => {
         const nuevoEstado = nextEstado(prev[id]?.estado || "Por empaquetar");
         const nuevo = { ...prev, [id]: { ...prev[id], estado: nuevoEstado } };
@@ -2772,7 +2779,7 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                                 <div style={s.detalleLabel}>Estado</div>
                                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                                   <span style={{ ...s.estadoTag, background: ec.bg, color: ec.text }}>{estadoActual}</span>
-                                  {estadoActual !== "Entregado" && <button style={s.btnEstado} onClick={e => cambiarEstado(p.id, e)}>→ {nextEstado(estadoActual)}</button>}
+                                  {estadoActual !== "Entregado" && <button style={s.btnEstado} onClick={e => cambiarEstado(p, e)}>→ {nextEstado(estadoActual)}</button>}
                                 </div>
                               </div>
                               <div style={s.detalleBloque}><div style={s.detalleLabel}>Fecha de entrega</div><InputBlur type="date" style={s.inputField} initialValue={fechaManual} onCommit={v => { actualizarLocalSinGuardar(p.id, { fechaManual: v }); guardarLocalEnDB(p.id); }} onClick={e => e.stopPropagation()} /></div>
