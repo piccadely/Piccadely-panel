@@ -354,48 +354,73 @@ async function enviarMailAnulacion(pedido) {
 // ─── MERCADO PAGO ─────────────────────────────────────────────────────
 app.use("/api/mp", mpRouter(pool, mailTransporter));
 
-// ─── ORDERS ───────────────────────────────────────────────────────────
-app.get("/api/orders", async (req, res) => {
+  // ─── ORDERS ───────────────────────────────────────────────────────────
+  app.get("/api/orders", async (req, res) => {
+    try {
+      app.get("/api/orders", async (req, res) => {
   try {
-    const result = await pool.query("SELECT data FROM pedidos_tn ORDER BY tn_created_at DESC LIMIT 200");
+    const result = await pool.query(`
+      SELECT t.data
+      FROM pedidos_tn t
+      LEFT JOIN pedidos_estados e ON e.id::text = t.id::text
+      WHERE COALESCE(e.estado, '') NOT IN ('Entregado', 'Anulado')
+         OR t.tn_created_at > NOW() - INTERVAL '7 days'
+      ORDER BY t.tn_created_at DESC
+    `);
+
+    // Solo si pedidos_tn está REALMENTE vacía, caemos a la API en vivo
     if (result.rows.length === 0) {
-      const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/orders?aggregates=fulfillment_orders`, { headers });
-      return res.json(r.data);
+      const check = await pool.query("SELECT 1 FROM pedidos_tn LIMIT 1");
+      if (check.rows.length === 0) {
+        const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/orders?aggregates=fulfillment_orders`, { headers });
+        return res.json(r.data);
+      }
     }
+
     res.json(result.rows.map(r => r.data));
-  } catch (err) { console.error("Error /api/orders:", err.message); res.status(500).json({ error: "Error trayendo pedidos" }); }
+  } catch (err) {
+    console.error("Error /api/orders:", err.message);
+    res.status(500).json({ error: "Error trayendo pedidos" });
+  }
 });
+      if (result.rows.length === 0) {
+        const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/orders?aggregates=fulfillment_orders`, { headers });
+        return res.json(r.data);
+      }
+      res.json(result.rows.map(r => r.data));
+    } catch (err) { console.error("Error /api/orders:", err.message); res.status(500).json({ error: "Error trayendo pedidos" }); }
+  });
 
-app.get("/api/products", async (req, res) => {
-  try {
-    const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/products?per_page=200`, { headers });
-    res.json(r.data);
-  } catch (err) { res.status(500).json({ error: "Error trayendo productos" }); }
-});
+  app.get("/api/products", async (req, res) => {
+    try {
+      const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/products?per_page=200`, { headers });
+      res.json(r.data);
+    } catch (err) { res.status(500).json({ error: "Error trayendo productos" }); }
+  });
 
-app.get("/api/categories", async (req, res) => {
-  try {
-    const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/categories`, { headers });
-    res.json(r.data);
-  } catch (err) { res.status(500).json({ error: "Error trayendo categorías" }); }
-});
+  app.get("/api/categories", async (req, res) => {
+    try {
+      const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/categories`, { headers });
+      res.json(r.data);
+    } catch (err) { res.status(500).json({ error: "Error trayendo categorías" }); }
+  });
 
-// ─── ESTADOS ──────────────────────────────────────────────────────────
-app.get("/api/estados", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT * FROM pedidos_estados");
-    const estados = {};
-    result.rows.forEach(r => {
-      estados[r.id] = {
-        estado: r.estado, repartidor: r.repartidor,
-        tabManual: r.tab_manual, fechaManual: r.fecha_manual,
-        franjaManual: r.franja_manual, cobrar: r.cobrar,
-        clienteOverride: r.cliente_override, telefonoOverride: r.telefono_override,
-        direccionOverride: r.direccion_override, barrioOverride: r.barrio_override,
-        zonaOverride: r.zona_override, medioPagoOverride: r.medio_pago_override,
-        notaOverride: r.nota_override, emailOverride: r.email_override,
-        codigoPagoOverride: r.codigo_pago_override,
-        comandasImpresas: r.comandas_impresas || 0,
+  // ─── ESTADOS ──────────────────────────────────────────────────────────
+  app.get("/api/estados", async (req, res) => {
+    try {
+      const result = await pool.query("SELECT * FROM pedidos_estados");
+      const estados = {};
+      result.rows.forEach(r => {
+        estados[r.id] = {
+          estado: r.estado, repartidor: r.repartidor,
+          tabManual: r.tab_manual, fechaManual: r.fecha_manual,
+          franjaManual: r.franja_manual, cobrar: r.cobrar,
+          clienteOverride: r.cliente_override, telefonoOverride: r.telefono_override,
+          direccionOverride: r.direccion_override, barrioOverride: r.barrio_override,
+          zonaOverride: r.zona_override, medioPagoOverride: r.medio_pago_override,
+          notaOverride: r.nota_override, emailOverride: r.email_override,
+          codigoPagoOverride: r.codigo_pago_override,
+          comandasImpresas: r.comandas_impresas || 0,
       };
     });
     res.json(estados);
