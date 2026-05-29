@@ -663,6 +663,8 @@ app.post("/api/caja/reabrir", async (req, res) => {
     registrarAuditoria(usuarioAudit, "reapertura_caja", "caja", local, { fecha, montoInicial });
   } catch (err) { res.status(500).json({ error: "Error reabriendo caja" }); }
 });
+
+app.get("/api/caja/estado/:local/:fecha", async (req, res) => {
   const { local, fecha } = req.params;
   try {
     const apertura = await pool.query("SELECT * FROM caja_aperturas WHERE local=$1 AND fecha=$2", [local, fecha]);
