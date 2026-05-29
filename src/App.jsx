@@ -1483,6 +1483,7 @@ const [facturasMap, setFacturasMap] = useState({});
             if (est.zonaOverride) ov.zona = est.zonaOverride;
             if (est.medioPagoOverride) ov.medioPago = est.medioPagoOverride;
             if (est.notaOverride !== undefined && est.notaOverride !== null) ov.nota = est.notaOverride;
+            if (est.codigoPagoOverride) ov.codigoPago = est.codigoPagoOverride;
             if (Object.keys(ov).length > 0) datosInit[id] = ov;
           });
           setPedidosDatosOverride(datosInit);
@@ -1590,6 +1591,7 @@ const [facturasMap, setFacturasMap] = useState({});
             nota: ovDatos.nota !== undefined ? ovDatos.nota : (p.note || ""),
             esManual: false, entreCalles: "",
             transaccionMP: p.transactions?.[0]?.id || null,
+            codigoPago: ovDatos.codigoPago !== undefined ? ovDatos.codigoPago : (p.transactions?.[0]?.id ? String(p.transactions[0].id) : ""),
             identificacion: p.contact_identification || p.identification?.number || "", razonSocialFactura: p.billing_business_name || "", esFacturaA: p.billing_customer_type === "company" && p.billing_document_type === "cuit", email: ovDatos.email !== undefined ? ovDatos.email : (p.contact_email || ""),
           };
         }),
@@ -1613,6 +1615,7 @@ const [facturasMap, setFacturasMap] = useState({});
             tabActual, local: localLabel(tabActual),
             fechaDisplay: local.fechaManual || p.fecha, franjaDisplay: local.franjaManual || p.franja || "Sin franja",
             identificacion: p.identificacion || "", email: p.email || "",
+            codigoPago: ovDatos.codigoPago !== undefined ? ovDatos.codigoPago : (p.codigoPago || ""),
             productos: ov ? ov.productos : p.productos,
             totalNum: ov ? Number(ov.total_num) : p.totalNum,
             total: ov ? `$${Number(ov.total_num).toLocaleString("es-AR")}` : p.total,
@@ -1711,6 +1714,7 @@ const [facturasMap, setFacturasMap] = useState({});
           medioPago: nuevosOverrides.medioPago ?? p.medioPago,
           nota: nuevosOverrides.nota !== undefined ? nuevosOverrides.nota : (p.nota || ""),
           email: nuevosOverrides.email !== undefined ? nuevosOverrides.email : (p.email || ""),
+          codigoPago: nuevosOverrides.codigoPago !== undefined ? nuevosOverrides.codigoPago : (p.codigoPago || ""),
         };
         axios.patch(`${API}/api/pedidos/${id}/datos`, { ...datosDB, usuario: usuario.nombre_completo }).catch(console.error);
       }
@@ -2434,6 +2438,11 @@ const [facturasMap, setFacturasMap] = useState({});
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Repartidor</div><div style={s.detalleVal}>{pedidosLocales[p.id]?.repartidor || "Sin asignar"}</div></div>
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Email</div><div style={s.detalleVal}>{p.email || "—"}</div></div>
                         {p.transaccionMP && <div style={s.detalleBloque}><div style={s.detalleLabel}>ID Transacción MP</div><div style={{ ...s.detalleVal, fontFamily: "monospace", fontSize: 12 }}>{p.transaccionMP}</div></div>}
+                       <div style={s.detalleBloque}>
+                                <div style={s.detalleLabel}>Código MKP</div>
+                                <InputBlur style={s.inputField} initialValue={p.codigoPago || ""} placeholder="MP, Rappi, PedidosYa..."
+                                  onCommit={v => actualizarDato(p, "codigoPago", v)} onClick={e => e.stopPropagation()} />
+                              </div>
                         </div>
                         <AuditoriaInline pedidoId={String(p.id)} />
                         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
@@ -2726,6 +2735,7 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                                 <div style={{ ...s.detalleVal, color: p.pago === "Pagado" ? "#F68B32" : "#c0392b", fontWeight: 600 }}>{p.pago}</div>
                               </div>
                               {p.transaccionMP && <div style={s.detalleBloque}><div style={s.detalleLabel}>ID Transacción MP</div><div style={{ ...s.detalleVal, fontFamily: "monospace", fontSize: 12 }}>{p.transaccionMP}</div></div>}
+                            {p.codigoPago && <div style={s.detalleBloque}><div style={s.detalleLabel}>Código MKP</div><div style={{ ...s.detalleVal, fontFamily: "monospace", fontSize: 12 }}>{p.codigoPago}</div></div>}
                             </div>
                             {/* OPERACIONES */}
                             <div style={{ fontSize: 10, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, borderTop: "1px solid #eee", paddingTop: 10 }}>⚙️ Operaciones</div>

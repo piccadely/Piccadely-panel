@@ -129,6 +129,8 @@ async function initDB() {
   await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS nota_override TEXT;`);
   await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS email_override TEXT;`);
   await pool.query(`ALTER TABLE facturas ADD COLUMN IF NOT EXISTS local TEXT;`);
+  await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS codigo_pago_override TEXT;`);
+  await pool.query(`ALTER TABLE pedidos_manuales ADD COLUMN IF NOT EXISTS codigo_pago TEXT;`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
   await pool.query(`CREATE TABLE IF NOT EXISTS geocoding_cache (
     address_key TEXT PRIMARY KEY,
@@ -391,6 +393,7 @@ app.get("/api/estados", async (req, res) => {
         direccionOverride: r.direccion_override, barrioOverride: r.barrio_override,
         zonaOverride: r.zona_override, medioPagoOverride: r.medio_pago_override,
         notaOverride: r.nota_override, emailOverride: r.email_override,
+        codigoPagoOverride: r.codigo_pago_override,
       };
     });
     res.json(estados);
@@ -436,23 +439,23 @@ app.post("/api/estados/:id", async (req, res) => {
 // ─── DATOS EDITABLES DE PEDIDO ────────────────────────────────────────
 app.patch("/api/pedidos/:id/datos", async (req, res) => {
   const { id } = req.params;
-  const { esManual, cliente, telefono, direccion, barrio, zona, medioPago, nota, email, usuario: usuarioAudit } = req.body;
-  try {
+const { esManual, cliente, telefono, direccion, barrio, zona, medioPago, nota, email, codigoPago, usuario: usuarioAudit } = req.body;  try {
     if (esManual) {
       await pool.query(
-        `UPDATE pedidos_manuales SET cliente=$1, telefono=$2, direccion=$3, barrio=$4, zona=$5, medio_pago=$6, nota=$7, email=$8 WHERE id=$9`,
-        [cliente, telefono, direccion, barrio, zona, medioPago, nota, email, id]
+        `UPDATE pedidos_manuales SET cliente=$1, telefono=$2, direccion=$3, barrio=$4, zona=$5, medio_pago=$6, nota=$7, email=$8, codigo_pago=$9 WHERE id=$10`,
+        [cliente, telefono, direccion, barrio, zona, medioPago, nota, email, codigoPago || "", id]
       );
     } else {
       await pool.query(
         `INSERT INTO pedidos_estados (id, cliente_override, telefono_override, direccion_override, barrio_override, zona_override, medio_pago_override, nota_override, email_override, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
          ON CONFLICT (id) DO UPDATE SET
            cliente_override=EXCLUDED.cliente_override, telefono_override=EXCLUDED.telefono_override,
            direccion_override=EXCLUDED.direccion_override, barrio_override=EXCLUDED.barrio_override,
            zona_override=EXCLUDED.zona_override, medio_pago_override=EXCLUDED.medio_pago_override,
-           nota_override=EXCLUDED.nota_override, email_override=EXCLUDED.email_override, updated_at=NOW()`,
-        [id, cliente, telefono, direccion, barrio, zona, medioPago, nota, email]
+           nota_override=EXCLUDED.nota_override, email_override=EXCLUDED.email_override,
+           codigo_pago_override=EXCLUDED.codigo_pago_override, updated_at=NOW()`,
+        [id, cliente, telefono, direccion, barrio, zona, medioPago, nota, email, codigoPago || ""]
       );
     }
     res.json({ ok: true });
@@ -480,7 +483,7 @@ app.get("/api/pedidos-manuales", async (req, res) => {
       productos: r.productos, totalNum: Number(r.total_num), total: r.total,
       pago: r.pago, medioPago: r.medio_pago, cobrar: r.cobrar,
       tabActual: r.tab_actual, local: r.local, nota: r.nota,
-      esManual: true, estado: "Por empaquetar", repartidor: "Sin asignar",
+codigoPago: r.codigo_pago || "", esManual: true, estado: "Por empaquetar", repartidor: "Sin asignar",
     }));
     res.json(pedidos);
   } catch (err) { res.status(500).json({ error: "Error trayendo pedidos manuales" }); }
