@@ -2697,7 +2697,7 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                       <div key={p.id} style={{ ...s.fila, ...(abierto ? s.filaAbierta : {}), ...(estaVencido ? { background: "#f5b7b1", borderLeft: "4px solid #922b21" } : estaProximo ? { background: "#fdecea", borderLeft: "4px solid #c0392b" } : {}) }}>
                         <div style={s.filaTop} onClick={() => toggleExpandido(p.id)}>
                           <span style={{ ...s.cel, flex: 1.2 }}>
-                            <span style={s.numero}>{p.numero}</span> {p.cliente}
+                            <span style={s.numero}>{p.numero}</span>{!comandasImpresas[p.id] && <span style={s.nuevoBadge}>● NUEVO</span>} {p.cliente}
                             {cobrar && <span style={s.cobrarBadge}>COBRAR</span>}
                             {p.esManual && <span style={{ ...s.cobrarBadge, background: "#7c3aed" }}>MANUAL</span>}
                             {productosOverride[String(p.id)] && <span style={{ ...s.cobrarBadge, background: "#7c3aed" }}>EDITADO</span>}
@@ -2893,6 +2893,7 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
       franjaTag: { fontSize: 11, background: "#f5f0e8", color: "#7d5a2c", padding: "2px 8px", borderRadius: 4 },
       estadoTag: { fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 4, textTransform: "uppercase", letterSpacing: 0.3 },
       cobrarBadge: { fontSize: 9, fontWeight: 700, background: "#c0392b", color: "#fff", padding: "2px 6px", borderRadius: 3, marginLeft: 6, letterSpacing: 0.5 },
+      nuevoBadge: { fontSize: 10, fontWeight: 800, background: "#16a34a", color: "#fff", padding: "2px 8px", borderRadius: 4, marginRight: 6, letterSpacing: 0.5, textTransform: "uppercase", boxShadow: "0 0 0 2px rgba(22,163,74,0.25)" },
       chevron: { fontSize: 10, color: "#aaa", marginLeft: 4 },
       detalle: { padding: "14px 18px", borderTop: "1px solid #eee", background: "#fafaf8" },
       detalleGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 },
