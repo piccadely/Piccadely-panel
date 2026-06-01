@@ -1,4 +1,4 @@
-    import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
     import axios from "axios";
     import * as XLSX from "xlsx";
     import jsPDF from "jspdf";
@@ -1572,7 +1572,7 @@ setPedidosDatosOverride(datosInit);
         return () => document.removeEventListener("mousedown", handleClick);
       }, []);
 
-      const pedidosProcesados = [
+      const pedidosProcesados = useMemo(() => [
         ...pedidosRaw.map(p => {
           const zona = p.fulfillments?.[0]?.shipping?.option?.name || "Sin zona";
           const { fecha, franja } = parsearFranja(p.owner_note);
@@ -1633,7 +1633,7 @@ setPedidosDatosOverride(datosInit);
             total: ov ? `$${Number(ov.total_num).toLocaleString("es-AR")}` : p.total,
           };
         }),
-      ];
+      ], [pedidosRaw, pedidosManuales, pedidosLocales, productosOverride, pedidosDatosOverride]);
 
       const pedidosActivos = pedidosProcesados.filter(p => {
         const estado = pedidosLocales[p.id]?.estado || p.estado;
