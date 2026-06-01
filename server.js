@@ -852,12 +852,12 @@ app.post("/api/facturar", async (req, res) => {
   } : {
     documento_tipo: documentoTipo, documento_nro: String(documentoNro).trim() || "0",
     razon_social: razonSocial || cliente, email: email || "", domicilio: domicilio || "Sin domicilio",
-    provincia: "2", condicion_pago: "201", condicion_iva: esFacturaA ? "RI" : "CF",
-    condicion_iva_operacion: esFacturaA ? "RI" : "CF", envia_por_mail: email ? "S" : "N", reclama_deuda: "N",
+   provincia: "2", condicion_pago: "201", condicion_iva: esFacturaA ? "RI" : (esExento ? "E" : "CF"),
+    condicion_iva_operacion: esFacturaA ? "RI" : (esExento ? "E" : "CF"), envia_por_mail: email ? "S" : "N", reclama_deuda: "N",
   };
   const descripcion = productos.map(p => p.descripcion).join(", ").substring(0, 200);
-  const precioSinIva = esExento ? totalNum : Math.round((totalNum / 1.21) * 100) / 100;
-  const detalle = [{ cantidad: 1, bonificacion_porcentaje: 0, afecta_stock: "N", producto: { descripcion, codigo: "VENTA", lista_precios: "standard", leyenda: "", unidad_bulto: 1, alicuota: esExento ? 0 : 21, precio_unitario_sin_iva: precioSinIva, actualiza_precio: "S" } }];
+  const precioSinIva = Math.round((totalNum / 1.21) * 100) / 100;
+  const detalle = [{ cantidad: 1, bonificacion_porcentaje: 0, afecta_stock: "N", producto: { descripcion, codigo: "VENTA", lista_precios: "standard", leyenda: "", unidad_bulto: 1, alicuota: 21, precio_unitario_sin_iva: precioSinIva, actualiza_precio: "S" } }];
   const body = { apitoken: TF_APITOKEN, usertoken: TF_USERTOKEN, apikey: TF_APIKEY, cliente: clienteObj, comprobante: { fecha: fechaHoy(), vencimiento: fechaVencimiento(30), tipo: tipoComprobante, operacion: "V", moneda: "PES", cotizacion: 1, punto_venta: TF_PDV, rubro: "Alimentos y bebidas", rubro_grupo_contable: "Alimentos", bonificacion: 0, total: totalNum, external_reference: String(pedidoId) || `pedido-${Date.now()}`, detalle } };
   console.log(`Facturando pedido ${pedidoId} - Local: ${local} - PDV: ${TF_PDV}`);
   try {

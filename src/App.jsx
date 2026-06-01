@@ -494,7 +494,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       const [resultado, setResultado] = useState(null);
       const [facturas, setFacturas] = useState([]);
       const [loadingFacturas, setLoadingFacturas] = useState(true);
-      const requiereDoc = tipo === "FACTURA A";
+      const requiereDoc = tipo === "FACTURA A" || tipo === "FACTURA B EXENTO";
 
       useEffect(() => { cargarFacturas(); }, []);
 
