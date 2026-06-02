@@ -1638,8 +1638,7 @@ setPedidosDatosOverride(datosInit);
       const pedidosActivos = pedidosProcesados.filter(p => {
         const estado = pedidosLocales[p.id]?.estado || p.estado;
         if (estado === "Entregado" || estado === "Anulado") return false;
-        if (!p.fechaDisplay) return true;
-        return p.fechaDisplay >= HOY;
+        return true;
       });
 
       const pedidosFinalizados = pedidosProcesados.filter(p => {
