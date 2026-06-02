@@ -1710,6 +1710,38 @@ setPedidosDatosOverride(datosInit);
       function cambiarRepartidor(id, valor) { actualizarLocal(id, { repartidor: valor }); }
       function cambiarTab(id, valor) { actualizarLocal(id, { tabManual: valor }); }
       function cambiarCobrar(id, valor) { actualizarLocal(id, { cobrar: valor }); }
+      // ─── BACKFILL FECHAS: corregir pedidos sin fecha ───────────────────
+      async function corregirPedidosSinFecha() {
+        setMenuAbierto(false);
+        const sinFecha = pedidosProcesados.filter(p => !p.fechaDisplay);
+        if (sinFecha.length === 0) { alert("👍 No hay pedidos sin fecha."); return; }
+        const conFecha = sinFecha.map(p => {
+          const m = String(p.id).match(/^manual-(\d+)$/);
+          return { ...p, fechaCreacion: m ? fechaArgentina(new Date(Number(m[1]))) : "" };
+        });
+        const porFecha = {};
+        conFecha.forEach(p => { const f = p.fechaCreacion || "(no deducible)"; porFecha[f] = (porFecha[f] || 0) + 1; });
+        const resumen = Object.entries(porFecha).sort().map(([f, n]) => `   ${f}: ${n}`).join("\n");
+        const noDeducibles = conFecha.filter(p => !p.fechaCreacion).length;
+        const msg = `Encontré ${sinFecha.length} pedido(s) sin fecha.\n\nFecha de creación de cada uno:\n${resumen}\n\nSe le asignará a cada pedido SU fecha de creación. Ojo: esto los suma a la caja de ese día; si esa caja ya estaba cerrada, su cierre va a cambiar.${noDeducibles ? `\n\n(${noDeducibles} no se pudieron deducir; se saltean.)` : ""}\n\n¿Aplicar?`;
+        if (!window.confirm(msg)) return;
+        let ok = 0, fail = 0;
+        for (const p of conFecha) {
+          if (!p.fechaCreacion) { fail++; continue; }
+          const est = pedidosLocales[p.id] || {};
+          try {
+            await axios.post(`${API}/api/estados/${p.id}`, {
+              estado: est.estado || "Entregado", repartidor: est.repartidor || "Sin asignar",
+              tabManual: est.tabManual ?? null, fechaManual: p.fechaCreacion,
+              franjaManual: est.franjaManual ?? null, cobrar: est.cobrar ?? false,
+              usuario: usuario.nombre_completo,
+            });
+            ok++;
+          } catch { fail++; }
+        }
+        alert(`✅ Listo: ${ok} con fecha asignada${fail ? `, ${fail} no se pudieron` : ""}.\nRecargá para ver los cambios.`);
+        window.location.reload();
+      }
       function toggleExpandido(id) { setExpandido(prev => prev === id ? null : id); }
 // ─── CORREGIR / REABRIR PEDIDO FINALIZADO ──────────────────────────
       async function cajaCerradaDe(p) {
@@ -2058,6 +2090,7 @@ let numeroAsignado = "";
         }
       }}>🔄 Resincronizar TN</button>
     )}
+                  {usuario.rol === "admin" && <button style={s.dropItem} onClick={corregirPedidosSinFecha}>🗓️ Corregir pedidos sin fecha</button>}
                   <button style={s.dropItem} onClick={() => { setVista("caja"); setMenuAbierto(false); }}>💰 Caja</button>
                   <button style={s.dropItem} onClick={() => { setVista("finalizados"); setMenuAbierto(false); }}>📋 Pedidos finalizados</button>
                   <button style={s.dropItem} onClick={() => { setVista("reporteVentas"); setMenuAbierto(false); }}>📊 Reporte de ventas</button>
