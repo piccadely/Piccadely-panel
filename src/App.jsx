@@ -1711,7 +1711,29 @@ setPedidosDatosOverride(datosInit);
       function cambiarTab(id, valor) { actualizarLocal(id, { tabManual: valor }); }
       function cambiarCobrar(id, valor) { actualizarLocal(id, { cobrar: valor }); }
       function toggleExpandido(id) { setExpandido(prev => prev === id ? null : id); }
-
+// ─── CORREGIR / REABRIR PEDIDO FINALIZADO ──────────────────────────
+      async function cajaCerradaDe(p) {
+        if (!p.local || p.local === "—" || !p.fechaDisplay) return false;
+        try {
+          const res = await axios.get(`${API}/api/caja/estado/${encodeURIComponent(p.local)}/${p.fechaDisplay}`);
+          return !!res.data?.apertura?.cerrada;
+        } catch { return false; }
+      }
+      async function corregirMedioFinalizado(p, valor) {
+        if (await cajaCerradaDe(p)) {
+          if (!window.confirm(`⚠️ La caja de ${p.local} del ${p.fechaDisplay} ya está cerrada.\n\nCambiar el medio de pago puede modificar ese cierre (ventas por medio de pago y saldo esperado del día).\n\n¿Continuar igual?`)) return;
+        }
+        actualizarDato(p, "medioPago", valor);
+      }
+      async function reabrirPedido(p, e) {
+        e.stopPropagation();
+        const cerrada = await cajaCerradaDe(p);
+        const msg = cerrada
+          ? `⚠️ La caja de ${p.local} del ${p.fechaDisplay} ya está cerrada.\n\nReabrir el pedido ${p.numero} puede modificar ese cierre. Vuelve al panel en estado "En camino".\n\n¿Reabrir igual?`
+          : `¿Reabrir el pedido ${p.numero}? Vuelve al panel en estado "En camino".`;
+        if (!window.confirm(msg)) return;
+        actualizarLocal(p.id, { estado: "En camino" });
+      }
       // ─── ACTUALIZAR DATO DE PEDIDO (cliente, telefono, dirección, etc.) ──
       function actualizarDato(p, campo, valor) {
         const id = String(p.id);
@@ -2475,7 +2497,22 @@ let numeroAsignado = "";
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Zona</div><div style={s.detalleVal}>{p.zona}</div></div>
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Horario</div><div style={s.detalleVal}>{p.franjaDisplay}</div></div>
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Repartidor</div><div style={s.detalleVal}>{pedidosLocales[p.id]?.repartidor || "Sin asignar"}</div></div>
-                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Email</div><div style={s.detalleVal}>{p.email || "—"}</div></div>
+                         <div style={s.detalleBloque}><div style={s.detalleLabel}>Email</div><div style={s.detalleVal}>{p.email || "—"}</div></div>
+                          <div style={s.detalleBloque}>
+                            <div style={s.detalleLabel}>Medio de pago</div>
+                            <select style={s.inputField} value={p.medioPago}
+                              onChange={e => { e.stopPropagation(); corregirMedioFinalizado(p, e.target.value); }}
+                              onClick={e => e.stopPropagation()}>
+                              {MEDIOS_PAGO.map(m => <option key={m}>{m}</option>)}
+                            </select>
+                          </div>
+                          <div style={s.detalleBloque}>
+                            <div style={s.detalleLabel}>Cobrar en entrega</div>
+                            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                              <input type="checkbox" checked={!!pedidosLocales[p.id]?.cobrar} onChange={e => { e.stopPropagation(); cambiarCobrar(p.id, e.target.checked); }} onClick={e => e.stopPropagation()} />
+                              <span style={{ fontSize: 12, color: pedidosLocales[p.id]?.cobrar ? "#c0392b" : "#888" }}>{pedidosLocales[p.id]?.cobrar ? "⚠️ COBRAR" : "Ya cobrado"}</span>
+                            </label>
+                          </div>
                         {p.transaccionMP && <div style={s.detalleBloque}><div style={s.detalleLabel}>ID Transacción MP</div><div style={{ ...s.detalleVal, fontFamily: "monospace", fontSize: 12 }}>{p.transaccionMP}</div></div>}
                        <div style={s.detalleBloque}>
                                 <div style={s.detalleLabel}>Código MKP</div>
@@ -2487,6 +2524,10 @@ let numeroAsignado = "";
                         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                           <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>
                             🖨️ Imprimir comanda {comandasImpresas[p.id] ? <span style={{ marginLeft: 4, background: "#f39c12", color: "#fff", borderRadius: 99, fontSize: 10, padding: "1px 6px", fontWeight: 700 }}>{comandasImpresas[p.id]}</span> : null}
+                          </button>
+                          <button style={{ ...s.btnImprimir, borderColor: "#0c447c", color: "#0c447c", background: "#e6f1fb" }}
+                            onClick={e => reabrirPedido(p, e)}>
+                            🔄 Reabrir pedido
                           </button>
                           <BtnFacturar p={p} version={facturaVersion} onAbrir={setFacturando} />
                         </div>
