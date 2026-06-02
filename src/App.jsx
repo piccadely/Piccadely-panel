@@ -1402,6 +1402,7 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
       const [filtroFinDesde, setFiltroFinDesde] = useState("");
       const [filtroFinHasta, setFiltroFinHasta] = useState("");
       const [filtroRepartidor, setFiltroRepartidor] = useState("");
+      const [filtroFinLocal, setFiltroFinLocal] = useState("");
       const [facturando, setFacturando] = useState(null);
       const [pedidoEmailMP, setPedidoEmailMP] = useState(null);
       const [facturaVersion, setFacturaVersion] = useState(0);
@@ -1409,6 +1410,7 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
       const [rvHasta, setRvHasta] = useState("");
       const [rvMedio, setRvMedio] = useState("");
       const [rvRepartidor, setRvRepartidor] = useState("");
+      const [rvLocal, setRvLocal] = useState("");
       const [tabFin, setTabFin] = useState("entregados");
       const [rpDesde, setRpDesde] = useState("");
       const [rpHasta, setRpHasta] = useState("");
@@ -2204,6 +2206,8 @@ let numeroAsignado = "";
           if (rvHasta && p.fechaDisplay && p.fechaDisplay > rvHasta) return false;
           if (rvMedio && p.medioPago !== rvMedio) return false;
           if (rvRepartidor && (pedidosLocales[p.id]?.repartidor || "Sin asignar") !== rvRepartidor) return false;
+          if (rvLocal && p.local !== rvLocal) return false;
+          if ((rvDesde || rvHasta) && !p.fechaDisplay) return false;
           return true;
         }).sort((a, b) => { if (!a.fechaDisplay) return 1; if (!b.fechaDisplay) return -1; return b.fechaDisplay.localeCompare(a.fechaDisplay); });
         const totalVentasRv = ventasFiltradas.reduce((acc, p) => acc + p.totalNum, 0);
@@ -2240,8 +2244,13 @@ let numeroAsignado = "";
                     <option value="">Todos los repartidores</option>
                     {repartidoresLista.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
-                  {(rvDesde || rvHasta || rvMedio || rvRepartidor) && (
-                    <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setRvDesde(""); setRvHasta(""); setRvMedio(""); setRvRepartidor(""); }}>✕ Limpiar</button>
+                  <select style={{ ...s.select, padding: "5px 8px" }} value={rvLocal} onChange={e => setRvLocal(e.target.value)}>
+                    <option value="">Todos los locales</option>
+                    <option value="A. Thomas">A. Thomas</option>
+                    <option value="French">French</option>
+                  </select>
+                  {(rvDesde || rvHasta || rvMedio || rvRepartidor || rvLocal) && (
+                    <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setRvDesde(""); setRvHasta(""); setRvMedio(""); setRvRepartidor(""); setRvLocal(""); }}>✕ Limpiar</button>
                   )}
                   {ventasFiltradas.length > 0 && (<><button style={btnExportar("#F68B32")} onClick={exportarVentasExcel}>📊 Excel</button><button style={btnExportar("#c0392b")} onClick={exportarVentasPDF}>📄 PDF</button></>)}
                 </div>
@@ -2478,6 +2487,7 @@ let numeroAsignado = "";
             if (filtroFinDesde && p.fechaDisplay && p.fechaDisplay < filtroFinDesde) return false;
             if (filtroFinHasta && p.fechaDisplay && p.fechaDisplay > filtroFinHasta) return false;
             if (filtroRepartidor && (pedidosLocales[p.id]?.repartidor || "Sin asignar") !== filtroRepartidor) return false;
+            if (filtroFinLocal && p.local !== filtroFinLocal) return false;
             return true;
           })
           .sort((a, b) => { if (!a.fechaDisplay) return 1; if (!b.fechaDisplay) return -1; return b.fechaDisplay.localeCompare(a.fechaDisplay); });
@@ -2513,7 +2523,12 @@ let numeroAsignado = "";
                     <option value="">Todos los repartidores</option>
                     {repartidoresLista.map(r => <option key={r} value={r}>{r}</option>)} 
                   </select>
-                  {(filtroFinDesde || filtroFinHasta || filtroRepartidor) && <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setFiltroFinDesde(""); setFiltroFinHasta(""); setFiltroRepartidor(""); }}>✕ Limpiar</button>}
+                  <select style={{ ...s.select, padding: "5px 8px" }} value={filtroFinLocal} onChange={e => setFiltroFinLocal(e.target.value)}>
+                    <option value="">Todos los locales</option>
+                    <option value="A. Thomas">A. Thomas</option>
+                    <option value="French">French</option>
+                  </select>
+                  {(filtroFinDesde || filtroFinHasta || filtroRepartidor || filtroFinLocal) && <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setFiltroFinDesde(""); setFiltroFinHasta(""); setFiltroRepartidor(""); setFiltroFinLocal(""); }}>✕ Limpiar</button>}
                   {listaMostrada.length > 0 && (<><button style={btnExportar("#F68B32")} onClick={exportarFinalizadosExcel}>📊 Excel</button><button style={btnExportar("#c0392b")} onClick={exportarFinalizadosPDF}>📄 PDF</button></>)}
                 </div>
               </div>
