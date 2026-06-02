@@ -1672,6 +1672,31 @@ setPedidosDatosOverride(datosInit);
       function actualizarLocal(id, cambios) {
       setPedidosLocales(prev => { const nuevo = { ...prev, [id]: { ...prev[id], ...cambios } }; guardarEstadoDB(id, nuevo[id], usuario.nombre_completo); return nuevo; });
     }
+    // ─── ANULAR EN BLOQUE pedidos activos viejos ──────────────────────
+      async function anularPasadosHasta() {
+        setMenuAbierto(false);
+        const corte = window.prompt("Anular todos los pedidos ACTIVOS con fecha hasta (incluida) esta fecha.\nFormato AAAA-MM-DD:", "2026-05-27");
+        if (!corte) return;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(corte)) { alert("Fecha inválida. Usá AAAA-MM-DD, ej: 2026-05-27."); return; }
+        const objetivo = pedidosActivos.filter(p => p.fechaDisplay && p.fechaDisplay <= corte);
+        if (objetivo.length === 0) { alert(`No hay pedidos activos con fecha hasta ${corte}.`); return; }
+        if (!window.confirm(`Vas a ANULAR ${objetivo.length} pedido(s) activo(s) con fecha hasta ${corte}.\n\n• NO se les manda mail al cliente.\n• La caja no se toca.\n• Quedan en la pestaña "Anulados" y se pueden reabrir.\n\n¿Confirmás?`)) return;
+        let ok = 0, fail = 0;
+        for (const p of objetivo) {
+          const est = pedidosLocales[p.id] || {};
+          try {
+            await axios.post(`${API}/api/estados/${p.id}`, {
+              estado: "Anulado", repartidor: est.repartidor || "Sin asignar",
+              tabManual: est.tabManual ?? null, fechaManual: est.fechaManual ?? null,
+              franjaManual: est.franjaManual ?? null, cobrar: est.cobrar ?? false,
+              silencioso: true, usuario: usuario.nombre_completo,
+            });
+            ok++;
+          } catch { fail++; }
+        }
+        alert(`✅ ${ok} pedido(s) anulado(s)${fail ? `, ${fail} fallaron` : ""}.\nRecargá para actualizar.`);
+        window.location.reload();
+      }
       function actualizarLocalSinGuardar(id, cambios) {
         setPedidosLocales(prev => ({ ...prev, [id]: { ...prev[id], ...cambios } }));
       }
@@ -2090,6 +2115,7 @@ let numeroAsignado = "";
       }}>🔄 Resincronizar TN</button>
     )}
                   {usuario.rol === "admin" && <button style={s.dropItem} onClick={corregirPedidosSinFecha}>🗓️ Corregir pedidos sin fecha</button>}
+                  {usuario.rol === "admin" && <button style={s.dropItem} onClick={anularPasadosHasta}>🗑️ Anular pedidos viejos</button>}
                   <button style={s.dropItem} onClick={() => { setVista("caja"); setMenuAbierto(false); }}>💰 Caja</button>
                   <button style={s.dropItem} onClick={() => { setVista("finalizados"); setMenuAbierto(false); }}>📋 Pedidos finalizados</button>
                   <button style={s.dropItem} onClick={() => { setVista("reporteVentas"); setMenuAbierto(false); }}>📊 Reporte de ventas</button>

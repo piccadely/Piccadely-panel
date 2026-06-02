@@ -419,8 +419,7 @@ app.get("/api/orders", async (req, res) => {
 
 app.post("/api/estados/:id", async (req, res) => {
   const { id } = req.params;
-  const { estado, repartidor, tabManual, fechaManual, franjaManual, cobrar, usuario: usuarioAudit } = req.body;
-  try {
+const { estado, repartidor, tabManual, fechaManual, franjaManual, cobrar, silencioso, usuario: usuarioAudit } = req.body;  try {
     // Leer estado previo para auditoria
     const previo = await pool.query("SELECT * FROM pedidos_estados WHERE id=$1", [id]);
     const prevData = previo.rows[0] || {};
@@ -442,7 +441,7 @@ app.post("/api/estados/:id", async (req, res) => {
         tab_manual=EXCLUDED.tab_manual, fecha_manual=EXCLUDED.fecha_manual,
         franja_manual=EXCLUDED.franja_manual, cobrar=EXCLUDED.cobrar, updated_at=NOW()
     `, [id, estado, repartidor, tabManual, fechaManual, franjaManual, cobrar]);
-    if (mailAnularPedido) enviarMailAnulacion(mailAnularPedido).catch(console.error);
+if (mailAnularPedido && !silencioso) enviarMailAnulacion(mailAnularPedido).catch(console.error);
     res.json({ ok: true });
 
     // Auditoria (no bloquea la respuesta)
