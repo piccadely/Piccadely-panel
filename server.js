@@ -410,6 +410,7 @@ app.get("/api/orders", async (req, res) => {
           zonaOverride: r.zona_override, medioPagoOverride: r.medio_pago_override,
           notaOverride: r.nota_override, emailOverride: r.email_override,
           codigoPagoOverride: r.codigo_pago_override,
+          medioPagoOtroOverride: r.medio_pago_otro_override,
           comandasImpresas: r.comandas_impresas || 0,
       };
     });
@@ -471,7 +472,8 @@ app.post("/api/pedidos/:id/imprimir", async (req, res) => {
 // ─── DATOS EDITABLES DE PEDIDO ────────────────────────────────────────
 app.patch("/api/pedidos/:id/datos", async (req, res) => {
   const { id } = req.params;
-const { esManual, cliente, telefono, direccion, barrio, zona, medioPago, nota, email, codigoPago, usuario: usuarioAudit } = req.body;  try {
+  const { esManual, cliente, telefono, direccion, barrio, zona, medioPago, medioPagoOtro, nota, email, codigoPago, usuario: usuarioAudit } = req.body;
+  try {
     if (esManual) {
       await pool.query(
         `UPDATE pedidos_manuales SET cliente=$1, telefono=$2, direccion=$3, barrio=$4, zona=$5, medio_pago=$6, nota=$7, email=$8, codigo_pago=$9 WHERE id=$10`,
@@ -479,8 +481,8 @@ const { esManual, cliente, telefono, direccion, barrio, zona, medioPago, nota, e
       );
     } else {
       await pool.query(
-        `INSERT INTO pedidos_estados (id, cliente_override, telefono_override, direccion_override, barrio_override, zona_override, medio_pago_override, nota_override, email_override, updated_at)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
+        `INSERT INTO pedidos_estados (id, cliente_override, telefono_override, direccion_override, barrio_override, zona_override, medio_pago_override, nota_override, email_override, codigo_pago_override, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
          ON CONFLICT (id) DO UPDATE SET
            cliente_override=EXCLUDED.cliente_override, telefono_override=EXCLUDED.telefono_override,
            direccion_override=EXCLUDED.direccion_override, barrio_override=EXCLUDED.barrio_override,
@@ -490,6 +492,13 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
         [id, cliente, telefono, direccion, barrio, zona, medioPago, nota, email, codigoPago || ""]
       );
     }
+    // Detalle de "Otro" — se guarda siempre en pedidos_estados (manuales y TN)
+    await pool.query(
+      `INSERT INTO pedidos_estados (id, medio_pago_otro_override, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (id) DO UPDATE SET medio_pago_otro_override=EXCLUDED.medio_pago_otro_override, updated_at=NOW()`,
+      [id, medioPagoOtro || ""]
+    );
     res.json({ ok: true });
     registrarAuditoria(usuarioAudit, "edicion_datos", "pedido", id, { cliente, telefono, direccion, barrio, zona, medioPago, nota, email });
   } catch (err) { res.status(500).json({ error: err.message }); }

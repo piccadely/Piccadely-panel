@@ -1490,6 +1490,7 @@ const [facturasMap, setFacturasMap] = useState({});
             if (est.medioPagoOverride) ov.medioPago = est.medioPagoOverride;
             if (est.notaOverride !== undefined && est.notaOverride !== null) ov.nota = est.notaOverride;
             if (est.codigoPagoOverride) ov.codigoPago = est.codigoPagoOverride;
+            if (est.medioPagoOtroOverride) ov.medioPagoOtro = est.medioPagoOtroOverride;
             if (Object.keys(ov).length > 0) datosInit[id] = ov;
           });
 setPedidosDatosOverride(datosInit);
@@ -1601,7 +1602,7 @@ setPedidosDatosOverride(datosInit);
             totalNum: ov ? Number(ov.total_num) : totalNum,
             total: ov ? `$${Number(ov.total_num).toLocaleString("es-AR")}` : `$${totalNum.toLocaleString("es-AR")}`,
             pago: p.payment_status === "paid" ? "Pagado" : "Pendiente",
-            medioPago: ovDatos.medioPago || medioPagoLabel(p.gateway), gateway: p.gateway,
+            medioPago: ovDatos.medioPago || medioPagoLabel(p.gateway), medioPagoOtro: ovDatos.medioPagoOtro || "", gateway: p.gateway,
             esTakeaway: p.fulfillments?.[0]?.shipping?.type === "pickup",
             estado: local.estado, repartidor: local.repartidor, cobrar: local.cobrar,
             tabActual, local: localLabel(tabActual),
@@ -1625,6 +1626,7 @@ setPedidosDatosOverride(datosInit);
             barrio: ovDatos.barrio !== undefined ? ovDatos.barrio : p.barrio,
             zona: ovDatos.zona !== undefined ? ovDatos.zona : p.zona,
             medioPago: ovDatos.medioPago !== undefined ? ovDatos.medioPago : p.medioPago,
+            medioPagoOtro: ovDatos.medioPagoOtro || "",
             nota: ovDatos.nota !== undefined ? ovDatos.nota : (p.nota || ""),
             email: ovDatos.email !== undefined ? ovDatos.email : (p.email || ""),
             estado: local.estado, repartidor: local.repartidor,
@@ -1778,6 +1780,9 @@ setPedidosDatosOverride(datosInit);
         if (p.tabActual === "retiro-at" || p.tabActual === "retiro-fr") return "Retiro en sucursal";
         return "Sin asignar";
       }
+      function medioPagoReporte(p) {
+        return (p.medioPago === "Otro" && p.medioPagoOtro) ? `Otro — ${p.medioPagoOtro}` : p.medioPago;
+      }
 // ─── CORREGIR / REABRIR PEDIDO FINALIZADO ──────────────────────────
       async function cajaCerradaDe(p) {
         if (!p.local || p.local === "—" || !p.fechaDisplay) return false;
@@ -1823,6 +1828,7 @@ setPedidosDatosOverride(datosInit);
           nota: nuevosOverrides.nota !== undefined ? nuevosOverrides.nota : (p.nota || ""),
           email: nuevosOverrides.email !== undefined ? nuevosOverrides.email : (p.email || ""),
           codigoPago: nuevosOverrides.codigoPago !== undefined ? nuevosOverrides.codigoPago : (p.codigoPago || ""),
+          medioPagoOtro: nuevosOverrides.medioPagoOtro !== undefined ? nuevosOverrides.medioPagoOtro : (p.medioPagoOtro || ""),
         };
         axios.patch(`${API}/api/pedidos/${id}/datos`, { ...datosDB, usuario: usuario.nombre_completo }).catch(console.error);
 
@@ -2690,6 +2696,10 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                               onClick={e => e.stopPropagation()}>
                               {MEDIOS_PAGO.map(m => <option key={m}>{m}</option>)}
                             </select>
+                            {p.medioPago === "Otro" && (
+                              <InputBlur style={{ ...s.inputField, marginTop: 4 }} initialValue={p.medioPagoOtro || ""} placeholder="¿Cuál? (ej: Cheque, Canje)"
+                                onCommit={v => actualizarDato(p, "medioPagoOtro", v)} onClick={e => e.stopPropagation()} />
+                            )}
                           </div>
                           <div style={s.detalleBloque}>
                             <div style={s.detalleLabel}>Cobrar en entrega</div>
@@ -2983,6 +2993,10 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                                   onClick={e => e.stopPropagation()}>
                                   {MEDIOS_PAGO.map(m => <option key={m}>{m}</option>)}
                                 </select>
+                                {p.medioPago === "Otro" && (
+                                  <InputBlur style={{ ...s.inputField, marginTop: 4 }} initialValue={p.medioPagoOtro || ""} placeholder="¿Cuál? (ej: Cheque, Canje)"
+                                    onCommit={v => actualizarDato(p, "medioPagoOtro", v)} onClick={e => e.stopPropagation()} />
+                                )}
                               </div>
                               <div style={{ ...s.detalleBloque, gridColumn: "span 2" }}>
                                 <div style={s.detalleLabel}>Nota</div>
