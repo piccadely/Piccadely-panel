@@ -527,7 +527,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
           const res = await axios.post(`${API}/api/facturar`, {
             pedidoId: p.id, tipo, cliente: p.cliente, documentoTipo: docTipo,
             documentoNro: docNro.trim(), razonSocial, domicilio, email,
-            total: totalLimpio, productos: productosFactura,
+            total: totalLimpio, productos: productosFactura, local: p.local,
           });
           setResultado(res.data);
           if (res.data.ok) await cargarFacturas();
