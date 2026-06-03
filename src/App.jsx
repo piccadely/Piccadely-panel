@@ -1399,6 +1399,7 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
       const [filtroZona, setFiltroZona] = useState("");
       const [expandido, setExpandido] = useState(null);
       const [menuAbierto, setMenuAbierto] = useState(false);
+      const [menuGrupo, setMenuGrupo] = useState("");
       const [filtroFinDesde, setFiltroFinDesde] = useState("");
       const [filtroFinHasta, setFiltroFinHasta] = useState("");
       const [filtroRepartidor, setFiltroRepartidor] = useState("");
@@ -2114,30 +2115,50 @@ let numeroAsignado = "";
               <button style={s.hamburger} onClick={() => setMenuAbierto(m => !m)}>
                 <div style={s.hambLine} /><div style={s.hambLine} /><div style={s.hambLine} />
               </button>
-              {menuAbierto && (
+          {menuAbierto && (
                 <div style={s.dropdown}>
-    {usuario.rol === "admin" && <button style={s.dropItem} onClick={() => { setVista("usuarios"); setMenuAbierto(false); }}>👥 Usuarios</button>}
-    {usuario.rol === "admin" && <button style={s.dropItem} onClick={() => { setVista("repartidores"); setMenuAbierto(false); }}>🚚 Repartidores</button>}
                   {usuario.rol === "admin" && (
-      <button style={s.dropItem} onClick={async () => {
-        setMenuAbierto(false);
-        if (!window.confirm("¿Resincronizar TODOS los pedidos desde Tienda Nube? Puede tardar 1-2 minutos.")) return;
-        try {
-          const res = await axios.post(`${API}/api/admin/backfill-orders`);
-          alert(`✅ Resincronización completa: ${res.data.totalSynced} pedidos actualizados en ${res.data.totalPages} páginas.`);
-          window.location.reload();
-        } catch (err) {
-          alert("❌ Error: " + (err.response?.data?.error || err.message));
-        }
-      }}>🔄 Resincronizar TN</button>
-    )}
-                  {usuario.rol === "admin" && <button style={s.dropItem} onClick={corregirPedidosSinFecha}>🗓️ Corregir pedidos sin fecha</button>}
-                  {usuario.rol === "admin" && <button style={s.dropItem} onClick={anularPasadosHasta}>🗑️ Anular pedidos viejos</button>}
-                  {usuario.rol === "admin" && <button style={s.dropItem} onClick={() => { setVista("dashboard"); setMenuAbierto(false); }}>📈 Dashboard ejecutivo</button>}
+                    <>
+                      <button
+                        style={{ ...s.dropItem, fontWeight: 700, color: "#444", background: "#fafaf8", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                        onClick={() => setMenuGrupo(g => g === "admin" ? "" : "admin")}>
+                        <span>🛠️ Administración</span>
+                        <span style={{ fontSize: 10, color: "#aaa" }}>{menuGrupo === "admin" ? "▾" : "▸"}</span>
+                      </button>
+                      {menuGrupo === "admin" && (
+                        <>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("usuarios"); setMenuAbierto(false); }}>👥 Usuarios</button>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("repartidores"); setMenuAbierto(false); }}>🚚 Repartidores</button>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={async () => {
+                            setMenuAbierto(false);
+                            if (!window.confirm("¿Resincronizar TODOS los pedidos desde Tienda Nube? Puede tardar 1-2 minutos.")) return;
+                            try {
+                              const res = await axios.post(`${API}/api/admin/backfill-orders`);
+                              alert(`✅ Resincronización completa: ${res.data.totalSynced} pedidos actualizados en ${res.data.totalPages} páginas.`);
+                              window.location.reload();
+                            } catch (err) { alert("❌ Error: " + (err.response?.data?.error || err.message)); }
+                          }}>🔄 Resincronizar TN</button>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={corregirPedidosSinFecha}>🗓️ Corregir pedidos sin fecha</button>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={anularPasadosHasta}>🗑️ Anular pedidos viejos</button>
+                        </>
+                      )}
+                    </>
+                  )}
+                  <button
+                    style={{ ...s.dropItem, fontWeight: 700, color: "#444", background: "#fafaf8", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                    onClick={() => setMenuGrupo(g => g === "reportes" ? "" : "reportes")}>
+                    <span>📊 Reportes</span>
+                    <span style={{ fontSize: 10, color: "#aaa" }}>{menuGrupo === "reportes" ? "▾" : "▸"}</span>
+                  </button>
+                  {menuGrupo === "reportes" && (
+                    <>
+                      {usuario.rol === "admin" && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("dashboard"); setMenuAbierto(false); }}>📈 Dashboard ejecutivo</button>}
+                      <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteVentas"); setMenuAbierto(false); }}>📊 Reporte de ventas</button>
+                      <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteProductos"); setMenuAbierto(false); }}>📦 Productos vendidos</button>
+                    </>
+                  )}
                   <button style={s.dropItem} onClick={() => { setVista("caja"); setMenuAbierto(false); }}>💰 Caja</button>
                   <button style={s.dropItem} onClick={() => { setVista("finalizados"); setMenuAbierto(false); }}>📋 Pedidos finalizados</button>
-                  <button style={s.dropItem} onClick={() => { setVista("reporteVentas"); setMenuAbierto(false); }}>📊 Reporte de ventas</button>
-                  <button style={s.dropItem} onClick={() => { setVista("reporteProductos"); setMenuAbierto(false); }}>📦 Productos vendidos</button>
                   <button style={s.dropItem} onClick={() => { setVista("produccion"); setMenuAbierto(false); }}>🔧 Análisis de producción</button>
                   <button style={s.dropItem} onClick={() => { setVista("mapa"); setMenuAbierto(false); }}>🗺️ Mapa de pedidos</button>
                   <button style={{ ...s.dropItem, borderTop: "1px solid #eee", color: "#888" }} onClick={() => { setVista("panel"); setMenuAbierto(false); }}>← Volver al panel</button>
