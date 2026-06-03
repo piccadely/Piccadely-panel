@@ -2441,7 +2441,7 @@ if (vista === "dashboard") {
         const totalUnidades = listaProductos.reduce((a, p) => a + p.cantidad, 0);
         const tagRp = fechaTagArchivo(rpDesde, rpHasta);
         const exportarProdExcel = () => {
-          const datos = listaMostrada.map(p => ({ "Nº": p.numero, "Cliente": p.cliente, "Email": p.email || "", "Teléfono": p.telefono, "Dirección": p.direccion + (p.barrio ? `, ${p.barrio}` : ""), "Productos": p.productos, "Medio de pago": p.medioPago, "Código MKP": p.codigoPago || "", "Total": p.totalNum, "Fecha": p.fechaDisplay || "", "Local": p.local, "Factura": facturasMap[String(p.id)] || "", "Estado": pedidosLocales[p.id]?.estado || p.estado, "Repartidor": repartidorReporte(p) }));
+          const datos = listaProductos.map((prod, i) => ({ "Ranking": i + 1, "Producto": prod.nombre, "Unidades vendidas": prod.cantidad, "% del total": totalUnidades > 0 ? `${((prod.cantidad / totalUnidades) * 100).toFixed(1)}%` : "0%" }));
           datos.push({ "Ranking": "", "Producto": "TOTAL", "Unidades vendidas": totalUnidades, "% del total": "100%" });
           exportarExcel(`productos_vendidos_${tagRp}.xlsx`, [{ name: "Productos", data: datos }]);
         };
@@ -2617,7 +2617,7 @@ if (vista === "dashboard") {
         const listaMostrada = tabFin === "entregados" ? entregados : anulados;
         const tagFin = fechaTagArchivo(filtroFinDesde, filtroFinHasta);
         const exportarFinalizadosExcel = () => {
-         const datos = listaMostrada.map(p => ({ "Nº": p.numero, "Cliente": p.cliente, "Email": p.email || "", "Teléfono": p.telefono, "Dirección": p.direccion + (p.barrio ? `, ${p.barrio}` : ""), "Productos": p.productos, "Medio de pago": p.medioPago, "Total": p.totalNum, "Fecha": p.fechaDisplay || "", "Local": p.local, "Factura": facturasMap[String(p.id)] || "", "Estado": pedidosLocales[p.id]?.estado || p.estado, "Repartidor": pedidosLocales[p.id]?.repartidor || "Sin asignar" }));
+                 const datos = listaMostrada.map(p => ({ "Nº": p.numero, "Cliente": p.cliente, "Email": p.email || "", "Teléfono": p.telefono, "Dirección": p.direccion + (p.barrio ? `, ${p.barrio}` : ""), "Productos": p.productos, "Medio de pago": p.medioPago, "Código MKP": p.codigoPago || "", "Total": p.totalNum, "Fecha": p.fechaDisplay || "", "Local": p.local, "Factura": facturasMap[String(p.id)] || "", "Estado": pedidosLocales[p.id]?.estado || p.estado, "Repartidor": repartidorReporte(p) }));
           exportarExcel(`pedidos_${tabFin}_${tagFin}.xlsx`, [{ name: tabFin === "entregados" ? "Entregados" : "Anulados", data: datos }]);
         };
         const exportarFinalizadosPDF = () => {
