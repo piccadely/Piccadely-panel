@@ -1416,6 +1416,9 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
       const [rpHasta, setRpHasta] = useState("");
       const [prodFecha, setProdFecha] = useState(HOY);
       const [prodLocal, setProdLocal] = useState("todos");
+      const [dashDesde, setDashDesde] = useState(HOY.slice(0, 8) + "01");
+      const [dashHasta, setDashHasta] = useState(HOY);
+      const [dashOrigen, setDashOrigen] = useState("todos");
       const [editandoProductos, setEditandoProductos] = useState(null);
       const [productosOverride, setProductosOverride] = useState({});
       const [pedidosDatosOverride, setPedidosDatosOverride] = useState({});
@@ -2118,6 +2121,7 @@ let numeroAsignado = "";
     )}
                   {usuario.rol === "admin" && <button style={s.dropItem} onClick={corregirPedidosSinFecha}>🗓️ Corregir pedidos sin fecha</button>}
                   {usuario.rol === "admin" && <button style={s.dropItem} onClick={anularPasadosHasta}>🗑️ Anular pedidos viejos</button>}
+                  {usuario.rol === "admin" && <button style={s.dropItem} onClick={() => { setVista("dashboard"); setMenuAbierto(false); }}>📈 Dashboard ejecutivo</button>}
                   <button style={s.dropItem} onClick={() => { setVista("caja"); setMenuAbierto(false); }}>💰 Caja</button>
                   <button style={s.dropItem} onClick={() => { setVista("finalizados"); setMenuAbierto(false); }}>📋 Pedidos finalizados</button>
                   <button style={s.dropItem} onClick={() => { setVista("reporteVentas"); setMenuAbierto(false); }}>📊 Reporte de ventas</button>
@@ -2197,7 +2201,112 @@ let numeroAsignado = "";
       if (vista === "caja") {
         return <div style={s.wrap}><Header /><VistaCaja pedidosFinalizados={pedidosFinalizados} onVolver={() => setVista("panel")} usuario={usuario} /></div>;
       }
-
+if (vista === "dashboard") {
+        const restarMes = (f) => {
+          const [y, m, d] = f.split("-").map(Number);
+          const dt = new Date(y, m - 1, d);
+          dt.setMonth(dt.getMonth() - 1);
+          return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+        };
+        const filtrarVentas = (desde, hasta) => pedidosFinalizados.filter(p => {
+          const est = pedidosLocales[p.id]?.estado || p.estado;
+          if (est === "Anulado") return false;
+          if (!p.fechaDisplay) return false;
+          if (p.fechaDisplay < desde || p.fechaDisplay > hasta) return false;
+          if (dashOrigen === "manual" && !p.esManual) return false;
+          if (dashOrigen === "online" && p.esManual) return false;
+          return true;
+        });
+        const ventasAct = filtrarVentas(dashDesde, dashHasta);
+        const ventasPrev = filtrarVentas(restarMes(dashDesde), restarMes(dashHasta));
+        const totalAct = ventasAct.reduce((a, p) => a + p.totalNum, 0);
+        const totalPrev = ventasPrev.reduce((a, p) => a + p.totalNum, 0);
+        const variacion = totalPrev > 0 ? ((totalAct - totalPrev) / totalPrev) * 100 : null;
+        const ticketProm = ventasAct.length > 0 ? totalAct / ventasAct.length : 0;
+        const porMedioDash = MEDIOS_PAGO.map(m => {
+          const lista = ventasAct.filter(p => p.medioPago === m);
+          return { medio: m, total: lista.reduce((a, p) => a + p.totalNum, 0), cantidad: lista.length };
+        }).filter(x => x.total > 0).sort((a, b) => b.total - a.total);
+        const totalAT = ventasAct.filter(p => p.local === "A. Thomas").reduce((a, p) => a + p.totalNum, 0);
+        const totalFR = ventasAct.filter(p => p.local === "French").reduce((a, p) => a + p.totalNum, 0);
+        const pctAT = totalAct > 0 ? Math.round((totalAT / totalAct) * 100) : 0;
+        const pctFR = totalAct > 0 ? Math.round((totalFR / totalAct) * 100) : 0;
+        return (
+          <div style={s.wrap}>
+            <Header />
+            <div style={{ padding: 24 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+                <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
+                <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>📈 Dashboard ejecutivo</h2>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
+                  <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={dashDesde} onChange={e => setDashDesde(e.target.value)} />
+                  <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
+                  <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={dashHasta} onChange={e => setDashHasta(e.target.value)} />
+                  <button style={s.btnVolver} onClick={() => { setDashDesde(HOY.slice(0, 8) + "01"); setDashHasta(HOY); }}>Este mes</button>
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12, color: "#888", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3 }}>Origen:</span>
+                {[{ id: "todos", label: "🧾 Todos" }, { id: "online", label: "🌐 Online (web)" }, { id: "manual", label: "✍️ Manual" }].map(opt => (
+                  <button key={opt.id} onClick={() => setDashOrigen(opt.id)}
+                    style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer", borderColor: dashOrigen === opt.id ? "#F68B32" : "#ddd", background: dashOrigen === opt.id ? "#F68B32" : "#fff", color: dashOrigen === opt.id ? "#fff" : "#555", fontWeight: dashOrigen === opt.id ? 600 : 400 }}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12, marginBottom: 24 }}>
+                <div style={{ background: "#F68B32", borderRadius: 10, padding: "16px 18px", color: "#fff" }}>
+                  <div style={{ fontSize: 11, opacity: 0.85, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Ventas del período</div>
+                  <div style={{ fontSize: 26, fontWeight: 700 }}>{fmt(totalAct)}</div>
+                  <div style={{ fontSize: 11, opacity: 0.85, marginTop: 4 }}>{ventasAct.length} pedidos</div>
+                </div>
+                <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "16px 18px" }}>
+                  <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Período anterior</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: "#333" }}>{fmt(totalPrev)}</div>
+                  {variacion !== null ? (
+                    <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4, color: variacion >= 0 ? "#1a9c4b" : "#c0392b" }}>
+                      {variacion >= 0 ? "↑" : "↓"} {Math.abs(variacion).toFixed(1)}% vs. anterior
+                    </div>
+                  ) : <div style={{ fontSize: 12, color: "#aaa", marginTop: 4 }}>Sin datos previos</div>}
+                </div>
+                <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "16px 18px" }}>
+                  <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Ticket promedio</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: "#333" }}>{fmt(Math.round(ticketProm))}</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#333", marginBottom: 10 }}>💳 Por medio de cobro</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10, marginBottom: 24 }}>
+                {porMedioDash.length === 0 && <div style={{ fontSize: 13, color: "#aaa" }}>Sin ventas en este período.</div>}
+                {porMedioDash.map(x => (
+                  <div key={x.medio} style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
+                    <div style={{ fontSize: 12, color: "#555", marginBottom: 4 }}>{x.medio}</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#F68B32" }}>{fmt(x.total)}</div>
+                    <div style={{ fontSize: 11, color: "#aaa" }}>{totalAct > 0 ? Math.round((x.total / totalAct) * 100) : 0}% · {x.cantidad} pedidos</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#333", marginBottom: 10 }}>📍 Por local</div>
+              <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 18, maxWidth: 520 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                  <span style={{ fontSize: 13, color: "#333" }}>A. Thomas</span>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>{fmt(totalAT)} <span style={{ color: "#aaa", fontWeight: 400 }}>({pctAT}%)</span></span>
+                </div>
+                <div style={{ height: 8, background: "#eee", borderRadius: 4, overflow: "hidden", marginBottom: 14 }}>
+                  <div style={{ width: `${pctAT}%`, height: "100%", background: "#F68B32" }} />
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                  <span style={{ fontSize: 13, color: "#333" }}>French</span>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>{fmt(totalFR)} <span style={{ color: "#aaa", fontWeight: 400 }}>({pctFR}%)</span></span>
+                </div>
+                <div style={{ height: 8, background: "#eee", borderRadius: 4, overflow: "hidden" }}>
+                  <div style={{ width: `${pctFR}%`, height: "100%", background: "#0c447c" }} />
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
       if (vista === "reporteVentas") {
         const ventasFiltradas = pedidosFinalizados.filter(p => {
           const est = pedidosLocales[p.id]?.estado || p.estado;
