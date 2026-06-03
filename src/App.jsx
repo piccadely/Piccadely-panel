@@ -1772,6 +1772,12 @@ setPedidosDatosOverride(datosInit);
         window.location.reload();
       }
       function toggleExpandido(id) { setExpandido(prev => prev === id ? null : id); }
+      function repartidorReporte(p) {
+        const r = pedidosLocales[p.id]?.repartidor;
+        if (r && r !== "Sin asignar") return r;
+        if (p.tabActual === "retiro-at" || p.tabActual === "retiro-fr") return "Retiro en sucursal";
+        return "Sin asignar";
+      }
 // ─── CORREGIR / REABRIR PEDIDO FINALIZADO ──────────────────────────
       async function cajaCerradaDe(p) {
         if (!p.local || p.local === "—" || !p.fechaDisplay) return false;
@@ -2306,7 +2312,7 @@ if (vista === "dashboard") {
             </div>
           </div>
         );
-      }
+      } 
       if (vista === "reporteVentas") {
         const ventasFiltradas = pedidosFinalizados.filter(p => {
           const est = pedidosLocales[p.id]?.estado || p.estado;
@@ -2323,16 +2329,15 @@ if (vista === "dashboard") {
         const porMedio = MEDIOS_PAGO.reduce((acc, m) => { acc[m] = ventasFiltradas.filter(p => p.medioPago === m).reduce((a, p) => a + p.totalNum, 0); return acc; }, {});
         const tag = fechaTagArchivo(rvDesde, rvHasta);
         const exportarVentasExcel = () => {
-          const datos = ventasFiltradas.map(p => ({ "Nº": p.numero, "Cliente": p.cliente, "Productos": p.productos, "Medio de pago": p.medioPago, "Repartidor": pedidosLocales[p.id]?.repartidor || "Sin asignar", "Fecha": p.fechaDisplay || "", "Local": p.local, "Total": p.totalNum }));
+          const datos = ventasFiltradas.map(p => ({ "Nº": p.numero, "Cliente": p.cliente, "Productos": p.productos, "Medio de pago": p.medioPago, "Código MKP": p.codigoPago || "", "Repartidor": repartidorReporte(p), "Fecha": p.fechaDisplay || "", "Local": p.local, "Total": p.totalNum }));
           const resumen = MEDIOS_PAGO.filter(m => porMedio[m] > 0).map(m => ({ "Medio de pago": m, "Pedidos": ventasFiltradas.filter(p => p.medioPago === m).length, "Total": porMedio[m] }));
           resumen.push({ "Medio de pago": "TOTAL GENERAL", "Pedidos": ventasFiltradas.length, "Total": totalVentasRv });
           exportarExcel(`ventas_${tag}.xlsx`, [{ name: "Ventas", data: datos }, { name: "Resumen", data: resumen }]);
         };
         const exportarVentasPDF = () => {
-          const filas = ventasFiltradas.map(p => [p.numero, p.cliente, p.productos.length > 50 ? p.productos.substring(0, 50) + "..." : p.productos, p.medioPago, p.fechaDisplay || "—", p.local, fmt(p.totalNum)]);
+          const filas = ventasFiltradas.map(p => [p.numero, p.cliente, p.productos.length > 50 ? p.productos.substring(0, 50) + "..." : p.productos, p.medioPago, p.codigoPago || "—", p.fechaDisplay || "—", p.local, fmt(p.totalNum)]);
           const subt = (rvDesde || rvHasta) ? `Desde ${rvDesde || "inicio"} hasta ${rvHasta || "hoy"}` : "Todas las fechas";
-          exportarPDF(`ventas_${tag}.pdf`, "Reporte de Ventas", ["Nº", "Cliente", "Productos", "Medio pago", "Fecha", "Local", "Total"], filas, `Total: ${fmt(totalVentasRv)}  ·  ${ventasFiltradas.length} pedidos`, subt);
-        };
+const datos = listaMostrada.map(p => ({ "Nº": p.numero, "Cliente": p.cliente, "Email": p.email || "", "Teléfono": p.telefono, "Dirección": p.direccion + (p.barrio ? `, ${p.barrio}` : ""), "Productos": p.productos, "Medio de pago": p.medioPago, "Total": p.totalNum, "Fecha": p.fechaDisplay || "", "Local": p.local, "Factura": facturasMap[String(p.id)] || "", "Estado": pedidosLocales[p.id]?.estado || p.estado, "Repartidor": pedidosLocales[p.id]?.repartidor || "Sin asignar" }));        };
         return (
           <div style={s.wrap}>
             <Header />
@@ -2609,11 +2614,9 @@ if (vista === "dashboard") {
           exportarExcel(`pedidos_${tabFin}_${tagFin}.xlsx`, [{ name: tabFin === "entregados" ? "Entregados" : "Anulados", data: datos }]);
         };
         const exportarFinalizadosPDF = () => {
-          const filas = listaMostrada.map(p => [p.numero, p.cliente, p.telefono, (p.productos.length > 40 ? p.productos.substring(0, 40) + "..." : p.productos), p.medioPago, fmt(p.totalNum), p.fechaDisplay || "—", p.local, facturasMap[String(p.id)] || "—"]);
-          const totalSum = listaMostrada.reduce((a, p) => a + p.totalNum, 0);
+const filas = listaMostrada.map(p => [p.numero, p.cliente, p.telefono, (p.productos.length > 40 ? p.productos.substring(0, 40) + "..." : p.productos), p.medioPago, p.codigoPago || "—", fmt(p.totalNum), p.fechaDisplay || "—", p.local, facturasMap[String(p.id)] || "—"]);          const totalSum = listaMostrada.reduce((a, p) => a + p.totalNum, 0);
           const subt = (filtroFinDesde || filtroFinHasta) ? `Desde ${filtroFinDesde || "inicio"} hasta ${filtroFinHasta || "hoy"}` : "Todas las fechas";
-          exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedidos Entregados" : "Pedidos Anulados", ["Nº", "Cliente", "Teléfono", "Productos", "Pago", "Total", "Fecha", "Local", "Factura"], filas, `Total: ${fmt(listaMostrada.reduce((a, p) => a + p.totalNum, 0))}  ·  ${listaMostrada.length} pedidos`, subt);
-        };
+exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedidos Entregados" : "Pedidos Anulados", ["Nº", "Cliente", "Teléfono", "Productos", "Pago", "Cód. MKP", "Total", "Fecha", "Local", "Factura"], filas, `Total: ${fmt(listaMostrada.reduce((a, p) => a + p.totalNum, 0))}  ·  ${listaMostrada.length} pedidos`, subt);        };
         return (
           <div style={s.wrap}>
             <Header />
