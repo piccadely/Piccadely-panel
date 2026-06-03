@@ -2343,7 +2343,8 @@ if (vista === "dashboard") {
         const exportarVentasPDF = () => {
           const filas = ventasFiltradas.map(p => [p.numero, p.cliente, p.productos.length > 50 ? p.productos.substring(0, 50) + "..." : p.productos, p.medioPago, p.codigoPago || "—", p.fechaDisplay || "—", p.local, fmt(p.totalNum)]);
           const subt = (rvDesde || rvHasta) ? `Desde ${rvDesde || "inicio"} hasta ${rvHasta || "hoy"}` : "Todas las fechas";
-const datos = listaMostrada.map(p => ({ "Nº": p.numero, "Cliente": p.cliente, "Email": p.email || "", "Teléfono": p.telefono, "Dirección": p.direccion + (p.barrio ? `, ${p.barrio}` : ""), "Productos": p.productos, "Medio de pago": p.medioPago, "Código MKP": p.codigoPago || "", "Total": p.totalNum, "Fecha": p.fechaDisplay || "", "Local": p.local, "Factura": facturasMap[String(p.id)] || "", "Estado": pedidosLocales[p.id]?.estado || p.estado, "Repartidor": repartidorReporte(p) }));        };
+          exportarPDF(`ventas_${tag}.pdf`, "Reporte de Ventas", ["Nº", "Cliente", "Productos", "Medio pago", "Cód. MKP", "Fecha", "Local", "Total"], filas, `Total: ${fmt(totalVentasRv)}  ·  ${ventasFiltradas.length} pedidos`, subt);
+        };
         return (
           <div style={s.wrap}>
             <Header />
@@ -2440,7 +2441,7 @@ const datos = listaMostrada.map(p => ({ "Nº": p.numero, "Cliente": p.cliente, "
         const totalUnidades = listaProductos.reduce((a, p) => a + p.cantidad, 0);
         const tagRp = fechaTagArchivo(rpDesde, rpHasta);
         const exportarProdExcel = () => {
-          const datos = listaProductos.map((prod, i) => ({ "Ranking": i + 1, "Producto": prod.nombre, "Unidades vendidas": prod.cantidad, "% del total": totalUnidades > 0 ? `${((prod.cantidad / totalUnidades) * 100).toFixed(1)}%` : "0%" }));
+          const datos = listaMostrada.map(p => ({ "Nº": p.numero, "Cliente": p.cliente, "Email": p.email || "", "Teléfono": p.telefono, "Dirección": p.direccion + (p.barrio ? `, ${p.barrio}` : ""), "Productos": p.productos, "Medio de pago": p.medioPago, "Código MKP": p.codigoPago || "", "Total": p.totalNum, "Fecha": p.fechaDisplay || "", "Local": p.local, "Factura": facturasMap[String(p.id)] || "", "Estado": pedidosLocales[p.id]?.estado || p.estado, "Repartidor": repartidorReporte(p) }));
           datos.push({ "Ranking": "", "Producto": "TOTAL", "Unidades vendidas": totalUnidades, "% del total": "100%" });
           exportarExcel(`productos_vendidos_${tagRp}.xlsx`, [{ name: "Productos", data: datos }]);
         };
