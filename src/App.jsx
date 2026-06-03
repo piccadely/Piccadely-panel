@@ -2343,7 +2343,7 @@ if (vista === "dashboard") {
         const exportarVentasPDF = () => {
           const filas = ventasFiltradas.map(p => [p.numero, p.cliente, p.productos.length > 50 ? p.productos.substring(0, 50) + "..." : p.productos, p.medioPago, p.codigoPago || "—", p.fechaDisplay || "—", p.local, fmt(p.totalNum)]);
           const subt = (rvDesde || rvHasta) ? `Desde ${rvDesde || "inicio"} hasta ${rvHasta || "hoy"}` : "Todas las fechas";
-const datos = listaMostrada.map(p => ({ "Nº": p.numero, "Cliente": p.cliente, "Email": p.email || "", "Teléfono": p.telefono, "Dirección": p.direccion + (p.barrio ? `, ${p.barrio}` : ""), "Productos": p.productos, "Medio de pago": p.medioPago, "Total": p.totalNum, "Fecha": p.fechaDisplay || "", "Local": p.local, "Factura": facturasMap[String(p.id)] || "", "Estado": pedidosLocales[p.id]?.estado || p.estado, "Repartidor": pedidosLocales[p.id]?.repartidor || "Sin asignar" }));        };
+const datos = listaMostrada.map(p => ({ "Nº": p.numero, "Cliente": p.cliente, "Email": p.email || "", "Teléfono": p.telefono, "Dirección": p.direccion + (p.barrio ? `, ${p.barrio}` : ""), "Productos": p.productos, "Medio de pago": p.medioPago, "Código MKP": p.codigoPago || "", "Total": p.totalNum, "Fecha": p.fechaDisplay || "", "Local": p.local, "Factura": facturasMap[String(p.id)] || "", "Estado": pedidosLocales[p.id]?.estado || p.estado, "Repartidor": repartidorReporte(p) }));        };
         return (
           <div style={s.wrap}>
             <Header />
