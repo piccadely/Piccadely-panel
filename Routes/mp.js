@@ -36,6 +36,16 @@ export function mpRouter(pool, mailTransporter) {
         numero = `#${data.number}`;
       }
 
+      // Si los productos del pedido fueron editados, el total nuevo vive en
+      // pedidos_productos (override). Usamos ese si existe.
+      const ovRes = await pool.query(
+        "SELECT total_num FROM pedidos_productos WHERE pedido_id = $1",
+        [String(pedidoId)]
+      );
+      if (ovRes.rows[0] && ovRes.rows[0].total_num != null) {
+        total = Number(ovRes.rows[0].total_num);
+      }
+
       const preference = new Preference(client);
       const response = await preference.create({
         body: {
