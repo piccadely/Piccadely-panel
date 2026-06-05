@@ -2727,7 +2727,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                             <div style={s.detalleLabel}>Cobrar en entrega</div>
                             <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
                               <input type="checkbox" checked={!!pedidosLocales[p.id]?.cobrar} onChange={e => { e.stopPropagation(); cambiarCobrar(p.id, e.target.checked); }} onClick={e => e.stopPropagation()} />
-                              <span style={{ fontSize: 12, color: pedidosLocales[p.id]?.cobrar ? "#c0392b" : "#888" }}>{pedidosLocales[p.id]?.cobrar ? "⚠️ COBRAR" : "Ya cobrado"}</span>
+                              <span style={{ fontSize: 12, color: pedidosLocales[p.id]?.cobrar ? "#c0392b" : "#888", fontWeight: pedidosLocales[p.id]?.cobrar ? 600 : 400 }}>{pedidosLocales[p.id]?.cobrar ? "⚠️ COBRAR" : "Cobrar"}</span>
                             </label>
                           </div>
                         {p.transaccionMP && <div style={s.detalleBloque}><div style={s.detalleLabel}>ID Transacción MP</div><div style={{ ...s.detalleVal, fontFamily: "monospace", fontSize: 12 }}>{p.transaccionMP}</div></div>}
@@ -3048,7 +3048,7 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                                 <div style={s.detalleLabel}>Cobrar en entrega</div>
                                 <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
                                   <input type="checkbox" checked={!!cobrar} onChange={e => cambiarCobrar(p.id, e.target.checked)} onClick={e => e.stopPropagation()} />
-                                  <span style={{ fontSize: 12, color: cobrar ? "#c0392b" : "#888", fontWeight: cobrar ? 600 : 400 }}>{cobrar ? "⚠️ COBRAR" : "Ya cobrado"}</span>
+                                  <span style={{ fontSize: 12, color: cobrar ? "#c0392b" : "#888", fontWeight: cobrar ? 600 : 400 }}>{cobrar ? "⚠️ COBRAR" : "Cobrar"}</span>
                                 </label>
                               </div>
                               <div style={s.detalleBloque}><div style={s.detalleLabel}>Repartidor</div><select style={s.inputField} value={repartidorActual} onChange={e => cambiarRepartidor(p.id, e.target.value)}>{repartidoresLista.map(r => <option key={r}>{r}</option>)}</select></div>
