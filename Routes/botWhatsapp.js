@@ -164,6 +164,22 @@ export function botWhatsappRouter() {
     if (!process.env.ANTHROPIC_API_KEY)
       return res.status(500).json({ error: "ANTHROPIC_API_KEY no configurada" });
 
+    // Saneamos el historial: sacamos vacíos, normalizamos rol, juntamos roles repetidos y arrancamos en "user"
+    let limpios = [];
+    for (const m of messages) {
+      if (!m || m.content == null || String(m.content).trim() === "") continue;
+      const role = m.role === "assistant" ? "assistant" : "user";
+      const content = String(m.content);
+      if (limpios.length && limpios[limpios.length - 1].role === role) {
+        limpios[limpios.length - 1].content += "\n" + content;
+      } else {
+        limpios.push({ role, content });
+      }
+    }
+    while (limpios.length && limpios[0].role !== "user") limpios.shift();
+    if (limpios.length === 0)
+      return res.json({ reply: "¡Hola! Contame qué piccada estás buscando 🧀", handoff: false });
+
     // Parámetros configurables (con defaults del manual)
     const cfg = {
       anticipacionHoras: config?.anticipacionHoras ?? 4,
@@ -201,7 +217,7 @@ ${catalogo}`;
         model: "claude-haiku-4-5-20251001",
         max_tokens: 700,
         system: systemDinamico,
-        messages: messages.slice(-14),
+        messages: limpios.slice(-14),
       }, {
         headers: {
           "x-api-key": process.env.ANTHROPIC_API_KEY,
@@ -216,8 +232,9 @@ ${catalogo}`;
       const reply = raw.replace(/\[HANDOFF\]/gi, "").trim();
       res.json({ reply, handoff });
     } catch (err) {
-      console.error("Error bot WhatsApp:", err.response?.data || err.message);
-      res.status(500).json({ error: "Error al consultar el bot" });
+      const detalle = err.response?.data || err.message;
+      console.error("Error bot WhatsApp:", detalle);
+      res.status(500).json({ error: "Error al consultar el bot", detalle: typeof detalle === "string" ? detalle : JSON.stringify(detalle) });
     }
   });
 
