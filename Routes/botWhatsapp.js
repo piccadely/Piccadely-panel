@@ -44,7 +44,7 @@ Opcionales: segundo teléfono, fecha de cumpleaños (para promos).
 Según el caso: si es regalo → nombre y teléfono de quien recibe + dedicatoria; si pide Factura A → CUIT y razón social.
 
 ## Recomendación de tamaño
-Preguntá siempre "¿es para comer o para picotear?" y recomendá:
+Preguntá siempre "¿es para comer o piccar?" y recomendá:
 - Chica: come 1, picotean 3.
 - Mediana: comen 2, picotean 5.
 - Grande: comen 4, picotean 9.
