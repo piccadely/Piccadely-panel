@@ -7,7 +7,7 @@ import PDFDocument from "pdfkit";
 import nodemailer from "nodemailer";
 import { initAuthDB, setupAuth } from "./auth.js";
 import { mpRouter } from "./Routes/mp.js";
-
+import { botWhatsappRouter } from "./Routes/botWhatsapp.js";
 const { Pool } = pg;
 
 // ─── VALIDACIÓN DE VARIABLES DE ENTORNO ──────────────────────────────
@@ -354,6 +354,7 @@ async function enviarMailAnulacion(pedido) {
 
 // ─── MERCADO PAGO ─────────────────────────────────────────────────────
 app.use("/api/mp", mpRouter(pool, mailTransporter));
+app.use("/api/bot", botWhatsappRouter());
 
  // ─── ORDERS ───────────────────────────────────────────────────────────
 app.get("/api/orders", async (req, res) => {
