@@ -1277,7 +1277,7 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
                             const a = h.apertura;
                             const ajustesH = h.movimientos.filter(m => m.tipo === "entrada" || m.tipo === "salida");
                             const totalAjustesH = ajustesH.reduce((acc, m) => acc + Number(m.monto), 0);
-                            const saldoEsperadoH = Number(a.monto_inicial) + totalAjustesH;
+                            const saldoEsperadoH = Number(a.monto_inicial) + pedidosFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === a.fecha && p.medioPago === "Efectivo").reduce((acc, p) => acc + p.totalNum, 0) + totalAjustesH;
                             const diferencia = a.monto_cierre !== null ? Number(a.monto_cierre) - saldoEsperadoH : null;
                             return { "Fecha": a.fecha, "Monto inicial": Number(a.monto_inicial), "Total ajustes": totalAjustesH, "Saldo esperado": saldoEsperadoH, "Monto cierre": a.monto_cierre !== null ? Number(a.monto_cierre) : "", "Diferencia": diferencia !== null ? diferencia : "", "Estado": a.cerrada ? "Cerrada" : "Sin cerrar" };
                           });
