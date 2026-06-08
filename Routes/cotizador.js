@@ -70,8 +70,10 @@ const num = x => { const n = Number(x); return Number.isFinite(n) ? n : 0; };
 
 // Unidades de piccada de una categoría (solo las que tienen las porciones
 // escritas en la variante, ej "Grande Comen 4- Piccan 9")
-function unidadesPiccada(productos, cfg, modo) {
-  const unidades = [];
+// Devuelve las piccadas permitidas del nivel, agrupadas por producto:
+// [{ nombre, unidades:[{tamano, rinde, precio, ...}] }, ...]
+function piccadasDelNivel(productos, cfg, modo) {
+  const porProducto = {};
   for (const p of productos) {
     if (p.published === false) continue;
     if (!catIds(p).includes(cfg.cat)) continue;
@@ -85,11 +87,11 @@ function unidadesPiccada(productos, cfg, modo) {
       const rinde  = modo === "comer" ? comer : piccar;
       const precio = num(v.price);
       if (rinde > 0 && precio > 0) {
-        unidades.push({ nombre, tamano: label, comer, piccar, rinde, precio });
+        (porProducto[nombre] = porProducto[nombre] || []).push({ nombre, tamano: label, comer, piccar, rinde, precio });
       }
     }
   }
-  return unidades;
+  return Object.entries(porProducto).map(([nombre, unidades]) => ({ nombre, unidades }));
 }
 
 // Unidades de sándwich del nivel (productos puntuales, por nombre)
@@ -212,19 +214,54 @@ export function cotizadorRouter(pool) {
       const objPiccada = Math.ceil(noVeg * mix.piccada);
       const objSandwich = Math.ceil(noVeg * mix.sandwich);
 
-      const opciones = [];
-      for (const nivel of ["economica", "intermedia", "premium"]) {
-        const piccada  = cubrirMenorCosto(unidadesPiccada(productos, PICCADA[nivel], modo), objPiccada);
-        const sandwich = cubrirMenorCosto(unidadesSandwich(productos, nivel, modo), objSandwich);
-        const veg = vegetarianos > 0
-          ? cubrirMenorCosto(unidadesVeg(productos, nivel, modo), vegetarianos)
-          : { items: [], total: 0 };
+      const niveles = ["economica", "intermedia", "premium"];
+      // Precalculamos por nivel: piccadas permitidas (agrupadas), sándwich y vegetariana
+      const data = {};
+      for (const nivel of niveles) {
+        data[nivel] = {
+          piccadas: piccadasDelNivel(productos, PICCADA[nivel], modo),
+          sandwich: unidadesSandwich(productos, nivel, modo),
+          veg: unidadesVeg(productos, nivel, modo),
+        };
+      }
+
+      // Arma las 3 opciones según qué piccada (índice) se elige en cada nivel
+      const construir = (elec) => niveles.map(nivel => {
+        const d = data[nivel];
+        const elegida = d.piccadas[elec[nivel]] || { unidades: [] };
+        const piccada  = cubrirMenorCosto(elegida.unidades, objPiccada);
+        const sandwich = cubrirMenorCosto(d.sandwich, objSandwich);
+        const veg = vegetarianos > 0 ? cubrirMenorCosto(d.veg, vegetarianos) : { items: [], total: 0 };
         const total = piccada.total + sandwich.total + veg.total;
-        opciones.push({
+        return {
           nivel, etiqueta: ETIQUETAS[nivel],
           piccadas: piccada.items, sandwiches: sandwich.items, vegetarianas: veg.items,
           total, porPersona: personas ? Math.round(total / personas) : 0,
+        };
+      });
+
+      // Alterna al azar entre las piccadas permitidas, pero exigiendo que
+      // Clásica <= Selección <= Premium (reintenta unas veces).
+      const rnd = n => Math.floor(Math.random() * n);
+      let opciones = null;
+      for (let intento = 0; intento < 12; intento++) {
+        const elec = {};
+        niveles.forEach(n => { const len = data[n].piccadas.length; elec[n] = len ? rnd(len) : 0; });
+        const ops = construir(elec);
+        if (ops[0].total <= ops[1].total && ops[1].total <= ops[2].total) { opciones = ops; break; }
+      }
+      if (!opciones) {
+        // Fallback: la piccada más barata de cada nivel (asegura el orden)
+        const elec = {};
+        niveles.forEach(n => {
+          let best = 0, bestCost = Infinity;
+          data[n].piccadas.forEach((p, idx) => {
+            const c = cubrirMenorCosto(p.unidades, objPiccada).total;
+            if (c < bestCost) { bestCost = c; best = idx; }
+          });
+          elec[n] = best;
         });
+        opciones = construir(elec);
       }
 
       res.json({
@@ -272,6 +309,25 @@ export function cotizadorRouter(pool) {
     } catch (err) {
       console.error("Error listando cotizaciones:", err.message);
       res.status(500).json({ error: "Error al listar cotizaciones" });
+    }
+  });
+
+  // Actualizar estado / notas de una cotización (panel)
+  router.patch("/cotizaciones/:id", async (req, res) => {
+    try {
+      const { estado, notas } = req.body || {};
+      const campos = [], vals = [];
+      let i = 1;
+      if (estado !== undefined) { campos.push(`estado = $${i++}`); vals.push(estado); }
+      if (notas !== undefined) { campos.push(`notas = $${i++}`); vals.push(notas); }
+      if (campos.length === 0) return res.status(400).json({ error: "Nada para actualizar" });
+      vals.push(req.params.id);
+      const q = await pool.query(`UPDATE cotizaciones SET ${campos.join(", ")} WHERE id = $${i} RETURNING id`, vals);
+      if (q.rowCount === 0) return res.status(404).json({ error: "No encontrada" });
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Error actualizando cotización:", err.message);
+      res.status(500).json({ error: "Error al actualizar la cotización" });
     }
   });
 
