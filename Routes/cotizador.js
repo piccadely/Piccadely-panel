@@ -32,8 +32,17 @@ const SANDWICH = {
   ],
 };
 
+// Piccada vegetariana por nivel (se suma SOLO si hay vegetarianos)
+const VEG = {
+  economica:  { variant: true,  match: "esquesitos" },          // tiene porciones en la variante
+  premium:    { variant: true,  match: "quesos del gourmet" },  // tiene porciones en la variante
+  intermedia: { variant: false, match: "piccada vegetariana",   // vieja: porciones fijas por tamaño
+    sizes: [ { match: "chica", comer: 1, piccar: 3 }, { match: "mediana", comer: 2, piccar: 5 } ] },
+};
+
 // Cómo se reparten las porciones entre piccada y sándwich
 const MIX = {
+  solo_piccadas:{ piccada: 1.0, sandwich: 0 },
   mas_piccada:  { piccada: 0.7, sandwich: 0.3 },
   equilibrado:  { piccada: 0.5, sandwich: 0.5 },
   mas_sandwich: { piccada: 0.3, sandwich: 0.7 },
@@ -108,6 +117,40 @@ function unidadesSandwich(productos, nivel, modo) {
   return unidades;
 }
 
+// Unidades de la piccada vegetariana del nivel
+function unidadesVeg(productos, nivel, modo) {
+  const cfg = VEG[nivel];
+  if (!cfg) return [];
+  const unidades = [];
+  if (cfg.variant) {
+    const prod = productos.find(p => p.published !== false && sinAcentos(p.name?.es) === cfg.match);
+    if (prod) {
+      for (const v of (prod.variants || [])) {
+        const label = (v.values || []).map(x => x?.es).filter(Boolean).join(" ");
+        if (!/piccan/i.test(label)) continue;
+        const comer = num((label.match(/come?n?\s*(\d+)/i) || [])[1]);
+        const piccar = num((label.match(/piccan\s*(\d+)/i) || [])[1]);
+        const rinde = modo === "comer" ? comer : piccar;
+        const precio = num(v.price);
+        if (rinde > 0 && precio > 0) unidades.push({ nombre: prod.name.es, tamano: label, comer, piccar, rinde, precio });
+      }
+    }
+  } else {
+    for (const sz of cfg.sizes) {
+      const prod = productos.find(p => {
+        const n = sinAcentos(p.name?.es);
+        return p.published !== false && n.includes(cfg.match) && n.includes(sz.match);
+      });
+      if (!prod) continue;
+      const precio = num((prod.variants || [])[0]?.price);
+      const rinde = modo === "comer" ? sz.comer : sz.piccar;
+      if (rinde > 0 && precio > 0)
+        unidades.push({ nombre: prod.name.es, tamano: `${sz.match} (come ${sz.comer} / piccan ${sz.piccar})`, comer: sz.comer, piccar: sz.piccar, rinde, precio });
+    }
+  }
+  return unidades;
+}
+
 // Combinación de MENOR COSTO que cubra >= objetivo porciones (DP)
 function cubrirMenorCosto(unidades, objetivo) {
   if (objetivo <= 0 || unidades.length === 0) return { items: [], total: 0 };
@@ -156,6 +199,7 @@ export function cotizadorRouter(pool) {
   router.post("/cotizador/calcular", async (req, res) => {
     try {
       const personas = parseInt(req.body.personas, 10);
+      const vegetarianos = Math.max(0, Math.min(parseInt(req.body.vegetarianos, 10) || 0, personas || 0));
       const modo = req.body.modo === "comer" ? "comer" : "piccar";
       const mixKey = MIX[req.body.mix] ? req.body.mix : "equilibrado";
       if (!personas || personas < 1)
@@ -163,23 +207,27 @@ export function cotizadorRouter(pool) {
 
       const productos = await getProductos();
       const mix = MIX[mixKey];
-      const objPiccada = Math.ceil(personas * mix.piccada);
-      const objSandwich = Math.ceil(personas * mix.sandwich);
+      const noVeg = personas - vegetarianos;                 // a estos los cubre la comida regular
+      const objPiccada = Math.ceil(noVeg * mix.piccada);
+      const objSandwich = Math.ceil(noVeg * mix.sandwich);
 
       const opciones = [];
       for (const nivel of ["economica", "intermedia", "premium"]) {
         const piccada  = cubrirMenorCosto(unidadesPiccada(productos, CAT_PICCADA[nivel], modo), objPiccada);
         const sandwich = cubrirMenorCosto(unidadesSandwich(productos, nivel, modo), objSandwich);
-        const total = piccada.total + sandwich.total;
+        const veg = vegetarianos > 0
+          ? cubrirMenorCosto(unidadesVeg(productos, nivel, modo), vegetarianos)
+          : { items: [], total: 0 };
+        const total = piccada.total + sandwich.total + veg.total;
         opciones.push({
           nivel, etiqueta: ETIQUETAS[nivel],
-          piccadas: piccada.items, sandwiches: sandwich.items,
+          piccadas: piccada.items, sandwiches: sandwich.items, vegetarianas: veg.items,
           total, porPersona: personas ? Math.round(total / personas) : 0,
         });
       }
 
       res.json({
-        personas, modo, mix: mixKey,
+        personas, vegetarianos, modo, mix: mixKey,
         objetivoPiccada: objPiccada, objetivoSandwich: objSandwich,
         opciones, bebidas: bebidasDisponibles(productos),
       });
