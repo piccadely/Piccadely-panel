@@ -347,11 +347,16 @@ document.getElementById("btnWsp").onclick = async ()=>{
     const id = await guardar("whatsapp");
     if(id){
       const o=state.chosen;
-      const msg = `¡Hola Piccadely! Quiero cerrar mi cotización de evento.%0A`+
-        `N° *#${id}*%0A`+
-        `Opción: *${o.etiqueta}*%0A`+
-        `Personas: ${state.calc.personas} (${state.calc.modo})%0A`+
+     const items = [...o.piccadas, ...o.sandwiches, ...(o.vegetarianas||[])]
+        .map(i=>`• ${i.cantidad}× ${i.nombre} (${i.tamano})`).join("\n");
+      const texto =
+        `¡Hola Piccadely! Quiero cerrar mi cotización de evento.\n`+
+        `N° *#${id}*\n`+
+        `Opción: *${o.etiqueta}*\n`+
+        `Personas: ${state.calc.personas} (${state.calc.modo})\n\n`+
+        `Incluye:\n${items}\n\n`+
         `Total: *${fmt(o.total)}* (${fmt(o.porPersona)}/persona)`;
+      const msg = encodeURIComponent(texto);
       window.open(`https://wa.me/${WSP}?text=${msg}`,"_blank");
       const ok=document.getElementById("okMsg");
       ok.innerHTML=`Te abrimos WhatsApp con tu cotización <b>#${id}</b> lista para enviar. Si no se abrió, escribinos al 11 6239-3921. 📲`;
