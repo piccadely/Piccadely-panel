@@ -48,12 +48,14 @@ const DESAYUNO = {
   intermedia: { etiqueta: "Selección", items: [
     { id: 343789356, comer: 6, piccar: 10 },   // Combi Farina
     { id: 343792353, comer: 6, piccar: 10 },   // Combi Dulce
+    { id: 343790843, comer: 5, piccar: 15 },   // PiccaSandwiches de Miga x40
   ]},
   premium: { etiqueta: "Premium", items: [
     { id: 343789356, comer: 6, piccar: 10 },   // Combi Farina
     { id: 343792353, comer: 6, piccar: 10 },   // Combi Dulce
     { id: 343792180, comer: 6, piccar: 10 },   // MediasLunas de Jamón y Queso
     { id: 343789644, comer: 6, piccar: 10 },   // Combi VeggieFit
+    { id: 343790843, comer: 5, piccar: 15 },   // PiccaSandwiches de Miga x40
   ]},
 };
 
@@ -229,11 +231,15 @@ function cubrirMenorCosto(unidades, objetivo) {
 // Reparte el desayuno COMBINANDO varios productos (round-robin, mezclado)
 function repartirDesayuno(unidades, objetivo) {
   if (!unidades.length || objetivo <= 0) return { items: [], total: 0 };
-  const rinde = unidades[0].rinde || 1;
-  const need = Math.ceil(objetivo / rinde);
   const pool = [...unidades].sort(() => Math.random() - 0.5);
   const conteo = {};
-  for (let k = 0; k < need; k++) { const i = k % pool.length; conteo[i] = (conteo[i] || 0) + 1; }
+  let cubierto = 0, k = 0, guard = 0;
+  while (cubierto < objetivo && guard < 1000) {
+    const i = k % pool.length;
+    conteo[i] = (conteo[i] || 0) + 1;
+    cubierto += (pool[i].rinde || 1);
+    k++; guard++;
+  }
   const items = Object.entries(conteo).map(([i, cant]) => {
     const u = pool[i];
     return { nombre: u.nombre, tamano: u.tamano, cantidad: cant, precioUnitario: u.precio, subtotal: u.precio * cant, rinde: u.rinde * cant, imagen: u.imagen };
