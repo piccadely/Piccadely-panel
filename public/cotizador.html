@@ -367,36 +367,66 @@ document.getElementById("btnWsp").onclick = async ()=>{
   finally{ b.disabled=false; b.innerHTML="Cerrar por WhatsApp"; }
 };
 
-// PDF (las 3 opciones)
-document.getElementById("btnPdf").onclick = ()=>{
+// PDF (las 3 opciones, con fotos)
+document.getElementById("btnPdf").onclick = async ()=>{
   if(!state.calc) return;
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-  const W=210;
-  doc.setFillColor(246,139,50); doc.rect(0,0,W,30,"F");
-  doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(22);
-  doc.text("Piccadely", 15, 16);
-  doc.setFont("helvetica","normal"); doc.setFontSize(11);
-  doc.text("Cotización de Evento", 15, 23);
-  const hoy=new Date(); doc.text(hoy.toLocaleDateString("es-AR"), W-15, 16, {align:"right"});
-  doc.text(`${state.calc.personas} personas · ${state.calc.modo}`, W-15, 23, {align:"right"});
+  const b=event.target; const txt=b.innerHTML; b.disabled=true; b.innerHTML='<span class="loading"></span> Generando PDF...';
+  try{
+    // Precargar las fotos vía proxy del backend (base64) para meterlas en el PDF
+    const urls = [...new Set(
+      state.calc.opciones.flatMap(o=>[...o.piccadas,...o.sandwiches,...(o.vegetarianas||[])])
+        .map(i=>i.imagen).filter(Boolean)
+    )];
+    const cache = {};
+    await Promise.all(urls.map(async u=>{
+      try{
+        const r=await fetch(API+"/api/cotizador/img?u="+encodeURIComponent(u));
+        const d=await r.json();
+        if(d.dataUrl) cache[u]=d.dataUrl;
+      }catch(_){}
+    }));
 
-  let y=44; doc.setTextColor(43,32,24);
-  state.calc.opciones.forEach(o=>{
-    doc.setFont("helvetica","bold"); doc.setFontSize(15);
-    doc.setTextColor(217,112,28); doc.text(o.etiqueta, 15, y);
-    doc.setTextColor(43,32,24); doc.setFontSize(12);
-    doc.text(`${fmt(o.total)}  ·  ${fmt(o.porPersona)}/persona`, W-15, y, {align:"right"});
-    y+=7; doc.setFont("helvetica","normal"); doc.setFontSize(10);
-    [...o.piccadas, ...o.sandwiches, ...(o.vegetarianas||[])].forEach(i=>{
-      doc.text(`•  ${i.cantidad}x ${i.nombre} (${i.tamano})`, 18, y); y+=5.5;
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const W=210;
+    const header=()=>{
+      doc.setFillColor(246,139,50); doc.rect(0,0,W,30,"F");
+      doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(22);
+      doc.text("Piccadely", 15, 16);
+      doc.setFont("helvetica","normal"); doc.setFontSize(11);
+      doc.text("Cotización de Evento", 15, 23);
+      const hoy=new Date(); doc.text(hoy.toLocaleDateString("es-AR"), W-15, 16, {align:"right"});
+      doc.text(`${state.calc.personas} personas · ${state.calc.modo}`, W-15, 23, {align:"right"});
+    };
+    header();
+    let y=44; doc.setTextColor(43,32,24);
+    state.calc.opciones.forEach(o=>{
+      if(y>255){ doc.addPage(); header(); y=44; }
+      doc.setFont("helvetica","bold"); doc.setFontSize(15);
+      doc.setTextColor(217,112,28); doc.text(o.etiqueta, 15, y);
+      doc.setTextColor(43,32,24); doc.setFontSize(12);
+      doc.text(`${fmt(o.total)}  ·  ${fmt(o.porPersona)}/persona`, W-15, y, {align:"right"});
+      y+=8; doc.setFont("helvetica","normal"); doc.setFontSize(10);
+      [...o.piccadas, ...o.sandwiches, ...(o.vegetarianas||[])].forEach(i=>{
+        if(y>278){ doc.addPage(); header(); y=44; }
+        const data=i.imagen && cache[i.imagen];
+        if(data){
+          const f=(/^data:image\/(\w+)/.exec(data)||[])[1];
+          const jf=f==="png"?"PNG":f==="webp"?"WEBP":"JPEG";
+          try{ doc.addImage(data,jf,18,y-5,7,7); }catch(_){}
+        }
+        doc.text(`${i.cantidad}x ${i.nombre} (${i.tamano})`, data?28:18, y); y+=8;
+      });
+      doc.setDrawColor(236,226,212); doc.line(15,y-2,W-15,y-2); y+=7;
     });
-    doc.setDrawColor(236,226,212); doc.line(15,y,W-15,y); y+=9;
-  });
-  doc.setFontSize(9); doc.setTextColor(138,122,107);
-  doc.text("Cotización válida por 7 días. Bebidas y envío se cotizan aparte.", 15, 280);
-  doc.text("Corporativo: 11 6239-3921 · corporativo@piccadely.com", 15, 286);
-  doc.save("cotizacion-piccadely.pdf");
+    if(y>272){ doc.addPage(); }
+    doc.setFontSize(9); doc.setTextColor(138,122,107);
+    doc.text("Cotización válida por 7 días. Bebidas y envío se cotizan aparte.", 15, 285);
+    doc.text("Corporativo: 11 6239-3921 · corporativo@piccadely.com", 15, 291);
+    doc.save("cotizacion-piccadely.pdf");
+  }catch(e){
+    alert("No pudimos generar el PDF: "+e.message);
+  }finally{ b.disabled=false; b.innerHTML=txt; }
 };
 </script>
 </body>

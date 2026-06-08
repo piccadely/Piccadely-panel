@@ -399,5 +399,21 @@ export function cotizadorRouter(pool, mailTransporter) {
     }
   });
 
+  // Proxy de imágenes de Tienda Nube → base64 (para el PDF, evita problemas de CORS)
+  router.get("/cotizador/img", async (req, res) => {
+    try {
+      const u = String(req.query.u || "");
+      if (!/^https:\/\/[\w.-]*mitiendanube\.com\//i.test(u)) {
+        return res.status(400).json({ error: "URL no permitida" });
+      }
+      const img = await axios.get(u, { responseType: "arraybuffer", timeout: 8000 });
+      const ct = img.headers["content-type"] || "image/jpeg";
+      const b64 = Buffer.from(img.data).toString("base64");
+      res.json({ dataUrl: `data:${ct};base64,${b64}` });
+    } catch (err) {
+      res.status(502).json({ error: "No se pudo cargar la imagen" });
+    }
+  });
+
   return router;
 }
