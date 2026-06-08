@@ -23,6 +23,7 @@ const SANDWICH = {
   economica: [
     { match: "comilona juntadely piccan 24", excluir: "combinada", comer: 12, piccar: 24 },
     { match: "comilona juntadely piccan 12", excluir: "combinada", comer: 6,  piccar: 12 },
+    { id: 343790843, comer: 5, piccar: 15 },   // PiccaSandwiches de Miga (corpo)
   ],
   intermedia: [
     { match: "caja sandwichs clasicos x 12", comer: 4, piccar: 12 },
