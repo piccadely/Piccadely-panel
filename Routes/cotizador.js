@@ -17,8 +17,8 @@ const PICCADA = {
 };
 const CAT_BEBIDAS = 38347075;
 
-// Sándwiches por nivel. comer/piccar = porciones que cubre cada unidad.
-// match = se busca por nombre (en minúsculas y sin acentos).
+// Sándwiches por nivel. Cada regla es una unidad que puede combinarse.
+// Se busca por nombre (match, sin acentos) o por id de producto.
 const SANDWICH = {
   economica: [
     { match: "comilona juntadely piccan 24", excluir: "combinada", comer: 12, piccar: 24 },
@@ -26,18 +26,34 @@ const SANDWICH = {
   ],
   intermedia: [
     { match: "caja sandwichs clasicos x 12", comer: 4, piccar: 12 },
+    { id: 343790843, comer: 5, piccar: 15 },   // PiccaSandwiches de Miga (corpo)
   ],
   premium: [
     { match: "caja sandwichs premium x 12", comer: 4, piccar: 12 },
+    { id: 343791893, comer: 5, piccar: 15 },   // PiccaSandwiches Combinados (corpo)
   ],
 };
 
 // Piccada vegetariana por nivel (se suma SOLO si hay vegetarianos)
 const VEG = {
-  economica:  { variant: true,  match: "esquesitos" },          // tiene porciones en la variante
-  premium:    { variant: true,  match: "quesos del gourmet" },  // tiene porciones en la variante
-  intermedia: { variant: false, match: "piccada vegetariana",   // vieja: porciones fijas por tamaño
+  economica:  { variant: true,  match: "esquesitos" },
+  premium:    { variant: true,  match: "quesos del gourmet" },
+  intermedia: { variant: false, match: "piccada vegetariana",
     sizes: [ { match: "chica", comer: 1, piccar: 3 }, { match: "mediana", comer: 2, piccar: 5 } ] },
+};
+
+// Línea Desayuno / Merienda (solo Selección y Premium). comer = desayunan.
+const DESAYUNO = {
+  intermedia: { etiqueta: "Selección", items: [
+    { id: 343789356, comer: 6, piccar: 10 },   // Combi Farina
+    { id: 343792353, comer: 6, piccar: 10 },   // Combi Dulce
+  ]},
+  premium: { etiqueta: "Premium", items: [
+    { id: 343789356, comer: 6, piccar: 10 },   // Combi Farina
+    { id: 343792353, comer: 6, piccar: 10 },   // Combi Dulce
+    { id: 343792180, comer: 6, piccar: 10 },   // MediasLunas de Jamón y Queso
+    { id: 343789644, comer: 6, piccar: 10 },   // Combi VeggieFit
+  ]},
 };
 
 // Cómo se reparten las porciones entre piccada y sándwich
@@ -68,10 +84,18 @@ const sinAcentos = s => (s || "").toLowerCase().normalize("NFD").replace(/[\u030
 const catIds = p => (p.categories || []).map(c => c.id);
 const num = x => { const n = Number(x); return Number.isFinite(n) ? n : 0; };
 
-// Unidades de piccada de una categoría (solo las que tienen las porciones
-// escritas en la variante, ej "Grande Comen 4- Piccan 9")
-// Devuelve las piccadas permitidas del nivel, agrupadas por producto:
-// [{ nombre, unidades:[{tamano, rinde, precio, ...}] }, ...]
+function buscarProducto(productos, regla) {
+  return productos.find(p => {
+    if (p.published === false) return false;
+    if (regla.id) return p.id === regla.id;
+    const n = sinAcentos(p.name?.es);
+    if (!n.includes(regla.match)) return false;
+    if (regla.excluir && n.includes(regla.excluir)) return false;
+    return true;
+  });
+}
+
+// Piccadas permitidas del nivel, agrupadas por producto (cada una con sus tamaños)
 function piccadasDelNivel(productos, cfg, modo) {
   const porProducto = {};
   for (const p of productos) {
@@ -81,7 +105,7 @@ function piccadasDelNivel(productos, cfg, modo) {
     if (cfg.allow && !cfg.allow.some(a => sinAcentos(nombre).includes(a))) continue;
     for (const v of (p.variants || [])) {
       const label = (v.values || []).map(x => x?.es).filter(Boolean).join(" ");
-      if (!/piccan/i.test(label)) continue;               // solo variantes con porciones
+      if (!/piccan/i.test(label)) continue;
       const comer  = num((label.match(/come?n?\s*(\d+)/i) || [])[1]);
       const piccar = num((label.match(/piccan\s*(\d+)/i) || [])[1]);
       const rinde  = modo === "comer" ? comer : piccar;
@@ -94,18 +118,12 @@ function piccadasDelNivel(productos, cfg, modo) {
   return Object.entries(porProducto).map(([nombre, unidades]) => ({ nombre, unidades }));
 }
 
-// Unidades de sándwich del nivel (productos puntuales, por nombre)
+// Unidades de sándwich del nivel (se combinan por menor costo)
 function unidadesSandwich(productos, nivel, modo) {
   const reglas = SANDWICH[nivel] || [];
   const unidades = [];
   for (const regla of reglas) {
-    const prod = productos.find(p => {
-      if (p.published === false) return false;
-      const n = sinAcentos(p.name?.es);
-      if (!n.includes(regla.match)) return false;
-      if (regla.excluir && n.includes(regla.excluir)) return false;
-      return true;
-    });
+    const prod = buscarProducto(productos, regla);
     if (!prod) continue;
     const precio = num((prod.variants || [])[0]?.price);
     const rinde = modo === "comer" ? regla.comer : regla.piccar;
@@ -154,6 +172,26 @@ function unidadesVeg(productos, nivel, modo) {
   return unidades;
 }
 
+// Unidades de la línea Desayuno/Merienda del nivel
+function unidadesDesayuno(productos, nivel, modo) {
+  const cfg = DESAYUNO[nivel];
+  if (!cfg) return [];
+  const unidades = [];
+  for (const it of cfg.items) {
+    const prod = buscarProducto(productos, it);
+    if (!prod) continue;
+    const precio = num((prod.variants || [])[0]?.price);
+    const rinde = modo === "comer" ? it.comer : it.piccar;
+    if (rinde > 0 && precio > 0)
+      unidades.push({
+        nombre: prod.name?.es,
+        tamano: modo === "comer" ? `desayunan ${it.comer}` : `piccan ${it.piccar}`,
+        comer: it.comer, piccar: it.piccar, rinde, precio,
+      });
+  }
+  return unidades;
+}
+
 // Combinación de MENOR COSTO que cubra >= objetivo porciones (DP)
 function cubrirMenorCosto(unidades, objetivo) {
   if (objetivo <= 0 || unidades.length === 0) return { items: [], total: 0 };
@@ -178,10 +216,23 @@ function cubrirMenorCosto(unidades, objetivo) {
   }
   const items = Object.entries(conteo).map(([u, cant]) => {
     const un = unidades[u];
-    return {
-      nombre: un.nombre, tamano: un.tamano, cantidad: cant,
-      precioUnitario: un.precio, subtotal: un.precio * cant, rinde: un.rinde * cant,
-    };
+    return { nombre: un.nombre, tamano: un.tamano, cantidad: cant, precioUnitario: un.precio, subtotal: un.precio * cant, rinde: un.rinde * cant };
+  });
+  const total = items.reduce((a, i) => a + i.subtotal, 0);
+  return { items, total };
+}
+
+// Reparte el desayuno COMBINANDO varios productos (round-robin, mezclado)
+function repartirDesayuno(unidades, objetivo) {
+  if (!unidades.length || objetivo <= 0) return { items: [], total: 0 };
+  const rinde = unidades[0].rinde || 1;
+  const need = Math.ceil(objetivo / rinde);
+  const pool = [...unidades].sort(() => Math.random() - 0.5);
+  const conteo = {};
+  for (let k = 0; k < need; k++) { const i = k % pool.length; conteo[i] = (conteo[i] || 0) + 1; }
+  const items = Object.entries(conteo).map(([i, cant]) => {
+    const u = pool[i];
+    return { nombre: u.nombre, tamano: u.tamano, cantidad: cant, precioUnitario: u.precio, subtotal: u.precio * cant, rinde: u.rinde * cant };
   });
   const total = items.reduce((a, i) => a + i.subtotal, 0);
   return { items, total };
@@ -198,40 +249,46 @@ function bebidasDisponibles(productos) {
 export function cotizadorRouter(pool) {
   const router = express.Router();
 
-  // Calcular las 3 opciones
   router.post("/cotizador/calcular", async (req, res) => {
     try {
       const personas = parseInt(req.body.personas, 10);
-      const vegetarianos = Math.max(0, Math.min(parseInt(req.body.vegetarianos, 10) || 0, personas || 0));
       const modo = req.body.modo === "comer" ? "comer" : "piccar";
-      const mixKey = MIX[req.body.mix] ? req.body.mix : "equilibrado";
+      const tipo = req.body.tipo === "desayuno" ? "desayuno" : "evento";
       if (!personas || personas < 1)
         return res.status(400).json({ error: "Cantidad de personas inválida" });
 
       const productos = await getProductos();
+
+      // ── Línea Desayuno / Merienda (Selección + Premium) ──
+      if (tipo === "desayuno") {
+        const opciones = ["intermedia", "premium"].map(nivel => {
+          const cfg = DESAYUNO[nivel];
+          const rep = repartirDesayuno(unidadesDesayuno(productos, nivel, modo), personas);
+          return {
+            nivel, etiqueta: cfg.etiqueta,
+            piccadas: rep.items, sandwiches: [], vegetarianas: [],
+            total: rep.total, porPersona: personas ? Math.round(rep.total / personas) : 0,
+          };
+        });
+        return res.json({ personas, modo, tipo, opciones, bebidas: bebidasDisponibles(productos) });
+      }
+
+      // ── Línea Picadas / Evento (Clásica + Selección + Premium) ──
+      const vegetarianos = Math.max(0, Math.min(parseInt(req.body.vegetarianos, 10) || 0, personas));
+      const mixKey = MIX[req.body.mix] ? req.body.mix : "equilibrado";
       const mix = MIX[mixKey];
-      const noVeg = personas - vegetarianos;                 // a estos los cubre la comida regular
+      const noVeg = personas - vegetarianos;
       const objPiccada = Math.ceil(noVeg * mix.piccada);
       const objSandwich = Math.ceil(noVeg * mix.sandwich);
 
       const niveles = ["economica", "intermedia", "premium"];
-      // Precalculamos por nivel: piccadas permitidas (agrupadas), sándwich y vegetariana
-      const data = {};
-      for (const nivel of niveles) {
-        data[nivel] = {
-          piccadas: piccadasDelNivel(productos, PICCADA[nivel], modo),
-          sandwich: unidadesSandwich(productos, nivel, modo),
-          veg: unidadesVeg(productos, nivel, modo),
-        };
-      }
-
-      // Arma las 3 opciones según qué piccada (índice) se elige en cada nivel
-      const construir = (elec) => niveles.map(nivel => {
-        const d = data[nivel];
-        const elegida = d.piccadas[elec[nivel]] || { unidades: [] };
-        const piccada  = cubrirMenorCosto(elegida.unidades, objPiccada);
-        const sandwich = cubrirMenorCosto(d.sandwich, objSandwich);
-        const veg = vegetarianos > 0 ? cubrirMenorCosto(d.veg, vegetarianos) : { items: [], total: 0 };
+      const rnd = n => Math.floor(Math.random() * n);
+      const opciones = niveles.map(nivel => {
+        const grupos = piccadasDelNivel(productos, PICCADA[nivel], modo);
+        const grupo = grupos.length ? grupos[rnd(grupos.length)] : { unidades: [] }; // alterna la piccada
+        const piccada  = cubrirMenorCosto(grupo.unidades, objPiccada);
+        const sandwich = cubrirMenorCosto(unidadesSandwich(productos, nivel, modo), objSandwich);
+        const veg = vegetarianos > 0 ? cubrirMenorCosto(unidadesVeg(productos, nivel, modo), vegetarianos) : { items: [], total: 0 };
         const total = piccada.total + sandwich.total + veg.total;
         return {
           nivel, etiqueta: ETIQUETAS[nivel],
@@ -240,32 +297,8 @@ export function cotizadorRouter(pool) {
         };
       });
 
-      // Alterna al azar entre las piccadas permitidas, pero exigiendo que
-      // Clásica <= Selección <= Premium (reintenta unas veces).
-      const rnd = n => Math.floor(Math.random() * n);
-      let opciones = null;
-      for (let intento = 0; intento < 12; intento++) {
-        const elec = {};
-        niveles.forEach(n => { const len = data[n].piccadas.length; elec[n] = len ? rnd(len) : 0; });
-        const ops = construir(elec);
-        if (ops[0].total <= ops[1].total && ops[1].total <= ops[2].total) { opciones = ops; break; }
-      }
-      if (!opciones) {
-        // Fallback: la piccada más barata de cada nivel (asegura el orden)
-        const elec = {};
-        niveles.forEach(n => {
-          let best = 0, bestCost = Infinity;
-          data[n].piccadas.forEach((p, idx) => {
-            const c = cubrirMenorCosto(p.unidades, objPiccada).total;
-            if (c < bestCost) { bestCost = c; best = idx; }
-          });
-          elec[n] = best;
-        });
-        opciones = construir(elec);
-      }
-
       res.json({
-        personas, vegetarianos, modo, mix: mixKey,
+        personas, vegetarianos, modo, mix: mixKey, tipo,
         objetivoPiccada: objPiccada, objetivoSandwich: objSandwich,
         opciones, bebidas: bebidasDisponibles(productos),
       });

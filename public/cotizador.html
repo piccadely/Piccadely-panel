@@ -107,6 +107,13 @@
   <!-- PASO 1 -->
   <div class="card" id="step1">
     <div class="step-label"><span>1</span> Tu evento</div>
+    <div style="margin-bottom:18px">
+      <label class="fld">¿Qué querés cotizar?</label>
+      <div class="pills" id="tipo">
+        <button type="button" class="pill active" data-v="evento">🧀 Picadas / Evento</button>
+        <button type="button" class="pill" data-v="desayuno">🥐 Desayuno / Merienda</button>
+      </div>
+    </div>
     <div class="grid grid-2">
       <div>
         <label class="fld" for="personas">¿Cuántas personas?</label>
@@ -120,14 +127,14 @@
         </div>
       </div>
     </div>
-    <div class="grid grid-2" style="margin-top:18px">
+    <div class="grid grid-2" id="rowVeg" style="margin-top:18px">
       <div>
         <label class="fld" for="vegetarianos">¿Cuántos son vegetarianos?</label>
         <input type="number" id="vegetarianos" min="0" placeholder="0" />
       </div>
       <div></div>
     </div>
-    <div class="grid" style="margin-top:18px">
+    <div class="grid" id="rowMix" style="margin-top:18px">
       <div>
         <label class="fld">¿Cómo lo combinamos?</label>
         <div class="pills" id="mix">
@@ -216,7 +223,7 @@ const API = "https://piccadely-panel-production.up.railway.app";
 const WSP = "5491162393921"; // WhatsApp corporativo
 const fmt = n => "$" + Number(n||0).toLocaleString("es-AR");
 
-const state = { modo:"piccar", mix:"equilibrado", calc:null, chosen:null };
+const state = { tipo:"evento", modo:"piccar", mix:"equilibrado", calc:null, chosen:null };
 
 // selección de pills
 function wirePills(id, key){
@@ -230,6 +237,17 @@ function wirePills(id, key){
 wirePills("modo","modo");
 wirePills("mix","mix");
 
+// selector de tipo (evento / desayuno): oculta los campos que no aplican
+document.querySelectorAll("#tipo .pill").forEach(b=>{
+  b.onclick=()=>{
+    document.querySelectorAll("#tipo .pill").forEach(x=>x.classList.remove("active"));
+    b.classList.add("active"); state.tipo=b.dataset.v;
+    const esDes = state.tipo==="desayuno";
+    document.getElementById("rowVeg").style.display = esDes ? "none" : "";
+    document.getElementById("rowMix").style.display = esDes ? "none" : "";
+  };
+});
+
 // PASO 1 -> calcular
 document.getElementById("btnCalc").onclick = async ()=>{
   const personas = parseInt(document.getElementById("personas").value,10);
@@ -241,7 +259,7 @@ document.getElementById("btnCalc").onclick = async ()=>{
   try{
     const r = await fetch(API+"/api/cotizador/calcular",{
       method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({personas, vegetarianos:parseInt(document.getElementById("vegetarianos").value,10)||0, modo:state.modo, mix:state.mix})
+      body:JSON.stringify({personas, vegetarianos:parseInt(document.getElementById("vegetarianos").value,10)||0, modo:state.modo, mix:state.mix, tipo:state.tipo})
     });
     const data = await r.json();
     if(!r.ok || !data.opciones) throw new Error(data.error||"No se pudo calcular");
