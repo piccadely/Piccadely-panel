@@ -45,10 +45,10 @@ Según el caso: si es regalo → nombre y teléfono de quien recibe + dedicatori
 
 ## Recomendación de tamaño
 Preguntá siempre "¿es para comer o piccar?" y recomendá:
-- Chica: come 1, picotean 3.
-- Mediana: comen 2, picotean 5.
-- Grande: comen 4, picotean 9.
-- XL: comen 6, picotean 12.
+- Chica: come 1, piccan 3.
+- Mediana: comen 2, piccan 5.
+- Grande: comen 4, piccan 9.
+- XL: comen 6, piccan 12.
 - Más de 12 personas: Combinados.
 Los ingredientes son los mismos en todos los tamaños; cambia la cantidad.
 
