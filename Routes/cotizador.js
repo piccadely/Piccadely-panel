@@ -9,11 +9,11 @@ const tnHeaders = {
   "User-Agent": "PiccadelyPanel (piccadely@gmail.com)",
 };
 
-// ─── IDs de categorías de piccadas por nivel ─────────────────────────
-const CAT_PICCADA = {
-  economica: 38586676,   // Piccadas Divertidas
-  intermedia: 38346953,  // PiccaPromos
-  premium: 38586677,     // Piccadas Il Paradiso
+// ─── Piccadas por nivel: categoría + qué piccadas puede usar ─────────
+const PICCADA = {
+  economica:  { cat: 38586676, allow: ["suttile", "giovane", "la fausta"] },        // Piccadas Divertidas
+  intermedia: { cat: 38346953, allow: ["comilona", "la piccada mundial"] },         // PiccaPromos
+  premium:    { cat: 38586677, allow: ["magnolia", "amistad", "anita de baires"] }, // Piccadas Il Paradiso
 };
 const CAT_BEBIDAS = 38347075;
 
@@ -48,7 +48,7 @@ const MIX = {
   mas_sandwich: { piccada: 0.3, sandwich: 0.7 },
 };
 
-const ETIQUETAS = { economica: "Económica", intermedia: "Intermedia", premium: "Premium" };
+const ETIQUETAS = { economica: "Clásica", intermedia: "Selección", premium: "Premium" };
 
 // ─── Catálogo en vivo con caché de 5 min ─────────────────────────────
 let _cache = { data: null, ts: 0 };
@@ -70,12 +70,13 @@ const num = x => { const n = Number(x); return Number.isFinite(n) ? n : 0; };
 
 // Unidades de piccada de una categoría (solo las que tienen las porciones
 // escritas en la variante, ej "Grande Comen 4- Piccan 9")
-function unidadesPiccada(productos, catId, modo) {
+function unidadesPiccada(productos, cfg, modo) {
   const unidades = [];
   for (const p of productos) {
     if (p.published === false) continue;
-    if (!catIds(p).includes(catId)) continue;
+    if (!catIds(p).includes(cfg.cat)) continue;
     const nombre = p.name?.es || "Piccada";
+    if (cfg.allow && !cfg.allow.some(a => sinAcentos(nombre).includes(a))) continue;
     for (const v of (p.variants || [])) {
       const label = (v.values || []).map(x => x?.es).filter(Boolean).join(" ");
       if (!/piccan/i.test(label)) continue;               // solo variantes con porciones
@@ -213,7 +214,7 @@ export function cotizadorRouter(pool) {
 
       const opciones = [];
       for (const nivel of ["economica", "intermedia", "premium"]) {
-        const piccada  = cubrirMenorCosto(unidadesPiccada(productos, CAT_PICCADA[nivel], modo), objPiccada);
+        const piccada  = cubrirMenorCosto(unidadesPiccada(productos, PICCADA[nivel], modo), objPiccada);
         const sandwich = cubrirMenorCosto(unidadesSandwich(productos, nivel, modo), objSandwich);
         const veg = vegetarianos > 0
           ? cubrirMenorCosto(unidadesVeg(productos, nivel, modo), vegetarianos)
