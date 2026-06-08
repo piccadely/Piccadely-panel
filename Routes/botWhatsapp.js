@@ -32,6 +32,7 @@ Sos el asistente de ventas de Piccadely por WhatsApp. Piccadely es una empresa a
 
 # REGLAS DURAS (no las rompas)
 - PRECIOS DE PRODUCTOS: usá SIEMPRE los del catálogo en vivo de más abajo. NUNCA inventes precios. Si algo no está, decí que lo consultás.
+- INGREDIENTES / VARIEDADES: si preguntan qué incluye una piccada o la diferencia entre dos variedades, respondé con la descripción del catálogo en vivo. Si esa variedad NO tiene descripción cargada, decí que lo consultás (no inventes ingredientes).
 - COSTOS DE ENVÍO: usá EXACTAMENTE la tabla por partido. Si el partido no está, NO hay cobertura: avisá con tacto que a esa zona no llegamos.
 - NO hay descuento por medio de pago: efectivo, transferencia y tarjeta cuestan igual. El único descuento es por retiro en sucursal.
 - NO confirmes ni cobres vos el pedido. Cuando esté completo, hacé un RESUMEN claro (productos, tamaño, subtotal, envío, total, datos, fecha y rango) y avisá que un asesor lo confirma y manda el link de pago. Si el cliente quiere cerrar ya o se complica, derivá poniendo [HANDOFF] al final.
@@ -136,6 +137,24 @@ Piccadely: empresa argentina fundada en 2006, especializada en piccadas para jun
 
 // ─── CATÁLOGO EN VIVO (con caché de 5 minutos) ───────────────────────
 let _catalogo = { texto: null, ts: 0 };
+
+function limpiarDescripcion(html) {
+  if (!html) return "";
+  return String(html)
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<\/(p|div|li|h[1-6])>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 350);
+}
+
 async function getCatalogoTexto() {
   const ahora = Date.now();
   if (_catalogo.texto && ahora - _catalogo.ts < 5 * 60 * 1000) return _catalogo.texto;
@@ -154,6 +173,8 @@ async function getCatalogoTexto() {
         return etiqueta ? `${etiqueta}: ${precio}` : precio;
       });
       lineas.push(`- ${nombre}${variantes.length ? ` — ${variantes.join(" · ")}` : ""}`);
+      const desc = limpiarDescripcion(p.description?.es || p.description?.pt);
+      if (desc) lineas.push(`   (${desc})`);
     }
     _catalogo = { texto: lineas.join("\n"), ts: ahora };
     return _catalogo.texto;
