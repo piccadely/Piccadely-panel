@@ -246,8 +246,37 @@ function bebidasDisponibles(productos) {
     .filter(b => b.precio > 0);
 }
 
+// Notifica al equipo por mail cuando entra una cotización
+async function notificarCotizacion(mailTransporter, cot) {
+  if (!mailTransporter) return;
+  try {
+    const money = n => "$" + Number(n || 0).toLocaleString("es-AR");
+    const elegida = (cot.opciones || []).find(o => o.nivel === cot.nivel_elegido);
+    const items = elegida ? [...(elegida.piccadas || []), ...(elegida.sandwiches || []), ...(elegida.vegetarianas || [])] : [];
+    const itemsHtml = items.map(i => `<li>${i.cantidad}× ${i.nombre} (${i.tamano})</li>`).join("");
+    const canalTxt = cot.canal === "whatsapp" ? "📲 Cerró por WhatsApp" : "📞 Pidió que lo contacten";
+    const html = `
+      <h2>🎉 Nueva cotización de evento #${cot.id}</h2>
+      <p><b>${canalTxt}</b></p>
+      <p><b>Cliente:</b> ${cot.cliente_nombre || "-"}${cot.empresa ? " · " + cot.empresa : ""}<br>
+         <b>Email:</b> ${cot.email || "-"} &nbsp;·&nbsp; <b>Tel:</b> ${cot.telefono || "-"}</p>
+      <p><b>Evento:</b> ${cot.personas} personas (${cot.modo})${cot.mix ? " · " + cot.mix : ""}${cot.fecha_evento ? " · 📅 " + cot.fecha_evento : ""}${cot.zona ? " · 📍 " + cot.zona : ""}${cot.con_bebidas ? " · quiere bebidas 🥤" : ""}</p>
+      <p><b>Opción elegida:</b> ${elegida ? elegida.etiqueta : (cot.nivel_elegido || "-")} &nbsp;·&nbsp; <b>${money(cot.total_elegido)}</b></p>
+      ${items.length ? "<ul>" + itemsHtml + "</ul>" : ""}
+      <p style="color:#999;font-size:12px">Piccadely · Cotizador de Eventos</p>`;
+    await mailTransporter.sendMail({
+      from: `Piccadely <${process.env.GMAIL_USER}>`,
+      to: "yus@piccadely.com",
+      subject: `🎉 Nueva cotización #${cot.id} · ${cot.cliente_nombre || "cliente"} · ${money(cot.total_elegido)}`,
+      html,
+    });
+  } catch (e) {
+    console.error("Error enviando mail de cotización:", e.message);
+  }
+}
+
 // ─── Router ──────────────────────────────────────────────────────────
-export function cotizadorRouter(pool) {
+export function cotizadorRouter(pool, mailTransporter) {
   const router = express.Router();
 
   router.post("/cotizador/calcular", async (req, res) => {
@@ -328,7 +357,9 @@ export function cotizadorRouter(pool) {
           b.total_elegido || null, !!b.con_bebidas, canal, b.notas || null,
         ]
       );
-      res.json({ ok: true, id: q.rows[0].id, creada_en: q.rows[0].creada_en });
+      const nuevaId = q.rows[0].id;
+      notificarCotizacion(mailTransporter, { ...b, id: nuevaId, canal });
+      res.json({ ok: true, id: nuevaId, creada_en: q.rows[0].creada_en });
     } catch (err) {
       console.error("Error guardando cotización:", err.message);
       res.status(500).json({ error: "Error al guardar la cotización" });

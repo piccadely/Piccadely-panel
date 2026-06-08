@@ -356,7 +356,7 @@ async function enviarMailAnulacion(pedido) {
 // ─── MERCADO PAGO ─────────────────────────────────────────────────────
 app.use("/api/mp", mpRouter(pool, mailTransporter));
 app.use("/api/bot", botWhatsappRouter());
-app.use("/api", cotizadorRouter(pool));
+app.use("/api", cotizadorRouter(pool, mailTransporter));
 
  // ─── ORDERS ───────────────────────────────────────────────────────────
 app.get("/api/orders", async (req, res) => {
