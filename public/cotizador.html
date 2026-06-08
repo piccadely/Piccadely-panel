@@ -111,7 +111,7 @@
     <div style="margin-bottom:18px">
       <label class="fld">¿Qué querés cotizar?</label>
       <div class="pills" id="tipo">
-        <button type="button" class="pill active" data-v="evento">🧀 Picadas / Evento</button>
+        <button type="button" class="pill active" data-v="evento">🧀 Piccadas / Evento</button>
         <button type="button" class="pill" data-v="desayuno">🥐 Desayuno / Merienda</button>
       </div>
     </div>
@@ -123,7 +123,7 @@
       <div>
         <label class="fld">¿Es para comer o piccar?</label>
         <div class="pills" id="modo">
-          <button type="button" class="pill active" data-v="piccar">Piccar <small>picoteo</small></button>
+          <button type="button" class="pill active" data-v="piccar">Piccar <small>piccadita</small></button>
           <button type="button" class="pill" data-v="comer">Comer <small>almuerzo/cena</small></button>
         </div>
       </div>
@@ -157,7 +157,7 @@
       </div>
     </div>
     <div style="margin-top:24px">
-      <button class="btn btn-primary" id="btnCalc">Ver mis 3 opciones →</button>
+      <button class="btn btn-primary" id="btnCalc">Ver mis opciones →</button>
       <div class="err hidden" id="err1"></div>
     </div>
   </div>
@@ -271,7 +271,7 @@ document.getElementById("btnCalc").onclick = async ()=>{
     document.getElementById("step2").scrollIntoView({behavior:"smooth"});
   }catch(e){
     err.textContent="Ups, no pudimos calcular ("+e.message+"). Probá de nuevo."; err.classList.remove("hidden");
-  }finally{ btn.disabled=false; btn.innerHTML="Ver mis 3 opciones →"; }
+  }finally{ btn.disabled=false; btn.innerHTML="Ver mis opciones →"; }
 };
 
 function lineas(items){
