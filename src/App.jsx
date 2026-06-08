@@ -1001,6 +1001,104 @@ const [facturaLabel, setFacturaLabel] = useState(null);
         </div>
       );
     }
+    function VistaCotizaciones({ onVolver }) {
+      const [lista, setLista] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState("");
+      const [filtro, setFiltro] = useState("todas");
+
+      const cargar = async () => {
+        setLoading(true);
+        try { const r = await axios.get(`${API}/api/cotizaciones`); setLista(r.data || []); setError(""); }
+        catch (e) { setError("No se pudieron cargar las cotizaciones."); }
+        finally { setLoading(false); }
+      };
+      useEffect(() => { cargar(); }, []);
+
+      const cambiarEstado = async (id, estado) => {
+        try {
+          await axios.patch(`${API}/api/cotizaciones/${id}`, { estado });
+          setLista(l => l.map(c => c.id === id ? { ...c, estado } : c));
+        } catch (e) { alert("Error al actualizar: " + (e.response?.data?.error || e.message)); }
+      };
+
+      const money = n => "$" + Number(n || 0).toLocaleString("es-AR");
+      const fmtFecha = v => v ? new Date(v).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+      const wsp = t => { const d = String(t || "").replace(/\D/g, ""); if (!d) return null; const full = d.length <= 10 ? "549" + d : (d.startsWith("54") ? d : "54" + d); return "https://wa.me/" + full; };
+
+      const estados = ["pendiente", "contactado", "ganada", "perdida"];
+      const colorEstado = { pendiente: "#e8a33d", contactado: "#3d7de8", ganada: "#1ea05a", perdida: "#c0392b" };
+      const filtradas = filtro === "todas" ? lista : lista.filter(c => c.estado === filtro);
+
+      const btnVolver = { fontSize: 12, padding: "7px 14px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#555", cursor: "pointer", fontWeight: 600 };
+      const card = { background: "#fff", border: "1px solid #eee", borderRadius: 12, padding: 16, marginBottom: 14 };
+      const pill = (active, color) => ({ fontSize: 12, padding: "5px 12px", borderRadius: 20, border: "1px solid " + (active ? color : "#ddd"), background: active ? color : "#fff", color: active ? "#fff" : "#666", cursor: "pointer", fontWeight: 600 });
+
+      return (
+        <div style={{ padding: 24, maxWidth: 820, margin: "0 auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
+            <button style={btnVolver} onClick={onVolver}>← Volver</button>
+            <h2 style={{ fontSize: 17, fontWeight: 600, color: "#333", margin: 0 }}>🎉 Cotizaciones de Eventos</h2>
+            <span style={{ fontSize: 13, color: "#999" }}>{filtradas.length}</span>
+            <button onClick={cargar} style={{ marginLeft: "auto", fontSize: 12, padding: "6px 12px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }}>↻ Actualizar</button>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+            {["todas", ...estados].map(f => (
+              <button key={f} style={pill(filtro === f, f === "todas" ? "#F68B32" : colorEstado[f])} onClick={() => setFiltro(f)}>
+                {f === "todas" ? "Todas" : f.charAt(0).toUpperCase() + f.slice(1)}
+              </button>
+            ))}
+          </div>
+
+          {loading && <p style={{ color: "#999" }}>Cargando...</p>}
+          {error && <p style={{ color: "#c0392b" }}>{error}</p>}
+          {!loading && !error && filtradas.length === 0 && <p style={{ color: "#999" }}>No hay cotizaciones todavía.</p>}
+
+          {filtradas.map(c => {
+            const elegida = (c.opciones || []).find(o => o.nivel === c.nivel_elegido);
+            const items = elegida ? [...(elegida.piccadas || []), ...(elegida.sandwiches || []), ...(elegida.vegetarianas || [])] : [];
+            const link = wsp(c.telefono);
+            return (
+              <div key={c.id} style={{ ...card, borderLeft: "4px solid " + (colorEstado[c.estado] || "#ddd") }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 6, background: c.canal === "whatsapp" ? "#e9f8ef" : "#fff4e8", color: c.canal === "whatsapp" ? "#1ea05a" : "#d9701c" }}>
+                    {c.canal === "whatsapp" ? "📲 Cerró por WhatsApp" : "📞 Pidió que lo contacten"}
+                  </span>
+                  <span style={{ fontSize: 12, color: "#999" }}>#{c.id} · {fmtFecha(c.creada_en)}</span>
+                  <select value={c.estado} onChange={e => cambiarEstado(c.id, e.target.value)}
+                    style={{ marginLeft: "auto", fontSize: 12, padding: "5px 8px", borderRadius: 6, border: "1px solid #ddd", color: colorEstado[c.estado], fontWeight: 600 }}>
+                    {estados.map(e => <option key={e} value={e}>{e.charAt(0).toUpperCase() + e.slice(1)}</option>)}
+                  </select>
+                </div>
+
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>
+                  {c.cliente_nombre || "Sin nombre"}{c.empresa ? <span style={{ color: "#888", fontWeight: 400 }}> · {c.empresa}</span> : null}
+                </div>
+                <div style={{ fontSize: 13, color: "#666", margin: "4px 0 10px" }}>
+                  ✉️ {c.email || "-"} · 📱 {c.telefono || "-"}
+                  {link && <a href={link} target="_blank" rel="noreferrer" style={{ marginLeft: 8, color: "#1ea05a", textDecoration: "none", fontWeight: 600 }}>Escribir ›</a>}
+                </div>
+
+                <div style={{ fontSize: 13, color: "#444", background: "#faf7f2", borderRadius: 8, padding: "10px 12px" }}>
+                  <div style={{ marginBottom: 6 }}>
+                    👥 <b>{c.personas}</b> personas ({c.modo}) · {c.mix}{c.fecha_evento ? " · 📅 " + c.fecha_evento : ""}{c.zona ? " · 📍 " + c.zona : ""}{c.con_bebidas ? " · 🥤 quiere bebidas" : ""}
+                  </div>
+                  <div style={{ fontWeight: 700, color: "#d9701c" }}>
+                    {elegida ? elegida.etiqueta : (c.nivel_elegido || "—")} · {money(c.total_elegido)}
+                  </div>
+                  {items.length > 0 && (
+                    <ul style={{ margin: "6px 0 0", paddingLeft: 18, color: "#666" }}>
+                      {items.map((i, k) => <li key={k} style={{ fontSize: 12 }}>{i.cantidad}× {i.nombre} ({i.tamano})</li>)}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
     // ─── COMPONENTE CAJA ─────────────────────────────────────────────────
     function VistaCaja({ pedidosFinalizados, onVolver, usuario }) {
             const HOY_CAJA = fechaArgentina();
@@ -2159,6 +2257,7 @@ let numeroAsignado = "";
                   )}
                   <button style={s.dropItem} onClick={() => { setVista("caja"); setMenuAbierto(false); }}>💰 Caja</button>
                   <button style={s.dropItem} onClick={() => { setVista("finalizados"); setMenuAbierto(false); }}>📋 Pedidos finalizados</button>
+                  <button style={s.dropItem} onClick={() => { setVista("cotizaciones"); setMenuAbierto(false); }}>🎉 Cotizaciones</button>
                   <button style={s.dropItem} onClick={() => { setVista("produccion"); setMenuAbierto(false); }}>🔧 Análisis de producción</button>
                   <button style={s.dropItem} onClick={() => { setVista("mapa"); setMenuAbierto(false); }}>🗺️ Mapa de pedidos</button>
                   <button style={{ ...s.dropItem, borderTop: "1px solid #eee", color: "#888" }} onClick={() => { setVista("panel"); setMenuAbierto(false); }}>← Volver al panel</button>
@@ -2227,6 +2326,9 @@ let numeroAsignado = "";
             </div>
           </div>
         );
+      }
+      if (vista === "cotizaciones") {
+        return <div style={s.wrap}><Header /><VistaCotizaciones onVolver={() => setVista("panel")} /></div>;
       }
       if (vista === "usuarios") {
         return <div style={s.wrap}><Header /><Usuarios onVolver={() => setVista("panel")} /></div>;
