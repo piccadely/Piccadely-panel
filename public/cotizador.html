@@ -71,8 +71,9 @@
   .opt .pp small{font-size:14px;color:var(--muted);font-weight:600}
   .opt .tot{font-size:13px;color:var(--muted);font-weight:600;margin-bottom:14px}
   .opt ul{list-style:none;border-top:1px dashed var(--line);padding-top:14px;margin-bottom:18px;flex:1}
-  .opt li{font-size:14px;padding:5px 0;display:flex;gap:8px}
+  .opt li{font-size:14px;padding:5px 0;display:flex;gap:8px;align-items:center}
   .opt li b{color:var(--orange-deep)}
+  .thumb{width:42px;height:42px;border-radius:8px;object-fit:cover;flex:none;border:1px solid var(--line)}
   .badge{position:absolute;top:-11px;right:16px;background:var(--orange);color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;letter-spacing:.5px}
 
   .bebidas{margin-top:22px;display:flex;align-items:center;gap:12px;padding:16px;border:1px dashed var(--line);border-radius:14px;background:#fffdf9}
@@ -274,7 +275,7 @@ document.getElementById("btnCalc").onclick = async ()=>{
 };
 
 function lineas(items){
-  return items.map(i=>`<li>• <span><b>${i.cantidad}×</b> ${i.nombre} <span style="color:var(--muted)">(${i.tamano})</span></span></li>`).join("");
+  return items.map(i=>`<li>${i.imagen?`<img class="thumb" src="${i.imagen}" alt="" loading="lazy">`:'<span style="width:42px;text-align:center;flex:none">•</span>'}<span><b>${i.cantidad}×</b> ${i.nombre} <span style="color:var(--muted)">(${i.tamano})</span></span></li>`).join("");
 }
 
 function renderOpts(){
@@ -347,7 +348,7 @@ document.getElementById("btnWsp").onclick = async ()=>{
     const id = await guardar("whatsapp");
     if(id){
       const o=state.chosen;
-     const items = [...o.piccadas, ...o.sandwiches, ...(o.vegetarianas||[])]
+      const items = [...o.piccadas, ...o.sandwiches, ...(o.vegetarianas||[])]
         .map(i=>`• ${i.cantidad}× ${i.nombre} (${i.tamano})`).join("\n");
       const texto =
         `¡Hola Piccadely! Quiero cerrar mi cotización de evento.\n`+

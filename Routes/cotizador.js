@@ -96,6 +96,9 @@ function buscarProducto(productos, regla) {
   });
 }
 
+// URL de la primera imagen del producto (Tienda Nube)
+const imgDe = p => (p.images && p.images[0] && p.images[0].src) || "";
+
 // Piccadas permitidas del nivel, agrupadas por producto (cada una con sus tamaños)
 function piccadasDelNivel(productos, cfg, modo) {
   const porProducto = {};
@@ -112,7 +115,7 @@ function piccadasDelNivel(productos, cfg, modo) {
       const rinde  = modo === "comer" ? comer : piccar;
       const precio = num(v.price);
       if (rinde > 0 && precio > 0) {
-        (porProducto[nombre] = porProducto[nombre] || []).push({ nombre, tamano: label, comer, piccar, rinde, precio });
+        (porProducto[nombre] = porProducto[nombre] || []).push({ nombre, tamano: label, comer, piccar, rinde, precio, imagen: imgDe(p) });
       }
     }
   }
@@ -132,7 +135,7 @@ function unidadesSandwich(productos, nivel, modo) {
       unidades.push({
         nombre: prod.name?.es,
         tamano: modo === "comer" ? `comen ${regla.comer}` : `piccan ${regla.piccar}`,
-        comer: regla.comer, piccar: regla.piccar, rinde, precio,
+        comer: regla.comer, piccar: regla.piccar, rinde, precio, imagen: imgDe(prod),
       });
     }
   }
@@ -154,7 +157,7 @@ function unidadesVeg(productos, nivel, modo) {
         const piccar = num((label.match(/piccan\s*(\d+)/i) || [])[1]);
         const rinde = modo === "comer" ? comer : piccar;
         const precio = num(v.price);
-        if (rinde > 0 && precio > 0) unidades.push({ nombre: prod.name.es, tamano: label, comer, piccar, rinde, precio });
+        if (rinde > 0 && precio > 0) unidades.push({ nombre: prod.name.es, tamano: label, comer, piccar, rinde, precio, imagen: imgDe(prod) });
       }
     }
   } else {
@@ -167,7 +170,7 @@ function unidadesVeg(productos, nivel, modo) {
       const precio = num((prod.variants || [])[0]?.price);
       const rinde = modo === "comer" ? sz.comer : sz.piccar;
       if (rinde > 0 && precio > 0)
-        unidades.push({ nombre: prod.name.es, tamano: `${sz.match} (come ${sz.comer} / piccan ${sz.piccar})`, comer: sz.comer, piccar: sz.piccar, rinde, precio });
+        unidades.push({ nombre: prod.name.es, tamano: `${sz.match} (come ${sz.comer} / piccan ${sz.piccar})`, comer: sz.comer, piccar: sz.piccar, rinde, precio, imagen: imgDe(prod) });
     }
   }
   return unidades;
@@ -187,7 +190,7 @@ function unidadesDesayuno(productos, nivel, modo) {
       unidades.push({
         nombre: prod.name?.es,
         tamano: modo === "comer" ? `desayunan ${it.comer}` : `piccan ${it.piccar}`,
-        comer: it.comer, piccar: it.piccar, rinde, precio,
+        comer: it.comer, piccar: it.piccar, rinde, precio, imagen: imgDe(prod),
       });
   }
   return unidades;
@@ -217,7 +220,7 @@ function cubrirMenorCosto(unidades, objetivo) {
   }
   const items = Object.entries(conteo).map(([u, cant]) => {
     const un = unidades[u];
-    return { nombre: un.nombre, tamano: un.tamano, cantidad: cant, precioUnitario: un.precio, subtotal: un.precio * cant, rinde: un.rinde * cant };
+    return { nombre: un.nombre, tamano: un.tamano, cantidad: cant, precioUnitario: un.precio, subtotal: un.precio * cant, rinde: un.rinde * cant, imagen: un.imagen };
   });
   const total = items.reduce((a, i) => a + i.subtotal, 0);
   return { items, total };
@@ -233,7 +236,7 @@ function repartirDesayuno(unidades, objetivo) {
   for (let k = 0; k < need; k++) { const i = k % pool.length; conteo[i] = (conteo[i] || 0) + 1; }
   const items = Object.entries(conteo).map(([i, cant]) => {
     const u = pool[i];
-    return { nombre: u.nombre, tamano: u.tamano, cantidad: cant, precioUnitario: u.precio, subtotal: u.precio * cant, rinde: u.rinde * cant };
+    return { nombre: u.nombre, tamano: u.tamano, cantidad: cant, precioUnitario: u.precio, subtotal: u.precio * cant, rinde: u.rinde * cant, imagen: u.imagen };
   });
   const total = items.reduce((a, i) => a + i.subtotal, 0);
   return { items, total };
