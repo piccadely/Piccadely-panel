@@ -766,6 +766,36 @@ app.post("/api/caja/cierre", async (req, res) => {
     registrarAuditoria(usuarioAudit, "cierre_caja", "caja", local, { fecha, montoCierre });
   } catch (err) { res.status(500).json({ error: "Error en cierre de caja" }); }
 });
+// ===== FONDO FIJO =====
+app.get("/api/fondo-fijo", async (req, res) => {
+  try {
+    const movs = await pool.query(
+      "SELECT * FROM caja_movimientos WHERE local='Fondo Fijo' ORDER BY created_at DESC"
+    );
+    const saldo = movs.rows.reduce((a, m) => a + Number(m.monto), 0);
+    res.json({ saldo, movimientos: movs.rows });
+  } catch (err) {
+    res.status(500).json({ error: "Error trayendo el fondo fijo" });
+  }
+});
+app.post("/api/fondo-fijo/movimiento", async (req, res) => {
+  const { tipo, concepto, monto, fecha, usuario: usuarioAudit } = req.body;
+  try {
+    if (!["entrada", "salida"].includes(tipo) || !monto) {
+      return res.status(400).json({ error: "Datos inválidos" });
+    }
+    const signo = tipo === "salida" ? -Math.abs(Number(monto)) : Math.abs(Number(monto));
+    const conceptoFinal = concepto && concepto.trim() ? concepto.trim() : (tipo === "entrada" ? "Reposición" : "Gasto");
+    await pool.query(
+      "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ('Fondo Fijo',$1,$2,$3,$4)",
+      [tipo, conceptoFinal, signo, fecha]
+    );
+    res.json({ ok: true });
+    registrarAuditoria(usuarioAudit, "fondo_fijo_movimiento", "caja", "Fondo Fijo", { tipo, concepto: conceptoFinal, monto: signo, fecha });
+  } catch (err) {
+    res.status(500).json({ error: "Error registrando movimiento" });
+  }
+});
 
 app.get("/api/caja/historial/:local", async (req, res) => {
   const { local } = req.params;

@@ -1103,7 +1103,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
     function VistaCaja({ pedidosFinalizados, onVolver, usuario }) {
             const HOY_CAJA = fechaArgentina();
       const localesPermitidos = usuario.rol === "admin"
-        ? ["A. Thomas", "French", "Administración"]
+        ? ["A. Thomas", "French", "Administración", "Fondo Fijo"  ]
         : usuario.rol === "a_thomas" ? ["A. Thomas"] : ["French"];
       const [localSeleccionado, setLocalSeleccionado] = useState(localesPermitidos[0]);
       const [estadoCaja, setEstadoCaja] = useState(null);
@@ -1119,6 +1119,9 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       const [loadingHistorial, setLoadingHistorial] = useState(false);
       const [diaExpandido, setDiaExpandido] = useState(null);
       const [filtroHistorial, setFiltroHistorial] = useState("");
+      const [fondo, setFondo] = useState(null);
+      const [loadingFondo, setLoadingFondo] = useState(false);
+      const [fondoMov, setFondoMov] = useState({ tipo: "salida", concepto: "", monto: "" });
 
       async function cargarEstado() {
         setLoadingCaja(true);
@@ -1137,7 +1140,7 @@ const res = await axios.get(`${API}/api/caja/estado/${encodeURIComponent(localSe
         setLoadingHistorial(false);
       }
 
-      useEffect(() => { cargarEstado(); cargarHistorial(); }, [localSeleccionado]);
+      useEffect(() => { if (localSeleccionado === "Fondo Fijo") { cargarFondo(); } else { cargarEstado(); cargarHistorial(); } }, [localSeleccionado]);
       useEffect(() => {
         if (localSeleccionado === "Administración" && estadoCaja !== null && !estadoCaja?.apertura && !loadingCaja) {
           axios.post(`${API}/api/caja/apertura`, { local: "Administración", fecha: HOY_CAJA, montoInicial: 0 })
@@ -1223,6 +1226,82 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
       const saldoEsperado = Number(montoInicial) + totalEfectivo + totalAjustes;
       const cerrada = estadoCaja?.apertura?.cerrada;
 
+      async function cargarFondo() {
+        setLoadingFondo(true);
+        try { const res = await axios.get(`${API}/api/fondo-fijo`); setFondo(res.data); }
+        catch (e) { console.error(e); }
+        setLoadingFondo(false);
+      }
+      async function registrarMovimientoFondo() {
+        if (!fondoMov.concepto || !fondoMov.monto) return;
+        setGuardando(true);
+        try {
+          await axios.post(`${API}/api/fondo-fijo/movimiento`, {
+            tipo: fondoMov.tipo, concepto: fondoMov.concepto, monto: Number(fondoMov.monto),
+            fecha: HOY_CAJA, usuario: usuario.nombre_completo
+          });
+          setFondoMov({ tipo: "salida", concepto: "", monto: "" });
+          await cargarFondo();
+        } catch (err) { alert("Error registrando movimiento: " + err.message); }
+        setGuardando(false);
+      }
+      function renderFondoFijo() {
+        const saldo = fondo?.saldo || 0;
+        const movs = fondo?.movimientos || [];
+        return (
+          <div style={{ maxWidth: 720 }}>
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 24, marginBottom: 20 }}>
+              <div style={{ fontSize: 12, color: "#888", marginBottom: 6, letterSpacing: 0.5 }}>SALDO ACTUAL DEL FONDO FIJO</div>
+              <div style={{ fontSize: 34, fontWeight: 700, color: saldo < 0 ? "#c0392b" : "#F68B32" }}>{loadingFondo ? "..." : fmt(saldo)}</div>
+              <div style={{ fontSize: 12, color: "#aaa", marginTop: 4 }}>El saldo se mantiene día a día · caja exclusiva de administración</div>
+            </div>
+
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20, marginBottom: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#333", marginBottom: 14 }}>➕ Registrar movimiento</div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                {["salida", "entrada"].map(t => (
+                  <button key={t} onClick={() => setFondoMov(f => ({ ...f, tipo: t }))}
+                    style={{ flex: 1, padding: 9, borderRadius: 8, border: "1px solid", cursor: "pointer", fontSize: 13, fontWeight: 600,
+                      borderColor: fondoMov.tipo === t ? (t === "salida" ? "#c0392b" : "#2a7a4b") : "#ddd",
+                      background: fondoMov.tipo === t ? (t === "salida" ? "#fdecea" : "#eaf6ef") : "#fff",
+                      color: fondoMov.tipo === t ? (t === "salida" ? "#c0392b" : "#2a7a4b") : "#777" }}>
+                    {t === "salida" ? "↓ Gasto / salida" : "↑ Reposición / entrada"}
+                  </button>
+                ))}
+              </div>
+              <input type="text" placeholder="Concepto (ej: compra de servilletas)" value={fondoMov.concepto}
+                onChange={e => setFondoMov(f => ({ ...f, concepto: e.target.value }))}
+                style={{ fontSize: 14, padding: "9px 12px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 10 }} />
+              <input type="number" placeholder="$0" value={fondoMov.monto}
+                onChange={e => setFondoMov(f => ({ ...f, monto: e.target.value }))}
+                style={{ fontSize: 14, padding: "9px 12px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 12 }} />
+              <button onClick={registrarMovimientoFondo} disabled={guardando || !fondoMov.concepto || !fondoMov.monto}
+                style={{ width: "100%", padding: 10, borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: (guardando || !fondoMov.concepto || !fondoMov.monto) ? 0.5 : 1 }}>
+                {guardando ? "Guardando..." : "Registrar movimiento"}
+              </button>
+            </div>
+
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#333", marginBottom: 14 }}>📒 Movimientos</div>
+              {loadingFondo ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando...</div>
+                : movs.length === 0 ? <div style={{ color: "#aaa", fontSize: 13 }}>Todavía no hay movimientos.</div>
+                : movs.map(m => {
+                  const monto = Number(m.monto);
+                  return (
+                    <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid #f5f5f5" }}>
+                      <div>
+                        <div style={{ fontSize: 13, color: "#333", fontWeight: 500 }}>{m.concepto || (monto >= 0 ? "Reposición" : "Gasto")}</div>
+                        <div style={{ fontSize: 11, color: "#aaa" }}>{m.fecha}</div>
+                      </div>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: monto >= 0 ? "#2a7a4b" : "#c0392b" }}>{monto >= 0 ? "+" : "−"}{fmt(Math.abs(monto))}</span>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        );
+      }
+
       return (
         <div style={{ fontFamily: "system-ui, sans-serif", minHeight: "100vh", background: "#f7f7f5" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 24px", background: "#fff", borderBottom: "1px solid #eee" }}>
@@ -1236,18 +1315,18 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
                   style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer",
                     borderColor: localSeleccionado === l ? "#F68B32" : "#ddd", background: localSeleccionado === l ? "#F68B32" : "#fff",
                     color: localSeleccionado === l ? "#fff" : "#555", fontWeight: localSeleccionado === l ? 600 : 400 }}>
-                  📍 {l}
-                </button>
-              ))}
+                    📍 {l}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-          <div style={{ padding: 24 }}>
-            {loadingCaja ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando caja...</div>
-            : !estadoCaja?.apertura ? (
-              <div style={{ maxWidth: 400 }}>
-                <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 24 }}>
-                  <div style={{ fontSize: 15, fontWeight: 600, color: "#333", marginBottom: 16 }}>🔓 Apertura de caja — {localSeleccionado}</div>
-                  <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>EFECTIVO INICIAL EN CAJA</div>
+            <div style={{ padding: 24 }}>
+              {localSeleccionado === "Fondo Fijo" ? renderFondoFijo() : loadingCaja ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando caja...</div>
+              : !estadoCaja?.apertura ? (
+                <div style={{ maxWidth: 400 }}>
+                  <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 24 }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: "#333", marginBottom: 16 }}>🔓 Apertura de caja — {localSeleccionado}</div>
+                    <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>EFECTIVO INICIAL EN CAJA</div>
                   <input type="number" style={{ fontSize: 14, padding: "8px 12px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 12 }}
                     placeholder="$0" value={montoApertura} onChange={e => setMontoApertura(e.target.value)} />
                   <button style={{ width: "100%", padding: 10, borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
