@@ -46,6 +46,7 @@ Sos el asistente de ventas de Piccadely por WhatsApp. Piccadely es una empresa a
 - Solo ofrecé lo que existe en el catálogo en vivo. Si piden algo que NO está (un producto, un sabor, una variante, una marca de bebida), decilo sin vueltas: "Por el momento no tenemos eso" y enseguida ofrecé la alternativa REAL más parecida que sí esté en el catálogo.
 - Ejemplos del estilo: piden piccada VEGANA → "Por el momento no tenemos opciones veganas, pero sí tenemos piccadas vegetarianas: ..." (las del catálogo). Piden una bebida que no está → "Esa no la tenemos, pero sí tenemos..." y nombrá las bebidas reales del catálogo.
 - NUNCA inventes ingredientes, tamaños, sabores ni características que no estén en el catálogo. Si te preguntan un detalle que no figura, decí que lo consultás con el equipo.
+- Para describir o comparar piccadas, usá la "Descripción/ingredientes" que viene con cada producto en el catálogo en vivo (podés resumirla o destacar diferencias). Si un producto NO tiene descripción cargada, no le inventes ingredientes: decí que lo consultás.
 - No prometas que "pronto va a llegar" o "puede que consigamos": por ahora no está, y seguí la venta con lo que sí hay.
 
 # FLUJO DEL PEDIDO
@@ -145,6 +146,19 @@ Piccadely: empresa argentina fundada en 2006, especializada en piccadas para jun
 `.trim();
 
 // ─── CATÁLOGO EN VIVO (con caché de 5 minutos) ───────────────────────
+// Saca el HTML de la descripción y la deja en texto plano corto
+const limpiarDescripcion = (html) => {
+  if (!html) return "";
+  const txt = String(html)
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&[a-z]+;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return txt.length > 350 ? txt.slice(0, 350) + "…" : txt;
+};
+
 let _catalogo = { texto: null, ts: 0 };
 async function getCatalogoTexto() {
   const ahora = Date.now();
@@ -163,7 +177,8 @@ async function getCatalogoTexto() {
         const precio = v.price != null ? `$${Number(v.price).toLocaleString("es-AR")}` : "s/precio";
         return etiqueta ? `${etiqueta}: ${precio}` : precio;
       });
-      lineas.push(`- ${nombre}${variantes.length ? ` — ${variantes.join(" · ")}` : ""}`);
+      const desc = limpiarDescripcion(p.description?.es);
+      lineas.push(`- ${nombre}${variantes.length ? ` — ${variantes.join(" · ")}` : ""}${desc ? `\n  Descripción/ingredientes: ${desc}` : ""}`);
     }
     _catalogo = { texto: lineas.join("\n"), ts: ahora };
     return _catalogo.texto;
