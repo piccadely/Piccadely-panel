@@ -224,20 +224,32 @@ export function botWhatsappRouter() {
         hour: "2-digit", minute: "2-digit",
       });
 
-      const systemDinamico = `${SYSTEM_BOT}
-
-# CONTEXTO EN TIEMPO REAL
+      // System en 3 bloques para PROMPT CACHING:
+      // 1) cerebro fijo (cachea) → 2) catálogo (cachea, rota cada 5 min) → 3) contexto en tiempo real (sin caché, va último para no romper el prefijo)
+      const systemBloques = [
+        {
+          type: "text",
+          text: SYSTEM_BOT,
+          cache_control: { type: "ephemeral" },
+        },
+        {
+          type: "text",
+          text: `# CATÁLOGO Y PRECIOS EN VIVO (usá SIEMPRE estos precios, nunca inventes)\n${catalogo}`,
+          cache_control: { type: "ephemeral" },
+        },
+        {
+          type: "text",
+          text: `# CONTEXTO EN TIEMPO REAL
 - Fecha y hora actual (Buenos Aires): ${ahoraBA}.
 - Anticipación mínima para PiccaSandwiches/PiccaDesayunos/Catering: ${cfg.anticipacionHoras} horas.
-- ¿Se toman pedidos para HOY?: ${cfg.tomarHoy ? "SÍ" : "NO — ofrecé desde mañana con un 'por alta demanda, hoy tomamos pedidos para mañana'"}.
-
-# CATÁLOGO Y PRECIOS EN VIVO (usá SIEMPRE estos precios, nunca inventes)
-${catalogo}`;
+- ¿Se toman pedidos para HOY?: ${cfg.tomarHoy ? "SÍ" : "NO — ofrecé desde mañana con un 'por alta demanda, hoy tomamos pedidos para mañana'"}.`,
+        },
+      ];
 
       const resp = await axios.post("https://api.anthropic.com/v1/messages", {
         model: "claude-haiku-4-5-20251001",
         max_tokens: 700,
-        system: systemDinamico,
+        system: systemBloques,
         messages: messages.slice(-14),
       }, {
         headers: {
