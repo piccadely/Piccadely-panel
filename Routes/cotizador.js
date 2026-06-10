@@ -228,6 +228,27 @@ function cubrirMenorCosto(unidades, objetivo) {
   return { items, total };
 }
 
+// Reparte el objetivo de piccadas entre VARIOS productos del nivel (variedad):
+// un producto distinto cada ~12 porciones, mezclados al azar. Eventos chicos = 1 producto.
+function repartirPiccadas(grupos, objetivo) {
+  if (!grupos.length || objetivo <= 0) return { items: [], total: 0 };
+  const pool = [...grupos].sort(() => Math.random() - 0.5);
+  const K = Math.min(pool.length, Math.max(1, Math.ceil(objetivo / 12)));
+  const elegidos = pool.slice(0, K);
+  const base = Math.floor(objetivo / K);
+  let resto = objetivo - base * K;
+  let items = [], total = 0;
+  for (const g of elegidos) {
+    const obj = base + (resto > 0 ? 1 : 0);
+    if (resto > 0) resto--;
+    if (obj <= 0) continue;
+    const r = cubrirMenorCosto(g.unidades, obj);
+    items = items.concat(r.items);
+    total += r.total;
+  }
+  return { items, total };
+}
+
 // Reparte el desayuno COMBINANDO varios productos (round-robin, mezclado)
 function repartirDesayuno(unidades, objetivo) {
   if (!unidades.length || objetivo <= 0) return { items: [], total: 0 };
@@ -321,11 +342,9 @@ export function cotizadorRouter(pool, mailTransporter) {
       const objSandwich = Math.ceil(noVeg * mix.sandwich);
 
       const niveles = ["economica", "intermedia", "premium"];
-      const rnd = n => Math.floor(Math.random() * n);
       const opciones = niveles.map(nivel => {
         const grupos = piccadasDelNivel(productos, PICCADA[nivel], modo);
-        const grupo = grupos.length ? grupos[rnd(grupos.length)] : { unidades: [] }; // alterna la piccada
-        const piccada  = cubrirMenorCosto(grupo.unidades, objPiccada);
+        const piccada  = repartirPiccadas(grupos, objPiccada); // reparte entre varias piccadas (variedad)
         const sandwich = cubrirMenorCosto(unidadesSandwich(productos, nivel, modo), objSandwich);
         const veg = vegetarianos > 0 ? cubrirMenorCosto(unidadesVeg(productos, nivel, modo), vegetarianos) : { items: [], total: 0 };
         const total = piccada.total + sandwich.total + veg.total;
