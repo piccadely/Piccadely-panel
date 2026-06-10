@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Piccadely · Prueba del Bot</title>
+<style>
+  :root{ --wa-green:#075E54; --wa-light:#25D366; --burbuja-yo:#DCF8C6; --fondo:#ECE5DD; --orange:#F68B32; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#d4cfc8;display:flex;justify-content:center;min-height:100vh}
+  .phone{width:100%;max-width:480px;height:100vh;max-height:100vh;display:flex;flex-direction:column;background:var(--fondo);box-shadow:0 0 40px rgba(0,0,0,.25)}
+
+  header{background:var(--wa-green);color:#fff;padding:12px 16px;display:flex;align-items:center;gap:12px;flex:none}
+  .avatar{width:42px;height:42px;border-radius:50%;background:var(--orange);display:grid;place-items:center;font-size:22px;flex:none}
+  .hinfo{flex:1;min-width:0}
+  .hname{font-weight:600;font-size:16px}
+  .hstatus{font-size:12px;opacity:.85}
+  .reset{background:rgba(255,255,255,.15);border:none;color:#fff;font-size:12px;padding:7px 12px;border-radius:16px;cursor:pointer}
+  .reset:hover{background:rgba(255,255,255,.28)}
+
+  .banner{background:#FFF6E5;color:#8a6d3b;font-size:12px;text-align:center;padding:7px 12px;flex:none;border-bottom:1px solid #f3e4c2}
+
+  .chat{flex:1;overflow-y:auto;padding:16px 12px;display:flex;flex-direction:column;gap:8px;
+    background-image:radial-gradient(circle at 1px 1px, rgba(0,0,0,.03) 1px, transparent 0);background-size:18px 18px}
+  .msg{max-width:82%;padding:8px 12px;border-radius:10px;font-size:14.5px;line-height:1.45;white-space:pre-wrap;word-wrap:break-word;box-shadow:0 1px 1px rgba(0,0,0,.08);position:relative}
+  .yo{align-self:flex-end;background:var(--burbuja-yo);border-top-right-radius:2px}
+  .bot{align-self:flex-start;background:#fff;border-top-left-radius:2px}
+  .hora{display:block;font-size:10.5px;color:#999;text-align:right;margin-top:3px}
+  .handoff{align-self:flex-start;background:#FDECEA;color:#b03a2e;font-size:12px;font-weight:600;padding:6px 12px;border-radius:14px;border:1px dashed #e6b0aa}
+  .sistema{align-self:center;background:#dbe7f0;color:#5a6b7a;font-size:12px;padding:5px 12px;border-radius:12px}
+
+  .typing{align-self:flex-start;background:#fff;border-radius:10px;padding:12px 16px;display:flex;gap:5px;box-shadow:0 1px 1px rgba(0,0,0,.08)}
+  .typing span{width:8px;height:8px;border-radius:50%;background:#bbb;animation:blink 1.2s infinite}
+  .typing span:nth-child(2){animation-delay:.2s}
+  .typing span:nth-child(3){animation-delay:.4s}
+  @keyframes blink{0%,60%,100%{opacity:.3}30%{opacity:1}}
+
+  .inputbar{flex:none;display:flex;gap:8px;padding:10px;background:#F0F0F0}
+  .inputbar textarea{flex:1;border:none;border-radius:22px;padding:11px 16px;font:inherit;font-size:15px;resize:none;max-height:110px;outline:none}
+  .send{width:46px;height:46px;border-radius:50%;border:none;background:var(--wa-light);color:#fff;font-size:19px;cursor:pointer;flex:none;display:grid;place-items:center}
+  .send:disabled{opacity:.5;cursor:not-allowed}
+
+  .gate{position:fixed;inset:0;background:rgba(7,94,84,.96);display:flex;align-items:center;justify-content:center;z-index:10}
+  .gatecard{background:#fff;border-radius:16px;padding:30px;max-width:340px;width:90%;text-align:center}
+  .gatecard h2{font-size:19px;margin-bottom:6px}
+  .gatecard p{font-size:13px;color:#777;margin-bottom:16px}
+  .gatecard input{width:100%;padding:12px;border:1px solid #ddd;border-radius:10px;font-size:16px;text-align:center;margin-bottom:12px}
+  .gatecard button{width:100%;padding:12px;border:none;border-radius:10px;background:var(--orange);color:#fff;font-weight:700;font-size:15px;cursor:pointer}
+  .gateerr{color:#c0392b;font-size:12px;margin-top:8px;display:none}
+</style>
+</head>
+<body>
+<div class="gate" id="gate">
+  <div class="gatecard">
+    <h2>🧀 Prueba del Bot Piccadely</h2>
+    <p>Entorno de prueba interno. Ingresá la clave que te compartieron.</p>
+    <input type="password" id="clave" placeholder="Clave" onkeydown="if(event.key==='Enter')entrar()" />
+    <button onclick="entrar()">Entrar</button>
+    <div class="gateerr" id="gateerr">Clave incorrecta</div>
+  </div>
+</div>
+
+<div class="phone">
+  <header>
+    <div class="avatar">🧀</div>
+    <div class="hinfo">
+      <div class="hname">Piccadely</div>
+      <div class="hstatus" id="status">en línea · entorno de prueba</div>
+    </div>
+    <button class="reset" onclick="reiniciar()">↺ Reiniciar</button>
+  </header>
+  <div class="banner">⚠️ Esto es una simulación para probar el bot. No genera pedidos reales ni escribe a WhatsApp.</div>
+  <div class="chat" id="chat">
+    <div class="sistema">Escribile como si fueras un cliente 👇 Probá pedir una piccada, preguntar precios, zonas de envío, algo que no tengamos…</div>
+  </div>
+  <div class="inputbar">
+    <textarea id="texto" rows="1" placeholder="Escribí un mensaje" onkeydown="tecla(event)"></textarea>
+    <button class="send" id="btnSend" onclick="enviar()">➤</button>
+  </div>
+</div>
+
+<script>
+const API = "https://piccadely-panel-production.up.railway.app/api/bot/whatsapp";
+const CLAVE = "piccadely"; // ← cambiala por la clave que quieras compartir
+let historia = []; // [{role:"user"|"assistant", content:"..."}]
+let enviando = false;
+
+function entrar(){
+  const v = document.getElementById("clave").value.trim().toLowerCase();
+  if(v === CLAVE){ document.getElementById("gate").style.display = "none"; document.getElementById("texto").focus(); }
+  else document.getElementById("gateerr").style.display = "block";
+}
+
+function hora(){ return new Date().toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"}); }
+function esc(t){ return t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+// negrita estilo WhatsApp: *texto* → <b>texto</b>
+function waFormat(t){ return esc(t).replace(/\*([^*\n]+)\*/g,"<b>$1</b>"); }
+
+function burbuja(html, clase){
+  const d = document.createElement("div");
+  d.className = "msg " + clase;
+  d.innerHTML = html + `<span class="hora">${hora()}</span>`;
+  document.getElementById("chat").appendChild(d);
+  scrollAbajo();
+  return d;
+}
+function scrollAbajo(){ const c = document.getElementById("chat"); c.scrollTop = c.scrollHeight; }
+
+function tecla(e){
+  if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); enviar(); }
+}
+
+async function enviar(){
+  const ta = document.getElementById("texto");
+  const texto = ta.value.trim();
+  if(!texto || enviando) return;
+  ta.value = "";
+  enviando = true;
+  document.getElementById("btnSend").disabled = true;
+  document.getElementById("status").textContent = "escribiendo…";
+
+  burbuja(waFormat(texto), "yo");
+  historia.push({ role: "user", content: texto });
+
+  const typing = document.createElement("div");
+  typing.className = "typing";
+  typing.innerHTML = "<span></span><span></span><span></span>";
+  document.getElementById("chat").appendChild(typing);
+  scrollAbajo();
+
+  try{
+    const r = await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: historia.slice(-20) })
+    });
+    const data = await r.json();
+    typing.remove();
+    if(!r.ok || !data.reply) throw new Error(data.error || "sin respuesta");
+    historia.push({ role: "assistant", content: data.reply });
+    burbuja(waFormat(data.reply), "bot");
+    if(data.handoff){
+      const h = document.createElement("div");
+      h.className = "handoff";
+      h.textContent = "🙋 Acá el bot derivaría la charla a un asesor humano";
+      document.getElementById("chat").appendChild(h);
+      scrollAbajo();
+    }
+  }catch(e){
+    typing.remove();
+    const d = document.createElement("div");
+    d.className = "sistema";
+    d.textContent = "⚠️ Error hablando con el bot: " + e.message;
+    document.getElementById("chat").appendChild(d);
+    scrollAbajo();
+  }finally{
+    enviando = false;
+    document.getElementById("btnSend").disabled = false;
+    document.getElementById("status").textContent = "en línea · entorno de prueba";
+    ta.focus();
+  }
+}
+
+function reiniciar(){
+  historia = [];
+  document.getElementById("chat").innerHTML = '<div class="sistema">Conversación reiniciada. Arrancá de cero 👇</div>';
+}
+</script>
+</body>
+</html>
