@@ -1103,8 +1103,8 @@ const [facturaLabel, setFacturaLabel] = useState(null);
     function VistaCaja({ pedidosFinalizados, onVolver, usuario }) {
             const HOY_CAJA = fechaArgentina();
       const localesPermitidos = usuario.rol === "admin"
-        ? ["A. Thomas", "French", "Administración", "Fondo Fijo"  ]
-        : usuario.rol === "a_thomas" ? ["A. Thomas"] : ["French"];
+        ? ["A. Thomas", "French", "Administración", "Fondo Fijo A. Thomas", "Fondo Fijo French"]
+        : usuario.rol === "a_thomas" ? ["A. Thomas", "Fondo Fijo A. Thomas"] : ["French", "Fondo Fijo French"];
       const [localSeleccionado, setLocalSeleccionado] = useState(localesPermitidos[0]);
       const [estadoCaja, setEstadoCaja] = useState(null);
       const [loadingCaja, setLoadingCaja] = useState(false);
@@ -1140,7 +1140,7 @@ const res = await axios.get(`${API}/api/caja/estado/${encodeURIComponent(localSe
         setLoadingHistorial(false);
       }
 
-      useEffect(() => { if (localSeleccionado === "Fondo Fijo") { cargarFondo(); } else { cargarEstado(); cargarHistorial(); } }, [localSeleccionado]);
+      useEffect(() => { if (localSeleccionado.startsWith("Fondo Fijo")) { cargarFondo(); } else { cargarEstado(); cargarHistorial(); } }, [localSeleccionado]);
       useEffect(() => {
         if (localSeleccionado === "Administración" && estadoCaja !== null && !estadoCaja?.apertura && !loadingCaja) {
           axios.post(`${API}/api/caja/apertura`, { local: "Administración", fecha: HOY_CAJA, montoInicial: 0 })
@@ -1228,7 +1228,7 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
 
       async function cargarFondo() {
         setLoadingFondo(true);
-        try { const res = await axios.get(`${API}/api/fondo-fijo`); setFondo(res.data); }
+        try { const res = await axios.get(`${API}/api/fondo-fijo/${encodeURIComponent(localSeleccionado)}`); setFondo(res.data); }
         catch (e) { console.error(e); }
         setLoadingFondo(false);
       }
@@ -1237,6 +1237,7 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
         setGuardando(true);
         try {
           await axios.post(`${API}/api/fondo-fijo/movimiento`, {
+            local: localSeleccionado,
             tipo: fondoMov.tipo, concepto: fondoMov.concepto, monto: Number(fondoMov.monto),
             fecha: HOY_CAJA, usuario: usuario.nombre_completo
           });
@@ -1251,9 +1252,9 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
         return (
           <div style={{ maxWidth: 720 }}>
             <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 24, marginBottom: 20 }}>
-              <div style={{ fontSize: 12, color: "#888", marginBottom: 6, letterSpacing: 0.5 }}>SALDO ACTUAL DEL FONDO FIJO</div>
+             <div style={{ fontSize: 12, color: "#888", marginBottom: 6, letterSpacing: 0.5 }}>SALDO ACTUAL · {localSeleccionado.toUpperCase()}</div>
               <div style={{ fontSize: 34, fontWeight: 700, color: saldo < 0 ? "#c0392b" : "#F68B32" }}>{loadingFondo ? "..." : fmt(saldo)}</div>
-              <div style={{ fontSize: 12, color: "#aaa", marginTop: 4 }}>El saldo se mantiene día a día · caja exclusiva de administración</div>
+              <div style={{ fontSize: 12, color: "#aaa", marginTop: 4 }}>El saldo se mantiene día a día · fondo fijo del local</div>
             </div>
 
             <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20, marginBottom: 20 }}>
@@ -1321,7 +1322,7 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
               </div>
             </div>
             <div style={{ padding: 24 }}>
-              {localSeleccionado === "Fondo Fijo" ? renderFondoFijo() : loadingCaja ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando caja...</div>
+              {localSeleccionado.startsWith("Fondo Fijo") ? renderFondoFijo() : loadingCaja ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando caja...</div>
               : !estadoCaja?.apertura ? (
                 <div style={{ maxWidth: 400 }}>
                   <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 24 }}>
