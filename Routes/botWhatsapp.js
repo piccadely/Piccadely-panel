@@ -23,6 +23,7 @@ Sos el asistente de ventas de Piccadely por WhatsApp. Piccadely es una empresa a
 # IDIOMA Y TONO
 - Español rioplatense de Argentina, de vos. PROHIBIDO usar modismos de otros países: nada de "te late", "ahorita", "chévere", "vale", "platicar", "antojo/se te antoja", "ocupar" (por necesitar), "manejar" (por gestionar). Si dudás de una expresión, usá la neutra argentina.
 - Para pedir opinión variá entre: "¿qué te parece?", "¿te va?", "¿cómo lo ves?", "¿te cierra?". Natural, sin caer en chabacano: nada de groserías ni exceso de lunfardo.
+- VOCABULARIO PICCADELY: las piccadas NO llevan "carnes". Para referirte a salames, jamones, bondiola, lomo, embutidos y fiambres en general decí "charcuterie" (o nombrá el producto puntual). Nunca digas "mix de carnes": es "mix de charcuterie y quesos".
 - Hablá de vos. Informal pero cálido y respetuoso.
 - Respuestas concretas pero que expliquen lo justo: ni frías ni eternas.
 - Emojis: los justos, solo cuando suman.
@@ -60,7 +61,7 @@ Según el caso: si es regalo → nombre y teléfono de quien recibe + dedicatori
 - Acordate de TODO lo que el cliente ya dijo en la charla: no vuelvas a preguntar lo mismo.
 - Si el cliente duda entre opciones, recomendá VOS una concreta y decí por qué (sos el experto).
 - Cuando ya tengas varios datos, mostrá un mini resumen de avance ("Hasta acá va: ...") para que se sienta acompañado y detecte errores temprano.
-- Upsell con criterio: ofrecé la PiccaBirra una vez; si dice que no, no insistas.
+- Upsell con criterio: el ofrecimiento de bebidas y snacks (ver "Agregados") es obligatorio pero se hace UNA sola vez; si dice que no, no insistas.
 - Si el cliente manda varias preguntas juntas, respondelas todas en un solo mensaje ordenado.
 
 ## Recomendación de tamaño
@@ -90,9 +91,11 @@ Nunca pierdas la venta por el rango: ofrecé hacer lo posible y, en CABA, ajusta
 ## Mínimo de compra
 No hay mínimo. PERO no se puede pedir solo agregados: siempre tiene que haber un producto principal (piccada, desayuno, combinado, etc.).
 
-## Agregados y PiccaBirra
-- Ofrecé siempre agregados ("se resuelve todo con Piccadely").
-- Ofrecé PRIMERO la PiccaBirra (lata de ½ litro) como agregado. Precio: del catálogo.
+## Agregados: bebidas y snacks (paso OBLIGATORIO del flujo)
+- Apenas el cliente eligió el producto principal, SIEMPRE ofrecé sumar algo en un solo mensaje breve y natural: primero la *PiccaBirra* (lata de ½ litro, precio del catálogo), y mencioná que también hay otras bebidas y snacks para acompañar (nombrá 2 o 3 reales del catálogo, ej. del PiccaMarket).
+- Es UNA pregunta corta, no un catálogo entero. Estilo: "¿Le sumamos algo para tomar o piccar? Tenemos la *PiccaBirra*, gaseosas y algunos snacks que van bárbaro."
+- Ofrecelo UNA sola vez. Si dice que no, no insistas y seguí con los datos del pedido.
+- REGLA DURA: NO armes el resumen final del pedido sin haber ofrecido bebidas y snacks al menos una vez en la conversación.
 
 ## Sin TACC
 Todas las piccadas se adaptan a sin TACC: se mandan galletas sin TACC en lugar del pan. Ojo: si el cliente es celíaco estricto y pregunta por contaminación cruzada o elaboración, no afirmes que es 100% apto: derivá a un asesor con [HANDOFF].
@@ -242,7 +245,8 @@ export function botWhatsappRouter() {
           text: `# CONTEXTO EN TIEMPO REAL
 - Fecha y hora actual (Buenos Aires): ${ahoraBA}.
 - Anticipación mínima para PiccaSandwiches/PiccaDesayunos/Catering: ${cfg.anticipacionHoras} horas.
-- ¿Se toman pedidos para HOY?: ${cfg.tomarHoy ? "SÍ" : "NO — ofrecé desde mañana con un 'por alta demanda, hoy tomamos pedidos para mañana'"}.`,
+- ¿Se toman pedidos para HOY?: ${cfg.tomarHoy ? "SÍ" : "NO — ofrecé desde mañana con un 'por alta demanda, hoy tomamos pedidos para mañana'"}.
+- RECORDATORIO DE ESTILO: prohibido "te late" (usá "¿qué te parece?" o "¿te va?"); los fiambres/embutidos son "charcuterie", nunca "carnes".`,
         },
       ];
 
@@ -262,7 +266,15 @@ export function botWhatsappRouter() {
 
       const raw = resp.data.content?.[0]?.text || "Perdón, no pude responder. ¿Probás de nuevo?";
       const handoff = /\[HANDOFF\]/i.test(raw);
-      const reply = raw.replace(/\[HANDOFF\]/gi, "").trim();
+      // Red de seguridad: por si al modelo se le escapa un modismo no argentino
+      const argentinizar = (t) => t
+        .replace(/¿\s*[Tt]e late\b/g, (m) => (m.includes("T") ? "¿Te va" : "¿te va"))
+        .replace(/\b[Tt]e laten\b/g, (m) => (m[0] === "T" ? "Te van" : "te van"))
+        .replace(/\b[Tt]e late\b/g, (m) => (m[0] === "T" ? "Te va" : "te va"))
+        .replace(/\bahorita\b/gi, "ahora")
+        .replace(/\bplaticar\b/gi, "charlar")
+        .replace(/\bchévere\b/gi, "buenísimo");
+      const reply = argentinizar(raw.replace(/\[HANDOFF\]/gi, "").trim());
       res.json({ reply, handoff });
     } catch (err) {
       console.error("Error bot WhatsApp:", err.response?.data || err.message);
