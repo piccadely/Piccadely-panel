@@ -3313,12 +3313,13 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
               const [fecha] = key.split("|");
               const grupo = porFranja[key];
               const fechaLabel = fecha !== "sin-fecha" ? new Date(fecha+"T12:00:00").toLocaleDateString("es-AR",{weekday:"long",day:"numeric",month:"long"}) : "Sin fecha";
+              const esHoy = fecha === HOY;
               return (
                 <div key={key}>
-                  <div style={s.franjaHeader}>
-                    <span style={s.franjaFecha}>{fechaLabel}</span>
-                    <span style={s.franjaHora}>{key.split("|")[1]}</span>
-                    <span style={s.franjaCount}>{grupo.length} pedido{grupo.length > 1 ? "s" : ""}</span>
+                  <div style={esHoy ? { ...s.franjaHeader, background: "#499342" } : s.franjaHeader}>
+                    <span style={esHoy ? { ...s.franjaFecha, color: "#fff" } : s.franjaFecha}>{fechaLabel}</span>
+                    <span style={esHoy ? { ...s.franjaHora, color: "#fff" } : s.franjaHora}>{key.split("|")[1]}</span>
+                    <span style={esHoy ? { ...s.franjaCount, color: "#fff" } : s.franjaCount}>{grupo.length} pedido{grupo.length > 1 ? "s" : ""}</span>
                   </div>
                   {grupo.map(p => {
                     const estadoActual = pedidosLocales[p.id]?.estado || "Por empaquetar";
