@@ -1100,7 +1100,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       );
     }
     // ─── COMPONENTE CAJA ─────────────────────────────────────────────────
-    function VistaCaja({ pedidosFinalizados, onVolver, usuario }) {
+    function VistaCaja({ pedidosFinalizados, pedidosActivos, onVolver, usuario }) {
             const HOY_CAJA = fechaArgentina();
       const localesPermitidos = usuario.rol === "admin"
         ? ["A. Thomas", "French", "Administración", "Fondo Fijo A. Thomas", "Fondo Fijo French"]
@@ -1211,6 +1211,12 @@ await axios.post(`${API}/api/caja/ajuste`, { local: localSeleccionado, fecha: HO
 
        async function cerrarCaja() {
       if (!montoCierre) return;
+      const activosLocal = (pedidosActivos || []).filter(p => p.local === localSeleccionado && p.fechaDisplay && p.fechaDisplay <= HOY_CAJA);
+      if (activosLocal.length > 0) {
+        const lista = activosLocal.map(p => `${p.numero} (${p.fechaDisplay})`).join("\n");
+        alert(`No se puede cerrar la caja todavía.\n\nTenés ${activosLocal.length} pedido(s) activo(s) en ${localSeleccionado} sin finalizar (de hoy o de días anteriores):\n\n${lista}\n\nFinalizalos (marcalos como Entregado) o pasalos a otra fecha, y después cerramos la caja.`);
+        return;
+      }
       setGuardando(true);
 await axios.post(`${API}/api/caja/cierre`, { local: localSeleccionado, fecha: HOY_CAJA, montoCierre: Number(montoCierre), usuario: usuario.nombre_completo });      const ventasPorMedioPDF = {};
       MEDIOS_PAGO.forEach(m => { ventasPorMedioPDF[m] = sumar(ventasPorMedio[m] || []); });
@@ -2414,7 +2420,7 @@ let numeroAsignado = "";
         return <div style={s.wrap}><Header /><Usuarios onVolver={() => setVista("panel")} /></div>;
       }
       if (vista === "caja") {
-        return <div style={s.wrap}><Header /><VistaCaja pedidosFinalizados={pedidosFinalizados} onVolver={() => setVista("panel")} usuario={usuario} /></div>;
+        return <div style={s.wrap}><Header /><VistaCaja pedidosFinalizados={pedidosFinalizados} pedidosActivos={pedidosActivos} onVolver={() => setVista("panel")} usuario={usuario} /></div>;
       }
 if (vista === "dashboard") {
         const restarMes = (f) => {
