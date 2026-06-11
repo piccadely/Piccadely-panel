@@ -867,6 +867,199 @@ const [facturaLabel, setFacturaLabel] = useState(null);
     );
   }
     // ─── MAPA DE PEDIDOS ─────────────────────────────────────────────────
+    function VistaImportar({ usuario, onVolver }) {
+      const [filas, setFilas] = useState([]);
+      const [nombreArchivo, setNombreArchivo] = useState("");
+      const [importando, setImportando] = useState(false);
+      const [progreso, setProgreso] = useState(0);
+      const [resultado, setResultado] = useState(null);
+ 
+      const SECCIONES = { "Delivery A. Thomas": "delivery-at", "Delivery French": "delivery-fr" };
+      const localDe = (sec) => sec === "delivery-at" ? "A. Thomas" : sec === "delivery-fr" ? "French" : "—";
+      const fmtImp = (n) => "$" + Number(n || 0).toLocaleString("es-AR");
+ 
+      function leerArchivo(e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        setNombreArchivo(file.name);
+        setResultado(null);
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          try {
+            const wb = XLSX.read(new Uint8Array(ev.target.result), { type: "array" });
+            const hoja = wb.Sheets["Pedidos"] || wb.Sheets[wb.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(hoja, { defval: "" });
+            const parsed = rows.map((r, idx) => {
+              const sucursal = String(r["Sucursal"] || "").trim();
+              const seccion = SECCIONES[sucursal] || "";
+              const precioProd = Number(r["Precio producto"]) || 0;
+              const envioPrecio = Number(r["Envío (precio)"]) || 0;
+              const errores = [];
+              if (!String(r["Cliente"] || "").trim()) errores.push("falta cliente");
+              if (!seccion) errores.push("sucursal inválida");
+              if (!String(r["Producto"] || "").trim()) errores.push("falta producto");
+              if (precioProd <= 0) errores.push("precio inválido");
+              if (!String(r["Fecha"] || "").trim()) errores.push("falta fecha");
+              return {
+                idx: idx + 1,
+                cliente: String(r["Cliente"] || "").trim(),
+                telefono: String(r["Teléfono"] || "").trim(),
+                direccion: String(r["Dirección"] || "").trim(),
+                entreCalles: String(r["Entre calles"] || "").trim(),
+                barrio: String(r["Barrio / Localidad"] || "").trim(),
+                sucursal, seccion,
+                producto: String(r["Producto"] || "").trim(),
+                precioProd,
+                envioNombre: String(r["Envío (nombre)"] || "Envío").trim() || "Envío",
+                envioPrecio,
+                medioPago: String(r["Medio de pago"] || "Efectivo").trim() || "Efectivo",
+                fecha: String(r["Fecha"] || "").trim(),
+                franja: String(r["Horario"] || "").trim(),
+                nota: String(r["Nota adicional"] || "").trim(),
+                total: precioProd + envioPrecio,
+                errores,
+              };
+            });
+            setFilas(parsed);
+          } catch (err) {
+            alert("No pude leer el archivo. Usá la plantilla y la solapa «Pedidos». (" + err.message + ")");
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      }
+ 
+      const validas = filas.filter(f => f.errores.length === 0);
+      const conError = filas.filter(f => f.errores.length > 0);
+ 
+      async function confirmarImportacion() {
+        if (!validas.length) return;
+        if (!window.confirm(`Vas a crear ${validas.length} pedido(s) reales en el sistema. ¿Confirmás?`)) return;
+        setImportando(true); setProgreso(0);
+        let ok = 0; const fallaron = [];
+        for (let i = 0; i < validas.length; i++) {
+          const f = validas[i];
+          try {
+            const id = `manual-${Date.now()}-${i}`;
+            const items = [`${f.producto} x1`];
+            if (f.envioPrecio > 0) items.push(`${f.envioNombre} x1`);
+            const productosStr = items.join(", ");
+            const esEfectivo = ["Efectivo", "Pedidos Ya Efectivo"].includes(f.medioPago);
+            const pago = ["Efectivo", "Pedidos Ya Efectivo", "Mercado Pago", "Rappi", "Pedidos Ya"].includes(f.medioPago) ? "Pendiente" : "Pagado";
+            const nuevoPedido = {
+              id, numero: "", cliente: f.cliente, telefono: f.telefono, email: "",
+              direccion: f.direccion, barrio: f.barrio, entreCalles: f.entreCalles,
+              zona: "Sin zona", fecha: f.fecha, franja: f.franja,
+              fechaDisplay: f.fecha, franjaDisplay: f.franja || "Sin franja",
+              productos: productosStr, totalNum: f.total, total: fmtImp(f.total),
+              pago, medioPago: f.medioPago, cobrar: esEfectivo,
+              tabActual: f.seccion, local: localDe(f.seccion),
+              nota: f.nota, esManual: true, estado: "Por empaquetar", repartidor: "Sin asignar",
+            };
+            await axios.post(`${API}/api/pedidos-manuales`, { ...nuevoPedido, usuario: usuario.nombre_completo });
+            await axios.post(`${API}/api/estados/${id}`, { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: f.fecha, franjaManual: f.franja, cobrar: esEfectivo });
+            ok++;
+          } catch (err) {
+            fallaron.push(`${f.cliente}: ${err.message}`);
+          }
+          setProgreso(Math.round(((i + 1) / validas.length) * 100));
+        }
+        setImportando(false);
+        setResultado({ ok, fallaron });
+        setFilas([]); setNombreArchivo("");
+      }
+ 
+      return (
+        <div style={{ fontFamily: "system-ui, sans-serif", minHeight: "100vh", background: "#f7f7f5" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 24px", background: "#fff", borderBottom: "1px solid #eee" }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>📥 Importar pedidos</div>
+            <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver al panel</button>
+          </div>
+ 
+          <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
+            {resultado ? (
+              <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 24 }}>
+                <div style={{ fontSize: 17, fontWeight: 700, color: "#2a7a4b", marginBottom: 8 }}>✅ Importación terminada</div>
+                <div style={{ fontSize: 14, color: "#333" }}>Se crearon <b>{resultado.ok}</b> pedido(s) correctamente.</div>
+                {resultado.fallaron.length > 0 && (
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#c0392b", marginBottom: 6 }}>No se pudieron crear {resultado.fallaron.length}:</div>
+                    {resultado.fallaron.map((m, i) => <div key={i} style={{ fontSize: 12, color: "#c0392b" }}>• {m}</div>)}
+                  </div>
+                )}
+                <div style={{ fontSize: 12, color: "#888", marginTop: 16 }}>Los pedidos ya están en el panel (pueden tardar unos segundos en aparecer por el refresco automático).</div>
+                <button style={{ marginTop: 16, fontSize: 13, padding: "9px 16px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", fontWeight: 600, cursor: "pointer" }} onClick={() => setResultado(null)}>Importar otro archivo</button>
+              </div>
+            ) : importando ? (
+              <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 30, textAlign: "center" }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: "#333", marginBottom: 14 }}>Creando pedidos… {progreso}%</div>
+                <div style={{ height: 12, background: "#eee", borderRadius: 6, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${progreso}%`, background: "#F68B32", transition: "width .2s" }} />
+                </div>
+                <div style={{ fontSize: 12, color: "#888", marginTop: 12 }}>No cierres esta pantalla hasta que termine.</div>
+              </div>
+            ) : (
+              <>
+                <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20, marginBottom: 20 }}>
+                  <div style={{ fontSize: 13, color: "#555", marginBottom: 14, lineHeight: 1.5 }}>
+                    Subí la <b>plantilla de importación</b> de Piccadely (la solapa «Pedidos»). Vas a ver una vista previa para revisar antes de crear nada.
+                  </div>
+                  <input type="file" accept=".xlsx" onChange={leerArchivo} style={{ fontSize: 13 }} />
+                  {nombreArchivo && <span style={{ fontSize: 12, color: "#888", marginLeft: 10 }}>· {nombreArchivo}</span>}
+                </div>
+ 
+                {filas.length > 0 && (
+                  <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>
+                        Vista previa: {validas.length} pedido(s) listo(s)
+                        {conError.length > 0 && <span style={{ color: "#c0392b" }}> · {conError.length} con problemas (no se importan)</span>}
+                      </div>
+                      <button onClick={confirmarImportacion} disabled={!validas.length}
+                        style={{ fontSize: 14, padding: "10px 20px", borderRadius: 8, border: "none", background: validas.length ? "#2a7a4b" : "#ccc", color: "#fff", fontWeight: 700, cursor: validas.length ? "pointer" : "not-allowed" }}>
+                        ✓ Confirmar e importar {validas.length}
+                      </button>
+                    </div>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <thead>
+                          <tr style={{ background: "#faf6f0", color: "#8a7a6b", textAlign: "left" }}>
+                            <th style={{ padding: "8px 6px" }}>#</th>
+                            <th style={{ padding: "8px 6px" }}>Cliente</th>
+                            <th style={{ padding: "8px 6px" }}>Sucursal</th>
+                            <th style={{ padding: "8px 6px" }}>Dirección</th>
+                            <th style={{ padding: "8px 6px" }}>Producto</th>
+                            <th style={{ padding: "8px 6px", textAlign: "right" }}>Total</th>
+                            <th style={{ padding: "8px 6px" }}>Fecha</th>
+                            <th style={{ padding: "8px 6px" }}>Estado</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filas.map((f) => (
+                            <tr key={f.idx} style={{ borderBottom: "1px solid #f3f3f3", background: f.errores.length ? "#fdecea" : "#fff" }}>
+                              <td style={{ padding: "8px 6px", color: "#aaa" }}>{f.idx}</td>
+                              <td style={{ padding: "8px 6px", fontWeight: 600, color: "#333" }}>{f.cliente || "—"}</td>
+                              <td style={{ padding: "8px 6px" }}>{f.sucursal || "—"}</td>
+                              <td style={{ padding: "8px 6px", color: "#555" }}>{f.direccion}{f.barrio ? <span style={{ color: "#aaa" }}> · {f.barrio}</span> : ""}</td>
+                              <td style={{ padding: "8px 6px", color: "#555" }}>{f.producto}{f.envioPrecio > 0 ? ` + ${f.envioNombre}` : ""}</td>
+                              <td style={{ padding: "8px 6px", textAlign: "right", fontWeight: 600, color: "#333" }}>{fmtImp(f.total)}</td>
+                              <td style={{ padding: "8px 6px", color: "#555" }}>{f.fecha}</td>
+                              <td style={{ padding: "8px 6px" }}>
+                                {f.errores.length ? <span style={{ color: "#c0392b", fontWeight: 600 }}>⚠ {f.errores.join(", ")}</span> : <span style={{ color: "#2a7a4b", fontWeight: 600 }}>✓ ok</span>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      );
+    }
+ 
     function VistaMapa({ onVolver }) {
       const [fecha, setFecha] = useState(HOY);
       const [pedidos, setPedidos] = useState([]);
@@ -2342,6 +2535,7 @@ let numeroAsignado = "";
                     </>
                   )}
                   <button style={s.dropItem} onClick={() => { setVista("caja"); setMenuAbierto(false); }}>💰 Caja</button>
+                  {usuario.rol === "admin" && <button style={s.dropItem} onClick={() => { setVista("importar"); setMenuAbierto(false); }}>📥 Importar pedidos</button>}
                   <button style={s.dropItem} onClick={() => { setVista("finalizados"); setMenuAbierto(false); }}>📋 Pedidos finalizados</button>
                   <button style={s.dropItem} onClick={() => { setVista("cotizaciones"); setMenuAbierto(false); }}>🎉 Cotizaciones</button>
                   <button style={s.dropItem} onClick={() => { setVista("produccion"); setMenuAbierto(false); }}>🔧 Análisis de producción</button>
@@ -2808,6 +3002,9 @@ if (vista === "dashboard") {
           </div>
         );
       }
+     if (vista === "importar") {
+      return <div style={s.wrap}><Header /><VistaImportar usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+    }
     if (vista === "mapa") {
         return <div style={s.wrap}><Header /><VistaMapa onVolver={() => setVista("panel")} /></div>;
       }
