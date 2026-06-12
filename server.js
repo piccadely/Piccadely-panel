@@ -384,6 +384,130 @@ app.get("/api/orders", async (req, res) => {
     res.status(500).json({ error: "Error trayendo pedidos" });
   }
 });
+
+// ─── REPORTES: pedidos por rango de fechas (histórico, lee toda la base) ──
+// A diferencia de /api/orders (ventana de 7 días para el panel operativo),
+// este endpoint lee TODA la base y porta la misma lógica de procesamiento
+// del front (useMemo pedidosProcesados) para que un pedido dé idéntico acá.
+app.get("/api/reportes/pedidos", async (req, res) => {
+  const { desde, hasta } = req.query;
+  const re = /^\d{4}-\d{2}-\d{2}$/;
+  if (!desde || !hasta || !re.test(desde) || !re.test(hasta)) {
+    return res.status(400).json({ error: "Parámetros 'desde' y 'hasta' requeridos (formato YYYY-MM-DD)" });
+  }
+  if (desde > hasta) {
+    return res.status(400).json({ error: "'desde' no puede ser posterior a 'hasta'" });
+  }
+  try {
+    // Estados (incluye overrides de datos) — keyed por id (texto)
+    const estadosRes = await pool.query("SELECT * FROM pedidos_estados");
+    const estadosMap = {};
+    estadosRes.rows.forEach(r => {
+      estadosMap[r.id] = {
+        estado: r.estado, repartidor: r.repartidor, tabManual: r.tab_manual,
+        fechaManual: r.fecha_manual, franjaManual: r.franja_manual, cobrar: r.cobrar,
+        clienteOverride: r.cliente_override, telefonoOverride: r.telefono_override,
+        zonaOverride: r.zona_override, medioPagoOverride: r.medio_pago_override,
+        codigoPagoOverride: r.codigo_pago_override, medioPagoOtroOverride: r.medio_pago_otro_override,
+      };
+    });
+    // Overrides de productos/total
+    const overridesRes = await pool.query("SELECT * FROM pedidos_productos");
+    const overridesMap = {};
+    overridesRes.rows.forEach(r => { overridesMap[r.pedido_id] = { productos: r.productos, total_num: Number(r.total_num) }; });
+
+    // Pedidos TN dentro del margen [desde - 30d, hasta + 5d] (la fecha de
+    // entrega/fecha_manual puede diferir de la de creación).
+    const tnRes = await pool.query(
+      `SELECT t.data
+       FROM pedidos_tn t
+       WHERE t.tn_created_at BETWEEN ($1::date - INTERVAL '30 days') AND ($2::date + INTERVAL '5 days')
+       ORDER BY t.tn_created_at DESC`,
+      [desde, hasta]
+    );
+
+    const resultado = [];
+
+    for (const row of tnRes.rows) {
+      const p = row.data;
+      const est = estadosMap[String(p.id)] || {};
+      const estado = est.estado || "Por empaquetar";
+      if (estado !== "Entregado" && estado !== "Anulado") continue;
+      const { fecha, franja } = parsearFranjaBackend(p.owner_note);
+      const fechaDisplay = est.fechaManual || fecha;
+      if (!fechaDisplay || fechaDisplay < desde || fechaDisplay > hasta) continue;
+      const tabAuto = clasificarPedidoBackend(p);
+      const tabActual = est.tabManual || tabAuto;
+      const ov = overridesMap[String(p.id)];
+      const totalNum = ov ? Number(ov.total_num) : Number(p.total);
+      const codigoPago = est.codigoPagoOverride
+        ? est.codigoPagoOverride
+        : (p.gateway_id ? String(p.gateway_id) : (p.transactions?.[0]?.id ? String(p.transactions[0].id) : ""));
+      resultado.push({
+        id: String(p.id), numero: `#${p.number}`,
+        cliente: est.clienteOverride || p.contact_name || "",
+        telefono: est.telefonoOverride || p.contact_phone || "",
+        productos: ov ? ov.productos : (p.products || []).map(pr => `${pr.name} x${pr.quantity}`).join(", "),
+        totalNum,
+        total: `$${totalNum.toLocaleString("es-AR")}`,
+        medioPago: est.medioPagoOverride || medioPagoLabelBackend(p.gateway),
+        medioPagoOtro: est.medioPagoOtroOverride || "",
+        codigoPago,
+        repartidor: est.repartidor || "Sin asignar",
+        estado,
+        local: localLabelBackend(tabActual),
+        tabActual,
+        zona: est.zonaOverride || p.fulfillments?.[0]?.shipping?.option?.name || "Sin zona",
+        fechaDisplay,
+        franjaDisplay: est.franjaManual || franja || "Sin franja",
+        esManual: false,
+        cobrar: !!est.cobrar,
+        pago: p.payment_status === "paid" ? "Pagado" : "Pendiente",
+      });
+    }
+
+    // Manuales — son livianos; se traen todos y se filtran por fechaDisplay.
+    const manualesRes = await pool.query("SELECT * FROM pedidos_manuales ORDER BY created_at DESC");
+    for (const r of manualesRes.rows) {
+      const est = estadosMap[r.id] || {};
+      const estado = est.estado || "Por empaquetar";
+      if (estado !== "Entregado" && estado !== "Anulado") continue;
+      const fechaDisplay = est.fechaManual || r.fecha;
+      if (!fechaDisplay || fechaDisplay < desde || fechaDisplay > hasta) continue;
+      const tabActual = est.tabManual || r.tab_actual;
+      const ov = overridesMap[r.id];
+      const totalNum = ov ? Number(ov.total_num) : Number(r.total_num);
+      const codigoPago = est.codigoPagoOverride ? est.codigoPagoOverride : (r.codigo_pago || "");
+      resultado.push({
+        id: r.id, numero: r.numero,
+        cliente: est.clienteOverride || r.cliente || "",
+        telefono: est.telefonoOverride || r.telefono || "",
+        productos: ov ? ov.productos : r.productos,
+        totalNum,
+        total: ov ? `$${totalNum.toLocaleString("es-AR")}` : r.total,
+        medioPago: est.medioPagoOverride || r.medio_pago,
+        medioPagoOtro: est.medioPagoOtroOverride || "",
+        codigoPago,
+        repartidor: est.repartidor || "Sin asignar",
+        estado,
+        local: localLabelBackend(tabActual),
+        tabActual,
+        zona: est.zonaOverride || r.zona || "",
+        fechaDisplay,
+        franjaDisplay: est.franjaManual || r.franja || "Sin franja",
+        esManual: true,
+        cobrar: (est.cobrar !== undefined && est.cobrar !== null) ? !!est.cobrar : !!r.cobrar,
+        pago: r.pago,
+      });
+    }
+
+    res.json(resultado);
+  } catch (err) {
+    console.error("Error /api/reportes/pedidos:", err.message);
+    res.status(500).json({ error: "Error trayendo reporte de pedidos" });
+  }
+});
+
   app.get("/api/products", async (req, res) => {
     try {
       const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/products?per_page=200`, { headers });

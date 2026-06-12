@@ -88,6 +88,18 @@ import { useState, useEffect, useRef, useMemo } from "react";
     }
 
     const HOY = fechaArgentina();
+    // Piso de fecha por defecto para reportes sin rango elegido (el endpoint
+    // exige desde/hasta; este valor sólo aplica cuando el usuario no filtró).
+    const REPORTE_FECHA_MIN = "2024-01-01";
+    function restarDias(f, n) {
+      const [y, m, d] = f.split("-").map(Number);
+      const dt = new Date(y, m - 1, d);
+      dt.setDate(dt.getDate() - n);
+      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+    }
+    function diasEntre(desde, hasta) {
+      return Math.round((new Date(hasta + "T12:00:00") - new Date(desde + "T12:00:00")) / 86400000);
+    }
     function guardarEstadoDB(id, estado, usuario) {
     axios.post(`${API}/api/estados/${id}`, { ...estado, usuario }).catch(console.error);
   }
@@ -1800,6 +1812,11 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
       const [editandoProductos, setEditandoProductos] = useState(null);
       const [productosOverride, setProductosOverride] = useState({});
       const [pedidosDatosOverride, setPedidosDatosOverride] = useState({});
+      // Datos históricos para las vistas de reportes (leen toda la base por
+      // rango de fechas vía /api/reportes/pedidos, sin la ventana de 7 días).
+      const [repPedidos, setRepPedidos] = useState([]);
+      const [repLoading, setRepLoading] = useState(false);
+      const [repError, setRepError] = useState(null);
       const menuRef = useRef(null);
 const [facturasMap, setFacturasMap] = useState({});
       const [productos, setProductos] = useState([]);
@@ -1955,6 +1972,25 @@ setPedidosDatosOverride(datosInit);
         document.addEventListener("mousedown", handleClick);
         return () => document.removeEventListener("mousedown", handleClick);
       }, []);
+
+      // ─── REPORTES: traer datos históricos del backend por rango ──────────
+      // Se dispara al entrar a una vista de reporte y al cambiar su rango.
+      // El dashboard pide desde el inicio del período anterior (un mes antes
+      // de dashDesde) para que la comparación "vs anterior" sea correcta.
+      useEffect(() => {
+        if (vista !== "reporteVentas" && vista !== "reporteProductos" && vista !== "dashboard") return;
+        let desde, hasta;
+        if (vista === "reporteVentas") { desde = rvDesde || REPORTE_FECHA_MIN; hasta = rvHasta || HOY; }
+        else if (vista === "reporteProductos") { desde = rpDesde || REPORTE_FECHA_MIN; hasta = rpHasta || HOY; }
+        else { desde = restarDias(dashDesde, diasEntre(dashDesde, dashHasta) + 2); hasta = dashHasta; }
+        if (desde > hasta) { setRepPedidos([]); setRepError("El rango de fechas es inválido (desde es posterior a hasta)."); setRepLoading(false); return; }
+        let cancelado = false;
+        setRepLoading(true); setRepError(null);
+        axios.get(`${API}/api/reportes/pedidos`, { params: { desde, hasta } })
+          .then(res => { if (!cancelado) { setRepPedidos(res.data); setRepLoading(false); } })
+          .catch(() => { if (!cancelado) { setRepPedidos([]); setRepError("No se pudieron cargar los datos históricos. Reintentá o revisá la conexión."); setRepLoading(false); } });
+        return () => { cancelado = true; };
+      }, [vista, rvDesde, rvHasta, rpDesde, rpHasta, dashDesde, dashHasta]);
 
       const pedidosProcesados = useMemo(() => [
         ...pedidosRaw.map(p => {
@@ -2153,7 +2189,7 @@ setPedidosDatosOverride(datosInit);
       }
       function toggleExpandido(id) { setExpandido(prev => prev === id ? null : id); }
       function repartidorReporte(p) {
-        const r = pedidosLocales[p.id]?.repartidor;
+        const r = p.repartidor;
         if (r && r !== "Sin asignar") return r;
         if (p.tabActual === "retiro-at" || p.tabActual === "retiro-fr") return "Retiro en sucursal";
         return "Sin asignar";
@@ -2617,14 +2653,8 @@ let numeroAsignado = "";
         return <div style={s.wrap}><Header /><VistaCaja pedidosFinalizados={pedidosFinalizados} pedidosActivos={pedidosActivos} onVolver={() => setVista("panel")} usuario={usuario} /></div>;
       }
 if (vista === "dashboard") {
-        const restarMes = (f) => {
-          const [y, m, d] = f.split("-").map(Number);
-          const dt = new Date(y, m - 1, d);
-          dt.setMonth(dt.getMonth() - 1);
-          return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
-        };
-        const filtrarVentas = (desde, hasta) => pedidosFinalizados.filter(p => {
-          const est = pedidosLocales[p.id]?.estado || p.estado;
+        const filtrarVentas = (desde, hasta) => repPedidos.filter(p => {
+          const est = p.estado;
           if (est === "Anulado") return false;
           if (!p.fechaDisplay) return false;
           if (p.fechaDisplay < desde || p.fechaDisplay > hasta) return false;
@@ -2633,7 +2663,9 @@ if (vista === "dashboard") {
           return true;
         });
         const ventasAct = filtrarVentas(dashDesde, dashHasta);
-        const ventasPrev = filtrarVentas(restarMes(dashDesde), restarMes(dashHasta));
+        // Período anterior = misma duración, inmediatamente antes de dashDesde.
+        const duracionDiasDash = diasEntre(dashDesde, dashHasta) + 1;
+        const ventasPrev = filtrarVentas(restarDias(dashDesde, duracionDiasDash), restarDias(dashDesde, 1));
         const totalAct = ventasAct.reduce((a, p) => a + p.totalNum, 0);
         const totalPrev = ventasPrev.reduce((a, p) => a + p.totalNum, 0);
         const variacion = totalPrev > 0 ? ((totalAct - totalPrev) / totalPrev) * 100 : null;
@@ -2670,6 +2702,11 @@ if (vista === "dashboard") {
                   </button>
                 ))}
               </div>
+              {repLoading ? (
+                <div style={{ padding: "60px 0", textAlign: "center", color: "#888", fontSize: 14 }}>⏳ Cargando datos históricos…</div>
+              ) : repError ? (
+                <div style={{ padding: "20px", background: "#fdecea", color: "#c0392b", borderRadius: 8, fontSize: 14, fontWeight: 500 }}>⚠️ {repError}</div>
+              ) : (<>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12, marginBottom: 24 }}>
                 <div style={{ background: "#F68B32", borderRadius: 10, padding: "16px 18px", color: "#fff" }}>
                   <div style={{ fontSize: 11, opacity: 0.85, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Ventas del período</div>
@@ -2718,18 +2755,19 @@ if (vista === "dashboard") {
                   <div style={{ width: `${pctFR}%`, height: "100%", background: "#0c447c" }} />
                 </div>
               </div>
+              </>)}
             </div>
           </div>
         );
-      } 
+      }
       if (vista === "reporteVentas") {
-        const ventasFiltradas = pedidosFinalizados.filter(p => {
-          const est = pedidosLocales[p.id]?.estado || p.estado;
+        const ventasFiltradas = repPedidos.filter(p => {
+          const est = p.estado;
           if (est === "Anulado") return false;
           if (rvDesde && p.fechaDisplay && p.fechaDisplay < rvDesde) return false;
           if (rvHasta && p.fechaDisplay && p.fechaDisplay > rvHasta) return false;
           if (rvMedio && p.medioPago !== rvMedio) return false;
-          if (rvRepartidor && (pedidosLocales[p.id]?.repartidor || "Sin asignar") !== rvRepartidor) return false;
+          if (rvRepartidor && (p.repartidor || "Sin asignar") !== rvRepartidor) return false;
           if (rvLocal && p.local !== rvLocal) return false;
           if ((rvDesde || rvHasta) && !p.fechaDisplay) return false;
           return true;
@@ -2779,6 +2817,11 @@ if (vista === "dashboard") {
                   {ventasFiltradas.length > 0 && (<><button style={btnExportar("#F68B32")} onClick={exportarVentasExcel}>📊 Excel</button><button style={btnExportar("#c0392b")} onClick={exportarVentasPDF}>📄 PDF</button></>)}
                 </div>
               </div>
+              {repLoading ? (
+                <div style={{ padding: "60px 0", textAlign: "center", color: "#888", fontSize: 14 }}>⏳ Cargando datos históricos…</div>
+              ) : repError ? (
+                <div style={{ padding: "20px", background: "#fdecea", color: "#c0392b", borderRadius: 8, fontSize: 14, fontWeight: 500 }}>⚠️ {repError}</div>
+              ) : (<>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
                 {MEDIOS_PAGO.filter(m => porMedio[m] > 0).map(m => (
                   <div key={m} style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
@@ -2816,14 +2859,15 @@ if (vista === "dashboard") {
                 ))}
                 {ventasFiltradas.length > 0 && <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#F68B32" }}>Total: {fmt(totalVentasRv)}</div>}
               </div>
+              </>)}
             </div>
           </div>
         );
       }
 
       if (vista === "reporteProductos") {
-        const pedidosBase = pedidosFinalizados.filter(p => {
-          const est = pedidosLocales[p.id]?.estado || p.estado;
+        const pedidosBase = repPedidos.filter(p => {
+          const est = p.estado;
           if (est === "Anulado") return false;
           if (rpDesde && p.fechaDisplay && p.fechaDisplay < rpDesde) return false;
           if (rpHasta && p.fechaDisplay && p.fechaDisplay > rpHasta) return false;
@@ -2869,6 +2913,11 @@ if (vista === "dashboard") {
                   {listaProductos.length > 0 && (<><button style={btnExportar("#F68B32")} onClick={exportarProdExcel}>📊 Excel</button><button style={btnExportar("#c0392b")} onClick={exportarProdPDF}>📄 PDF</button></>)}
                 </div>
               </div>
+              {repLoading ? (
+                <div style={{ padding: "60px 0", textAlign: "center", color: "#888", fontSize: 14 }}>⏳ Cargando datos históricos…</div>
+              ) : repError ? (
+                <div style={{ padding: "20px", background: "#fdecea", color: "#c0392b", borderRadius: 8, fontSize: 14, fontWeight: 500 }}>⚠️ {repError}</div>
+              ) : (<>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
                 <div style={{ background: "#F68B32", border: "1px solid #F68B32", borderRadius: 8, padding: "12px 14px" }}><div style={{ fontSize: 11, color: "#a8d5b5", marginBottom: 4 }}>TOTAL UNIDADES</div><div style={{ fontSize: 22, fontWeight: 700, color: "#fff" }}>{totalUnidades}</div><div style={{ fontSize: 11, color: "#a8d5b5" }}>{pedidosBase.length} pedidos</div></div>
                 <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}><div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>PRODUCTOS DISTINTOS</div><div style={{ fontSize: 22, fontWeight: 700, color: "#333" }}>{listaProductos.length}</div></div>
@@ -2896,6 +2945,7 @@ if (vista === "dashboard") {
                 ))}
                 {listaProductos.length > 0 && <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#F68B32" }}>Total unidades: {totalUnidades}</div>}
               </div>
+              </>)}
             </div>
           </div>
         );
