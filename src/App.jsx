@@ -1817,6 +1817,12 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
       const [rvMedio, setRvMedio] = useState("");
       const [rvRepartidor, setRvRepartidor] = useState("");
       const [rvLocal, setRvLocal] = useState("");
+      // Reporte de reservas: pedidos activos a futuro (no cerrados). Default desde = HOY.
+      const [rrDesde, setRrDesde] = useState(HOY);
+      const [rrHasta, setRrHasta] = useState("");
+      const [rrMedio, setRrMedio] = useState("");
+      const [rrRepartidor, setRrRepartidor] = useState("");
+      const [rrLocal, setRrLocal] = useState("");
       const [tabFin, setTabFin] = useState("entregados");
       const [rpDesde, setRpDesde] = useState("");
       const [rpHasta, setRpHasta] = useState("");
@@ -2584,6 +2590,7 @@ let numeroAsignado = "";
                     <>
                       {usuario.rol === "admin" && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("dashboard"); setMenuAbierto(false); }}>📈 Dashboard ejecutivo</button>}
                       <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteVentas"); setMenuAbierto(false); }}>📊 Reporte de ventas</button>
+                      <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteReservas"); setMenuAbierto(false); }}>📅 Reporte de reservas</button>
                       <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteProductos"); setMenuAbierto(false); }}>📦 Productos vendidos</button>
                     </>
                   )}
@@ -2779,31 +2786,35 @@ if (vista === "dashboard") {
           </div>
         );
       }
-      if (vista === "reporteVentas") {
-        const ventasFiltradas = repPedidos.filter(p => {
+      // Render compartido entre "Reporte de ventas" (finalizados, vía repPedidos)
+      // y "Reporte de reservas" (pedidos activos a futuro). Misma presentación,
+      // tarjetas por medio de pago, totales, filtros y exports. El modo sólo
+      // cambia título/archivo/etiquetas; la lógica de agregación es idéntica.
+      const renderReporteVR = ({ pedidos, titulo, tituloExport, emoji, fileBase, sheetName, emptyMsg, loading, error, desde, setDesde, hasta, setHasta, medio, setMedio, repartidor, setRepartidor, local, setLocal }) => {
+        const filtradas = pedidos.filter(p => {
           const est = p.estado;
           if (est === "Anulado") return false;
-          if (rvDesde && p.fechaDisplay && p.fechaDisplay < rvDesde) return false;
-          if (rvHasta && p.fechaDisplay && p.fechaDisplay > rvHasta) return false;
-          if (rvMedio && p.medioPago !== rvMedio) return false;
-          if (rvRepartidor && (p.repartidor || "Sin asignar") !== rvRepartidor) return false;
-          if (rvLocal && p.local !== rvLocal) return false;
-          if ((rvDesde || rvHasta) && !p.fechaDisplay) return false;
+          if (desde && p.fechaDisplay && p.fechaDisplay < desde) return false;
+          if (hasta && p.fechaDisplay && p.fechaDisplay > hasta) return false;
+          if (medio && p.medioPago !== medio) return false;
+          if (repartidor && (p.repartidor || "Sin asignar") !== repartidor) return false;
+          if (local && p.local !== local) return false;
+          if ((desde || hasta) && !p.fechaDisplay) return false;
           return true;
         }).sort((a, b) => { if (!a.fechaDisplay) return 1; if (!b.fechaDisplay) return -1; return b.fechaDisplay.localeCompare(a.fechaDisplay); });
-        const totalVentasRv = ventasFiltradas.reduce((acc, p) => acc + p.totalNum, 0);
-        const porMedio = MEDIOS_PAGO.reduce((acc, m) => { acc[m] = ventasFiltradas.filter(p => p.medioPago === m).reduce((a, p) => a + p.totalNum, 0); return acc; }, {});
-        const tag = fechaTagArchivo(rvDesde, rvHasta);
-        const exportarVentasExcel = () => {
-          const datos = ventasFiltradas.map(p => ({ "Nº": p.numero, "Cliente": p.cliente, "Productos": p.productos, "Medio de pago": p.medioPago, "Código MKP": p.codigoPago || "", "Repartidor": repartidorReporte(p), "Fecha": p.fechaDisplay || "", "Local": p.local, "Total": p.totalNum }));
-          const resumen = MEDIOS_PAGO.filter(m => porMedio[m] > 0).map(m => ({ "Medio de pago": m, "Pedidos": ventasFiltradas.filter(p => p.medioPago === m).length, "Total": porMedio[m] }));
-          resumen.push({ "Medio de pago": "TOTAL GENERAL", "Pedidos": ventasFiltradas.length, "Total": totalVentasRv });
-          exportarExcel(`ventas_${tag}.xlsx`, [{ name: "Ventas", data: datos }, { name: "Resumen", data: resumen }]);
+        const totalGeneral = filtradas.reduce((acc, p) => acc + p.totalNum, 0);
+        const porMedio = MEDIOS_PAGO.reduce((acc, m) => { acc[m] = filtradas.filter(p => p.medioPago === m).reduce((a, p) => a + p.totalNum, 0); return acc; }, {});
+        const tag = fechaTagArchivo(desde, hasta);
+        const exportarVRExcel = () => {
+          const datos = filtradas.map(p => ({ "Nº": p.numero, "Cliente": p.cliente, "Productos": p.productos, "Medio de pago": p.medioPago, "Código MKP": p.codigoPago || "", "Repartidor": repartidorReporte(p), "Fecha": p.fechaDisplay || "", "Local": p.local, "Total": p.totalNum }));
+          const resumen = MEDIOS_PAGO.filter(m => porMedio[m] > 0).map(m => ({ "Medio de pago": m, "Pedidos": filtradas.filter(p => p.medioPago === m).length, "Total": porMedio[m] }));
+          resumen.push({ "Medio de pago": "TOTAL GENERAL", "Pedidos": filtradas.length, "Total": totalGeneral });
+          exportarExcel(`${fileBase}_${tag}.xlsx`, [{ name: sheetName, data: datos }, { name: "Resumen", data: resumen }]);
         };
-        const exportarVentasPDF = () => {
-          const filas = ventasFiltradas.map(p => [p.numero, p.cliente, p.productos.length > 50 ? p.productos.substring(0, 50) + "..." : p.productos, p.medioPago, p.codigoPago || "—", p.fechaDisplay || "—", p.local, fmt(p.totalNum)]);
-          const subt = (rvDesde || rvHasta) ? `Desde ${rvDesde || "inicio"} hasta ${rvHasta || "hoy"}` : "Todas las fechas";
-          exportarPDF(`ventas_${tag}.pdf`, "Reporte de Ventas", ["Nº", "Cliente", "Productos", "Medio pago", "Cód. MKP", "Fecha", "Local", "Total"], filas, `Total: ${fmt(totalVentasRv)}  ·  ${ventasFiltradas.length} pedidos`, subt);
+        const exportarVRPDF = () => {
+          const filas = filtradas.map(p => [p.numero, p.cliente, p.productos.length > 50 ? p.productos.substring(0, 50) + "..." : p.productos, p.medioPago, p.codigoPago || "—", p.fechaDisplay || "—", p.local, fmt(p.totalNum)]);
+          const subt = (desde || hasta) ? `Desde ${desde || "inicio"} hasta ${hasta || "hoy"}` : "Todas las fechas";
+          exportarPDF(`${fileBase}_${tag}.pdf`, tituloExport, ["Nº", "Cliente", "Productos", "Medio pago", "Cód. MKP", "Fecha", "Local", "Total"], filas, `Total: ${fmt(totalGeneral)}  ·  ${filtradas.length} pedidos`, subt);
         };
         return (
           <div style={s.wrap}>
@@ -2811,48 +2822,48 @@ if (vista === "dashboard") {
             <div style={{ padding: 24 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
                 <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
-                <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>📊 Reporte de ventas</h2>
+                <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>{emoji} {titulo}</h2>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
                   <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
-                  <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rvDesde} onChange={e => setRvDesde(e.target.value)} />
+                  <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={desde} onChange={e => setDesde(e.target.value)} />
                   <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
-                  <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rvHasta} onChange={e => setRvHasta(e.target.value)} />
-                  <select style={{ ...s.select, padding: "5px 8px" }} value={rvMedio} onChange={e => setRvMedio(e.target.value)}>
+                  <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={hasta} onChange={e => setHasta(e.target.value)} />
+                  <select style={{ ...s.select, padding: "5px 8px" }} value={medio} onChange={e => setMedio(e.target.value)}>
                     <option value="">Todos los medios</option>
                     {MEDIOS_PAGO.map(m => <option key={m} value={m}>{m}</option>)}
                   </select>
-                  <select style={{ ...s.select, padding: "5px 8px" }} value={rvRepartidor} onChange={e => setRvRepartidor(e.target.value)}>
+                  <select style={{ ...s.select, padding: "5px 8px" }} value={repartidor} onChange={e => setRepartidor(e.target.value)}>
                     <option value="">Todos los repartidores</option>
                     {repartidoresLista.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
-                  <select style={{ ...s.select, padding: "5px 8px" }} value={rvLocal} onChange={e => setRvLocal(e.target.value)}>
+                  <select style={{ ...s.select, padding: "5px 8px" }} value={local} onChange={e => setLocal(e.target.value)}>
                     <option value="">Todos los locales</option>
                     <option value="A. Thomas">A. Thomas</option>
                     <option value="French">French</option>
                   </select>
-                  {(rvDesde || rvHasta || rvMedio || rvRepartidor || rvLocal) && (
-                    <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setRvDesde(""); setRvHasta(""); setRvMedio(""); setRvRepartidor(""); setRvLocal(""); }}>✕ Limpiar</button>
+                  {(desde || hasta || medio || repartidor || local) && (
+                    <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setDesde(""); setHasta(""); setMedio(""); setRepartidor(""); setLocal(""); }}>✕ Limpiar</button>
                   )}
-                  {ventasFiltradas.length > 0 && (<><button style={btnExportar("#F68B32")} onClick={exportarVentasExcel}>📊 Excel</button><button style={btnExportar("#c0392b")} onClick={exportarVentasPDF}>📄 PDF</button></>)}
+                  {filtradas.length > 0 && (<><button style={btnExportar("#F68B32")} onClick={exportarVRExcel}>📊 Excel</button><button style={btnExportar("#c0392b")} onClick={exportarVRPDF}>📄 PDF</button></>)}
                 </div>
               </div>
-              {repLoading ? (
+              {loading ? (
                 <div style={{ padding: "60px 0", textAlign: "center", color: "#888", fontSize: 14 }}>⏳ Cargando datos históricos…</div>
-              ) : repError ? (
-                <div style={{ padding: "20px", background: "#fdecea", color: "#c0392b", borderRadius: 8, fontSize: 14, fontWeight: 500 }}>⚠️ {repError}</div>
+              ) : error ? (
+                <div style={{ padding: "20px", background: "#fdecea", color: "#c0392b", borderRadius: 8, fontSize: 14, fontWeight: 500 }}>⚠️ {error}</div>
               ) : (<>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
                 {MEDIOS_PAGO.filter(m => porMedio[m] > 0).map(m => (
                   <div key={m} style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}>
                     <div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>{m}</div>
                     <div style={{ fontSize: 16, fontWeight: 700, color: "#F68B32" }}>{fmt(porMedio[m])}</div>
-                    <div style={{ fontSize: 11, color: "#aaa" }}>{ventasFiltradas.filter(p => p.medioPago === m).length} pedidos</div>
+                    <div style={{ fontSize: 11, color: "#aaa" }}>{filtradas.filter(p => p.medioPago === m).length} pedidos</div>
                   </div>
                 ))}
                 <div style={{ background: "#F68B32", border: "1px solid #F68B32", borderRadius: 8, padding: "12px 14px" }}>
                   <div style={{ fontSize: 11, color: "#a8d5b5", marginBottom: 4 }}>TOTAL</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>{fmt(totalVentasRv)}</div>
-                  <div style={{ fontSize: 11, color: "#a8d5b5" }}>{ventasFiltradas.length} pedidos</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>{fmt(totalGeneral)}</div>
+                  <div style={{ fontSize: 11, color: "#a8d5b5" }}>{filtradas.length} pedidos</div>
                 </div>
               </div>
               <div style={s.lista}>
@@ -2862,8 +2873,8 @@ if (vista === "dashboard") {
                   <span style={{ ...s.col, flex: 0.7, textAlign: "center" }}>Fecha</span><span style={{ ...s.col, flex: 0.7, textAlign: "center" }}>Local</span>
                   <span style={{ ...s.col, flex: 0.7, textAlign: "right" }}>Monto</span>
                 </div>
-                {ventasFiltradas.length === 0 && <div style={s.empty}>No hay ventas en ese rango.</div>}
-                {ventasFiltradas.map(p => (
+                {filtradas.length === 0 && <div style={s.empty}>{emptyMsg}</div>}
+                {filtradas.map(p => (
                   <div key={p.id} style={s.fila}>
                     <div style={{ ...s.filaTop, cursor: "default" }}>
                       <span style={{ ...s.cel, flex: 0.6 }}><span style={s.numero}>{p.numero}</span></span>
@@ -2876,12 +2887,39 @@ if (vista === "dashboard") {
                     </div>
                   </div>
                 ))}
-                {ventasFiltradas.length > 0 && <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#F68B32" }}>Total: {fmt(totalVentasRv)}</div>}
+                {filtradas.length > 0 && <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#F68B32" }}>Total: {fmt(totalGeneral)}</div>}
               </div>
               </>)}
             </div>
           </div>
         );
+      };
+
+      if (vista === "reporteVentas") {
+        return renderReporteVR({
+          pedidos: repPedidos,
+          titulo: "Reporte de ventas", tituloExport: "Reporte de Ventas", emoji: "📊",
+          fileBase: "ventas", sheetName: "Ventas", emptyMsg: "No hay ventas en ese rango.",
+          loading: repLoading, error: repError,
+          desde: rvDesde, setDesde: setRvDesde, hasta: rvHasta, setHasta: setRvHasta,
+          medio: rvMedio, setMedio: setRvMedio, repartidor: rvRepartidor, setRepartidor: setRvRepartidor,
+          local: rvLocal, setLocal: setRvLocal,
+        });
+      }
+
+      if (vista === "reporteReservas") {
+        // Sólo activos a futuro: fechaDisplay >= HOY. Los vencidos (fecha pasada)
+        // y los sin fecha quedan fuera. No hay fetch: usa pedidosActivos en memoria.
+        const reservasBase = pedidosActivos.filter(p => p.fechaDisplay && p.fechaDisplay >= HOY);
+        return renderReporteVR({
+          pedidos: reservasBase,
+          titulo: "Reporte de Reservas", tituloExport: "Reporte de Reservas", emoji: "📅",
+          fileBase: "reservas", sheetName: "Reservas", emptyMsg: "No hay reservas en ese rango.",
+          loading: false, error: null,
+          desde: rrDesde, setDesde: setRrDesde, hasta: rrHasta, setHasta: setRrHasta,
+          medio: rrMedio, setMedio: setRrMedio, repartidor: rrRepartidor, setRepartidor: setRrRepartidor,
+          local: rrLocal, setLocal: setRrLocal,
+        });
       }
 
       if (vista === "reporteProductos") {
