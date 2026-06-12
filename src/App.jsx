@@ -100,6 +100,22 @@ import { useState, useEffect, useRef, useMemo } from "react";
     function diasEntre(desde, hasta) {
       return Math.round((new Date(hasta + "T12:00:00") - new Date(desde + "T12:00:00")) / 86400000);
     }
+    // Lunes (inicio de semana ISO) de la semana a la que pertenece "f" (YYYY-MM-DD).
+    // getDay(): 0=domingo..6=sábado; (dia+6)%7 = cuántos días retroceder hasta el lunes.
+    function lunesDeLaSemana(f) {
+      const [y, m, d] = f.split("-").map(Number);
+      const dia = new Date(y, m - 1, d).getDay();
+      return restarDias(f, (dia + 6) % 7);
+    }
+    // Rango del período anterior para comparar contra el actual.
+    // "semana": mismo tramo de la semana pasada, alineado por día (lunes→hoy vs lunes→mismo día).
+    // "custom": misma duración inmediatamente anterior a dashDesde.
+    function rangoAnterior(dashModo, dashDesde, dashHasta) {
+      if (dashModo === "semana") {
+        return { prevDesde: restarDias(dashDesde, 7), prevHasta: restarDias(dashHasta, 7) };
+      }
+      return { prevDesde: restarDias(dashDesde, diasEntre(dashDesde, dashHasta) + 1), prevHasta: restarDias(dashDesde, 1) };
+    }
     function guardarEstadoDB(id, estado, usuario) {
     axios.post(`${API}/api/estados/${id}`, { ...estado, usuario }).catch(console.error);
   }
@@ -1806,8 +1822,9 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
       const [rpHasta, setRpHasta] = useState("");
       const [prodFecha, setProdFecha] = useState(HOY);
       const [prodLocal, setProdLocal] = useState("todos");
-      const [dashDesde, setDashDesde] = useState(HOY.slice(0, 8) + "01");
+      const [dashDesde, setDashDesde] = useState(lunesDeLaSemana(HOY));
       const [dashHasta, setDashHasta] = useState(HOY);
+      const [dashModo, setDashModo] = useState("semana");
       const [dashOrigen, setDashOrigen] = useState("todos");
       const [editandoProductos, setEditandoProductos] = useState(null);
       const [productosOverride, setProductosOverride] = useState({});
@@ -1975,14 +1992,14 @@ setPedidosDatosOverride(datosInit);
 
       // ─── REPORTES: traer datos históricos del backend por rango ──────────
       // Se dispara al entrar a una vista de reporte y al cambiar su rango.
-      // El dashboard pide desde el inicio del período anterior (un mes antes
-      // de dashDesde) para que la comparación "vs anterior" sea correcta.
+      // El dashboard pide desde el inicio del período anterior (con un día de
+      // margen) para que la comparación "vs anterior" tenga datos completos.
       useEffect(() => {
         if (vista !== "reporteVentas" && vista !== "reporteProductos" && vista !== "dashboard") return;
         let desde, hasta;
         if (vista === "reporteVentas") { desde = rvDesde || REPORTE_FECHA_MIN; hasta = rvHasta || HOY; }
         else if (vista === "reporteProductos") { desde = rpDesde || REPORTE_FECHA_MIN; hasta = rpHasta || HOY; }
-        else { desde = restarDias(dashDesde, diasEntre(dashDesde, dashHasta) + 2); hasta = dashHasta; }
+        else { const { prevDesde } = rangoAnterior(dashModo, dashDesde, dashHasta); desde = restarDias(prevDesde, 1); hasta = dashHasta; }
         if (desde > hasta) { setRepPedidos([]); setRepError("El rango de fechas es inválido (desde es posterior a hasta)."); setRepLoading(false); return; }
         let cancelado = false;
         setRepLoading(true); setRepError(null);
@@ -1990,7 +2007,7 @@ setPedidosDatosOverride(datosInit);
           .then(res => { if (!cancelado) { setRepPedidos(res.data); setRepLoading(false); } })
           .catch(() => { if (!cancelado) { setRepPedidos([]); setRepError("No se pudieron cargar los datos históricos. Reintentá o revisá la conexión."); setRepLoading(false); } });
         return () => { cancelado = true; };
-      }, [vista, rvDesde, rvHasta, rpDesde, rpHasta, dashDesde, dashHasta]);
+      }, [vista, rvDesde, rvHasta, rpDesde, rpHasta, dashDesde, dashHasta, dashModo]);
 
       const pedidosProcesados = useMemo(() => [
         ...pedidosRaw.map(p => {
@@ -2663,9 +2680,10 @@ if (vista === "dashboard") {
           return true;
         });
         const ventasAct = filtrarVentas(dashDesde, dashHasta);
-        // Período anterior = misma duración, inmediatamente antes de dashDesde.
-        const duracionDiasDash = diasEntre(dashDesde, dashHasta) + 1;
-        const ventasPrev = filtrarVentas(restarDias(dashDesde, duracionDiasDash), restarDias(dashDesde, 1));
+        // Período anterior: en "semana", mismo tramo de la semana pasada; en "custom",
+        // misma duración inmediatamente anterior. (ver rangoAnterior)
+        const { prevDesde, prevHasta } = rangoAnterior(dashModo, dashDesde, dashHasta);
+        const ventasPrev = filtrarVentas(prevDesde, prevHasta);
         const totalAct = ventasAct.reduce((a, p) => a + p.totalNum, 0);
         const totalPrev = ventasPrev.reduce((a, p) => a + p.totalNum, 0);
         const variacion = totalPrev > 0 ? ((totalAct - totalPrev) / totalPrev) * 100 : null;
@@ -2687,10 +2705,11 @@ if (vista === "dashboard") {
                 <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>📈 Dashboard ejecutivo</h2>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
                   <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
-                  <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={dashDesde} onChange={e => setDashDesde(e.target.value)} />
+                  <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={dashDesde} onChange={e => { setDashDesde(e.target.value); setDashModo("custom"); }} />
                   <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
-                  <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={dashHasta} onChange={e => setDashHasta(e.target.value)} />
-                  <button style={s.btnVolver} onClick={() => { setDashDesde(HOY.slice(0, 8) + "01"); setDashHasta(HOY); }}>Este mes</button>
+                  <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={dashHasta} onChange={e => { setDashHasta(e.target.value); setDashModo("custom"); }} />
+                  <button style={s.btnVolver} onClick={() => { setDashModo("semana"); setDashDesde(lunesDeLaSemana(HOY)); setDashHasta(HOY); }}>Esta semana</button>
+                  <button style={s.btnVolver} onClick={() => { setDashModo("custom"); setDashDesde(HOY.slice(0, 8) + "01"); setDashHasta(HOY); }}>Este mes</button>
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
@@ -2718,7 +2737,7 @@ if (vista === "dashboard") {
                   <div style={{ fontSize: 22, fontWeight: 700, color: "#333" }}>{fmt(totalPrev)}</div>
                   {variacion !== null ? (
                     <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4, color: variacion >= 0 ? "#1a9c4b" : "#c0392b" }}>
-                      {variacion >= 0 ? "↑" : "↓"} {Math.abs(variacion).toFixed(1)}% vs. anterior
+                      {variacion >= 0 ? "↑" : "↓"} {Math.abs(variacion).toFixed(1)}% {dashModo === "semana" ? "vs semana pasada" : "vs período anterior"}
                     </div>
                   ) : <div style={{ fontSize: 12, color: "#aaa", marginTop: 4 }}>Sin datos previos</div>}
                 </div>
