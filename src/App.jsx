@@ -1851,6 +1851,7 @@ const [facturasMap, setFacturasMap] = useState({});
       const [form, setForm] = useState(FORM_INICIAL);
       const [pedidoCreado, setPedidoCreado] = useState(false);
       const [comandasImpresas, setComandasImpresas] = useState({});
+      const [sobreError, setSobreError] = useState("");
       const [repartidoresLista, setRepartidoresLista] = useState(REPARTIDORES_DEFAULT);
       const [varNombre, setVarNombre] = useState("");
       const [varPrecio, setVarPrecio] = useState("");
@@ -1888,10 +1889,10 @@ const [facturasMap, setFacturasMap] = useState({});
           setPedidosRaw(resOrders.data);
           const locales = {};
           resOrders.data.forEach(p => {
-            locales[p.id] = resEstados.data[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.payment_status !== "paid" };
+            locales[p.id] = resEstados.data[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.payment_status !== "paid", sobre: false };
           });
           resManuales.data.forEach(p => {
-            locales[p.id] = resEstados.data[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.cobrar };
+            locales[p.id] = resEstados.data[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.cobrar, sobre: false };
           });
           setPedidosLocales(locales);
           setPedidosManuales(resManuales.data);
@@ -1952,8 +1953,8 @@ setPedidosDatosOverride(datosInit);
             setComandasImpresas(prev => ({ ...prev, ...comandasRefresh }));
             setPedidosLocales(prev => {
               const nuevo = { ...prev };
-              resOrders.data.forEach(p => { if (!nuevo[p.id]) nuevo[p.id] = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.payment_status !== "paid" }; });
-              resManuales.data.forEach(p => { if (!nuevo[p.id]) nuevo[p.id] = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.cobrar }; });
+              resOrders.data.forEach(p => { if (!nuevo[p.id]) nuevo[p.id] = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.payment_status !== "paid", sobre: false }; });
+              resManuales.data.forEach(p => { if (!nuevo[p.id]) nuevo[p.id] = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.cobrar, sobre: false }; });
               return nuevo;
             });
           } catch (err) { console.warn("Auto-refresh falló:", err.message); }
@@ -2041,7 +2042,7 @@ setPedidosDatosOverride(datosInit);
             pago: p.payment_status === "paid" ? "Pagado" : "Pendiente",
             medioPago: ovDatos.medioPago || medioPagoLabel(p.gateway), medioPagoOtro: ovDatos.medioPagoOtro || "", gateway: p.gateway,
             esTakeaway: p.fulfillments?.[0]?.shipping?.type === "pickup",
-            estado: local.estado, repartidor: local.repartidor, cobrar: local.cobrar,
+            estado: local.estado, repartidor: local.repartidor, cobrar: local.cobrar, sobre: !!local.sobre,
             tabActual, local: localLabel(tabActual),
             nota: ovDatos.nota !== undefined ? ovDatos.nota : (p.note || ""),
             esManual: false, entreCalles: "",
@@ -2066,7 +2067,7 @@ setPedidosDatosOverride(datosInit);
             medioPagoOtro: ovDatos.medioPagoOtro || "",
             nota: ovDatos.nota !== undefined ? ovDatos.nota : (p.nota || ""),
             email: ovDatos.email !== undefined ? ovDatos.email : (p.email || ""),
-            estado: local.estado, repartidor: local.repartidor,
+            estado: local.estado, repartidor: local.repartidor, sobre: !!local.sobre,
             cobrar: local.cobrar !== undefined ? local.cobrar : p.cobrar,
             tabActual, local: localLabel(tabActual),
             fechaDisplay: local.fechaManual || p.fecha, franjaDisplay: local.franjaManual || p.franja || "Sin franja",
@@ -2178,6 +2179,21 @@ setPedidosDatosOverride(datosInit);
       function cambiarRepartidor(id, valor) { actualizarLocal(id, { repartidor: valor }); }
       function cambiarTab(id, valor) { actualizarLocal(id, { tabManual: valor }); }
       function cambiarCobrar(id, valor) { actualizarLocal(id, { cobrar: valor }); }
+      // Marcador "sobre" (avisado): toggle optimista + PATCH dedicado. No pasa por
+      // /api/estados (no pisa estado/repartidor) y sobrevive al poll de 30s, que no
+      // sobrescribe entradas existentes de pedidosLocales. Si falla, revierte.
+      async function toggleSobre(id) {
+        const previo = !!(pedidosLocales[id]?.sobre);
+        const nuevo = !previo;
+        actualizarLocalSinGuardar(id, { sobre: nuevo });
+        try {
+          await axios.patch(`${API}/api/orders/${id}/sobre`, { sobre: nuevo });
+        } catch (err) {
+          actualizarLocalSinGuardar(id, { sobre: previo });
+          setSobreError("No se pudo guardar el aviso. Reintentá.");
+          setTimeout(() => setSobreError(""), 3000);
+        }
+      }
       // ─── BACKFILL FECHAS: corregir pedidos sin fecha ───────────────────
       async function corregirPedidosSinFecha() {
         setMenuAbierto(false);
@@ -3275,7 +3291,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                     <div style={s.formBloque}><label style={s.formLabel}>Fecha de entrega</label><input type="date" style={s.formInput} value={form.fecha} onChange={e => setForm(f => ({...f, fecha: e.target.value}))} /></div>
     <div style={s.formBloque}><label style={s.formLabel}>Horario</label><div style={{ display: "flex", gap: 6, alignItems: "center" }}><input type="time" style={{ ...s.formInput, flex: 1 }} value={form.franjaInicio} onChange={e => setForm(f => ({...f, franjaInicio: e.target.value}))} /><span style={{ color: "#888", fontSize: 14 }}>–</span><input type="time" style={{ ...s.formInput, flex: 1 }} value={form.franjaFin} onChange={e => setForm(f => ({...f, franjaFin: e.target.value}))} /></div></div>
                     <div style={s.formBloque}><label style={s.formLabel}>Medio de pago</label><select style={s.formInput} value={form.medioPago} onChange={e => { const m = e.target.value; setForm(f => ({...f, medioPago: m, cobrar: ["Efectivo", "Pedidos Ya Efectivo", "Mercado Pago", "Rappi", "Pedidos Ya"].includes(m)})); }}>{MEDIOS_PAGO.map(m => <option key={m}>{m}</option>)}</select></div>
-                    <div style={s.formBloque}><label style={s.formLabel}>Sección</label><select style={s.formInput} value={form.seccion} onChange={e => setForm(f => ({...f, seccion: e.target.value}))}>{TABS.filter(t => t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}</select></div>
+                    <div style={s.formBloque}><label style={{ ...s.formLabel, color: "#F68B32", fontWeight: 700 }}>ELEGIR SUCURSAL</label><select style={s.formInput} value={form.seccion} onChange={e => setForm(f => ({...f, seccion: e.target.value}))}>{TABS.filter(t => t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}</select></div>
                     <div style={{ ...s.formBloque, gridColumn: "span 2" }}><label style={s.formLabel}>Nota</label><textarea style={{ ...s.formInput, height: 60, resize: "vertical" }} value={form.nota} onChange={e => setForm(f => ({...f, nota: e.target.value}))} placeholder="Nota adicional..." /></div>
                     <div style={{ ...s.formBloque, gridColumn: "span 2" }}>
                       <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12 }}>
@@ -3349,7 +3365,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                     <input type="number" style={{ ...s.formInput, flex: 1 }} placeholder="Precio" value={varPrecio} onChange={e => setVarPrecio(e.target.value)} />
                     <input type="number" style={{ ...s.formInput, width: 60 }} placeholder="Cant" value={varCantidad} onChange={e => setVarCantidad(e.target.value)} />
                   </div>
-                  <button style={{ ...s.btnAgregar, width: "100%", padding: "7px", fontSize: 12 }}
+                  <button style={{ ...s.btnAgregar, width: "100%", padding: "7px", fontSize: 12, background: "#8BC34A", borderColor: "#8BC34A", color: "#101820" }}
                     onClick={() => {
                       if (!varNombre || !varPrecio) return;
                       const variantId = `var-${Date.now()}`;
@@ -3435,6 +3451,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                     const fechaManual = pedidosLocales[p.id]?.fechaManual || p.fecha || "";
                     const franjaManual = pedidosLocales[p.id]?.franjaManual || p.franja || "";
                     const cobrar = pedidosLocales[p.id]?.cobrar;
+                    const sobreActual = !!(pedidosLocales[p.id]?.sobre);
                     const abierto = expandido === p.id;
                     const ec = ESTADO_COLORS[estadoActual] || { bg: "#f0f0e8", text: "#555" };
                     const ahora = new Date();
@@ -3462,6 +3479,13 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                           <span style={{ ...s.cel, flex: 1, textAlign: "center", color: "#555" }}>{p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"short"}) : "—"}</span>
                           <span style={{ ...s.cel, flex: 0.9, textAlign: "center" }}><span style={s.franjaTag}>{p.franjaDisplay}</span></span>
                           <span style={{ ...s.cel, flex: 0.8, textAlign: "center" }}><span style={{ ...s.estadoTag, background: ec.bg, color: ec.text }}>{estadoActual}</span></span>
+                          <button title="Avisado" onClick={e => { e.stopPropagation(); toggleSobre(p.id); }}
+                            style={{ background: sobreActual ? "#eaf3de" : "transparent", border: "none", borderRadius: 6, cursor: "pointer", padding: "4px 6px", marginLeft: 4, display: "inline-flex", alignItems: "center", lineHeight: 0 }}>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={sobreActual ? "#499342" : "#9ca3af"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <rect x="2" y="4" width="20" height="16" rx="2" />
+                              <path d="m22 7-10 5L2 7" />
+                            </svg>
+                          </button>
                           <span style={s.chevron}>{abierto ? "▲" : "▼"}</span>
                         </div>
                         {abierto && (
@@ -3581,6 +3605,11 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
               );
             })}
           </div>
+          {sobreError && (
+            <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "#fdecea", color: "#c0392b", border: "1px solid #f5b7b1", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 500, boxShadow: "0 4px 16px rgba(0,0,0,0.12)", zIndex: 200 }}>
+              {sobreError}
+            </div>
+          )}
         </div>
       );
     }

@@ -539,6 +539,7 @@ app.get("/api/reportes/pedidos", async (req, res) => {
           codigoPagoOverride: r.codigo_pago_override,
           medioPagoOtroOverride: r.medio_pago_otro_override,
           comandasImpresas: r.comandas_impresas || 0,
+          sobre: r.sobre || false,
       };
     });
     res.json(estados);
@@ -595,6 +596,22 @@ app.post("/api/pedidos/:id/imprimir", async (req, res) => {
     res.json({ ok: true, comandasImpresas: nuevoValor });
     registrarAuditoria(usuarioAudit, "impresion_comanda", "pedido", id, { total: nuevoValor });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+// ─── MARCADOR "SOBRE" (avisado) POR PEDIDO ───────────────────────────
+// Toggle persistente y compartido. UPSERT sobre la misma clave (id) que el
+// resto de los overrides de pedidos_estados. Misma auth que /api/estados.
+app.patch("/api/orders/:id/sobre", async (req, res) => {
+  const { id } = req.params;
+  const sobre = !!req.body.sobre;
+  try {
+    await pool.query(
+      `INSERT INTO pedidos_estados (id, sobre, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (id) DO UPDATE SET sobre = EXCLUDED.sobre, updated_at = NOW()`,
+      [id, sobre]
+    );
+    res.json({ ok: true, sobre });
+  } catch (err) { res.status(500).json({ error: "Error guardando sobre" }); }
 });
 // ─── DATOS EDITABLES DE PEDIDO ────────────────────────────────────────
 app.patch("/api/pedidos/:id/datos", async (req, res) => {
