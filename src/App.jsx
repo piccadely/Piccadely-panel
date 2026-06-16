@@ -130,6 +130,154 @@ import { useState, useEffect, useRef, useMemo } from "react";
       return new Date().toISOString().split("T")[0];
     }
 
+    // ─── COMANDA: ESC/POS + impresión por QZ Tray ────────────────────────
+    // Compartido entre la impresión individual (imprimirComanda) y el lote
+    // (imprimirComandasLote). El formato/template y la config de QZ son los
+    // mismos; el lote sólo concatena varias comandas (con su corte de papel).
+    function comandaLineasESCPOS(p, estadoActual, repartidorActual, cobrar) {
+      return [
+          "\x1B\x40",
+          "\x1B\x74\x12",
+          "\x1B\x61\x01",
+          "\x1B\x21\x30",
+          "PICCADELY\n",
+          "\x1B\x21\x00",
+          "comanda de pedido\n",
+          "--------------------------------\n",
+          "\x1B\x61\x00",
+          `${p.numero}  ${p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"long"}) : "-"}\n`,
+          `${p.franjaDisplay}  ${p.zona || ""}\n`,
+          "--------------------------------\n",
+          "\x1B\x21\x08",
+          "CLIENTE\n",
+          "\x1B\x21\x00",
+          `${p.cliente}\n`,
+          `${p.telefono}\n`,
+          "\x1B\x21\x08",
+          "DIRECCION\n",
+          "\x1B\x21\x00",
+          `${p.direccion}${p.barrio ? ", " + p.barrio : ""}\n`,
+          p.entreCalles ? `${p.entreCalles}\n` : "",
+          "--------------------------------\n",
+          "\x1B\x21\x08",
+          "PRODUCTOS\n",
+          "\x1B\x21\x00",
+          ...p.productos.split(", ").map(pr => `- ${pr}\n`),
+          p.nota ? "--------------------------------\n" : "",
+          p.nota ? `\x1B\x21\x08NOTA\n\x1B\x21\x00${p.nota}\n` : "",
+          "--------------------------------\n",
+          `Medio de pago: ${p.medioPago}\n`,
+          "\x1B\x21\x10",
+          `TOTAL: ${p.total}\n`,
+          "\x1B\x21\x00",
+          cobrar ? "\x1B\x21\x30** COBRAR EN ENTREGA **\n\x1B\x21\x00" : "",
+          "--------------------------------\n",
+          `Repartidor: ${repartidorActual}\n`,
+          `Estado: ${estadoActual}\n`,
+          "--------------------------------\n",
+          "\x1B\x61\x01",
+          "Piccadely - juntadely\n",
+          "\x1B\x61\x00",
+          "\n\n\n",
+          "\x1D\x56\x00",
+        ].filter(Boolean);
+    }
+
+    const QZ_CERT = `-----BEGIN CERTIFICATE-----
+    MIIDxjCCAq6gAwIBAgIULtqv2WPbBo0q7Q6bEWuASwCee9swDQYJKoZIhvcNAQEL
+    BQAwdDELMAkGA1UEBhMCQVIxFTATBgNVBAgMDEJ1ZW5vcyBBaXJlczEVMBMGA1UE
+    BwwMQnVlbm9zIEFpcmVzMRIwEAYDVQQKDAlQaWNjYWRlbHkxIzAhBgNVBAMMGnBp
+    Y2NhZGVseS1wYW5lbC52ZXJjZWwuYXBwMB4XDTI2MDUyNjEyMzEyNVoXDTM2MDUy
+    MzEyMzEyNVowdDELMAkGA1UEBhMCQVIxFTATBgNVBAgMDEJ1ZW5vcyBBaXJlczEV
+    MBMGA1UEBwwMQnVlbm9zIEFpcmVzMRIwEAYDVQQKDAlQaWNjYWRlbHkxIzAhBgNV
+    BAMMGnBpY2NhZGVseS1wYW5lbC52ZXJjZWwuYXBwMIIBIjANBgkqhkiG9w0BAQEF
+    AAOCAQ8AMIIBCgKCAQEAmqmVNJBdUV9Sl2oFON2XsgePgsQtRrinz89gvk2f+BxR
+    1Lv0iH1TPbmlpHO90XCzz1Uj1AEup/V2X1oCHZFypvWqnaZv/aCSFCZ4q4ZMvgeZ
+    nVcKAdGkSn6QPc9yme1AeB5IgQdd31GYoZrUERZklzsvxZqHTIHZ4t6d8d/G980D
+    VHMMUkgE4bC7VIcahdwpzeX9oFjWyM5wSCYiRff1JWAb3LZqK6KnxQEJUJYx75K2
+    sauEncJlz9K3VTJA9UH4ORQMbmwg8IfF4U2Dr+yQNXCj925jGEG/iowwO3Ay3sCu
+    EdhZ/8+dTg0Zublpuhh/UWLxQ1e9zQ7a/2qL/bSkSQIDAQABo1AwTjAdBgNVHQ4E
+    FgQUl59WmV6sRU+YOdD/INdS7fnpfGYwHwYDVR0jBBgwFoAUl59WmV6sRU+YOdD/
+    INdS7fnpfGYwDAYDVR0TBAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAESMHJGp9
+    ztKSMkTPqLYiBkvR787KIqBCYLmKxFtNK3XVHWb8NXj8miEv6p+Hpa9FbYOw3n2r
+    Ck/zs1a9VLHec+5a0h6MK54r7QKahznu/sGD6mqBBhjjXWNMny7Oz9Iqts5wxnRY
+    VPFp9eEg/mNHYhUaOWQu5umRBcXeBOE3AMgwwQHYtvmxbDreI1AN/+9d+erY/8hX
+    1D3lN91XK4Z/A1aSi4EKPGIzqR9hq3BiVPlBWUGl8SG/qy1jJPFKlOJlff6V+fAN
+    YS60+SQ0STaXRIWey1dmndFFpI0ryGRdX+LXhT1YoipwlLFzMCI4WRiz2rIB7nfg
+    63hs+bW8Ny9XiA==
+    -----END CERTIFICATE-----`;
+
+    const QZ_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
+    MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCaqZU0kF1RX1KX
+    agU43ZeyB4+CxC1GuKfPz2C+TZ/4HFHUu/SIfVM9uaWkc73RcLPPVSPUAS6n9XZf
+    WgIdkXKm9aqdpm/9oJIUJnirhky+B5mdVwoB0aRKfpA9z3KZ7UB4HkiBB13fUZih
+    mtQRFmSXOy/FmodMgdni3p3x38b3zQNUcwxSSAThsLtUhxqF3CnN5f2gWNbIznBI
+    JiJF9/UlYBvctmoroqfFAQlQljHvkraxq4SdwmXP0rdVMkD1Qfg5FAxubCDwh8Xh
+    TYOv7JA1cKP3bmMYQb+KjDA7cDLewK4R2Fn/z51ODRm5uWm6GH9RYvFDV73NDtr/
+    aov9tKRJAgMBAAECggEAApZj4bio6Feu/vZTXDTwLivhtayYsaZHtRqRUgW5midG
+    eDJlICkb7NGvs31gjNc07uWhVJE+KamvNLUBtDhuzFvE97UP379MClcYGDiGN/yn
+    utc4r+NFEMj8Gp30mx4kwLhdpVOio/3juY+991jiTxm6o3SXHwt3bMv6z6Uwg+Ht
+    EQa7W3dhDkqwXYX28jOk+liowVAlThaS5xLySNWrKRZAGaYSuzivm4uWbk2i8Ej7
+    9P/uaVZ6RVg4NyHK/QgnlR+a+ifdzIpZ5RHc2CY0h/0emOENL+nlETd24dAQhLhf
+    OaOo72ilrmeFSPgvup1JBU7O4UfeaeZs2Qx8C9mXbQKBgQDX1JpwvvjKIauLGyyz
+    OadLq7Giluqqzt/HYWQcKU3lBAWbifo+DcWzKfUESqsI8RTpV0yOy5j2mnzA18kb
+    IO8XY+4+6QCbTYz+TevAAM3xbKfylg6RthZkMmP15LLnakqlDFTyOVONmGUXKZbP
+    Y8tSMizr+QzZK82zkSJPdX9KVQKBgQC3cpWauz0082iFLvuxQUoNv3IvzyPRNi5T
+    hu1KhEQbluCJuaStKqp2+V6QKx/uJ22dkc+8dM/iyZVXPzQoJZVCZ48fC3WInavv
+    JqIXRRrDtTuqZUAgO5D8o5X2reuzcjrH7yUPEqQLarzEApICElpqI0dVLkE8W8pj
+    EtU9rgVOJQKBgQCbfqCF+hBkED32ym058p+E9P3VlcUbqk+u5YuqfleQV4VyucWA
+    T4vPuLq9jM4McyQNuMd/WU+q20Jl7REGaoPW5jgPOu8k9IpP7POcMPgup4mYTGPS
+    ts0LAwLhdRMvhnSg1HGe0Y5QxSqPtXbhk5Q4c83JdHS9QcHBTR7bAFvkwQKBgEOl
+    nmNjnmtzQtyx+aBgqhUtvsbAhL22VBj7DW/IHHFsDrra2U3+CMQ8qtFRBcJFidds
+    GIWvMaW4njiBFxOi4EqPc6iICjxpoChdP7KDCh6XKzxnf+Ei9hEjpb5EXkFa4zAt
+    EKZhQlrvblJ9fCgFao/vGHPhza6bTqOAI2BOVqh9AoGAV8i88hyPMoQw8u66HR7h
+    vMkAdO1s9xnxHIEBWZYIOdmdWA5ZU0BnGfkZbkTx2/Y0nF1fvWsGxViXvrZLoh8A
+    N9jZK5dYdBuAelL0yCIViH1A8FVTZXAqVMUUJmsS+WKOQKZr07QHM6gaX/cUBj4u
+    yNvfREM3VsoSbEMGnHUweT0=
+    -----END PRIVATE KEY-----`;
+
+    async function imprimirRawQZ(data, fallbackFn) {
+      try {
+          if (typeof qz === "undefined") { fallbackFn(); return; }
+
+          qz.security.setCertificatePromise(resolve => resolve(QZ_CERT));
+          qz.security.setSignaturePromise(toSign => async (resolve, reject) => {
+            try {
+              const pemContents = QZ_PRIVATE_KEY
+                .replace("-----BEGIN PRIVATE KEY-----", "")
+                .replace("-----END PRIVATE KEY-----", "")
+                .replace(/\s/g, "");
+              const binaryDer = atob(pemContents);
+              const binaryArray = new Uint8Array(binaryDer.length);
+              for (let i = 0; i < binaryDer.length; i++) binaryArray[i] = binaryDer.charCodeAt(i);
+              const key = await window.crypto.subtle.importKey(
+                "pkcs8", binaryArray.buffer,
+                { name: "RSASSA-PKCS1-v1_5", hash: "SHA-1" },
+                false, ["sign"]
+              );
+              const signature = await window.crypto.subtle.sign(
+                "RSASSA-PKCS1-v1_5", key,
+                new TextEncoder().encode(toSign)
+              );
+              resolve(btoa(String.fromCharCode(...new Uint8Array(signature))));
+            } catch (e) { reject(e); }
+          });
+
+          if (!qz.websocket.isActive()) await qz.websocket.connect();
+          const printers = await qz.printers.find();
+          const nombreImpresora = 
+      printers.find(pr => pr.includes("GP-80160")) ||
+      printers.find(pr => pr.includes("POS-80") || pr.includes("POS-90") || pr.includes("Thermal") || pr.includes("Receipt")) ||
+      printers.find(pr => pr.includes("POS Printer") || pr.includes("203DPI")) ||
+      printers[0];
+          const config = qz.configs.create(nombreImpresora, { encoding: "IBM858" });
+          await qz.print(config, [{ type: "raw", format: "command", data }]);
+        } catch (err) {
+          console.error("Error QZ Tray:", err);
+          fallbackFn();
+        }
+    }
+
     function exportarExcel(filename, hojas) {
       const wb = XLSX.utils.book_new();
       hojas.forEach(({ name, data }) => {
@@ -2355,105 +2503,7 @@ let numeroAsignado = "";
         const repartidorActual = pedidosLocales[p.id]?.repartidor || "Sin asignar";
         const cobrar = pedidosLocales[p.id]?.cobrar;
 
-        const lineas = [
-          "\x1B\x40",
-          "\x1B\x74\x12",
-          "\x1B\x61\x01",
-          "\x1B\x21\x30",
-          "PICCADELY\n",
-          "\x1B\x21\x00",
-          "comanda de pedido\n",
-          "--------------------------------\n",
-          "\x1B\x61\x00",
-          `${p.numero}  ${p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"long"}) : "-"}\n`,
-          `${p.franjaDisplay}  ${p.zona || ""}\n`,
-          "--------------------------------\n",
-          "\x1B\x21\x08",
-          "CLIENTE\n",
-          "\x1B\x21\x00",
-          `${p.cliente}\n`,
-          `${p.telefono}\n`,
-          "\x1B\x21\x08",
-          "DIRECCION\n",
-          "\x1B\x21\x00",
-          `${p.direccion}${p.barrio ? ", " + p.barrio : ""}\n`,
-          p.entreCalles ? `${p.entreCalles}\n` : "",
-          "--------------------------------\n",
-          "\x1B\x21\x08",
-          "PRODUCTOS\n",
-          "\x1B\x21\x00",
-          ...p.productos.split(", ").map(pr => `- ${pr}\n`),
-          p.nota ? "--------------------------------\n" : "",
-          p.nota ? `\x1B\x21\x08NOTA\n\x1B\x21\x00${p.nota}\n` : "",
-          "--------------------------------\n",
-          `Medio de pago: ${p.medioPago}\n`,
-          "\x1B\x21\x10",
-          `TOTAL: ${p.total}\n`,
-          "\x1B\x21\x00",
-          cobrar ? "\x1B\x21\x30** COBRAR EN ENTREGA **\n\x1B\x21\x00" : "",
-          "--------------------------------\n",
-          `Repartidor: ${repartidorActual}\n`,
-          `Estado: ${estadoActual}\n`,
-          "--------------------------------\n",
-          "\x1B\x61\x01",
-          "Piccadely - juntadely\n",
-          "\x1B\x61\x00",
-          "\n\n\n",
-          "\x1D\x56\x00",
-        ].filter(Boolean);
-
-        const cert = `-----BEGIN CERTIFICATE-----
-    MIIDxjCCAq6gAwIBAgIULtqv2WPbBo0q7Q6bEWuASwCee9swDQYJKoZIhvcNAQEL
-    BQAwdDELMAkGA1UEBhMCQVIxFTATBgNVBAgMDEJ1ZW5vcyBBaXJlczEVMBMGA1UE
-    BwwMQnVlbm9zIEFpcmVzMRIwEAYDVQQKDAlQaWNjYWRlbHkxIzAhBgNVBAMMGnBp
-    Y2NhZGVseS1wYW5lbC52ZXJjZWwuYXBwMB4XDTI2MDUyNjEyMzEyNVoXDTM2MDUy
-    MzEyMzEyNVowdDELMAkGA1UEBhMCQVIxFTATBgNVBAgMDEJ1ZW5vcyBBaXJlczEV
-    MBMGA1UEBwwMQnVlbm9zIEFpcmVzMRIwEAYDVQQKDAlQaWNjYWRlbHkxIzAhBgNV
-    BAMMGnBpY2NhZGVseS1wYW5lbC52ZXJjZWwuYXBwMIIBIjANBgkqhkiG9w0BAQEF
-    AAOCAQ8AMIIBCgKCAQEAmqmVNJBdUV9Sl2oFON2XsgePgsQtRrinz89gvk2f+BxR
-    1Lv0iH1TPbmlpHO90XCzz1Uj1AEup/V2X1oCHZFypvWqnaZv/aCSFCZ4q4ZMvgeZ
-    nVcKAdGkSn6QPc9yme1AeB5IgQdd31GYoZrUERZklzsvxZqHTIHZ4t6d8d/G980D
-    VHMMUkgE4bC7VIcahdwpzeX9oFjWyM5wSCYiRff1JWAb3LZqK6KnxQEJUJYx75K2
-    sauEncJlz9K3VTJA9UH4ORQMbmwg8IfF4U2Dr+yQNXCj925jGEG/iowwO3Ay3sCu
-    EdhZ/8+dTg0Zublpuhh/UWLxQ1e9zQ7a/2qL/bSkSQIDAQABo1AwTjAdBgNVHQ4E
-    FgQUl59WmV6sRU+YOdD/INdS7fnpfGYwHwYDVR0jBBgwFoAUl59WmV6sRU+YOdD/
-    INdS7fnpfGYwDAYDVR0TBAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAESMHJGp9
-    ztKSMkTPqLYiBkvR787KIqBCYLmKxFtNK3XVHWb8NXj8miEv6p+Hpa9FbYOw3n2r
-    Ck/zs1a9VLHec+5a0h6MK54r7QKahznu/sGD6mqBBhjjXWNMny7Oz9Iqts5wxnRY
-    VPFp9eEg/mNHYhUaOWQu5umRBcXeBOE3AMgwwQHYtvmxbDreI1AN/+9d+erY/8hX
-    1D3lN91XK4Z/A1aSi4EKPGIzqR9hq3BiVPlBWUGl8SG/qy1jJPFKlOJlff6V+fAN
-    YS60+SQ0STaXRIWey1dmndFFpI0ryGRdX+LXhT1YoipwlLFzMCI4WRiz2rIB7nfg
-    63hs+bW8Ny9XiA==
-    -----END CERTIFICATE-----`;
-
-        const privateKeyPem = `-----BEGIN PRIVATE KEY-----
-    MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCaqZU0kF1RX1KX
-    agU43ZeyB4+CxC1GuKfPz2C+TZ/4HFHUu/SIfVM9uaWkc73RcLPPVSPUAS6n9XZf
-    WgIdkXKm9aqdpm/9oJIUJnirhky+B5mdVwoB0aRKfpA9z3KZ7UB4HkiBB13fUZih
-    mtQRFmSXOy/FmodMgdni3p3x38b3zQNUcwxSSAThsLtUhxqF3CnN5f2gWNbIznBI
-    JiJF9/UlYBvctmoroqfFAQlQljHvkraxq4SdwmXP0rdVMkD1Qfg5FAxubCDwh8Xh
-    TYOv7JA1cKP3bmMYQb+KjDA7cDLewK4R2Fn/z51ODRm5uWm6GH9RYvFDV73NDtr/
-    aov9tKRJAgMBAAECggEAApZj4bio6Feu/vZTXDTwLivhtayYsaZHtRqRUgW5midG
-    eDJlICkb7NGvs31gjNc07uWhVJE+KamvNLUBtDhuzFvE97UP379MClcYGDiGN/yn
-    utc4r+NFEMj8Gp30mx4kwLhdpVOio/3juY+991jiTxm6o3SXHwt3bMv6z6Uwg+Ht
-    EQa7W3dhDkqwXYX28jOk+liowVAlThaS5xLySNWrKRZAGaYSuzivm4uWbk2i8Ej7
-    9P/uaVZ6RVg4NyHK/QgnlR+a+ifdzIpZ5RHc2CY0h/0emOENL+nlETd24dAQhLhf
-    OaOo72ilrmeFSPgvup1JBU7O4UfeaeZs2Qx8C9mXbQKBgQDX1JpwvvjKIauLGyyz
-    OadLq7Giluqqzt/HYWQcKU3lBAWbifo+DcWzKfUESqsI8RTpV0yOy5j2mnzA18kb
-    IO8XY+4+6QCbTYz+TevAAM3xbKfylg6RthZkMmP15LLnakqlDFTyOVONmGUXKZbP
-    Y8tSMizr+QzZK82zkSJPdX9KVQKBgQC3cpWauz0082iFLvuxQUoNv3IvzyPRNi5T
-    hu1KhEQbluCJuaStKqp2+V6QKx/uJ22dkc+8dM/iyZVXPzQoJZVCZ48fC3WInavv
-    JqIXRRrDtTuqZUAgO5D8o5X2reuzcjrH7yUPEqQLarzEApICElpqI0dVLkE8W8pj
-    EtU9rgVOJQKBgQCbfqCF+hBkED32ym058p+E9P3VlcUbqk+u5YuqfleQV4VyucWA
-    T4vPuLq9jM4McyQNuMd/WU+q20Jl7REGaoPW5jgPOu8k9IpP7POcMPgup4mYTGPS
-    ts0LAwLhdRMvhnSg1HGe0Y5QxSqPtXbhk5Q4c83JdHS9QcHBTR7bAFvkwQKBgEOl
-    nmNjnmtzQtyx+aBgqhUtvsbAhL22VBj7DW/IHHFsDrra2U3+CMQ8qtFRBcJFidds
-    GIWvMaW4njiBFxOi4EqPc6iICjxpoChdP7KDCh6XKzxnf+Ei9hEjpb5EXkFa4zAt
-    EKZhQlrvblJ9fCgFao/vGHPhza6bTqOAI2BOVqh9AoGAV8i88hyPMoQw8u66HR7h
-    vMkAdO1s9xnxHIEBWZYIOdmdWA5ZU0BnGfkZbkTx2/Y0nF1fvWsGxViXvrZLoh8A
-    N9jZK5dYdBuAelL0yCIViH1A8FVTZXAqVMUUJmsS+WKOQKZr07QHM6gaX/cUBj4u
-    yNvfREM3VsoSbEMGnHUweT0=
-    -----END PRIVATE KEY-----`;
+        const lineas = comandaLineasESCPOS(p, estadoActual, repartidorActual, cobrar);
 
         const fallback = () => {
           const ventana = window.open("", "_blank", "width=400,height=600");
@@ -2482,45 +2532,80 @@ let numeroAsignado = "";
           ventana.document.close();
         };
 
-        try {
-          if (typeof qz === "undefined") { fallback(); return; }
+        await imprimirRawQZ(lineas.join(""), fallback);
+      }
 
-          qz.security.setCertificatePromise(resolve => resolve(cert));
-          qz.security.setSignaturePromise(toSign => async (resolve, reject) => {
-            try {
-              const pemContents = privateKeyPem
-                .replace("-----BEGIN PRIVATE KEY-----", "")
-                .replace("-----END PRIVATE KEY-----", "")
-                .replace(/\s/g, "");
-              const binaryDer = atob(pemContents);
-              const binaryArray = new Uint8Array(binaryDer.length);
-              for (let i = 0; i < binaryDer.length; i++) binaryArray[i] = binaryDer.charCodeAt(i);
-              const key = await window.crypto.subtle.importKey(
-                "pkcs8", binaryArray.buffer,
-                { name: "RSASSA-PKCS1-v1_5", hash: "SHA-1" },
-                false, ["sign"]
-              );
-              const signature = await window.crypto.subtle.sign(
-                "RSASSA-PKCS1-v1_5", key,
-                new TextEncoder().encode(toSign)
-              );
-              resolve(btoa(String.fromCharCode(...new Uint8Array(signature))));
-            } catch (e) { reject(e); }
-          });
+      // ─── IMPRIMIR COMANDAS EN LOTE (HOY · sucursal del tab · no impresas) ───
+      // La sucursal "seleccionada" es la del tab activo: cada tab es retiro/delivery
+      // de un local (localLabel(tab) → "A. Thomas" | "French"). Pendientes = pedidos
+      // activos de HOY de esa sucursal cuyo contador de comandas impresas está en 0.
+      const sucursalSeleccionada = localLabel(tab);
+      const comandasPendientes = pedidosActivos.filter(p => {
+        const est = pedidosLocales[p.id]?.estado || p.estado;
+        if (est === "Anulado" || est === "Entregado") return false;
+        if (p.fechaDisplay !== HOY) return false;
+        if (p.local !== sucursalSeleccionada) return false;
+        return (comandasImpresas[p.id] || 0) === 0;
+      });
+      async function imprimirComandasLote() {
+        if (comandasPendientes.length === 0) return;
+        if (!window.confirm(`¿Imprimir ${comandasPendientes.length} comanda${comandasPendientes.length > 1 ? "s" : ""}?`)) return;
+        const lote = comandasPendientes;
+        const datos = lote.map(p => ({
+          p,
+          estadoActual: pedidosLocales[p.id]?.estado || "Por empaquetar",
+          repartidorActual: pedidosLocales[p.id]?.repartidor || "Sin asignar",
+          cobrar: pedidosLocales[p.id]?.cobrar,
+        }));
 
-          if (!qz.websocket.isActive()) await qz.websocket.connect();
-          const printers = await qz.printers.find();
-          const nombreImpresora = 
-      printers.find(pr => pr.includes("GP-80160")) ||
-      printers.find(pr => pr.includes("POS-80") || pr.includes("POS-90") || pr.includes("Thermal") || pr.includes("Receipt")) ||
-      printers.find(pr => pr.includes("POS Printer") || pr.includes("203DPI")) ||
-      printers[0];
-          const config = qz.configs.create(nombreImpresora, { encoding: "IBM858" });
-          await qz.print(config, [{ type: "raw", format: "command", data: lineas.join("") }]);
-        } catch (err) {
-          console.error("Error QZ Tray:", err);
-          fallback();
-        }
+        // QZ Tray: una sola tirada con todas las comandas concatenadas. Cada
+        // comanda ya termina con su corte de papel ("\x1D\x56\x00"), así que el
+        // corte entre comandas sale solo. Mismo template ESC/POS que la individual.
+        const dataLote = datos.map(d => comandaLineasESCPOS(d.p, d.estadoActual, d.repartidorActual, d.cobrar).join("")).join("");
+
+        // Fallback (sin QZ): un solo documento HTML, una comanda por página
+        // (break-after: page), un único window.print(). Mismo template individual.
+        const fallbackLote = () => {
+          const bloques = datos.map(({ p, estadoActual, repartidorActual, cobrar }) => `<div class="comanda">
+            <div class="centro"><div class="titulo">Piccadely</div><div style="font-size:11px;">comanda de pedido</div></div>
+            <div class="linea"></div>
+            <div class="fila"><span><b>${p.numero}</b></span><span>${p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"long"}) : "-"}</span></div>
+            <div class="fila"><span>${p.franjaDisplay}</span><span>${p.zona || ""}</span></div>
+            <div class="linea"></div>
+            <div class="label">Cliente</div><div class="valor">${p.cliente}</div><div class="valor">${p.telefono}</div>
+            <div class="label">Direccion</div><div class="valor">${p.direccion}${p.barrio ? ", "+p.barrio : ""}</div>
+            <div class="linea"></div>
+            <div class="label">Productos</div>${p.productos.split(", ").map(pr => `<div>- ${pr}</div>`).join("")}
+            ${p.nota ? `<div class="linea"></div><div class="label">Nota</div><div style="font-style:italic;">${p.nota}</div>` : ""}
+            <div class="linea"></div>
+            <div class="fila"><span class="label">Medio de pago</span><span>${p.medioPago}</span></div>
+            <div class="total">${p.total}</div>
+            ${cobrar ? `<div class="cobrar">** COBRAR EN ENTREGA **</div>` : ""}
+            <div class="linea"></div>
+            <div class="fila"><span class="label">Repartidor</span><span>${repartidorActual}</span></div>
+            <div style="text-align:center;font-size:11px;border:1px solid #000;padding:3px;">${estadoActual}</div>
+            <div class="linea"></div>
+            <div class="centro" style="font-size:10px;color:#888;">Piccadely - juntadely</div>
+          </div>`).join("");
+          const ventana = window.open("", "_blank", "width=400,height=600");
+          ventana.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Comandas (${lote.length})</title>
+            <style>* { margin:0; padding:0; box-sizing:border-box; } body { font-family:'Courier New',monospace; font-size:12px; color:#000; } .comanda { width:80mm; padding:4mm; } .comanda:not(:last-child) { break-after:page; page-break-after:always; } .centro { text-align:center; } .titulo { font-size:18px; font-weight:bold; margin-bottom:2px; } .linea { border-top:1px dashed #000; margin:6px 0; } .fila { display:flex; justify-content:space-between; margin:2px 0; } .label { font-weight:bold; font-size:10px; text-transform:uppercase; color:#555; margin-top:6px; margin-bottom:1px; } .valor { font-size:12px; } .total { font-size:15px; font-weight:bold; text-align:right; margin-top:4px; } .cobrar { text-align:center; font-size:16px; font-weight:bold; border:2px solid #000; padding:6px; margin:8px 0; } @media print { @page { margin:0; size:80mm auto; } }</style></head><body>
+            ${bloques}
+            <script>window.onload=function(){window.print();}<\/script></body></html>`);
+          ventana.document.close();
+        };
+
+        await imprimirRawQZ(dataLote, fallbackLote);
+
+        // Marcado optimista (sale de "pendientes" al instante) + endpoint en loop.
+        // Si alguna falla, el contador local queda igual que en la impresión individual
+        // y el botón individual de cada pedido sigue disponible para reimprimir esa sola.
+        lote.forEach(p => {
+          setComandasImpresas(prev => ({ ...prev, [p.id]: (prev[p.id] || 0) + 1 }));
+          axios.post(`${API}/api/pedidos/${p.id}/imprimir`, { usuario: usuario.nombre_completo })
+            .then(res => setComandasImpresas(prev => ({ ...prev, [p.id]: res.data.comandasImpresas })))
+            .catch(() => {});
+        });
       }
 
       const conteos = {};
@@ -3418,6 +3503,14 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
               <option value="">Todas las zonas</option>
               {zonas.map(z => <option key={z} value={z}>{z}</option>)}
             </select>
+            <button
+              onClick={imprimirComandasLote}
+              disabled={comandasPendientes.length === 0}
+              title={comandasPendientes.length === 0 ? "No hay comandas pendientes" : `Imprimir ${comandasPendientes.length} comanda(s) de hoy de ${sucursalSeleccionada}`}
+              style={{ marginLeft: "auto", fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: comandasPendientes.length === 0 ? "not-allowed" : "pointer", borderColor: comandasPendientes.length === 0 ? "#ddd" : "#0c447c", background: comandasPendientes.length === 0 ? "#f5f5f5" : "#0c447c", color: comandasPendientes.length === 0 ? "#aaa" : "#fff", display: "flex", alignItems: "center", gap: 8 }}>
+              🖨️ IMPRIMIR COMANDAS
+              {comandasPendientes.length > 0 && <span style={{ background: "#fff", color: "#0c447c", borderRadius: 99, fontSize: 11, padding: "1px 8px", fontWeight: 700 }}>{comandasPendientes.length}</span>}
+            </button>
           </div>
           <div style={s.lista}>
             <div style={s.cabecera}>
