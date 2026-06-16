@@ -16,6 +16,60 @@ const tnHeaders = {
   "User-Agent": "PiccadelyPanel (piccadely@gmail.com)",
 };
 
+// ═════════════════════════════════════════════════════════════════════
+//  CONFIG DE HORARIOS DE ENTREGA  (ajustable)
+//  El cálculo es DETERMINÍSTICO (en código), nunca lo razona el modelo.
+//   · HOY (same-day) → SOLO CABA: se ofrece un ETA ("dentro de ~2-3 horas"), nunca una franja fija.
+//                      GBA no toma pedidos para hoy.
+//   · OTRO DÍA       → se ofrecen las franjas fijas de abajo (CABA y GBA).
+// ═════════════════════════════════════════════════════════════════════
+const FRANJAS_OTRO_DIA = [
+  { inicio: "09:00", fin: "13:00" },
+  { inicio: "13:00", fin: "17:00" },
+  { inicio: "17:00", fin: "21:00" },
+];
+const CORTE_HOY = "18:00";            // última hora para pedir con entrega HOY same-day (CABA, ajustable)
+const ETA_HORAS = { min: 2, max: 3 }; // "dentro de ~2-3 horas"
+
+// "HH:MM" → minutos desde medianoche, y viceversa.
+const hhmmAMin = (s) => { const [h, m] = s.split(":").map(Number); return h * 60 + m; };
+const minAHHMM = (min) => { const t = ((min % 1440) + 1440) % 1440; return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; };
+
+// "Ahora" en America/Argentina/Buenos_Aires → { dia, hora:"HH:MM", minutos }
+function ahoraArgentina() {
+  const parts = new Intl.DateTimeFormat("es-AR", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    weekday: "long", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(new Date());
+  const get = (t) => parts.find((p) => p.type === t)?.value || "";
+  const hh = get("hour"), mm = get("minute");
+  return { dia: get("weekday"), hora: `${hh}:${mm}`, minutos: Number(hh) * 60 + Number(mm) };
+}
+
+const FRANJAS_TXT = FRANJAS_OTRO_DIA.map((f) => `${f.inicio} a ${f.fin}`).join(" · ");
+
+// Opciones de entrega que el agente PUEDE ofrecer, calculadas por código.
+//   modo === "otro_dia" → las tres franjas fijas.
+//   modo === "hoy"      → ETA si todavía no pasó el corte; si pasó, no hay hoy → reservar otro día.
+function opcionesEntrega(ahora, modo) {
+  if (modo === "otro_dia") {
+    return { modo, hayHoy: false, texto: `franjas fijas ${FRANJAS_TXT}.` };
+  }
+  // modo === "hoy"
+  if (ahora.minutos < hhmmAMin(CORTE_HOY)) {
+    const desde = minAHHMM(ahora.minutos + ETA_HORAS.min * 60);
+    const hasta = minAHHMM(ahora.minutos + ETA_HORAS.max * 60);
+    return {
+      modo, hayHoy: true,
+      texto: `te llega dentro de ~${ETA_HORAS.min}-${ETA_HORAS.max} horas (aprox. entre las ${desde} y las ${hasta}). Ofrecé SOLO este ETA, nunca una franja fija.`,
+    };
+  }
+  return {
+    modo, hayHoy: false,
+    texto: `ya pasó la hora de corte (${CORTE_HOY}), HOY ya no llega. Ofrecé reservar para otro día en una de las franjas fijas ${FRANJAS_TXT}.`,
+  };
+}
+
 // ─── CEREBRO DEL BOT (reglas fijas del manual) ───────────────────────
 const SYSTEM_BOT = `
 Sos el asistente de ventas de Piccadely por WhatsApp. Piccadely es una empresa argentina experta en piccadas (sí, "piccada" con doble C — es parte de la marca) para juntadas y eventos en AMBA. Atendés clientes, recomendás, cotizás y tomás el pedido con buena onda y sin perder la venta.
@@ -83,6 +137,14 @@ Preguntá el partido/localidad y matcheá por nombre contra la tabla (más confi
 Franjas: 9 a 13 · 13 a 17 · 17 a 20 · 20 a 23. Desayunos: 8:30 a 11:30.
 CABA en el día: se puede ajustar a entrega dentro de las 2 horas.
 Nunca pierdas la venta por el rango: ofrecé hacer lo posible y, en CABA, ajustar a 2 hs.
+
+## Entrega: HOY vs OTRO DÍA (REGLA DURA — los horarios los calcula el sistema)
+- Los horarios de entrega que SÍ podés ofrecer te los pasa el sistema en el bloque "ENTREGA" del CONTEXTO EN TIEMPO REAL. Usá EXCLUSIVAMENTE esas opciones: para fines de entrega, ignorá cualquier otra franja u horario mencionado en estas reglas.
+- Primero averiguá o inferí si el cliente quiere la entrega para HOY o para OTRO DÍA (reserva).
+- Entrega para HOY: SOLO CABA, vía ETA. GBA: no se toman pedidos para hoy → ofrecé reserva para otro día. Si todavía no sabés la zona del cliente, pedí la dirección/zona antes de prometer same-day.
+- Para HOY en CABA: ofrecé SOLO el ETA que te da el sistema ("te llega dentro de ~2-3 horas"), NUNCA una franja fija. Si el sistema dice que ya pasó la hora de corte, decí con tacto que hoy ya no llega y ofrecé reservar para otro día con las franjas.
+- Para OTRO DÍA: ofrecé SOLO las franjas fijas que te pasa el sistema (9 a 13, 13 a 17, 17 a 21).
+- NUNCA ofrezcas un horario ya vencido ni inventes horarios fuera de los que te pasa el sistema.
 
 ## Anticipación mínima
 - Piccadas, combinados y el resto: mismo día.
@@ -229,6 +291,13 @@ export function botWhatsappRouter() {
         hour: "2-digit", minute: "2-digit",
       });
 
+      // Opciones de entrega calculadas por código (determinístico, NO lo razona el modelo).
+      const ahora = ahoraArgentina();
+      const opcOtroDia = opcionesEntrega(ahora, "otro_dia");
+      const entregaHoyTxt = cfg.tomarHoy
+        ? opcionesEntrega(ahora, "hoy").texto
+        : `hoy NO se están tomando pedidos. Ofrecé reservar para otro día en una de las franjas fijas ${FRANJAS_TXT}.`;
+
       // System en 3 bloques para PROMPT CACHING:
       // 1) cerebro fijo (cachea) → 2) catálogo (cachea, rota cada 5 min) → 3) contexto en tiempo real (sin caché, va último para no romper el prefijo)
       const systemBloques = [
@@ -248,7 +317,16 @@ export function botWhatsappRouter() {
 - Fecha y hora actual (Buenos Aires): ${ahoraBA}.
 - Anticipación mínima para PiccaSandwiches/PiccaDesayunos/Catering: ${cfg.anticipacionHoras} horas.
 - ¿Se toman pedidos para HOY?: ${cfg.tomarHoy ? "SÍ" : "NO — ofrecé desde mañana con un 'por alta demanda, hoy tomamos pedidos para mañana'"}.
-- RECORDATORIO DE ESTILO: prohibido "te late" (usá "¿qué te parece?" o "¿te va?"); los fiambres/embutidos son "charcuterie", nunca "carnes".`,
+- RECORDATORIO DE ESTILO: prohibido "te late" (usá "¿qué te parece?" o "¿te va?"); los fiambres/embutidos son "charcuterie", nunca "carnes".
+
+# ENTREGA (horarios calculados por el sistema — NO inventes ni razones horarios)
+- Fecha y hora actual (Argentina): ${ahora.dia} ${ahora.hora}.
+- Entrega para HOY (same-day): SOLO CABA. GBA no toma pedidos para hoy.
+- Opciones de entrega que SÍ podés ofrecer ahora:
+  · HOY en CABA: ${entregaHoyTxt}
+  · HOY en GBA: no se toman pedidos para hoy. Ofrecé reservar para otro día: ${opcOtroDia.texto}
+  · OTRO DÍA (reserva, CABA o GBA): ${opcOtroDia.texto}
+  · Si todavía no sabés la zona del cliente, pedí la dirección/zona antes de prometer same-day.`,
         },
       ];
 
