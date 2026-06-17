@@ -1236,16 +1236,24 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       );
     }
  
-    function VistaMapa({ onVolver }) {
+    function VistaMapa({ onVolver, repartidores = [], onCrearTanda }) {
       const [fecha, setFecha] = useState(HOY);
       const [pedidos, setPedidos] = useState([]);
       const [loading, setLoading] = useState(false);
       const [filtroFranja, setFiltroFranja] = useState("");
+      const [filtroLocal, setFiltroLocal] = useState(""); // "" = ambas; armar tanda exige una sucursal
       const [mapLoaded, setMapLoaded] = useState(false);
+      // Armado de tanda desde el mapa (Fase 2)
+      const [seleccion, setSeleccion] = useState([]);      // ids de pedidos seleccionados (pins)
+      const [confirmando, setConfirmando] = useState(false); // modal abierto
+      const [repartidor, setRepartidor] = useState("");
+      const [nombre, setNombre] = useState("");
+      const [tandaError, setTandaError] = useState("");
       const mapRef = useRef(null);
       const mapInstanceRef = useRef(null);
       const markersRef = useRef([]);
       const infoRef = useRef(null);
+      const toggleSeleccion = (id) => setSeleccion(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
       useEffect(() => {
         if (window.google && window.google.maps) { setMapLoaded(true); return; }
@@ -1293,21 +1301,27 @@ const [facturaLabel, setFacturaLabel] = useState(null);
           const pos = { lat: p.lat, lng: p.lng };
           bounds.extend(pos);
           const color = ESTADO_PIN[p.estado] || "#888";
+          const enTanda = p.tandaId != null;
+          // Seleccionable sólo si hay una sucursal filtrada, el pedido es de esa sucursal y no está en tanda.
+          const seleccionable = !!filtroLocal && p.local === filtroLocal && !enTanda;
+          const seleccionado = seleccion.includes(p.id);
           const marker = new window.google.maps.Marker({
             position: pos,
             map: mapInstanceRef.current,
-            title: `${p.numero} — ${p.franjaDisplay}`,
+            title: `${p.numero} — ${p.franjaDisplay}${enTanda ? ` · Tanda #${p.tandaId}` : ""}`,
             icon: {
               path: window.google.maps.SymbolPath.CIRCLE,
-              scale: 14,
-              fillColor: color,
+              scale: seleccionado ? 18 : 14,
+              fillColor: enTanda ? "#7c3aed" : color,
               fillOpacity: 0.9,
-              strokeColor: "#fff",
-              strokeWeight: 2,
+              strokeColor: seleccionado ? "#7c3aed" : "#fff",
+              strokeWeight: seleccionado ? 5 : 2,
             },
-            label: { text: p.numero.replace("#", ""), color: "#fff", fontSize: "9px", fontWeight: "bold" },
+            label: { text: enTanda ? `T${p.tandaId}` : p.numero.replace("#", ""), color: "#fff", fontSize: "9px", fontWeight: "bold" },
+            zIndex: seleccionado ? 999 : undefined,
           });
           marker.addListener("click", () => {
+            if (seleccionable) { toggleSeleccion(p.id); return; }
             infoRef.current.setContent(`
               <div style="font-family:system-ui;min-width:200px;max-width:280px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
@@ -1320,6 +1334,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
                 <div style="font-size:12px;color:#555;margin-bottom:2px;">📦 ${p.productos.length > 60 ? p.productos.substring(0, 60) + "..." : p.productos}</div>
                 <div style="font-size:12px;color:#555;margin-bottom:2px;">💰 $${Number(p.total).toLocaleString("es-AR")}${p.cobrar ? ' <span style="color:#c0392b;font-weight:700;">⚠ COBRAR</span>' : ""}</div>
                 <div style="font-size:11px;color:#888;margin-top:4px;">🚚 ${p.repartidor} · ${p.local}</div>
+                ${enTanda ? `<div style="font-size:12px;color:#7c3aed;font-weight:700;margin-top:4px;">📦 En tanda #${p.tandaId}</div>` : ""}
               </div>
             `);
             infoRef.current.open(mapInstanceRef.current, marker);
@@ -1327,12 +1342,28 @@ const [facturaLabel, setFacturaLabel] = useState(null);
           markersRef.current.push(marker);
         });
         mapInstanceRef.current.fitBounds(bounds, 60);
-      }, [pedidos, mapLoaded, filtroFranja]);
+      }, [pedidos, mapLoaded, filtroFranja, filtroLocal, seleccion]);
 
       const franjasDisponibles = [...new Set(pedidos.map(p => p.franjaDisplay).filter(Boolean))].sort();
-    const pedidosFiltrados = filtroFranja ? pedidos.filter(p => p.franjaDisplay === filtroFranja) : pedidos;
+    const pedidosFiltrados = pedidos.filter(p => (!filtroFranja || p.franjaDisplay === filtroFranja) && (!filtroLocal || p.local === filtroLocal));
     const porEstado = { "Por empaquetar": 0, "Listo": 0, "En camino": 0 };
     pedidosFiltrados.forEach(p => { if (porEstado[p.estado] !== undefined) porEstado[p.estado]++; });
+
+      const avisoTandaMapa = (msg) => { setTandaError(msg); setTimeout(() => setTandaError(""), 3500); };
+      const cambiarFiltroLocal = (loc) => { setFiltroLocal(loc); setSeleccion([]); }; // cambiar de sucursal limpia la selección
+      async function confirmarTandaMapa() {
+        if (!repartidor) { avisoTandaMapa("Elegí un repartidor."); return; }
+        if (seleccion.length === 0 || !filtroLocal) return;
+        const ids = seleccion;
+        try {
+          const tanda = await onCrearTanda({ pedidoIds: ids, local: filtroLocal, repartidor, nombre });
+          // optimista: los pins seleccionados pasan a mostrar su T{n} y dejan de ser seleccionables
+          setPedidos(prev => prev.map(p => ids.includes(p.id) ? { ...p, tandaId: tanda.id } : p));
+          setSeleccion([]); setConfirmando(false); setRepartidor(""); setNombre("");
+        } catch (err) {
+          avisoTandaMapa("No se pudo crear la tanda. Reintentá.");
+        }
+      }
 
       return (
         <div style={{ fontFamily: "system-ui, sans-serif", minHeight: "100vh", background: "#f7f7f5" }}>
@@ -1349,6 +1380,12 @@ const [facturaLabel, setFacturaLabel] = useState(null);
               <option value="">Todas las franjas</option>
               {franjasDisponibles.map(f => <option key={f} value={f}>{f}</option>)}
             </select>
+              <select style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }}
+                value={filtroLocal} onChange={e => cambiarFiltroLocal(e.target.value)}>
+                <option value="">Ambas sucursales</option>
+                <option value="A. Thomas">A. Thomas</option>
+                <option value="French">French</option>
+              </select>
               <div style={{ display: "flex", gap: 8 }}>
                 {[["Por empaquetar", "#888"], ["Listo", "#F68B32"], ["En camino", "#0c447c"]].map(([est, col]) => (
                   <span key={est} style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
@@ -1367,6 +1404,55 @@ const [facturaLabel, setFacturaLabel] = useState(null);
             </div>
           )}
           <div ref={mapRef} style={{ width: "100%", height: "calc(100vh - 120px)" }} />
+
+          {/* Hint cuando hay sucursal filtrada y todavía no seleccionó nada */}
+          {filtroLocal && seleccion.length === 0 && mapLoaded && pedidosFiltrados.length > 0 && (
+            <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 40, background: "#2b2b2b", color: "#fff", padding: "8px 16px", borderRadius: 99, fontSize: 12, boxShadow: "0 4px 16px rgba(0,0,0,0.25)" }}>
+              Tocá los pins de {filtroLocal} (sin tanda) para armar una tanda
+            </div>
+          )}
+
+          {/* Botón flotante "Armar tanda (N)" */}
+          {filtroLocal && seleccion.length > 0 && (
+            <button onClick={() => { setRepartidor(""); setNombre(""); setConfirmando(true); }}
+              style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 50, fontSize: 14, fontWeight: 700, padding: "12px 24px", borderRadius: 99, border: "none", cursor: "pointer", background: "#7c3aed", color: "#fff", boxShadow: "0 4px 16px rgba(124,58,237,0.4)" }}>
+              📦 Armar tanda ({seleccion.length}) — {filtroLocal}
+            </button>
+          )}
+
+          {/* Modal: repartidor (obligatorio) + nombre (opcional) — mismo de la Fase 1 */}
+          {confirmando && (
+            <div onClick={() => setConfirmando(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+              <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, padding: 24, width: 380, boxShadow: "0 8px 40px rgba(0,0,0,0.25)" }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#333", marginBottom: 4 }}>📦 Nueva tanda — {filtroLocal}</div>
+                <div style={{ fontSize: 12, color: "#888", marginBottom: 16 }}>{seleccion.length} pedido{seleccion.length > 1 ? "s" : ""}</div>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ ...s.formLabel, display: "block", marginBottom: 4 }}>Repartidor *</label>
+                  <select style={{ ...s.formInput, width: "100%" }} value={repartidor} onChange={e => setRepartidor(e.target.value)}>
+                    <option value="">Elegí un repartidor…</option>
+                    {repartidores.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ ...s.formLabel, display: "block", marginBottom: 4 }}>Nombre (opcional)</label>
+                  <input style={{ ...s.formInput, width: "100%", boxSizing: "border-box" }} value={nombre} onChange={e => setNombre(e.target.value)} placeholder="ej: Recorrido centro" />
+                </div>
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button onClick={() => setConfirmando(false)} style={{ fontSize: 13, padding: "8px 14px", borderRadius: 6, border: "1px solid #ddd", cursor: "pointer", background: "#fff", color: "#555" }}>Cancelar</button>
+                  <button onClick={confirmarTandaMapa} disabled={!repartidor}
+                    style={{ fontSize: 13, fontWeight: 700, padding: "8px 18px", borderRadius: 6, border: "none", cursor: repartidor ? "pointer" : "not-allowed", background: repartidor ? "#7c3aed" : "#ccc", color: "#fff" }}>
+                    Crear tanda
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {tandaError && (
+            <div style={{ position: "fixed", bottom: 80, left: "50%", transform: "translateX(-50%)", background: "#fdecea", color: "#c0392b", border: "1px solid #f5b7b1", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 500, boxShadow: "0 4px 16px rgba(0,0,0,0.12)", zIndex: 500 }}>
+              {tandaError}
+            </div>
+          )}
         </div>
       );
     }
@@ -2360,16 +2446,21 @@ setPedidosDatosOverride(datosInit);
       function toggleSeleccionTanda(id) {
         setSeleccionTanda(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
       }
+      // Crea la tanda en el backend (POST /api/tandas) y la agrega a la lista local.
+      // Reusada por el panel (confirmarTanda) y por el mapa (Fase 2). Devuelve la tanda creada.
+      async function crearTanda({ pedidoIds, local, repartidor, nombre }) {
+        const res = await axios.post(`${API}/api/tandas`, { nombre: nombre || null, repartidor, local, pedidoIds, usuario: usuario.nombre_completo });
+        const tanda = res.data;
+        setTandas(prev => [tanda, ...prev]);
+        return tanda;
+      }
       async function confirmarTanda() {
         if (!tandaRepartidor) { avisoTanda("Elegí un repartidor."); return; }
         if (seleccionTanda.length === 0) return;
         const ids = seleccionTanda;
-        const local = modoTandaLocal;
         try {
-          const res = await axios.post(`${API}/api/tandas`, { nombre: tandaNombre || null, repartidor: tandaRepartidor, local, pedidoIds: ids, usuario: usuario.nombre_completo });
-          const tanda = res.data;
-          setTandas(prev => [tanda, ...prev]);
-          ids.forEach(id => actualizarLocalSinGuardar(id, { tandaId: tanda.id })); // optimista: salen del pool
+          const tanda = await crearTanda({ pedidoIds: ids, local: modoTandaLocal, repartidor: tandaRepartidor, nombre: tandaNombre });
+          ids.forEach(id => actualizarLocalSinGuardar(id, { tandaId: tanda.id })); // optimista: muestran su T{n}
           setConfirmandoTanda(false); setTandaNombre(""); setTandaRepartidor("");
           salirModoTanda();
         } catch (err) {
@@ -3454,7 +3545,7 @@ if (vista === "dashboard") {
       return <div style={s.wrap}><Header /><VistaImportar usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "mapa") {
-        return <div style={s.wrap}><Header /><VistaMapa onVolver={() => setVista("panel")} /></div>;
+        return <div style={s.wrap}><Header /><VistaMapa onVolver={() => setVista("panel")} repartidores={repartidoresLista} onCrearTanda={crearTanda} /></div>;
       }
       if (vista === "finalizados") {
         const finalizadosOrdenados = [...pedidosFinalizados]

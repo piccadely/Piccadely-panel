@@ -839,7 +839,7 @@ app.get("/api/mapa/pedidos/:fecha", async (req, res) => {
     const tnRes = await pool.query("SELECT data FROM pedidos_tn ORDER BY tn_created_at DESC LIMIT 500");
     const estadosRes = await pool.query("SELECT * FROM pedidos_estados");
     const estadosMap = {};
-    estadosRes.rows.forEach(r => { estadosMap[r.id] = { estado: r.estado, repartidor: r.repartidor, fechaManual: r.fecha_manual, franjaManual: r.franja_manual, cobrar: r.cobrar, tabManual: r.tab_manual }; });
+    estadosRes.rows.forEach(r => { estadosMap[r.id] = { estado: r.estado, repartidor: r.repartidor, fechaManual: r.fecha_manual, franjaManual: r.franja_manual, cobrar: r.cobrar, tabManual: r.tab_manual, tandaId: r.tanda_id ?? null }; });
     const overridesRes = await pool.query("SELECT * FROM pedidos_productos");
     const overridesMap = {};
     overridesRes.rows.forEach(r => { overridesMap[r.pedido_id] = { productos: r.productos, total_num: Number(r.total_num) }; });
@@ -866,6 +866,7 @@ app.get("/api/mapa/pedidos/:fecha", async (req, res) => {
         total: ov ? ov.total_num : Number(p.total),
         estado, repartidor: est.repartidor || "Sin asignar",
         cobrar: !!est.cobrar, local: localLabelBackend(tabActual),
+        tandaId: est.tandaId ?? null,
         addressFull: `${dir}, ${barrio}, Buenos Aires, Argentina`,
       });
     }
@@ -888,6 +889,7 @@ app.get("/api/mapa/pedidos/:fecha", async (req, res) => {
         estado, repartidor: est.repartidor || "Sin asignar",
         cobrar: est.cobrar !== undefined ? !!est.cobrar : !!p.cobrar,
         local: localLabelBackend(tabActual),
+        tandaId: est.tandaId ?? null,
         addressFull: `${p.direccion || ""}, ${p.barrio || ""}, Buenos Aires, Argentina`,
       });
     }
