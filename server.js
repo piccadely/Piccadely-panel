@@ -540,6 +540,7 @@ app.get("/api/reportes/pedidos", async (req, res) => {
           medioPagoOtroOverride: r.medio_pago_otro_override,
           comandasImpresas: r.comandas_impresas || 0,
           sobre: r.sobre || false,
+          tandaId: r.tanda_id ?? null,
       };
     });
     res.json(estados);
@@ -612,6 +613,93 @@ app.patch("/api/orders/:id/sobre", async (req, res) => {
     );
     res.json({ ok: true, sobre });
   } catch (err) { res.status(500).json({ error: "Error guardando sobre" }); }
+});
+// ─── TANDAS DE REPARTO (Fase 1) ──────────────────────────────────────
+// Membresía por pedido vía pedidos_estados.tanda_id (un pedido = una tanda).
+// El upsert de tanda_id NO toca estado/repartidor/sobre ni ningún otro override:
+// en una fila existente sólo actualiza tanda_id; en una fila nueva, las demás
+// columnas toman su DEFAULT (mismo patrón de una sola columna que el upsert de
+// comandas_impresas y el de sobre). Un pedido finalizado siempre tiene fila
+// previa, así que cae por la rama ON CONFLICT y nunca se "reactiva".
+async function setTandaIdPedido(id, tandaId) {
+  await pool.query(
+    `INSERT INTO pedidos_estados (id, tanda_id, updated_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (id) DO UPDATE SET tanda_id = EXCLUDED.tanda_id, updated_at = NOW()`,
+    [id, tandaId]
+  );
+}
+
+app.get("/api/tandas", async (req, res) => {
+  try {
+    const r = await pool.query("SELECT * FROM tandas ORDER BY id DESC");
+    res.json(r.rows.map(t => ({ id: t.id, nombre: t.nombre, repartidor: t.repartidor, local: t.local, estado: t.estado, createdAt: t.created_at })));
+  } catch (err) { res.status(500).json({ error: "Error trayendo tandas" }); }
+});
+
+app.post("/api/tandas", async (req, res) => {
+  const { nombre, repartidor, local, pedidoIds, usuario: usuarioAudit } = req.body;
+  if (!repartidor || !Array.isArray(pedidoIds) || pedidoIds.length === 0) {
+    return res.status(400).json({ error: "repartidor y pedidoIds son requeridos" });
+  }
+  try {
+    const ins = await pool.query(
+      `INSERT INTO tandas (nombre, repartidor, local, estado) VALUES ($1,$2,$3,'armada') RETURNING *`,
+      [nombre || null, repartidor, local || null]
+    );
+    const t = ins.rows[0];
+    for (const pid of pedidoIds) await setTandaIdPedido(String(pid), t.id);
+    res.json({ id: t.id, nombre: t.nombre, repartidor: t.repartidor, local: t.local, estado: t.estado, createdAt: t.created_at });
+    registrarAuditoria(usuarioAudit, "tanda_creada", "tanda", String(t.id), { repartidor, local, pedidos: pedidoIds.length });
+  } catch (err) { console.error("Error POST /api/tandas:", err.message); res.status(500).json({ error: "Error creando tanda" }); }
+});
+
+app.patch("/api/tandas/:id", async (req, res) => {
+  const { id } = req.params;
+  const { estado, nombre, repartidor, usuario: usuarioAudit } = req.body;
+  try {
+    const cur = await pool.query("SELECT * FROM tandas WHERE id=$1", [id]);
+    if (!cur.rows[0]) return res.status(404).json({ error: "Tanda no encontrada" });
+    const tanda = cur.rows[0];
+
+    if (nombre !== undefined) await pool.query("UPDATE tandas SET nombre=$1 WHERE id=$2", [nombre, id]);
+
+    // Reasignar repartidor: tanda + repartidor de sus pedidos (sólo esa columna)
+    if (repartidor !== undefined && repartidor !== null) {
+      await pool.query("UPDATE tandas SET repartidor=$1 WHERE id=$2", [repartidor, id]);
+      await pool.query("UPDATE pedidos_estados SET repartidor=$1, updated_at=NOW() WHERE tanda_id=$2", [repartidor, id]);
+    }
+
+    // Transiciones de estado de la tanda (y de sus pedidos donde corresponde)
+    if (estado) {
+      await pool.query("UPDATE tandas SET estado=$1 WHERE id=$2", [estado, id]);
+      const rep = (repartidor !== undefined && repartidor !== null) ? repartidor : tanda.repartidor;
+      if (estado === "en_reparto") {
+        // Despachar: pedidos a "En camino" con el repartidor de la tanda (no toca otros overrides)
+        await pool.query("UPDATE pedidos_estados SET estado='En camino', repartidor=$1, updated_at=NOW() WHERE tanda_id=$2", [rep, id]);
+      } else if (estado === "entregada") {
+        await pool.query("UPDATE pedidos_estados SET estado='Entregado', updated_at=NOW() WHERE tanda_id=$1", [id]);
+      } else if (estado === "cancelada") {
+        // Deshacer: liberar los pedidos (vuelven al pool), sin tocar su estado
+        await pool.query("UPDATE pedidos_estados SET tanda_id=NULL, updated_at=NOW() WHERE tanda_id=$1", [id]);
+      }
+    }
+
+    const upd = await pool.query("SELECT * FROM tandas WHERE id=$1", [id]);
+    const t = upd.rows[0];
+    res.json({ id: t.id, nombre: t.nombre, repartidor: t.repartidor, local: t.local, estado: t.estado, createdAt: t.created_at });
+    registrarAuditoria(usuarioAudit, "tanda_actualizada", "tanda", String(id), { estado, nombre, repartidor });
+  } catch (err) { console.error("Error PATCH /api/tandas:", err.message); res.status(500).json({ error: "Error actualizando tanda" }); }
+});
+
+// Quitar/asignar UN pedido suelto: tandaId null lo saca de la tanda (vuelve al pool)
+app.patch("/api/orders/:id/tanda", async (req, res) => {
+  const { id } = req.params;
+  const tandaId = req.body.tandaId == null ? null : Number(req.body.tandaId);
+  try {
+    await setTandaIdPedido(String(id), tandaId);
+    res.json({ ok: true, tandaId });
+  } catch (err) { res.status(500).json({ error: "Error actualizando tanda del pedido" }); }
 });
 // ─── DATOS EDITABLES DE PEDIDO ────────────────────────────────────────
 app.patch("/api/pedidos/:id/datos", async (req, res) => {

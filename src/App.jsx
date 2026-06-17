@@ -2000,6 +2000,15 @@ const [facturasMap, setFacturasMap] = useState({});
       const [pedidoCreado, setPedidoCreado] = useState(false);
       const [comandasImpresas, setComandasImpresas] = useState({});
       const [sobreError, setSobreError] = useState("");
+      // Tandas de reparto (Fase 1)
+      const [tandas, setTandas] = useState([]);            // metadata de tandas (GET /api/tandas)
+      const [modoTandaLocal, setModoTandaLocal] = useState(null); // local fijado al entrar en "armar tanda" (null = modo off)
+      const [seleccionTanda, setSeleccionTanda] = useState([]);   // ids de pedidos elegidos para la tanda
+      const [confirmandoTanda, setConfirmandoTanda] = useState(false); // modal abierto
+      const [tandaRepartidor, setTandaRepartidor] = useState("");
+      const [tandaNombre, setTandaNombre] = useState("");
+      const [tandaError, setTandaError] = useState("");
+      const [tandaVistaLocal, setTandaVistaLocal] = useState("A. Thomas"); // local mostrado en la vista "Tandas activas"
       const [repartidoresLista, setRepartidoresLista] = useState(REPARTIDORES_DEFAULT);
       const [varNombre, setVarNombre] = useState("");
       const [varPrecio, setVarPrecio] = useState("");
@@ -2037,10 +2046,10 @@ const [facturasMap, setFacturasMap] = useState({});
           setPedidosRaw(resOrders.data);
           const locales = {};
           resOrders.data.forEach(p => {
-            locales[p.id] = resEstados.data[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.payment_status !== "paid", sobre: false };
+            locales[p.id] = resEstados.data[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.payment_status !== "paid", sobre: false, tandaId: null };
           });
           resManuales.data.forEach(p => {
-            locales[p.id] = resEstados.data[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.cobrar, sobre: false };
+            locales[p.id] = resEstados.data[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.cobrar, sobre: false, tandaId: null };
           });
           setPedidosLocales(locales);
           setPedidosManuales(resManuales.data);
@@ -2067,6 +2076,7 @@ setPedidosDatosOverride(datosInit);
             if (est.comandasImpresas && est.comandasImpresas > 0) comandasInit[id] = est.comandasImpresas;
           });
           setComandasImpresas(comandasInit);    try { const resRep = await axios.get(`${API}/api/repartidores`); setRepartidoresLista(resRep.data.map(r => r.nombre)); } catch(e) {}
+          axios.get(`${API}/api/tandas`).then(r => setTandas(r.data)).catch(() => {});
           setLoading(false);
           axios.get(`${API}/api/facturas-all`).then(resF => {
             const grouped = {};
@@ -2190,7 +2200,7 @@ setPedidosDatosOverride(datosInit);
             pago: p.payment_status === "paid" ? "Pagado" : "Pendiente",
             medioPago: ovDatos.medioPago || medioPagoLabel(p.gateway), medioPagoOtro: ovDatos.medioPagoOtro || "", gateway: p.gateway,
             esTakeaway: p.fulfillments?.[0]?.shipping?.type === "pickup",
-            estado: local.estado, repartidor: local.repartidor, cobrar: local.cobrar, sobre: !!local.sobre,
+            estado: local.estado, repartidor: local.repartidor, cobrar: local.cobrar, sobre: !!local.sobre, tandaId: local.tandaId ?? null,
             tabActual, local: localLabel(tabActual),
             nota: ovDatos.nota !== undefined ? ovDatos.nota : (p.note || ""),
             esManual: false, entreCalles: "",
@@ -2215,7 +2225,7 @@ setPedidosDatosOverride(datosInit);
             medioPagoOtro: ovDatos.medioPagoOtro || "",
             nota: ovDatos.nota !== undefined ? ovDatos.nota : (p.nota || ""),
             email: ovDatos.email !== undefined ? ovDatos.email : (p.email || ""),
-            estado: local.estado, repartidor: local.repartidor, sobre: !!local.sobre,
+            estado: local.estado, repartidor: local.repartidor, sobre: !!local.sobre, tandaId: local.tandaId ?? null,
             cobrar: local.cobrar !== undefined ? local.cobrar : p.cobrar,
             tabActual, local: localLabel(tabActual),
             fechaDisplay: local.fechaManual || p.fecha, franjaDisplay: local.franjaManual || p.franja || "Sin franja",
@@ -2243,6 +2253,7 @@ setPedidosDatosOverride(datosInit);
       const zonas = [...new Set(pedidosActivos.map(p => p.zona))].sort();
 
       const filtrados = pedidosActivos.filter(p => {
+        if (p.tandaId) return false; // los pedidos en una tanda salen del pool (viven en "Tandas activas")
         if (p.tabActual !== tab) return false;
         if (filtroFecha && p.fechaDisplay !== filtroFecha) return false;
         if (filtroZona && p.zona !== filtroZona) return false;
@@ -2342,6 +2353,235 @@ setPedidosDatosOverride(datosInit);
           setTimeout(() => setSobreError(""), 3000);
         }
       }
+
+      // ─── TANDAS DE REPARTO (Fase 1) ──────────────────────────────────
+      const avisoTanda = (msg) => { setTandaError(msg); setTimeout(() => setTandaError(""), 3500); };
+      function entrarModoTanda() { setModoTandaLocal(localLabel(tab)); setSeleccionTanda([]); }
+      function salirModoTanda() { setModoTandaLocal(null); setSeleccionTanda([]); }
+      function toggleSeleccionTanda(id) {
+        setSeleccionTanda(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+      }
+      async function confirmarTanda() {
+        if (!tandaRepartidor) { avisoTanda("Elegí un repartidor."); return; }
+        if (seleccionTanda.length === 0) return;
+        const ids = seleccionTanda;
+        const local = modoTandaLocal;
+        try {
+          const res = await axios.post(`${API}/api/tandas`, { nombre: tandaNombre || null, repartidor: tandaRepartidor, local, pedidoIds: ids, usuario: usuario.nombre_completo });
+          const tanda = res.data;
+          setTandas(prev => [tanda, ...prev]);
+          ids.forEach(id => actualizarLocalSinGuardar(id, { tandaId: tanda.id })); // optimista: salen del pool
+          setConfirmandoTanda(false); setTandaNombre(""); setTandaRepartidor("");
+          salirModoTanda();
+        } catch (err) {
+          avisoTanda("No se pudo crear la tanda. Reintentá.");
+        }
+      }
+      // Optimista con revert: aplica cambios locales, dispara el PATCH y si falla revierte.
+      async function patchTanda(t, body, aplicar, revertir) {
+        aplicar();
+        try {
+          await axios.patch(`${API}/api/tandas/${t.id}`, { ...body, usuario: usuario.nombre_completo });
+        } catch (err) {
+          revertir();
+          avisoTanda("No se pudo actualizar la tanda. Reintentá.");
+        }
+      }
+      function despacharTanda(t) {
+        const ids = pedidosProcesados.filter(p => p.tandaId === t.id).map(p => p.id);
+        const previos = ids.map(id => ({ id, estado: pedidosLocales[id]?.estado, repartidor: pedidosLocales[id]?.repartidor }));
+        patchTanda(t, { estado: "en_reparto" },
+          () => { setTandas(prev => prev.map(x => x.id === t.id ? { ...x, estado: "en_reparto" } : x)); ids.forEach(id => actualizarLocalSinGuardar(id, { estado: "En camino", repartidor: t.repartidor })); },
+          () => { setTandas(prev => prev.map(x => x.id === t.id ? { ...x, estado: "armada" } : x)); previos.forEach(pv => actualizarLocalSinGuardar(pv.id, { estado: pv.estado, repartidor: pv.repartidor })); });
+      }
+      function entregarTanda(t) {
+        if (!window.confirm(`¿Marcar la Tanda #${t.id} como entregada? Sus pedidos pasan a Entregado.`)) return;
+        const ids = pedidosProcesados.filter(p => p.tandaId === t.id).map(p => p.id);
+        const previos = ids.map(id => ({ id, estado: pedidosLocales[id]?.estado }));
+        patchTanda(t, { estado: "entregada" },
+          () => { setTandas(prev => prev.map(x => x.id === t.id ? { ...x, estado: "entregada" } : x)); ids.forEach(id => actualizarLocalSinGuardar(id, { estado: "Entregado" })); },
+          () => { setTandas(prev => prev.map(x => x.id === t.id ? { ...x, estado: "en_reparto" } : x)); previos.forEach(pv => actualizarLocalSinGuardar(pv.id, { estado: pv.estado })); });
+      }
+      function deshacerTanda(t) {
+        if (!window.confirm(`¿Deshacer la Tanda #${t.id}? Sus pedidos vuelven al pool (no cambia su estado).`)) return;
+        const ids = pedidosProcesados.filter(p => p.tandaId === t.id).map(p => p.id);
+        patchTanda(t, { estado: "cancelada" },
+          () => { setTandas(prev => prev.map(x => x.id === t.id ? { ...x, estado: "cancelada" } : x)); ids.forEach(id => actualizarLocalSinGuardar(id, { tandaId: null })); },
+          () => { setTandas(prev => prev.map(x => x.id === t.id ? { ...x, estado: t.estado } : x)); ids.forEach(id => actualizarLocalSinGuardar(id, { tandaId: t.id })); });
+      }
+      async function quitarDeTanda(id) {
+        const previo = pedidosLocales[id]?.tandaId ?? null;
+        actualizarLocalSinGuardar(id, { tandaId: null });
+        try {
+          await axios.patch(`${API}/api/orders/${id}/tanda`, { tandaId: null });
+        } catch (err) {
+          actualizarLocalSinGuardar(id, { tandaId: previo });
+          avisoTanda("No se pudo quitar el pedido de la tanda. Reintentá.");
+        }
+      }
+      // Card de pedido activo (reusada por el panel y por la vista "Tandas activas").
+      // seleccionable = true sólo en modo "armar tanda" del panel (muestra checkbox).
+      function renderCardPedidoActivo(p, seleccionable) {
+                    const estadoActual = pedidosLocales[p.id]?.estado || "Por empaquetar";
+                    const repartidorActual = pedidosLocales[p.id]?.repartidor || "Sin asignar";
+                    const tabActual = pedidosLocales[p.id]?.tabManual || p.tabActual;
+                    const fechaManual = pedidosLocales[p.id]?.fechaManual || p.fecha || "";
+                    const franjaManual = pedidosLocales[p.id]?.franjaManual || p.franja || "";
+                    const cobrar = pedidosLocales[p.id]?.cobrar;
+                    const sobreActual = !!(pedidosLocales[p.id]?.sobre);
+                    const abierto = expandido === p.id;
+                    const ec = ESTADO_COLORS[estadoActual] || { bg: "#f0f0e8", text: "#555" };
+                    const ahora = new Date();
+                    const fechaPedido = p.fechaDisplay || "";
+                    const franjaMatch = (p.franjaDisplay || "").match(/(\d{1,2}):(\d{2})/);
+                    const horaInicio = franjaMatch ? new Date(`${fechaPedido}T${String(franjaMatch[1]).padStart(2,"0")}:${franjaMatch[2]}:00`) : null;
+                    const minutosVencido = horaInicio ? Math.floor((ahora - horaInicio) / 60000) : 0;
+                    const estaProximo = horaInicio && ahora >= new Date(horaInicio.getTime() - 60 * 60000) && ahora < horaInicio && fechaPedido === HOY && estadoActual !== "En camino" && estadoActual !== "Entregado";
+const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && estadoActual !== "En camino" && estadoActual !== "Entregado";
+                    return (
+                      <div key={p.id} style={{ ...s.fila, ...(abierto ? s.filaAbierta : {}), ...(estaVencido ? { background: "#f5b7b1", borderLeft: "4px solid #922b21" } : estaProximo ? { background: "#fdecea", borderLeft: "4px solid #c0392b" } : {}) }}>
+                        <div style={s.filaTop} onClick={() => toggleExpandido(p.id)}>
+                          {seleccionable && p.local === modoTandaLocal && !p.tandaId && (
+                            <input type="checkbox" checked={seleccionTanda.includes(p.id)} onClick={e => e.stopPropagation()} onChange={() => toggleSeleccionTanda(p.id)} style={{ marginRight: 8, transform: "scale(1.25)", cursor: "pointer" }} />
+                          )}
+                          <span style={{ ...s.cel, flex: 1.2 }}>
+                            <span style={s.numero}>{p.numero}</span>{!comandasImpresas[p.id] && <span style={s.nuevoBadge}>● NUEVO</span>} {p.cliente}
+                            {cobrar && <span style={s.cobrarBadge}>COBRAR</span>}
+                            {p.esManual && <span style={{ ...s.cobrarBadge, background: "#7c3aed" }}>MANUAL</span>}
+                            {productosOverride[String(p.id)] && <span style={{ ...s.cobrarBadge, background: "#7c3aed" }}>EDITADO</span>}
+                            {p.esFacturaA && <span style={{ ...s.cobrarBadge, background: "#009ee3" }}>FACTURA A</span>}
+                          </span>
+                          <span style={{ ...s.cel, flex: 1, color: "#555" }}>{p.telefono}</span>
+                          <span style={{ ...s.cel, flex: 2 }}>{p.direccion}</span>
+                          <span style={{ ...s.cel, flex: 1, color: "#666" }}>{p.barrio}</span>
+                          <span style={{ ...s.cel, flex: 1.2 }}><span style={s.zonaTag}>{p.zona}</span></span>
+                          <span style={{ ...s.cel, flex: 0.8, textAlign: "right", fontWeight: 600 }}>{p.total}</span>
+                          <span style={{ ...s.cel, flex: 1, textAlign: "center", color: "#555" }}>{p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"short"}) : "—"}</span>
+                          <span style={{ ...s.cel, flex: 0.9, textAlign: "center" }}><span style={s.franjaTag}>{p.franjaDisplay}</span></span>
+                          <span style={{ ...s.cel, flex: 0.8, textAlign: "center" }}><span style={{ ...s.estadoTag, background: ec.bg, color: ec.text }}>{estadoActual}</span></span>
+                          <button title="Avisado" onClick={e => { e.stopPropagation(); toggleSobre(p.id); }}
+                            style={{ background: sobreActual ? "#eaf3de" : "transparent", border: "none", borderRadius: 6, cursor: "pointer", padding: "4px 6px", marginLeft: 4, display: "inline-flex", alignItems: "center", lineHeight: 0 }}>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={sobreActual ? "#499342" : "#9ca3af"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <rect x="2" y="4" width="20" height="16" rx="2" />
+                              <path d="m22 7-10 5L2 7" />
+                            </svg>
+                          </button>
+                          <span style={s.chevron}>{abierto ? "▲" : "▼"}</span>
+                        </div>
+                        {abierto && (
+                          <div style={s.detalle}>
+                            {/* DATOS EDITABLES */}
+                            <div style={{ fontSize: 10, fontWeight: 700, color: "#F68B32", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+                              📋 Datos del pedido <span style={{ color: "#aaa", fontWeight: 400 }}>(guardado automático al salir del campo)</span>
+                            </div>
+                            <div style={{ ...s.detalleGrid, marginBottom: 14 }}>
+                              <div style={s.detalleBloque}>
+                                <div style={s.detalleLabel}>Cliente</div>
+                                <InputBlur style={s.inputField} initialValue={p.cliente} placeholder="Nombre"
+                                  onCommit={v => actualizarDato(p, "cliente", v)} onClick={e => e.stopPropagation()} />
+                              </div>
+                              <div style={s.detalleBloque}>
+                                <div style={s.detalleLabel}>Teléfono</div>
+                                <InputBlur style={s.inputField} initialValue={p.telefono} placeholder="Teléfono"
+                                  onCommit={v => actualizarDato(p, "telefono", v)} onClick={e => e.stopPropagation()} />
+                              </div>
+                              <div style={s.detalleBloque}>
+                                <div style={s.detalleLabel}>Dirección</div>
+                                <InputBlur style={s.inputField} initialValue={p.direccion} placeholder="Dirección"
+                                  onCommit={v => actualizarDato(p, "direccion", v)} onClick={e => e.stopPropagation()} />
+                              </div>
+                              <div style={s.detalleBloque}>
+                                <div style={s.detalleLabel}>Barrio</div>
+                                <InputBlur style={s.inputField} initialValue={p.barrio} placeholder="Barrio"
+                                  onCommit={v => actualizarDato(p, "barrio", v)} onClick={e => e.stopPropagation()} />
+                              </div>
+                              <div style={s.detalleBloque}>
+                                <div style={s.detalleLabel}>Zona</div>
+                                <InputBlur style={s.inputField} initialValue={p.zona} placeholder="Zona"
+                                  onCommit={v => actualizarDato(p, "zona", v)} onClick={e => e.stopPropagation()} />
+                              </div>
+                              <div style={s.detalleBloque}>
+                                <div style={s.detalleLabel}>Email</div>
+                                <InputBlur style={s.inputField} initialValue={p.email || ""} placeholder="cliente@ejemplo.com"
+                                  onCommit={v => actualizarDato(p, "email", v)} onClick={e => e.stopPropagation()} />
+                              </div>
+                              <div style={s.detalleBloque}>
+                                <div style={s.detalleLabel}>Medio de pago</div>
+                                <select style={s.inputField} value={p.medioPago}
+                                  onChange={e => { e.stopPropagation(); actualizarDato(p, "medioPago", e.target.value); }}
+                                  onClick={e => e.stopPropagation()}>
+                                  {MEDIOS_PAGO.map(m => <option key={m}>{m}</option>)}
+                                </select>
+                                {p.medioPago === "Otro" && (
+                                  <InputBlur style={{ ...s.inputField, marginTop: 4 }} initialValue={p.medioPagoOtro || ""} placeholder="¿Cuál? (ej: Cheque, Canje)"
+                                    onCommit={v => actualizarDato(p, "medioPagoOtro", v)} onClick={e => e.stopPropagation()} />
+                                )}
+                              </div>
+                              <div style={{ ...s.detalleBloque, gridColumn: "span 2" }}>
+                                <div style={s.detalleLabel}>Nota</div>
+                                <TextareaBlur
+                                  style={{ ...s.inputField, height: 56, resize: "vertical", width: "100%", boxSizing: "border-box" }}
+                                  initialValue={p.nota || ""} placeholder="Nota del pedido..."
+                                  onCommit={v => actualizarDato(p, "nota", v)} />
+                              </div>
+                              <div style={s.detalleBloque}>
+                                <div style={s.detalleLabel}>Productos</div>
+                                <div style={s.detalleVal}>{p.productos}</div>
+                              </div>
+                              <div style={s.detalleBloque}>
+                                <div style={s.detalleLabel}>Pago</div>
+                                <div style={{ ...s.detalleVal, color: p.pago === "Pagado" ? "#F68B32" : "#c0392b", fontWeight: 600 }}>{p.pago}</div>
+                              </div>
+                              {p.transaccionMP && <div style={s.detalleBloque}><div style={s.detalleLabel}>ID Transacción MP</div><div style={{ ...s.detalleVal, fontFamily: "monospace", fontSize: 12 }}>{p.transaccionMP}</div></div>}
+<div style={s.detalleBloque}>
+                                <div style={s.detalleLabel}>Código MKP</div>
+                                <InputBlur style={s.inputField} initialValue={p.codigoPago || ""} placeholder="MP, Rappi, PedidosYa..."
+                                  onCommit={v => actualizarDato(p, "codigoPago", v)} onClick={e => e.stopPropagation()} />
+                              </div>                            </div>
+                            {/* OPERACIONES */}
+                            <div style={{ fontSize: 10, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, borderTop: "1px solid #eee", paddingTop: 10 }}>⚙️ Operaciones</div>
+                            <div style={s.detalleGrid}>
+                              <div style={s.detalleBloque}>
+                                <div style={s.detalleLabel}>Cobrar en entrega</div>
+                                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                                  <input type="checkbox" checked={!!cobrar} onChange={e => cambiarCobrar(p.id, e.target.checked)} onClick={e => e.stopPropagation()} />
+                                  <span style={{ fontSize: 12, color: cobrar ? "#c0392b" : "#888", fontWeight: cobrar ? 600 : 400 }}>{cobrar ? "⚠️ COBRAR" : "Cobrar"}</span>
+                                </label>
+                              </div>
+                              <div style={s.detalleBloque}><div style={s.detalleLabel}>Repartidor</div><select style={s.inputField} value={repartidorActual} onChange={e => cambiarRepartidor(p.id, e.target.value)}>{repartidoresLista.map(r => <option key={r}>{r}</option>)}</select></div>
+                              <div style={s.detalleBloque}>
+                                <div style={s.detalleLabel}>Estado</div>
+                                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                  <span style={{ ...s.estadoTag, background: ec.bg, color: ec.text }}>{estadoActual}</span>
+                                  {estadoActual !== "Entregado" && <button style={s.btnEstado} onClick={e => cambiarEstado(p, e)}>→ {nextEstado(estadoActual)}</button>}
+                                </div>
+                              </div>
+                              <div style={s.detalleBloque}><div style={s.detalleLabel}>Fecha de entrega</div><InputBlur type="date" style={s.inputField} initialValue={fechaManual} onCommit={v => { actualizarLocalSinGuardar(p.id, { fechaManual: v }); guardarLocalEnDB(p.id); }} onClick={e => e.stopPropagation()} /></div>
+                              <div style={s.detalleBloque}><div style={s.detalleLabel}>Horario de entrega</div><InputBlur type="text" placeholder="ej: 14:00 – 16:00" style={s.inputField} initialValue={franjaManual} onCommit={v => { actualizarLocalSinGuardar(p.id, { franjaManual: v }); guardarLocalEnDB(p.id); }} onClick={e => e.stopPropagation()} /></div>
+                              <div style={s.detalleBloque}><div style={s.detalleLabel}>Mover a sección</div><select style={s.inputField} value={tabActual} onChange={e => cambiarTab(p.id, e.target.value)}>{TABS.filter(t => t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}</select></div>
+                            </div>
+                            <AuditoriaInline pedidoId={String(p.id)} />
+                            <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+                              <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>
+                                🖨️ Imprimir comanda {comandasImpresas[p.id] ? <span style={{ marginLeft: 4, background: "#f39c12", color: "#fff", borderRadius: 99, fontSize: 10, padding: "1px 6px", fontWeight: 700 }}>{comandasImpresas[p.id]}</span> : null}
+                              </button>
+                              <button style={{ ...s.btnImprimir, borderColor: "#7c3aed", color: "#7c3aed", background: "#f5f3ff" }}
+                                onClick={async e => { e.stopPropagation(); await asegurarCatalogo(); setEditandoProductos(p); }}>
+                                ✏️ Editar productos
+                              </button>
+                              <BtnFacturar p={p} version={facturaVersion} onAbrir={setFacturando} />
+                              <BtnPagoMP p={p} onEmailRequerido={setPedidoEmailMP} />
+                              <button style={{ ...s.btnImprimir, borderColor: "#c0392b", color: "#c0392b", background: "#fdecea" }}
+                                onClick={e => anularPedido(p, e)}>
+                                🚫 Anular pedido
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+      }
+
       // ─── BACKFILL FECHAS: corregir pedidos sin fecha ───────────────────
       async function corregirPedidosSinFecha() {
         setMenuAbierto(false);
@@ -2609,7 +2849,7 @@ let numeroAsignado = "";
       }
 
       const conteos = {};
-      TABS.forEach(t => { conteos[t.id] = pedidosActivos.filter(p => p.tabActual === t.id).length; });
+      TABS.forEach(t => { conteos[t.id] = pedidosActivos.filter(p => !p.tandaId && p.tabActual === t.id).length; });
       const totalFiltrados = filtrados.length;
       const totalEnCamino = filtrados.filter(p => (pedidosLocales[p.id]?.estado || p.estado) === "En camino").length;
       const totalPendientes = filtrados.filter(p => (pedidosLocales[p.id]?.estado || p.estado) !== "Entregado").length;
@@ -2695,6 +2935,7 @@ let numeroAsignado = "";
                       <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteProductos"); setMenuAbierto(false); }}>📦 Productos vendidos</button>
                     </>
                   )}
+                  <button style={s.dropItem} onClick={() => { setVista("tandas"); setMenuAbierto(false); }}>🚚 Tandas activas</button>
                   <button style={s.dropItem} onClick={() => { setVista("caja"); setMenuAbierto(false); }}>💰 Caja</button>
                   {usuario.rol === "admin" && <button style={s.dropItem} onClick={() => { setVista("importar"); setMenuAbierto(false); }}>📥 Importar pedidos</button>}
                   <button style={s.dropItem} onClick={() => { setVista("finalizados"); setMenuAbierto(false); }}>📋 Pedidos finalizados</button>
@@ -3351,6 +3592,65 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
         );
       }
 
+      if (vista === "tandas") {
+        const tandasActivas = tandas.filter(t => (t.estado === "armada" || t.estado === "en_reparto") && t.local === tandaVistaLocal);
+        const etiquetaEstadoTanda = (e) => e === "en_reparto" ? "En reparto" : e === "armada" ? "Armada" : e;
+        return (
+          <div style={s.wrap}>
+            <Header />
+            <div style={{ padding: 24 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+                <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
+                <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>🚚 Tandas activas</h2>
+                <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
+                  {["A. Thomas", "French"].map(loc => (
+                    <button key={loc} onClick={() => setTandaVistaLocal(loc)}
+                      style={{ fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer", borderColor: tandaVistaLocal === loc ? "#7c3aed" : "#ddd", background: tandaVistaLocal === loc ? "#7c3aed" : "#fff", color: tandaVistaLocal === loc ? "#fff" : "#555" }}>
+                      {loc}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {tandasActivas.length === 0 && <div style={s.empty}>No hay tandas activas en {tandaVistaLocal}.</div>}
+              {tandasActivas.map(t => {
+                const pedidosDeTanda = pedidosProcesados.filter(p => p.tandaId === t.id);
+                return (
+                  <div key={t.id} style={{ marginBottom: 20, border: "1px solid #e0d4f7", borderRadius: 10, overflow: "hidden" }}>
+                    <div style={{ background: "#7c3aed", color: "#fff", padding: "10px 16px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                      <span style={{ fontWeight: 700, fontSize: 15 }}>Tanda #{t.id}</span>
+                      {t.nombre && <span style={{ fontSize: 13, opacity: 0.9 }}>· {t.nombre}</span>}
+                      <span style={{ fontSize: 12, background: "rgba(255,255,255,0.2)", padding: "2px 8px", borderRadius: 99 }}>🛵 {t.repartidor || "Sin asignar"}</span>
+                      <span style={{ fontSize: 12, background: t.estado === "en_reparto" ? "#1e7e34" : "rgba(255,255,255,0.2)", padding: "2px 8px", borderRadius: 99 }}>{etiquetaEstadoTanda(t.estado)}</span>
+                      <span style={{ fontSize: 12, opacity: 0.85 }}>{pedidosDeTanda.length} pedido{pedidosDeTanda.length !== 1 ? "s" : ""}</span>
+                      <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {t.estado === "armada" && <button onClick={() => despacharTanda(t)} style={{ fontSize: 12, fontWeight: 700, padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", background: "#fff", color: "#7c3aed" }}>🛵 Despachar</button>}
+                        {t.estado === "en_reparto" && <button onClick={() => entregarTanda(t)} style={{ fontSize: 12, fontWeight: 700, padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", background: "#fff", color: "#1e7e34" }}>✅ Marcar entregada</button>}
+                        <button onClick={() => deshacerTanda(t)} style={{ fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.6)", cursor: "pointer", background: "transparent", color: "#fff" }}>↩️ Deshacer</button>
+                      </div>
+                    </div>
+                    <div style={{ padding: 8 }}>
+                      {pedidosDeTanda.length === 0 ? <div style={s.empty}>Sin pedidos (refrescá si los acabás de mover).</div> : pedidosDeTanda.map(p => (
+                        <div key={p.id}>
+                          <div style={{ display: "flex", justifyContent: "flex-end", padding: "2px 8px" }}>
+                            <button onClick={() => quitarDeTanda(p.id)} style={{ fontSize: 11, color: "#c0392b", background: "none", border: "none", cursor: "pointer" }}>✕ Quitar de la tanda</button>
+                          </div>
+                          {renderCardPedidoActivo(p, false)}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {tandaError && (
+              <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "#fdecea", color: "#c0392b", border: "1px solid #f5b7b1", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 500, boxShadow: "0 4px 16px rgba(0,0,0,0.12)", zIndex: 300 }}>
+                {tandaError}
+              </div>
+            )}
+          </div>
+        );
+      }
+
       if (tab === "nuevo") {
         return (
           <div style={s.wrap}>
@@ -3511,6 +3811,23 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
               🖨️ IMPRIMIR COMANDAS
               {comandasPendientes.length > 0 && <span style={{ background: "#fff", color: "#0c447c", borderRadius: 99, fontSize: 11, padding: "1px 8px", fontWeight: 700 }}>{comandasPendientes.length}</span>}
             </button>
+            {modoTandaLocal ? (
+              <button onClick={salirModoTanda}
+                style={{ fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 6, border: "1px solid #c0392b", cursor: "pointer", background: "#fff", color: "#c0392b" }}>
+                ✕ Cancelar selección
+              </button>
+            ) : (
+              <button onClick={entrarModoTanda}
+                title={`Armar una tanda de reparto para ${sucursalSeleccionada}`}
+                style={{ fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 6, border: "1px solid #7c3aed", cursor: "pointer", background: "#7c3aed", color: "#fff" }}>
+                📦 Armar tanda
+              </button>
+            )}
+            <button onClick={() => { setTandaVistaLocal(localLabel(tab)); setVista("tandas"); }}
+              title="Ver tandas activas de la sucursal"
+              style={{ fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 6, border: "1px solid #7c3aed", cursor: "pointer", background: "#fff", color: "#7c3aed" }}>
+              🚚 Tandas activas
+            </button>
           </div>
           <div style={s.lista}>
             <div style={s.cabecera}>
@@ -3537,163 +3854,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                     <span style={esHoy ? { ...s.franjaHora, color: "#fff" } : s.franjaHora}>{key.split("|")[1]}</span>
                     <span style={esHoy ? { ...s.franjaCount, color: "#fff" } : s.franjaCount}>{grupo.length} pedido{grupo.length > 1 ? "s" : ""}</span>
                   </div>
-                  {grupo.map(p => {
-                    const estadoActual = pedidosLocales[p.id]?.estado || "Por empaquetar";
-                    const repartidorActual = pedidosLocales[p.id]?.repartidor || "Sin asignar";
-                    const tabActual = pedidosLocales[p.id]?.tabManual || p.tabActual;
-                    const fechaManual = pedidosLocales[p.id]?.fechaManual || p.fecha || "";
-                    const franjaManual = pedidosLocales[p.id]?.franjaManual || p.franja || "";
-                    const cobrar = pedidosLocales[p.id]?.cobrar;
-                    const sobreActual = !!(pedidosLocales[p.id]?.sobre);
-                    const abierto = expandido === p.id;
-                    const ec = ESTADO_COLORS[estadoActual] || { bg: "#f0f0e8", text: "#555" };
-                    const ahora = new Date();
-                    const fechaPedido = p.fechaDisplay || "";
-                    const franjaMatch = (p.franjaDisplay || "").match(/(\d{1,2}):(\d{2})/);
-                    const horaInicio = franjaMatch ? new Date(`${fechaPedido}T${String(franjaMatch[1]).padStart(2,"0")}:${franjaMatch[2]}:00`) : null;
-                    const minutosVencido = horaInicio ? Math.floor((ahora - horaInicio) / 60000) : 0;
-                    const estaProximo = horaInicio && ahora >= new Date(horaInicio.getTime() - 60 * 60000) && ahora < horaInicio && fechaPedido === HOY && estadoActual !== "En camino" && estadoActual !== "Entregado";
-const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && estadoActual !== "En camino" && estadoActual !== "Entregado";
-                    return (
-                      <div key={p.id} style={{ ...s.fila, ...(abierto ? s.filaAbierta : {}), ...(estaVencido ? { background: "#f5b7b1", borderLeft: "4px solid #922b21" } : estaProximo ? { background: "#fdecea", borderLeft: "4px solid #c0392b" } : {}) }}>
-                        <div style={s.filaTop} onClick={() => toggleExpandido(p.id)}>
-                          <span style={{ ...s.cel, flex: 1.2 }}>
-                            <span style={s.numero}>{p.numero}</span>{!comandasImpresas[p.id] && <span style={s.nuevoBadge}>● NUEVO</span>} {p.cliente}
-                            {cobrar && <span style={s.cobrarBadge}>COBRAR</span>}
-                            {p.esManual && <span style={{ ...s.cobrarBadge, background: "#7c3aed" }}>MANUAL</span>}
-                            {productosOverride[String(p.id)] && <span style={{ ...s.cobrarBadge, background: "#7c3aed" }}>EDITADO</span>}
-                            {p.esFacturaA && <span style={{ ...s.cobrarBadge, background: "#009ee3" }}>FACTURA A</span>}
-                          </span>
-                          <span style={{ ...s.cel, flex: 1, color: "#555" }}>{p.telefono}</span>
-                          <span style={{ ...s.cel, flex: 2 }}>{p.direccion}</span>
-                          <span style={{ ...s.cel, flex: 1, color: "#666" }}>{p.barrio}</span>
-                          <span style={{ ...s.cel, flex: 1.2 }}><span style={s.zonaTag}>{p.zona}</span></span>
-                          <span style={{ ...s.cel, flex: 0.8, textAlign: "right", fontWeight: 600 }}>{p.total}</span>
-                          <span style={{ ...s.cel, flex: 1, textAlign: "center", color: "#555" }}>{p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"short"}) : "—"}</span>
-                          <span style={{ ...s.cel, flex: 0.9, textAlign: "center" }}><span style={s.franjaTag}>{p.franjaDisplay}</span></span>
-                          <span style={{ ...s.cel, flex: 0.8, textAlign: "center" }}><span style={{ ...s.estadoTag, background: ec.bg, color: ec.text }}>{estadoActual}</span></span>
-                          <button title="Avisado" onClick={e => { e.stopPropagation(); toggleSobre(p.id); }}
-                            style={{ background: sobreActual ? "#eaf3de" : "transparent", border: "none", borderRadius: 6, cursor: "pointer", padding: "4px 6px", marginLeft: 4, display: "inline-flex", alignItems: "center", lineHeight: 0 }}>
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={sobreActual ? "#499342" : "#9ca3af"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <rect x="2" y="4" width="20" height="16" rx="2" />
-                              <path d="m22 7-10 5L2 7" />
-                            </svg>
-                          </button>
-                          <span style={s.chevron}>{abierto ? "▲" : "▼"}</span>
-                        </div>
-                        {abierto && (
-                          <div style={s.detalle}>
-                            {/* DATOS EDITABLES */}
-                            <div style={{ fontSize: 10, fontWeight: 700, color: "#F68B32", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
-                              📋 Datos del pedido <span style={{ color: "#aaa", fontWeight: 400 }}>(guardado automático al salir del campo)</span>
-                            </div>
-                            <div style={{ ...s.detalleGrid, marginBottom: 14 }}>
-                              <div style={s.detalleBloque}>
-                                <div style={s.detalleLabel}>Cliente</div>
-                                <InputBlur style={s.inputField} initialValue={p.cliente} placeholder="Nombre"
-                                  onCommit={v => actualizarDato(p, "cliente", v)} onClick={e => e.stopPropagation()} />
-                              </div>
-                              <div style={s.detalleBloque}>
-                                <div style={s.detalleLabel}>Teléfono</div>
-                                <InputBlur style={s.inputField} initialValue={p.telefono} placeholder="Teléfono"
-                                  onCommit={v => actualizarDato(p, "telefono", v)} onClick={e => e.stopPropagation()} />
-                              </div>
-                              <div style={s.detalleBloque}>
-                                <div style={s.detalleLabel}>Dirección</div>
-                                <InputBlur style={s.inputField} initialValue={p.direccion} placeholder="Dirección"
-                                  onCommit={v => actualizarDato(p, "direccion", v)} onClick={e => e.stopPropagation()} />
-                              </div>
-                              <div style={s.detalleBloque}>
-                                <div style={s.detalleLabel}>Barrio</div>
-                                <InputBlur style={s.inputField} initialValue={p.barrio} placeholder="Barrio"
-                                  onCommit={v => actualizarDato(p, "barrio", v)} onClick={e => e.stopPropagation()} />
-                              </div>
-                              <div style={s.detalleBloque}>
-                                <div style={s.detalleLabel}>Zona</div>
-                                <InputBlur style={s.inputField} initialValue={p.zona} placeholder="Zona"
-                                  onCommit={v => actualizarDato(p, "zona", v)} onClick={e => e.stopPropagation()} />
-                              </div>
-                              <div style={s.detalleBloque}>
-                                <div style={s.detalleLabel}>Email</div>
-                                <InputBlur style={s.inputField} initialValue={p.email || ""} placeholder="cliente@ejemplo.com"
-                                  onCommit={v => actualizarDato(p, "email", v)} onClick={e => e.stopPropagation()} />
-                              </div>
-                              <div style={s.detalleBloque}>
-                                <div style={s.detalleLabel}>Medio de pago</div>
-                                <select style={s.inputField} value={p.medioPago}
-                                  onChange={e => { e.stopPropagation(); actualizarDato(p, "medioPago", e.target.value); }}
-                                  onClick={e => e.stopPropagation()}>
-                                  {MEDIOS_PAGO.map(m => <option key={m}>{m}</option>)}
-                                </select>
-                                {p.medioPago === "Otro" && (
-                                  <InputBlur style={{ ...s.inputField, marginTop: 4 }} initialValue={p.medioPagoOtro || ""} placeholder="¿Cuál? (ej: Cheque, Canje)"
-                                    onCommit={v => actualizarDato(p, "medioPagoOtro", v)} onClick={e => e.stopPropagation()} />
-                                )}
-                              </div>
-                              <div style={{ ...s.detalleBloque, gridColumn: "span 2" }}>
-                                <div style={s.detalleLabel}>Nota</div>
-                                <TextareaBlur
-                                  style={{ ...s.inputField, height: 56, resize: "vertical", width: "100%", boxSizing: "border-box" }}
-                                  initialValue={p.nota || ""} placeholder="Nota del pedido..."
-                                  onCommit={v => actualizarDato(p, "nota", v)} />
-                              </div>
-                              <div style={s.detalleBloque}>
-                                <div style={s.detalleLabel}>Productos</div>
-                                <div style={s.detalleVal}>{p.productos}</div>
-                              </div>
-                              <div style={s.detalleBloque}>
-                                <div style={s.detalleLabel}>Pago</div>
-                                <div style={{ ...s.detalleVal, color: p.pago === "Pagado" ? "#F68B32" : "#c0392b", fontWeight: 600 }}>{p.pago}</div>
-                              </div>
-                              {p.transaccionMP && <div style={s.detalleBloque}><div style={s.detalleLabel}>ID Transacción MP</div><div style={{ ...s.detalleVal, fontFamily: "monospace", fontSize: 12 }}>{p.transaccionMP}</div></div>}
-<div style={s.detalleBloque}>
-                                <div style={s.detalleLabel}>Código MKP</div>
-                                <InputBlur style={s.inputField} initialValue={p.codigoPago || ""} placeholder="MP, Rappi, PedidosYa..."
-                                  onCommit={v => actualizarDato(p, "codigoPago", v)} onClick={e => e.stopPropagation()} />
-                              </div>                            </div>
-                            {/* OPERACIONES */}
-                            <div style={{ fontSize: 10, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, borderTop: "1px solid #eee", paddingTop: 10 }}>⚙️ Operaciones</div>
-                            <div style={s.detalleGrid}>
-                              <div style={s.detalleBloque}>
-                                <div style={s.detalleLabel}>Cobrar en entrega</div>
-                                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                                  <input type="checkbox" checked={!!cobrar} onChange={e => cambiarCobrar(p.id, e.target.checked)} onClick={e => e.stopPropagation()} />
-                                  <span style={{ fontSize: 12, color: cobrar ? "#c0392b" : "#888", fontWeight: cobrar ? 600 : 400 }}>{cobrar ? "⚠️ COBRAR" : "Cobrar"}</span>
-                                </label>
-                              </div>
-                              <div style={s.detalleBloque}><div style={s.detalleLabel}>Repartidor</div><select style={s.inputField} value={repartidorActual} onChange={e => cambiarRepartidor(p.id, e.target.value)}>{repartidoresLista.map(r => <option key={r}>{r}</option>)}</select></div>
-                              <div style={s.detalleBloque}>
-                                <div style={s.detalleLabel}>Estado</div>
-                                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                                  <span style={{ ...s.estadoTag, background: ec.bg, color: ec.text }}>{estadoActual}</span>
-                                  {estadoActual !== "Entregado" && <button style={s.btnEstado} onClick={e => cambiarEstado(p, e)}>→ {nextEstado(estadoActual)}</button>}
-                                </div>
-                              </div>
-                              <div style={s.detalleBloque}><div style={s.detalleLabel}>Fecha de entrega</div><InputBlur type="date" style={s.inputField} initialValue={fechaManual} onCommit={v => { actualizarLocalSinGuardar(p.id, { fechaManual: v }); guardarLocalEnDB(p.id); }} onClick={e => e.stopPropagation()} /></div>
-                              <div style={s.detalleBloque}><div style={s.detalleLabel}>Horario de entrega</div><InputBlur type="text" placeholder="ej: 14:00 – 16:00" style={s.inputField} initialValue={franjaManual} onCommit={v => { actualizarLocalSinGuardar(p.id, { franjaManual: v }); guardarLocalEnDB(p.id); }} onClick={e => e.stopPropagation()} /></div>
-                              <div style={s.detalleBloque}><div style={s.detalleLabel}>Mover a sección</div><select style={s.inputField} value={tabActual} onChange={e => cambiarTab(p.id, e.target.value)}>{TABS.filter(t => t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}</select></div>
-                            </div>
-                            <AuditoriaInline pedidoId={String(p.id)} />
-                            <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-                              <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>
-                                🖨️ Imprimir comanda {comandasImpresas[p.id] ? <span style={{ marginLeft: 4, background: "#f39c12", color: "#fff", borderRadius: 99, fontSize: 10, padding: "1px 6px", fontWeight: 700 }}>{comandasImpresas[p.id]}</span> : null}
-                              </button>
-                              <button style={{ ...s.btnImprimir, borderColor: "#7c3aed", color: "#7c3aed", background: "#f5f3ff" }}
-                                onClick={async e => { e.stopPropagation(); await asegurarCatalogo(); setEditandoProductos(p); }}>
-                                ✏️ Editar productos
-                              </button>
-                              <BtnFacturar p={p} version={facturaVersion} onAbrir={setFacturando} />
-                              <BtnPagoMP p={p} onEmailRequerido={setPedidoEmailMP} />
-                              <button style={{ ...s.btnImprimir, borderColor: "#c0392b", color: "#c0392b", background: "#fdecea" }}
-                                onClick={e => anularPedido(p, e)}>
-                                🚫 Anular pedido
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                  {grupo.map(p => renderCardPedidoActivo(p, !!modoTandaLocal))}
                 </div>
               );
             })}
@@ -3701,6 +3862,49 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
           {sobreError && (
             <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "#fdecea", color: "#c0392b", border: "1px solid #f5b7b1", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 500, boxShadow: "0 4px 16px rgba(0,0,0,0.12)", zIndex: 200 }}>
               {sobreError}
+            </div>
+          )}
+          {tandaError && (
+            <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "#fdecea", color: "#c0392b", border: "1px solid #f5b7b1", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 500, boxShadow: "0 4px 16px rgba(0,0,0,0.12)", zIndex: 300 }}>
+              {tandaError}
+            </div>
+          )}
+          {/* Barra fija para confirmar la tanda en armado */}
+          {modoTandaLocal && seleccionTanda.length > 0 && (
+            <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#2b2b2b", color: "#fff", padding: "12px 24px", display: "flex", alignItems: "center", gap: 16, zIndex: 250, boxShadow: "0 -4px 16px rgba(0,0,0,0.2)" }}>
+              <span style={{ fontSize: 14, fontWeight: 600 }}>{seleccionTanda.length} pedido{seleccionTanda.length > 1 ? "s" : ""} de {modoTandaLocal} seleccionado{seleccionTanda.length > 1 ? "s" : ""}</span>
+              <button onClick={() => { setTandaNombre(""); setTandaRepartidor(""); setConfirmandoTanda(true); }}
+                style={{ marginLeft: "auto", fontSize: 13, fontWeight: 700, padding: "8px 18px", borderRadius: 6, border: "none", cursor: "pointer", background: "#7c3aed", color: "#fff" }}>
+                Confirmar tanda ({seleccionTanda.length})
+              </button>
+              <button onClick={salirModoTanda} style={{ fontSize: 13, padding: "8px 14px", borderRadius: 6, border: "1px solid #777", cursor: "pointer", background: "transparent", color: "#fff" }}>Cancelar</button>
+            </div>
+          )}
+          {/* Modal: repartidor (obligatorio) + nombre (opcional) */}
+          {confirmandoTanda && (
+            <div onClick={() => setConfirmandoTanda(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+              <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, padding: 24, width: 380, boxShadow: "0 8px 40px rgba(0,0,0,0.25)" }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#333", marginBottom: 4 }}>📦 Nueva tanda — {modoTandaLocal}</div>
+                <div style={{ fontSize: 12, color: "#888", marginBottom: 16 }}>{seleccionTanda.length} pedido{seleccionTanda.length > 1 ? "s" : ""}</div>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ ...s.formLabel, display: "block", marginBottom: 4 }}>Repartidor *</label>
+                  <select style={{ ...s.formInput, width: "100%" }} value={tandaRepartidor} onChange={e => setTandaRepartidor(e.target.value)}>
+                    <option value="">Elegí un repartidor…</option>
+                    {repartidoresLista.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ ...s.formLabel, display: "block", marginBottom: 4 }}>Nombre (opcional)</label>
+                  <input style={{ ...s.formInput, width: "100%", boxSizing: "border-box" }} value={tandaNombre} onChange={e => setTandaNombre(e.target.value)} placeholder="ej: Recorrido centro" />
+                </div>
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button onClick={() => setConfirmandoTanda(false)} style={{ fontSize: 13, padding: "8px 14px", borderRadius: 6, border: "1px solid #ddd", cursor: "pointer", background: "#fff", color: "#555" }}>Cancelar</button>
+                  <button onClick={confirmarTanda} disabled={!tandaRepartidor}
+                    style={{ fontSize: 13, fontWeight: 700, padding: "8px 18px", borderRadius: 6, border: "none", cursor: tandaRepartidor ? "pointer" : "not-allowed", background: tandaRepartidor ? "#7c3aed" : "#ccc", color: "#fff" }}>
+                    Crear tanda
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>
