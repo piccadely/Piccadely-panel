@@ -2253,7 +2253,6 @@ setPedidosDatosOverride(datosInit);
       const zonas = [...new Set(pedidosActivos.map(p => p.zona))].sort();
 
       const filtrados = pedidosActivos.filter(p => {
-        if (p.tandaId) return false; // los pedidos en una tanda salen del pool (viven en "Tandas activas")
         if (p.tabActual !== tab) return false;
         if (filtroFecha && p.fechaDisplay !== filtroFecha) return false;
         if (filtroZona && p.zona !== filtroZona) return false;
@@ -2445,7 +2444,7 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                             <input type="checkbox" checked={seleccionTanda.includes(p.id)} onClick={e => e.stopPropagation()} onChange={() => toggleSeleccionTanda(p.id)} style={{ marginRight: 8, transform: "scale(1.25)", cursor: "pointer" }} />
                           )}
                           <span style={{ ...s.cel, flex: 1.2 }}>
-                            <span style={s.numero}>{p.numero}</span>{!comandasImpresas[p.id] && <span style={s.nuevoBadge}>● NUEVO</span>} {p.cliente}
+                            <span style={s.numero}>{p.numero}</span>{p.tandaId && <span title={`En la tanda #${p.tandaId}`} style={{ fontSize: 11, fontWeight: 700, background: "#7c3aed", color: "#fff", padding: "1px 7px", borderRadius: 4, marginLeft: 6 }}>T{p.tandaId}</span>}{!comandasImpresas[p.id] && <span style={s.nuevoBadge}>● NUEVO</span>} {p.cliente}
                             {cobrar && <span style={s.cobrarBadge}>COBRAR</span>}
                             {p.esManual && <span style={{ ...s.cobrarBadge, background: "#7c3aed" }}>MANUAL</span>}
                             {productosOverride[String(p.id)] && <span style={{ ...s.cobrarBadge, background: "#7c3aed" }}>EDITADO</span>}
@@ -2849,7 +2848,7 @@ let numeroAsignado = "";
       }
 
       const conteos = {};
-      TABS.forEach(t => { conteos[t.id] = pedidosActivos.filter(p => !p.tandaId && p.tabActual === t.id).length; });
+      TABS.forEach(t => { conteos[t.id] = pedidosActivos.filter(p => p.tabActual === t.id).length; });
       const totalFiltrados = filtrados.length;
       const totalEnCamino = filtrados.filter(p => (pedidosLocales[p.id]?.estado || p.estado) === "En camino").length;
       const totalPendientes = filtrados.filter(p => (pedidosLocales[p.id]?.estado || p.estado) !== "Entregado").length;
