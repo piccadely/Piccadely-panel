@@ -36,6 +36,9 @@ import { useState, useEffect, useRef, useMemo } from "react";
 
     const REPARTIDORES_DEFAULT = ["Sin asignar"];
     const MEDIOS_PAGO = ["Mercado Pago", "Efectivo", "Transferencia", "Rappi", "Pedidos Ya", "Pedidos Ya Efectivo", "Otro"];
+    // Medios que entran FÍSICAMENTE como efectivo a la caja → suman al efectivo/saldo esperado.
+    // (El desglose "ventas por medio de pago" sigue mostrando cada uno por separado.)
+    const EFECTIVO_CAJA = ["Efectivo", "Pedidos Ya Efectivo"];
 
     const TABS = [
       { id: "retiro-at",    label: "🏪 Retiro A. Thomas" },
@@ -1755,7 +1758,7 @@ generarPDFCierre(localSeleccionado, HOY_CAJA, montoInicial, ventasPorMedioPDF, a
 const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === HOY_CAJA);
       const ventasPorMedio = MEDIOS_PAGO.reduce((acc, m) => { acc[m] = ventasLocal.filter(p => p.medioPago === m); return acc; }, {});
       const totalVentas = sumar(ventasLocal);
-    const totalEfectivo = sumar(ventasPorMedio["Efectivo"] || []);
+    const totalEfectivo = EFECTIVO_CAJA.reduce((acc, m) => acc + sumar(ventasPorMedio[m] || []), 0);
       const montoInicial = estadoCaja?.apertura?.monto_inicial || 0;
       const ajustes = estadoCaja?.movimientos?.filter(m => m.tipo === "entrada" || m.tipo === "salida") || [];
       const totalAjustes = ajustes.reduce((a, m) => a + Number(m.monto), 0);
@@ -1991,7 +1994,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                             const a = h.apertura;
                             const ajustesH = h.movimientos.filter(m => m.tipo === "entrada" || m.tipo === "salida");
                             const totalAjustesH = ajustesH.reduce((acc, m) => acc + Number(m.monto), 0);
-                            const saldoEsperadoH = Number(a.monto_inicial) + cajaFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === a.fecha && p.medioPago === "Efectivo").reduce((acc, p) => acc + p.totalNum, 0) + totalAjustesH;
+                            const saldoEsperadoH = Number(a.monto_inicial) + cajaFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === a.fecha && EFECTIVO_CAJA.includes(p.medioPago)).reduce((acc, p) => acc + p.totalNum, 0) + totalAjustesH;
                             const diferencia = a.monto_cierre !== null ? Number(a.monto_cierre) - saldoEsperadoH : null;
                             return { "Fecha": a.fecha, "Monto inicial": Number(a.monto_inicial), "Total ajustes": totalAjustesH, "Saldo esperado": saldoEsperadoH, "Monto cierre": a.monto_cierre !== null ? Number(a.monto_cierre) : "", "Diferencia": diferencia !== null ? diferencia : "", "Estado": a.cerrada ? "Cerrada" : "Sin cerrar" };
                           });
@@ -2005,7 +2008,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                             const a = h.apertura;
                             const ajustesH = h.movimientos.filter(m => m.tipo === "entrada" || m.tipo === "salida");
                             const totalAjustesH = ajustesH.reduce((acc, m) => acc + Number(m.monto), 0);
-                            const saldoEsperadoH = Number(a.monto_inicial) + cajaFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === a.fecha && p.medioPago === "Efectivo").reduce((acc, p) => acc + p.totalNum, 0) + totalAjustesH;
+                            const saldoEsperadoH = Number(a.monto_inicial) + cajaFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === a.fecha && EFECTIVO_CAJA.includes(p.medioPago)).reduce((acc, p) => acc + p.totalNum, 0) + totalAjustesH;
                             const diferencia = a.monto_cierre !== null ? Number(a.monto_cierre) - saldoEsperadoH : null;
                             return [a.fecha, fmt(a.monto_inicial), fmt(totalAjustesH), fmt(saldoEsperadoH), a.monto_cierre !== null ? fmt(a.monto_cierre) : "—", diferencia !== null ? fmt(diferencia) : "—", a.cerrada ? "Cerrada" : "Sin cerrar"];
                           });
@@ -2021,7 +2024,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                     const movs = h.movimientos;
                     const ajustesH = movs.filter(m => m.tipo === "entrada" || m.tipo === "salida");
                     const totalAjustesH = ajustesH.reduce((acc, m) => acc + Number(m.monto), 0);
-                    const saldoEsperadoH = Number(a.monto_inicial) + cajaFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === a.fecha && p.medioPago === "Efectivo").reduce((acc, p) => acc + p.totalNum, 0) + totalAjustesH;
+                    const saldoEsperadoH = Number(a.monto_inicial) + cajaFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === a.fecha && EFECTIVO_CAJA.includes(p.medioPago)).reduce((acc, p) => acc + p.totalNum, 0) + totalAjustesH;
                     const diferencia = a.monto_cierre !== null ? Number(a.monto_cierre) - saldoEsperadoH : null;
                     const abierto = diaExpandido === a.id;
                     const fechaLabel = new Date(a.fecha + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
