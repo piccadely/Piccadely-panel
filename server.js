@@ -568,8 +568,11 @@ const { estado, repartidor, tabManual, fechaManual, franjaManual, cobrar, silenc
       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
       ON CONFLICT (id) DO UPDATE SET
         estado=EXCLUDED.estado, repartidor=EXCLUDED.repartidor,
-        tab_manual=EXCLUDED.tab_manual, fecha_manual=EXCLUDED.fecha_manual,
-        franja_manual=EXCLUDED.franja_manual, cobrar=EXCLUDED.cobrar, updated_at=NOW()
+        -- Overrides de texto: si el front manda vacío/null (copia local stale), NO pisar lo guardado.
+        tab_manual=COALESCE(NULLIF(EXCLUDED.tab_manual,''), pedidos_estados.tab_manual),
+        fecha_manual=COALESCE(NULLIF(EXCLUDED.fecha_manual,''), pedidos_estados.fecha_manual),
+        franja_manual=COALESCE(NULLIF(EXCLUDED.franja_manual,''), pedidos_estados.franja_manual),
+        cobrar=EXCLUDED.cobrar, updated_at=NOW()
     `, [id, estado, repartidor, tabManual, fechaManual, franjaManual, cobrar]);
 if (mailAnularPedido && !silencioso) enviarMailAnulacion(mailAnularPedido).catch(console.error);
     res.json({ ok: true });
