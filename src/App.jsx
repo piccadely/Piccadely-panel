@@ -1254,6 +1254,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       const mapRef = useRef(null);
       const mapInstanceRef = useRef(null);
       const markersRef = useRef([]);
+      const localMarkersRef = useRef([]); // marcadores fijos de nuestros locales (referencia, persistentes)
       const infoRef = useRef(null);
       const toggleSeleccion = (id) => setSeleccion(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
@@ -1345,6 +1346,37 @@ const [facturaLabel, setFacturaLabel] = useState(null);
         });
         mapInstanceRef.current.fitBounds(bounds, 60);
       }, [pedidos, mapLoaded, filtroFranja, filtroLocal, seleccion]);
+
+      // Marcadores FIJOS de nuestros locales: siempre visibles, coords hardcodeadas
+      // (sin geocoding), no clickeables (solo referencia). En su propio ref para que
+      // el efecto de pins de pedidos no los borre. Se crean una sola vez al cargar el mapa.
+      useEffect(() => {
+        if (!mapInstanceRef.current || !mapLoaded || localMarkersRef.current.length) return;
+        const LOCALES = [
+          { nombre: "A. Thomas", lat: -34.5786992, lng: -58.4640355 },
+          { nombre: "French", lat: -34.5896025, lng: -58.4010694 },
+        ];
+        // Estrella (forma claramente distinta de los círculos de pedido/tanda) en naranja de marca.
+        const ESTRELLA = "M 0,-22 L 5.4,-7 L 22,-7 L 8.5,3 L 13.5,18 L 0,8.5 L -13.5,18 L -8.5,3 L -22,-7 L -5.4,-7 Z";
+        localMarkersRef.current = LOCALES.map(loc => new window.google.maps.Marker({
+          position: { lat: loc.lat, lng: loc.lng },
+          map: mapInstanceRef.current,
+          title: `Local Piccadely — ${loc.nombre}`,
+          clickable: false, // referencia: no seleccionable, no entra en tandas
+          zIndex: 1000,     // siempre por encima de los pins de pedido
+          icon: {
+            path: ESTRELLA,
+            fillColor: "#F68B32",
+            fillOpacity: 1,
+            strokeColor: "#fff",
+            strokeWeight: 2.5,
+            scale: 1.1,
+            anchor: new window.google.maps.Point(0, 0),
+            labelOrigin: new window.google.maps.Point(0, 34),
+          },
+          label: { text: loc.nombre, color: "#5a3a00", fontSize: "12px", fontWeight: "bold" },
+        }));
+      }, [mapLoaded]);
 
       const franjasDisponibles = [...new Set(pedidos.map(p => p.franjaDisplay).filter(Boolean))].sort();
     const pedidosFiltrados = pedidos.filter(p => (!filtroFranja || p.franjaDisplay === filtroFranja) && (!filtroLocal || p.local === filtroLocal));
