@@ -1555,7 +1555,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       );
     }
     // ─── COMPONENTE CAJA ─────────────────────────────────────────────────
-    function VistaCaja({ pedidosFinalizados, pedidosActivos, onVolver, usuario }) {
+    function VistaCaja({ pedidosActivos, onVolver, usuario }) {
             const HOY_CAJA = fechaArgentina();
       const localesPermitidos = usuario.rol === "admin"
         ? ["A. Thomas", "French", "Administración", "Fondo Fijo A. Thomas", "Fondo Fijo French"]
@@ -1577,6 +1577,9 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       const [fondo, setFondo] = useState(null);
       const [loadingFondo, setLoadingFondo] = useState(false);
       const [fondoMov, setFondoMov] = useState({ tipo: "salida", concepto: "", monto: "" });
+      // Finalizados del rango [min(historial), HOY_CAJA] traídos por /api/reportes/pedidos
+      // (NO de la ventana de 7 días). Fuente de ventas del día y del saldo del historial.
+      const [cajaFinalizados, setCajaFinalizados] = useState([]);
 
       async function cargarEstado() {
         setLoadingCaja(true);
@@ -1595,6 +1598,29 @@ const res = await axios.get(`${API}/api/caja/estado/${encodeURIComponent(localSe
         setLoadingHistorial(false);
       }
 
+      // Trae los finalizados por rango (HOY_CAJA + días del historial) desde el
+      // endpoint histórico, así la caja del día y el saldo del historial no dependen
+      // de la ventana de 7 días de /api/orders (pedidos cargados con anticipación).
+      async function cargarFinalizadosCaja() {
+        if (localSeleccionado.startsWith("Fondo Fijo") || localSeleccionado === "Administración") { setCajaFinalizados([]); return; }
+        const fechas = historial.map(h => h.apertura?.fecha).filter(Boolean);
+        const desde = fechas.length ? fechas.reduce((m, f) => (f < m ? f : m), HOY_CAJA) : HOY_CAJA;
+        try {
+          const res = await axios.get(`${API}/api/reportes/pedidos`, { params: { desde, hasta: HOY_CAJA } });
+          setCajaFinalizados(res.data);
+        } catch (e) { console.error("Caja: error trayendo finalizados por rango:", e.message); }
+      }
+
+      // Refetch "en vivo": SOLO el día de caja (1 día, barato). Reemplaza la porción
+      // de HOY dentro de cajaFinalizados y deja intactos los días del historial (estáticos).
+      async function cargarFinalizadosHoy() {
+        if (localSeleccionado.startsWith("Fondo Fijo") || localSeleccionado === "Administración") return;
+        try {
+          const res = await axios.get(`${API}/api/reportes/pedidos`, { params: { desde: HOY_CAJA, hasta: HOY_CAJA } });
+          setCajaFinalizados(prev => [...prev.filter(p => p.fechaDisplay !== HOY_CAJA), ...res.data]);
+        } catch (e) { console.error("Caja: error refrescando ventas de hoy:", e.message); }
+      }
+
       useEffect(() => { if (localSeleccionado.startsWith("Fondo Fijo")) { cargarFondo(); } else { cargarEstado(); cargarHistorial(); } }, [localSeleccionado]);
       useEffect(() => {
         if (localSeleccionado === "Administración" && estadoCaja !== null && !estadoCaja?.apertura && !loadingCaja) {
@@ -1603,6 +1629,21 @@ const res = await axios.get(`${API}/api/caja/estado/${encodeURIComponent(localSe
             .catch(console.error);
         }
       }, [localSeleccionado, estadoCaja, loadingCaja]);
+      // Rango completo (HOY + días del historial): SOLO al entrar/cambiar de local
+      // o cuando cambia el historial (que es estático salvo reapertura). Acá está el
+      // costo grande, pero no se repite cada 30s.
+      useEffect(() => {
+        if (localSeleccionado.startsWith("Fondo Fijo") || localSeleccionado === "Administración") { setCajaFinalizados([]); return; }
+        cargarFinalizadosCaja();
+      }, [localSeleccionado, historial]);
+      // "En vivo": interval corto SOLO mientras la caja está montada (se limpia al
+      // salir) que refetchea únicamente HOY (1 día). El historial no se re-trae. No
+      // toca el poll global de 30s.
+      useEffect(() => {
+        if (localSeleccionado.startsWith("Fondo Fijo") || localSeleccionado === "Administración") return;
+        const iv = setInterval(cargarFinalizadosHoy, 30000);
+        return () => clearInterval(iv);
+      }, [localSeleccionado]);
   function generarPDFCierre(local, fecha, montoIni, ventasPorMedioData, ajustesList, saldoEsp, montoCierreVal) {
         const doc = new jsPDF();
         const fechaLabel = new Date(fecha + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
@@ -1677,7 +1718,7 @@ await axios.post(`${API}/api/caja/cierre`, { local: localSeleccionado, fecha: HO
       MEDIOS_PAGO.forEach(m => { ventasPorMedioPDF[m] = sumar(ventasPorMedio[m] || []); });
 generarPDFCierre(localSeleccionado, HOY_CAJA, montoInicial, ventasPorMedioPDF, ajustes, saldoEsperado, Number(montoCierre));      setMontoCierre(""); await cargarEstado(); await cargarHistorial(); setGuardando(false);
     }
-const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === HOY_CAJA);
+const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === HOY_CAJA);
       const ventasPorMedio = MEDIOS_PAGO.reduce((acc, m) => { acc[m] = ventasLocal.filter(p => p.medioPago === m); return acc; }, {});
       const totalVentas = sumar(ventasLocal);
     const totalEfectivo = sumar(ventasPorMedio["Efectivo"] || []);
@@ -1916,7 +1957,7 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
                             const a = h.apertura;
                             const ajustesH = h.movimientos.filter(m => m.tipo === "entrada" || m.tipo === "salida");
                             const totalAjustesH = ajustesH.reduce((acc, m) => acc + Number(m.monto), 0);
-                            const saldoEsperadoH = Number(a.monto_inicial) + pedidosFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === a.fecha && p.medioPago === "Efectivo").reduce((acc, p) => acc + p.totalNum, 0) + totalAjustesH;
+                            const saldoEsperadoH = Number(a.monto_inicial) + cajaFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === a.fecha && p.medioPago === "Efectivo").reduce((acc, p) => acc + p.totalNum, 0) + totalAjustesH;
                             const diferencia = a.monto_cierre !== null ? Number(a.monto_cierre) - saldoEsperadoH : null;
                             return { "Fecha": a.fecha, "Monto inicial": Number(a.monto_inicial), "Total ajustes": totalAjustesH, "Saldo esperado": saldoEsperadoH, "Monto cierre": a.monto_cierre !== null ? Number(a.monto_cierre) : "", "Diferencia": diferencia !== null ? diferencia : "", "Estado": a.cerrada ? "Cerrada" : "Sin cerrar" };
                           });
@@ -1930,7 +1971,7 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
                             const a = h.apertura;
                             const ajustesH = h.movimientos.filter(m => m.tipo === "entrada" || m.tipo === "salida");
                             const totalAjustesH = ajustesH.reduce((acc, m) => acc + Number(m.monto), 0);
-                            const saldoEsperadoH = Number(a.monto_inicial) + pedidosFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === a.fecha && p.medioPago === "Efectivo").reduce((acc, p) => acc + p.totalNum, 0) + totalAjustesH;
+                            const saldoEsperadoH = Number(a.monto_inicial) + cajaFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === a.fecha && p.medioPago === "Efectivo").reduce((acc, p) => acc + p.totalNum, 0) + totalAjustesH;
                             const diferencia = a.monto_cierre !== null ? Number(a.monto_cierre) - saldoEsperadoH : null;
                             return [a.fecha, fmt(a.monto_inicial), fmt(totalAjustesH), fmt(saldoEsperadoH), a.monto_cierre !== null ? fmt(a.monto_cierre) : "—", diferencia !== null ? fmt(diferencia) : "—", a.cerrada ? "Cerrada" : "Sin cerrar"];
                           });
@@ -1946,7 +1987,7 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
                     const movs = h.movimientos;
                     const ajustesH = movs.filter(m => m.tipo === "entrada" || m.tipo === "salida");
                     const totalAjustesH = ajustesH.reduce((acc, m) => acc + Number(m.monto), 0);
-                    const saldoEsperadoH = Number(a.monto_inicial) + pedidosFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === a.fecha && p.medioPago === "Efectivo").reduce((acc, p) => acc + p.totalNum, 0) + totalAjustesH;
+                    const saldoEsperadoH = Number(a.monto_inicial) + cajaFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === a.fecha && p.medioPago === "Efectivo").reduce((acc, p) => acc + p.totalNum, 0) + totalAjustesH;
                     const diferencia = a.monto_cierre !== null ? Number(a.monto_cierre) - saldoEsperadoH : null;
                     const abierto = diaExpandido === a.id;
                     const fechaLabel = new Date(a.fecha + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
@@ -1993,7 +2034,7 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
                                 {a.cerrada && (
                               <button style={{ marginTop: 12, fontSize: 12, padding: "7px 14px", borderRadius: 6, border: "1px solid #c0392b", background: "#fff", color: "#c0392b", cursor: "pointer", fontWeight: 500 }}
                                 onClick={() => {
-                                  const ventasDelDia = pedidosFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === a.fecha);
+                                  const ventasDelDia = cajaFinalizados.filter(p => p.local === localSeleccionado && p.estado !== "Anulado" && p.fechaDisplay === a.fecha);
                                   const ventasPorMedioPDF = {};
                                   MEDIOS_PAGO.forEach(m => { ventasPorMedioPDF[m] = ventasDelDia.filter(p => p.medioPago === m).reduce((acc, p) => acc + p.totalNum, 0); });
                                   generarPDFCierre(localSeleccionado, a.fecha, a.monto_inicial, ventasPorMedioPDF, ajustesH, saldoEsperadoH, a.monto_cierre);
