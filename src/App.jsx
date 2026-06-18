@@ -145,8 +145,10 @@ import { useState, useEffect, useRef, useMemo } from "react";
           "comanda de pedido\n",
           "--------------------------------\n",
           "\x1B\x61\x00",
+          "\x1B\x21\x10",
           `${p.numero}  ${p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"long"}) : "-"}\n`,
-          `${p.franjaDisplay}  ${p.zona || ""}\n`,
+          `${(p.franjaDisplay || "").replace(/[–—]/g, "a")}  ${p.zona || ""}\n`,
+          "\x1B\x21\x00",
           "--------------------------------\n",
           "\x1B\x21\x08",
           "CLIENTE\n",
@@ -2899,8 +2901,8 @@ let numeroAsignado = "";
             <style>* { margin:0; padding:0; box-sizing:border-box; } body { font-family:'Courier New',monospace; font-size:12px; width:80mm; padding:4mm; color:#000; } .centro { text-align:center; } .titulo { font-size:18px; font-weight:bold; margin-bottom:2px; } .linea { border-top:1px dashed #000; margin:6px 0; } .fila { display:flex; justify-content:space-between; margin:2px 0; } .label { font-weight:bold; font-size:10px; text-transform:uppercase; color:#555; margin-top:6px; margin-bottom:1px; } .valor { font-size:12px; } .total { font-size:15px; font-weight:bold; text-align:right; margin-top:4px; } .cobrar { text-align:center; font-size:16px; font-weight:bold; border:2px solid #000; padding:6px; margin:8px 0; } @media print { body { width:80mm; } @page { margin:0; size:80mm auto; } }</style></head><body>
             <div class="centro"><div class="titulo">Piccadely</div><div style="font-size:11px;">comanda de pedido</div></div>
             <div class="linea"></div>
-            <div class="fila"><span><b>${p.numero}</b></span><span>${p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"long"}) : "-"}</span></div>
-            <div class="fila"><span>${p.franjaDisplay}</span><span>${p.zona || ""}</span></div>
+            <div class="fila" style="font-size:15px;"><span><b>${p.numero}</b></span><span>${p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"long"}) : "-"}</span></div>
+            <div class="fila" style="font-size:15px;"><span>${p.franjaDisplay}</span><span>${p.zona || ""}</span></div>
             <div class="linea"></div>
             <div class="label">Cliente</div><div class="valor">${p.cliente}</div><div class="valor">${p.telefono}</div>
             <div class="label">Direccion</div><div class="valor">${p.direccion}${p.barrio ? ", "+p.barrio : ""}</div>
@@ -2957,8 +2959,8 @@ let numeroAsignado = "";
           const bloques = datos.map(({ p, estadoActual, repartidorActual, cobrar }) => `<div class="comanda">
             <div class="centro"><div class="titulo">Piccadely</div><div style="font-size:11px;">comanda de pedido</div></div>
             <div class="linea"></div>
-            <div class="fila"><span><b>${p.numero}</b></span><span>${p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"long"}) : "-"}</span></div>
-            <div class="fila"><span>${p.franjaDisplay}</span><span>${p.zona || ""}</span></div>
+            <div class="fila" style="font-size:15px;"><span><b>${p.numero}</b></span><span>${p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"long"}) : "-"}</span></div>
+            <div class="fila" style="font-size:15px;"><span>${p.franjaDisplay}</span><span>${p.zona || ""}</span></div>
             <div class="linea"></div>
             <div class="label">Cliente</div><div class="valor">${p.cliente}</div><div class="valor">${p.telefono}</div>
             <div class="label">Direccion</div><div class="valor">${p.direccion}${p.barrio ? ", "+p.barrio : ""}</div>
