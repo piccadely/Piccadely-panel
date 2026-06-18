@@ -407,7 +407,9 @@ app.get("/api/reportes/pedidos", async (req, res) => {
         estado: r.estado, repartidor: r.repartidor, tabManual: r.tab_manual,
         fechaManual: r.fecha_manual, franjaManual: r.franja_manual, cobrar: r.cobrar,
         clienteOverride: r.cliente_override, telefonoOverride: r.telefono_override,
+        direccionOverride: r.direccion_override, barrioOverride: r.barrio_override,
         zonaOverride: r.zona_override, medioPagoOverride: r.medio_pago_override,
+        notaOverride: r.nota_override, emailOverride: r.email_override,
         codigoPagoOverride: r.codigo_pago_override, medioPagoOtroOverride: r.medio_pago_otro_override,
       };
     });
@@ -463,6 +465,12 @@ app.get("/api/reportes/pedidos", async (req, res) => {
         esManual: false,
         cobrar: !!est.cobrar,
         pago: p.payment_status === "paid" ? "Pagado" : "Pendiente",
+        direccion: est.direccionOverride || `${p.shipping_address?.address || ""} ${p.shipping_address?.number || ""}${p.shipping_address?.floor ? ` ${p.shipping_address.floor}` : ""}`.trim(),
+        barrio: est.barrioOverride || p.shipping_address?.locality || p.shipping_address?.city || "",
+        entreCalles: "",
+        email: (est.emailOverride !== undefined && est.emailOverride !== null) ? est.emailOverride : (p.contact_email || ""),
+        nota: (est.notaOverride !== undefined && est.notaOverride !== null) ? est.notaOverride : (p.note || ""),
+        transaccionMP: p.gateway_id || p.transactions?.[0]?.id || null,
       });
     }
 
@@ -498,6 +506,12 @@ app.get("/api/reportes/pedidos", async (req, res) => {
         esManual: true,
         cobrar: (est.cobrar !== undefined && est.cobrar !== null) ? !!est.cobrar : !!r.cobrar,
         pago: r.pago,
+        direccion: est.direccionOverride || r.direccion || "",
+        barrio: est.barrioOverride || r.barrio || "",
+        entreCalles: r.entre_calles || "",
+        email: (est.emailOverride !== undefined && est.emailOverride !== null) ? est.emailOverride : (r.email || ""),
+        nota: (est.notaOverride !== undefined && est.notaOverride !== null) ? est.notaOverride : (r.nota || ""),
+        transaccionMP: null,
       });
     }
 

@@ -2039,8 +2039,8 @@ const ventasLocal = pedidosFinalizados.filter(p => p.local === localSeleccionado
       const [expandido, setExpandido] = useState(null);
       const [menuAbierto, setMenuAbierto] = useState(false);
       const [menuGrupo, setMenuGrupo] = useState("");
-      const [filtroFinDesde, setFiltroFinDesde] = useState("");
-      const [filtroFinHasta, setFiltroFinHasta] = useState("");
+      const [filtroFinDesde, setFiltroFinDesde] = useState(restarDias(HOY, 7)); // rango de FETCH a /api/reportes/pedidos (default últimos 7 días)
+      const [filtroFinHasta, setFiltroFinHasta] = useState(HOY);
       const [filtroRepartidor, setFiltroRepartidor] = useState("");
       const [filtroFinLocal, setFiltroFinLocal] = useState("");
       const [facturando, setFacturando] = useState(null);
@@ -2246,19 +2246,36 @@ setPedidosDatosOverride(datosInit);
       // El dashboard pide desde el inicio del período anterior (con un día de
       // margen) para que la comparación "vs anterior" tenga datos completos.
       useEffect(() => {
-        if (vista !== "reporteVentas" && vista !== "reporteProductos" && vista !== "dashboard") return;
+        if (vista !== "reporteVentas" && vista !== "reporteProductos" && vista !== "dashboard" && vista !== "finalizados") return;
         let desde, hasta;
         if (vista === "reporteVentas") { desde = rvDesde || REPORTE_FECHA_MIN; hasta = rvHasta || HOY; }
         else if (vista === "reporteProductos") { desde = rpDesde || REPORTE_FECHA_MIN; hasta = rpHasta || HOY; }
+        else if (vista === "finalizados") { desde = filtroFinDesde || REPORTE_FECHA_MIN; hasta = filtroFinHasta || HOY; }
         else { const { prevDesde } = rangoAnterior(dashModo, dashDesde, dashHasta); desde = restarDias(prevDesde, 1); hasta = dashHasta; }
         if (desde > hasta) { setRepPedidos([]); setRepError("El rango de fechas es inválido (desde es posterior a hasta)."); setRepLoading(false); return; }
         let cancelado = false;
         setRepLoading(true); setRepError(null);
         axios.get(`${API}/api/reportes/pedidos`, { params: { desde, hasta } })
-          .then(res => { if (!cancelado) { setRepPedidos(res.data); setRepLoading(false); } })
+          .then(res => {
+            if (cancelado) return;
+            setRepPedidos(res.data); setRepLoading(false);
+            // Finalizados lee por rango y puede traer pedidos fuera de la ventana de /api/orders
+            // (no están en pedidosLocales). Sembramos su estado resuelto para que los handlers
+            // de la card (cambiar cobrar, reabrir) manden el objeto completo y no corrompan estado.
+            // tab/fecha/franja van vacíos: el COALESCE del backend conserva lo guardado.
+            if (vista === "finalizados") {
+              setPedidosLocales(prev => {
+                const nuevo = { ...prev };
+                res.data.forEach(p => {
+                  if (!nuevo[p.id]) nuevo[p.id] = { estado: p.estado, repartidor: p.repartidor, cobrar: !!p.cobrar, tabManual: "", fechaManual: "", franjaManual: "" };
+                });
+                return nuevo;
+              });
+            }
+          })
           .catch(() => { if (!cancelado) { setRepPedidos([]); setRepError("No se pudieron cargar los datos históricos. Reintentá o revisá la conexión."); setRepLoading(false); } });
         return () => { cancelado = true; };
-      }, [vista, rvDesde, rvHasta, rpDesde, rpHasta, dashDesde, dashHasta, dashModo]);
+      }, [vista, rvDesde, rvHasta, rpDesde, rpHasta, dashDesde, dashHasta, dashModo, filtroFinDesde, filtroFinHasta]);
 
       const pedidosProcesados = useMemo(() => [
         ...pedidosRaw.map(p => {
@@ -3548,11 +3565,11 @@ if (vista === "dashboard") {
         return <div style={s.wrap}><Header /><VistaMapa onVolver={() => setVista("panel")} repartidores={repartidoresLista} onCrearTanda={crearTanda} /></div>;
       }
       if (vista === "finalizados") {
-        const finalizadosOrdenados = [...pedidosFinalizados]
+        // Fuente: /api/reportes/pedidos por rango (repPedidos) — trae TODO lo finalizado
+        // de la fecha sin importar cuándo se cargó (a diferencia de la ventana de 7 días).
+        const finalizadosOrdenados = [...repPedidos]
           .filter(p => {
-            if (filtroFinDesde && p.fechaDisplay && p.fechaDisplay < filtroFinDesde) return false;
-            if (filtroFinHasta && p.fechaDisplay && p.fechaDisplay > filtroFinHasta) return false;
-            if (filtroRepartidor && (pedidosLocales[p.id]?.repartidor || "Sin asignar") !== filtroRepartidor) return false;
+            if (filtroRepartidor && repartidorReporte(p) !== filtroRepartidor) return false;
             if (filtroFinLocal && p.local !== filtroFinLocal) return false;
             return true;
           })
@@ -3600,6 +3617,11 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                 <button onClick={() => setTabFin("entregados")} style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer", borderColor: tabFin === "entregados" ? "#F68B32" : "#ddd", background: tabFin === "entregados" ? "#F68B32" : "#fff", color: tabFin === "entregados" ? "#fff" : "#555", fontWeight: tabFin === "entregados" ? 600 : 400 }}>✅ Entregados ({entregados.length})</button>
                 <button onClick={() => setTabFin("anulados")} style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer", borderColor: tabFin === "anulados" ? "#c0392b" : "#ddd", background: tabFin === "anulados" ? "#c0392b" : "#fff", color: tabFin === "anulados" ? "#fff" : "#555", fontWeight: tabFin === "anulados" ? 600 : 400 }}>🚫 Anulados ({anulados.length})</button>
               </div>
+              {repLoading ? (
+                <div style={{ padding: "60px 0", textAlign: "center", color: "#888", fontSize: 14 }}>⏳ Cargando finalizados…</div>
+              ) : repError ? (
+                <div style={{ padding: "20px", background: "#fdecea", color: "#c0392b", borderRadius: 8, fontSize: 14, fontWeight: 500 }}>⚠️ {repError}</div>
+              ) : (
               <div style={s.lista}>
                 <div style={s.cabecera}>
                   <span style={{ ...s.col, flex: 0.6 }}>Nº</span><span style={{ ...s.col, flex: 1.2 }}>Cliente</span>
@@ -3677,6 +3699,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                   </div>
                 ))}
               </div>
+              )}
             </div>
           </div>
         );
