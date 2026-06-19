@@ -2562,6 +2562,26 @@ setPedidosDatosOverride(datosInit);
           avisoTanda("No se pudo crear la tanda. Reintentá.");
         }
       }
+      // Agrega los pedidos seleccionados a una tanda 'armada' existente (inverso del quitar).
+      // Optimista: les pone el tandaId al instante; si el backend rechaza alguno (carrera:
+      // ya en tanda u otro local) lo revierte y avisa.
+      async function agregarPedidosATanda(tandaId) {
+        if (!tandaId || seleccionTanda.length === 0) return;
+        const ids = [...seleccionTanda];
+        ids.forEach(id => actualizarLocalSinGuardar(id, { tandaId }));
+        salirModoTanda();
+        try {
+          const res = await axios.post(`${API}/api/tandas/${tandaId}/pedidos`, { pedidoIds: ids, usuario: usuario.nombre_completo });
+          const rechazados = res.data?.rechazados || [];
+          if (rechazados.length) {
+            rechazados.forEach(r => actualizarLocalSinGuardar(r.id, { tandaId: null }));
+            avisoTanda(`${rechazados.length} pedido(s) no se pudieron agregar (ya en tanda u otro local).`);
+          }
+        } catch (err) {
+          ids.forEach(id => actualizarLocalSinGuardar(id, { tandaId: null }));
+          avisoTanda("No se pudieron agregar los pedidos a la tanda. Reintentá.");
+        }
+      }
       // Optimista con revert: aplica cambios locales, dispara el PATCH y si falla revierte.
       async function patchTanda(t, body, aplicar, revertir) {
         aplicar();
@@ -4061,16 +4081,26 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
             </div>
           )}
           {/* Barra fija para confirmar la tanda en armado */}
-          {modoTandaLocal && seleccionTanda.length > 0 && (
+          {modoTandaLocal && seleccionTanda.length > 0 && (() => {
+            const tandasArmadasLocal = tandas.filter(t => t.estado === "armada" && t.local === modoTandaLocal);
+            return (
             <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#2b2b2b", color: "#fff", padding: "12px 24px", display: "flex", alignItems: "center", gap: 16, zIndex: 250, boxShadow: "0 -4px 16px rgba(0,0,0,0.2)" }}>
               <span style={{ fontSize: 14, fontWeight: 600 }}>{seleccionTanda.length} pedido{seleccionTanda.length > 1 ? "s" : ""} de {modoTandaLocal} seleccionado{seleccionTanda.length > 1 ? "s" : ""}</span>
+              {tandasArmadasLocal.length > 0 && (
+                <select value="" onChange={e => { const tid = Number(e.target.value); if (tid) agregarPedidosATanda(tid); }}
+                  style={{ marginLeft: "auto", fontSize: 13, padding: "8px 10px", borderRadius: 6, border: "1px solid #777", background: "#fff", color: "#333", cursor: "pointer" }}>
+                  <option value="">Agregar a tanda…</option>
+                  {tandasArmadasLocal.map(t => <option key={t.id} value={t.id}>Tanda #{t.id}{t.nombre ? ` · ${t.nombre}` : ""} ({t.repartidor})</option>)}
+                </select>
+              )}
               <button onClick={() => { setTandaNombre(""); setTandaRepartidor(""); setConfirmandoTanda(true); }}
-                style={{ marginLeft: "auto", fontSize: 13, fontWeight: 700, padding: "8px 18px", borderRadius: 6, border: "none", cursor: "pointer", background: "#7c3aed", color: "#fff" }}>
-                Confirmar tanda ({seleccionTanda.length})
+                style={{ marginLeft: tandasArmadasLocal.length > 0 ? 0 : "auto", fontSize: 13, fontWeight: 700, padding: "8px 18px", borderRadius: 6, border: "none", cursor: "pointer", background: "#7c3aed", color: "#fff" }}>
+                Crear tanda nueva ({seleccionTanda.length})
               </button>
               <button onClick={salirModoTanda} style={{ fontSize: 13, padding: "8px 14px", borderRadius: 6, border: "1px solid #777", cursor: "pointer", background: "transparent", color: "#fff" }}>Cancelar</button>
             </div>
-          )}
+            );
+          })()}
           {/* Modal: repartidor (obligatorio) + nombre (opcional) */}
           {confirmandoTanda && (
             <div onClick={() => setConfirmandoTanda(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>

@@ -718,6 +718,53 @@ app.patch("/api/orders/:id/tanda", async (req, res) => {
     res.json({ ok: true, tandaId });
   } catch (err) { res.status(500).json({ error: "Error actualizando tanda del pedido" }); }
 });
+
+// Local + tanda actual de un pedido (para validar al agregarlo a una tanda).
+// El local sale del tab (manual override o auto), igual criterio que /api/mapa.
+async function localYTandaDePedido(id) {
+  const est = await pool.query("SELECT tab_manual, tanda_id FROM pedidos_estados WHERE id=$1", [id]);
+  const e = est.rows[0] || {};
+  const tn = await pool.query("SELECT data FROM pedidos_tn WHERE id::text=$1", [id]);
+  if (tn.rows[0]) {
+    const tabActual = e.tab_manual || clasificarPedidoBackend(tn.rows[0].data);
+    return { tandaId: e.tanda_id ?? null, local: localLabelBackend(tabActual) };
+  }
+  const man = await pool.query("SELECT tab_actual FROM pedidos_manuales WHERE id=$1", [id]);
+  if (man.rows[0]) {
+    const tabActual = e.tab_manual || man.rows[0].tab_actual;
+    return { tandaId: e.tanda_id ?? null, local: localLabelBackend(tabActual) };
+  }
+  return null;
+}
+
+// Agregar 1+ pedidos a una tanda EXISTENTE (inverso del quitar). Mismo upsert de una
+// sola columna (tanda_id = :id), no pisa estado/repartidor. Valida: tanda 'armada',
+// cada pedido sin tanda y del mismo local. Los que no cumplen no se agregan.
+app.post("/api/tandas/:id/pedidos", async (req, res) => {
+  const { id } = req.params;
+  const { pedidoIds, usuario: usuarioAudit } = req.body;
+  if (!Array.isArray(pedidoIds) || pedidoIds.length === 0) {
+    return res.status(400).json({ error: "pedidoIds requerido" });
+  }
+  try {
+    const cur = await pool.query("SELECT * FROM tandas WHERE id=$1", [id]);
+    const tanda = cur.rows[0];
+    if (!tanda) return res.status(404).json({ error: "Tanda no encontrada" });
+    if (tanda.estado !== "armada") return res.status(409).json({ error: "La tanda ya fue despachada; no se le pueden agregar pedidos." });
+
+    const agregados = [], rechazados = [];
+    for (const pid of pedidoIds) {
+      const info = await localYTandaDePedido(String(pid));
+      if (!info) { rechazados.push({ id: String(pid), motivo: "no encontrado" }); continue; }
+      if (info.tandaId != null) { rechazados.push({ id: String(pid), motivo: "ya está en una tanda" }); continue; }
+      if (info.local !== tanda.local) { rechazados.push({ id: String(pid), motivo: `otro local (${info.local})` }); continue; }
+      await setTandaIdPedido(String(pid), Number(id));
+      agregados.push(String(pid));
+    }
+    res.json({ ok: true, tandaId: Number(id), agregados, rechazados });
+    if (agregados.length) registrarAuditoria(usuarioAudit, "tanda_pedidos_agregados", "tanda", String(id), { agregados: agregados.length, rechazados: rechazados.length });
+  } catch (err) { console.error("Error POST /api/tandas/:id/pedidos:", err.message); res.status(500).json({ error: "Error agregando pedidos a la tanda" }); }
+});
 // ─── DATOS EDITABLES DE PEDIDO ────────────────────────────────────────
 app.patch("/api/pedidos/:id/datos", async (req, res) => {
   const { id } = req.params;
