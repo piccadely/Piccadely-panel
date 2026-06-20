@@ -591,6 +591,10 @@ const { estado, repartidor, tabManual, fechaManual, franjaManual, cobrar, silenc
 if (mailAnularPedido && !silencioso) enviarMailAnulacion(mailAnularPedido).catch(console.error);
     res.json({ ok: true });
 
+    // Hook de stock: al "salir" el pedido (En camino / Entregado) se descuenta del
+    // stock del local (idempotente vía stock_descontado). No bloquea la respuesta.
+    if (estado === "En camino" || estado === "Entregado") descontarStockDePedidoTx(id);
+
     // Auditoria (no bloquea la respuesta)
     if (estado && estado !== prevData.estado) registrarAuditoria(usuarioAudit, "cambio_estado", "pedido", id, { anterior: prevData.estado || "Por empaquetar", nuevo: estado });
     if (estado === "Anulado" && prevData.estado !== "Anulado") registrarAuditoria(usuarioAudit, "anulacion", "pedido", id, {});
@@ -694,8 +698,15 @@ app.patch("/api/tandas/:id", async (req, res) => {
       if (estado === "en_reparto") {
         // Despachar: pedidos a "En camino" con el repartidor de la tanda (no toca otros overrides)
         await pool.query("UPDATE pedidos_estados SET estado='En camino', repartidor=$1, updated_at=NOW() WHERE tanda_id=$2", [rep, id]);
+        // Hook de stock: cada pedido de la tanda "sale" -> descontar (idempotente).
+        const despachados = await pool.query("SELECT id FROM pedidos_estados WHERE tanda_id=$1", [id]);
+        for (const row of despachados.rows) descontarStockDePedidoTx(row.id);
       } else if (estado === "entregada") {
         await pool.query("UPDATE pedidos_estados SET estado='Entregado', updated_at=NOW() WHERE tanda_id=$1", [id]);
+        // Hook de stock: cubre el salto directo armada -> entregada (sin en_reparto).
+        // Si ya pasó por en_reparto, el claim idempotente lo frena (no descuenta doble).
+        const entregados = await pool.query("SELECT id FROM pedidos_estados WHERE tanda_id=$1", [id]);
+        for (const row of entregados.rows) descontarStockDePedidoTx(row.id);
       } else if (estado === "cancelada") {
         // Deshacer: liberar los pedidos (vuelven al pool), sin tocar su estado
         await pool.query("UPDATE pedidos_estados SET tanda_id=NULL, updated_at=NOW() WHERE tanda_id=$1", [id]);
@@ -765,6 +776,181 @@ app.post("/api/tandas/:id/pedidos", async (req, res) => {
     if (agregados.length) registrarAuditoria(usuarioAudit, "tanda_pedidos_agregados", "tanda", String(id), { agregados: agregados.length, rechazados: rechazados.length });
   } catch (err) { console.error("Error POST /api/tandas/:id/pedidos:", err.message); res.status(500).json({ error: "Error agregando pedidos a la tanda" }); }
 });
+
+// ─── STOCK (lotes por producto/local + descuento automático al salir) ─
+// La CLAVE de matcheo es el nombre del producto, parseado IGUAL que la vista
+// `produccion` (App.jsx ~3566-3577): regex ^(.+) x(\d+)$ sobre el string de
+// productos. El `local` del lote usa el mismo label que produccion (p.local):
+// tab_manual override, o clasificarPedidoBackend + localLabelBackend.
+
+// Port del parseo de produccion: "Nombre xN, Otro x2" -> [{clave, cantidad}].
+// Ítems que no matchean el patrón "Nombre xN" se ignoran (igual que el front).
+function parsearProductosBackend(productosStr) {
+  const out = [];
+  (productosStr || "").split(", ").forEach(item => {
+    const m = item.match(/^(.+) x(\d+)$/);
+    if (!m) return;
+    out.push({ clave: m[1].trim(), cantidad: Number(m[2]) });
+  });
+  return out;
+}
+
+// String de productos de un pedido, con la MISMA precedencia que el front
+// (pedidosProcesados): override (pedidos_productos) > TN aplanado "name xN" >
+// manual (campo productos).
+async function productosStringDePedido(id, client = pool) {
+  const ov = await client.query("SELECT productos FROM pedidos_productos WHERE pedido_id=$1", [id]);
+  if (ov.rows[0]) return ov.rows[0].productos || "";
+  const tn = await client.query("SELECT data FROM pedidos_tn WHERE id::text=$1", [id]);
+  if (tn.rows[0]) return (tn.rows[0].data.products || []).map(pr => `${pr.name} x${pr.quantity}`).join(", ");
+  const man = await client.query("SELECT productos FROM pedidos_manuales WHERE id=$1", [id]);
+  if (man.rows[0]) return man.rows[0].productos || "";
+  return "";
+}
+
+// Local (label) de un pedido, mismo criterio que /api/mapa y tandas
+// (localYTandaDePedido): tab_manual override, o clasificación auto.
+async function localDePedido(id, client = pool) {
+  const est = await client.query("SELECT tab_manual FROM pedidos_estados WHERE id=$1", [id]);
+  const tabManual = est.rows[0]?.tab_manual || null;
+  const tn = await client.query("SELECT data FROM pedidos_tn WHERE id::text=$1", [id]);
+  if (tn.rows[0]) return localLabelBackend(tabManual || clasificarPedidoBackend(tn.rows[0].data));
+  const man = await client.query("SELECT tab_actual FROM pedidos_manuales WHERE id=$1", [id]);
+  if (man.rows[0]) return localLabelBackend(tabManual || man.rows[0].tab_actual);
+  return null;
+}
+
+// Descuenta el stock del pedido cuando "sale" (En camino / Entregado).
+// - Idempotente vía pedidos_estados.stock_descontado (no descuenta dos veces).
+// - FIFO: gasta primero los lotes más viejos (fecha_produccion asc).
+// - Best-effort: si no alcanza el stock, descuenta lo que haya (sin bajar de 0)
+//   y audita el faltante; NUNCA bloquea el despacho.
+// Requiere correr dentro de una transacción (usa FOR UPDATE): llamar siempre vía
+// descontarStockDePedidoTx desde las rutas.
+// BORDE CONOCIDO (v1.1, NO resuelto acá): si se REABRE un pedido ya despachado
+// (vuelve a "Por empaquetar"), el stock no se re-acredita solo.
+async function descontarStockDePedido(pedidoId, client = pool) {
+  const id = String(pedidoId);
+
+  // Claim atómico: reclamar el descuento en UNA operación que serializa por el
+  // row-lock del pedido. Si la fila no existe, INSERT (count=1 -> seguimos); si
+  // existe con stock_descontado=false, UPDATE (count=1 -> seguimos); si ya está
+  // en true, el WHERE corta (count=0 -> otro evento ya lo tomó, no-op). Esto evita
+  // el doble descuento cuando dos disparos (tanda + cambio manual) corren casi a la
+  // vez. Como está dentro de la txn, si el descuento falla y hay ROLLBACK, el claim
+  // se revierte y queda reintentable.
+  const claim = await client.query(
+    `INSERT INTO pedidos_estados (id, stock_descontado, updated_at)
+     VALUES ($1, true, NOW())
+     ON CONFLICT (id) DO UPDATE SET stock_descontado = true, updated_at = NOW()
+     WHERE pedidos_estados.stock_descontado = false`,
+    [id]
+  );
+  if (claim.rowCount === 0) return; // ya descontado / reclamado por otro -> no-op
+
+  const local = await localDePedido(id, client);
+  const lineas = parsearProductosBackend(await productosStringDePedido(id, client));
+
+  // Agrupar por clave (produccion suma cantidades del mismo nombre).
+  const demanda = {};
+  for (const { clave, cantidad } of lineas) demanda[clave] = (demanda[clave] || 0) + cantidad;
+
+  const consumo = [], faltantes = [];
+  if (local) {
+    for (const clave of Object.keys(demanda)) {
+      let restante = demanda[clave];
+      const lotes = await client.query(
+        `SELECT id, cantidad_disponible FROM stock_lotes
+         WHERE local=$1 AND clave_producto=$2 AND cantidad_disponible > 0
+         ORDER BY fecha_produccion ASC, id ASC
+         FOR UPDATE`,
+        [local, clave]
+      );
+      for (const lote of lotes.rows) {
+        if (restante <= 0) break;
+        const usar = Math.min(restante, Number(lote.cantidad_disponible));
+        await client.query("UPDATE stock_lotes SET cantidad_disponible = cantidad_disponible - $1 WHERE id=$2", [usar, lote.id]);
+        restante -= usar;
+      }
+      consumo.push({ clave, cantidad: demanda[clave], descontado: demanda[clave] - restante });
+      if (restante > 0) faltantes.push({ clave, falto: restante });
+    }
+  }
+
+  // (La marca stock_descontado=true ya se seteó en el claim atómico del inicio.)
+
+  // Auditoria best-effort (no bloquea el despacho).
+  if (faltantes.length) registrarAuditoria("Sistema", "stock_faltante", "stock", id, { local, faltantes });
+  registrarAuditoria("Sistema", "stock_consumo", "stock", id, { local, productos: consumo });
+}
+
+// Corre el descuento en su propia transacción (necesaria para el FOR UPDATE del
+// FIFO). Best-effort: nunca propaga el error al despacho.
+async function descontarStockDePedidoTx(pedidoId) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await descontarStockDePedido(String(pedidoId), client);
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error(`Hook stock pedido ${pedidoId}:`, e.message);
+  } finally {
+    client.release();
+  }
+}
+
+// GET /api/stock?local= -> lotes con cantidad_disponible > 0 (del local pedido, o
+// todos), agrupados por clave_producto: total_disponible + desglose por
+// fecha_produccion (para mostrar "de ayer · de hoy"). Ordenado por clave_producto.
+app.get("/api/stock", requireAuth, async (req, res) => {
+  const { local } = req.query;
+  try {
+    const params = [];
+    let filtro = "cantidad_disponible > 0";
+    if (local) { params.push(local); filtro += ` AND local = $${params.length}`; }
+    const r = await pool.query(
+      `SELECT clave_producto, local, fecha_produccion, SUM(cantidad_disponible)::int AS cantidad
+       FROM stock_lotes WHERE ${filtro}
+       GROUP BY clave_producto, local, fecha_produccion
+       ORDER BY clave_producto ASC, fecha_produccion ASC`,
+      params
+    );
+    const map = {};
+    for (const row of r.rows) {
+      if (!map[row.clave_producto]) map[row.clave_producto] = { clave_producto: row.clave_producto, total_disponible: 0, porFecha: [] };
+      map[row.clave_producto].total_disponible += Number(row.cantidad);
+      map[row.clave_producto].porFecha.push({ fecha_produccion: row.fecha_produccion, local: row.local, cantidad: Number(row.cantidad) });
+    }
+    res.json(Object.values(map));
+  } catch (err) { console.error("Error GET /api/stock:", err.message); res.status(500).json({ error: "Error trayendo stock" }); }
+});
+
+// POST /api/stock/producir -> SIEMPRE inserta un lote nuevo (no upsert).
+// fecha_produccion = la que venga o HOY (hora Argentina). usuario_id del JWT.
+app.post("/api/stock/producir", requireAuth, async (req, res) => {
+  const { local, clave_producto, cantidad, fecha_produccion } = req.body;
+  const cant = Number(cantidad);
+  if (!local || !clave_producto || !Number.isFinite(cant) || cant <= 0) {
+    return res.status(400).json({ error: "local, clave_producto y cantidad (>0) son requeridos" });
+  }
+  const fecha = fecha_produccion || fechaArgentinaISO();
+  try {
+    await pool.query(
+      `INSERT INTO stock_lotes (local, clave_producto, fecha_produccion, cantidad_disponible, usuario_id)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [local, clave_producto, fecha, cant, req.user.id]
+    );
+    const tot = await pool.query(
+      `SELECT COALESCE(SUM(cantidad_disponible),0)::int AS total FROM stock_lotes
+       WHERE local=$1 AND clave_producto=$2 AND cantidad_disponible > 0`,
+      [local, clave_producto]
+    );
+    res.json({ ok: true, local, clave_producto, fecha_produccion: fecha, total_disponible: tot.rows[0].total });
+    registrarAuditoria(req.user.nombre_completo, "produccion", "stock", clave_producto, { local, producto: clave_producto, cantidad: cant, fecha_produccion: fecha, usuario: req.user.nombre_completo });
+  } catch (err) { console.error("Error POST /api/stock/producir:", err.message); res.status(500).json({ error: "Error registrando producción" }); }
+});
+
 // ─── DATOS EDITABLES DE PEDIDO ────────────────────────────────────────
 app.patch("/api/pedidos/:id/datos", async (req, res) => {
   const { id } = req.params;
