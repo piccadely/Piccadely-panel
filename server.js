@@ -910,7 +910,9 @@ app.get("/api/stock", requireAuth, async (req, res) => {
     let filtro = "cantidad_disponible > 0";
     if (local) { params.push(local); filtro += ` AND local = $${params.length}`; }
     const r = await pool.query(
-      `SELECT clave_producto, local, fecha_produccion, SUM(cantidad_disponible)::int AS cantidad
+      `SELECT clave_producto, local,
+              to_char(fecha_produccion, 'YYYY-MM-DD') AS fecha_produccion,
+              SUM(cantidad_disponible)::int AS cantidad
        FROM stock_lotes WHERE ${filtro}
        GROUP BY clave_producto, local, fecha_produccion
        ORDER BY clave_producto ASC, fecha_produccion ASC`,
