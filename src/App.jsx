@@ -2140,6 +2140,15 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [rpHasta, setRpHasta] = useState("");
       const [prodFecha, setProdFecha] = useState(HOY);
       const [prodLocal, setProdLocal] = useState("todos");
+      // Tablero de cocina (demanda de produccion + stock por local)
+      // Fecha como RANGO [desde, hasta]; default HOY..HOY (= comportamiento de un día).
+      const [cocinaDesde, setCocinaDesde] = useState(HOY);
+      const [cocinaHasta, setCocinaHasta] = useState(HOY);
+      const [cocinaLocal, setCocinaLocal] = useState("todos");
+      const [cocinaCant, setCocinaCant] = useState({});
+      const [stockData, setStockData] = useState([]);
+      const [stockLoading, setStockLoading] = useState(false);
+      const [stockError, setStockError] = useState(null);
       const [dashDesde, setDashDesde] = useState(lunesDeLaSemana(HOY));
       const [dashHasta, setDashHasta] = useState(HOY);
       const [dashModo, setDashModo] = useState("semana");
@@ -2354,6 +2363,57 @@ setPedidosDatosOverride(datosInit);
           .catch(() => { if (!cancelado) { setRepPedidos([]); setRepError("No se pudieron cargar los datos históricos. Reintentá o revisá la conexión."); setRepLoading(false); } });
         return () => { cancelado = true; };
       }, [vista, rvDesde, rvHasta, rpDesde, rpHasta, dashDesde, dashHasta, dashModo, filtroFinDesde, filtroFinHasta]);
+
+      // ─── COCINA: stock por local (GET /api/stock) ────────────────────────
+      // Se carga al entrar a la vista y al cambiar el local. El token JWT lo
+      // agrega el interceptor global de axios (auth-utils), igual que repPedidos.
+      useEffect(() => {
+        if (vista !== "cocina") return;
+        let cancelado = false;
+        setStockLoading(true); setStockError(null);
+        const params = cocinaLocal !== "todos" ? { local: cocinaLocal } : {};
+        axios.get(`${API}/api/stock`, { params })
+          .then(res => { if (!cancelado) { setStockData(res.data); setStockLoading(false); } })
+          .catch(() => { if (!cancelado) { setStockData([]); setStockError("No se pudo cargar el stock. Reintentá o revisá la conexión."); setStockLoading(false); } });
+        return () => { cancelado = true; };
+      }, [vista, cocinaLocal]);
+
+      // Refetch silencioso (sin spinner) para reconciliar tras producir.
+      async function recargarStock() {
+        try {
+          const params = cocinaLocal !== "todos" ? { local: cocinaLocal } : {};
+          const res = await axios.get(`${API}/api/stock`, { params });
+          setStockData(res.data);
+        } catch { /* dejamos el valor optimista si el refetch falla */ }
+      }
+
+      // Producir: optimista (suma al instante) + POST; si falla, revierte y avisa.
+      async function producirCocina(clave, cantidadStr) {
+        const cantidad = Number(cantidadStr);
+        if (!Number.isFinite(cantidad) || cantidad <= 0) return;
+        if (cocinaLocal === "todos") return; // el stock es por local
+        const fecha = HOY;
+        const snapshot = stockData;
+        setStockData(curr => {
+          const copia = curr.map(it => ({ ...it, porFecha: [...it.porFecha] }));
+          let item = copia.find(it => it.clave_producto === clave);
+          if (!item) { item = { clave_producto: clave, total_disponible: 0, porFecha: [] }; copia.push(item); }
+          item.total_disponible += cantidad;
+          const pf = item.porFecha.find(f => f.fecha_produccion === fecha && f.local === cocinaLocal);
+          if (pf) pf.cantidad += cantidad;
+          else item.porFecha.push({ fecha_produccion: fecha, local: cocinaLocal, cantidad });
+          item.porFecha.sort((a, b) => (a.fecha_produccion < b.fecha_produccion ? -1 : 1));
+          return copia;
+        });
+        setCocinaCant(prev => { const n = { ...prev }; delete n[clave]; return n; });
+        try {
+          await axios.post(`${API}/api/stock/producir`, { local: cocinaLocal, clave_producto: clave, cantidad });
+          await recargarStock();
+        } catch (e) {
+          setStockData(snapshot); // revertir
+          alert("No se pudo registrar la producción. " + (e.response?.data?.error || ""));
+        }
+      }
 
       const pedidosProcesados = useMemo(() => [
         ...pedidosRaw.map(p => {
@@ -3146,6 +3206,7 @@ let numeroAsignado = "";
                   <button style={s.dropItem} onClick={() => { setVista("finalizados"); setMenuAbierto(false); }}>📋 Pedidos finalizados</button>
                   <button style={s.dropItem} onClick={() => { setVista("cotizaciones"); setMenuAbierto(false); }}>🎉 Cotizaciones</button>
                   <button style={s.dropItem} onClick={() => { setVista("produccion"); setMenuAbierto(false); }}>🔧 Análisis de producción</button>
+                  <button style={s.dropItem} onClick={() => { setVista("cocina"); setMenuAbierto(false); }}>🍳 Tablero de cocina</button>
                   <button style={s.dropItem} onClick={() => { setVista("mapa"); setMenuAbierto(false); }}>🗺️ Mapa de pedidos</button>
                   <button style={{ ...s.dropItem, borderTop: "1px solid #eee", color: "#888" }} onClick={() => { setVista("panel"); setMenuAbierto(false); }}>← Volver al panel</button>
                 </div>
@@ -3650,6 +3711,171 @@ if (vista === "dashboard") {
                     </div>
                   ))}
                   <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#F68B32" }}>Total a producir: {totalUnidades} unidades</div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+      if (vista === "cocina") {
+        // Demanda: mismo agrupado que `produccion`, pero SOLO pedidos por producir
+        // (Por empaquetar / Listo): lo ya despachado no se produce mas. Mantiene
+        // el filtro por local y la fecha.
+        const pedidosCocina = pedidosProcesados.filter(p => {
+          const est = pedidosLocales[p.id]?.estado || p.estado;
+          if (est !== "Por empaquetar" && est !== "Listo") return false;
+          // Demanda sumada sobre el rango [desde, hasta] inclusive.
+          if (!p.fechaDisplay || p.fechaDisplay < cocinaDesde || p.fechaDisplay > cocinaHasta) return false;
+          if (cocinaLocal !== "todos" && p.local !== cocinaLocal) return false;
+          return true;
+        });
+        const demandaMap = {};
+        pedidosCocina.forEach(p => {
+          p.productos.split(", ").forEach(item => {
+            const match = item.match(/^(.+) x(\d+)$/);
+            if (!match) return;
+            const nombre = match[1].trim();
+            demandaMap[nombre] = (demandaMap[nombre] || 0) + Number(match[2]);
+          });
+        });
+        // Stock indexado por clave_producto (match por NOMBRE exacto, misma clave
+        // que agrupa produccion y que descuenta el backend).
+        const stockMap = {};
+        stockData.forEach(it => { stockMap[it.clave_producto] = it; });
+
+        // El stock es un pool por local: su fecha de produccion es relativa a HOY,
+        // no al rango de entrega de la demanda.
+        const ayer = restarDias(HOY, 1);
+        const etiquetaFecha = (f) => f === HOY ? "de hoy" : (f === ayer ? "de ayer" : `del ${f.slice(8, 10)}/${f.slice(5, 7)}`);
+        const desglose = (stk) => (stk?.porFecha || []).map(f => `${etiquetaFecha(f.fecha_produccion)} ${f.cantidad}`).join(" · ");
+
+        // Filas con demanda, ordenadas por "para producir" desc.
+        const filas = Object.keys(demandaMap).map(clave => {
+          const demanda = demandaMap[clave];
+          const enStock = stockMap[clave]?.total_disponible || 0;
+          return { clave, demanda, enStock, paraProducir: Math.max(0, demanda - enStock), stock: stockMap[clave] };
+        }).sort((a, b) => b.paraProducir - a.paraProducir || b.demanda - a.demanda);
+
+        // Stock sin demanda: abajo, en gris, no cuenta para producir.
+        const sinDemanda = stockData
+          .filter(it => !(it.clave_producto in demandaMap) && it.total_disponible > 0)
+          .sort((a, b) => a.clave_producto.localeCompare(b.clave_producto));
+
+        const totalProducir = filas.reduce((a, f) => a + f.paraProducir, 0);
+        const puedeProducir = cocinaLocal !== "todos";
+
+        const fechasDisponibles = [...new Set(pedidosProcesados.filter(p => {
+          const est = pedidosLocales[p.id]?.estado || p.estado;
+          return (est === "Por empaquetar" || est === "Listo") && p.fechaDisplay && p.fechaDisplay >= HOY;
+        }).map(p => p.fechaDisplay))].sort();
+
+        return (
+          <div style={s.wrap}>
+            <Header />
+            <div style={{ padding: 24 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+                <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
+                <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>🍳 Tablero de cocina</h2>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
+                  <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={cocinaDesde} onChange={e => setCocinaDesde(e.target.value)} />
+                  <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
+                  <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={cocinaHasta} onChange={e => setCocinaHasta(e.target.value)} />
+                  {fechasDisponibles.length > 0 && (
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {fechasDisponibles.map(f => {
+                        const activo = cocinaDesde === f && cocinaHasta === f;
+                        return (
+                          <button key={f} title="Fijar el rango a este día" onClick={() => { setCocinaDesde(f); setCocinaHasta(f); }}
+                            style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid", cursor: "pointer", borderColor: activo ? "#F68B32" : "#ddd", background: activo ? "#F68B32" : "#fff", color: activo ? "#fff" : "#555" }}>
+                            {new Date(f + "T12:00:00").toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "short" })}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12, color: "#888", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3 }}>Sucursal:</span>
+                {[{ id: "todos", label: "🏭 Ambos" }, { id: "A. Thomas", label: "📍 A. Thomas" }, { id: "French", label: "📍 French" }].map(opt => (
+                  <button key={opt.id} onClick={() => setCocinaLocal(opt.id)}
+                    style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "1px solid", cursor: "pointer", borderColor: cocinaLocal === opt.id ? "#F68B32" : "#ddd", background: cocinaLocal === opt.id ? "#F68B32" : "#fff", color: cocinaLocal === opt.id ? "#fff" : "#555", fontWeight: cocinaLocal === opt.id ? 600 : 400 }}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {!puedeProducir && (
+                <div style={{ background: "#fff8ec", border: "1px solid #f3d9a8", color: "#8a5a00", borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: 16 }}>
+                  Elegí una sucursal (A. Thomas o French) para poder marcar producción. En “Ambos” el tablero es de solo lectura, porque el stock es por local.
+                </div>
+              )}
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
+                <div style={{ background: "#F68B32", border: "1px solid #F68B32", borderRadius: 8, padding: "12px 14px" }}><div style={{ fontSize: 11, color: "#ffe6cf", marginBottom: 4 }}>FALTA PRODUCIR (NETO)</div><div style={{ fontSize: 22, fontWeight: 700, color: "#fff" }}>{totalProducir}</div><div style={{ fontSize: 11, color: "#ffe6cf" }}>{pedidosCocina.length} pedidos por producir</div></div>
+                <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}><div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>PRODUCTOS CON DEMANDA</div><div style={{ fontSize: 22, fontWeight: 700, color: "#333" }}>{filas.length}</div></div>
+                <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px" }}><div style={{ fontSize: 11, color: "#aaa", marginBottom: 4 }}>{cocinaDesde === cocinaHasta ? "FECHA" : "RANGO"}</div><div style={{ fontSize: 14, fontWeight: 700, color: "#333", textTransform: "capitalize" }}>{cocinaDesde === cocinaHasta ? new Date(cocinaDesde + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" }) : `${new Date(cocinaDesde + "T12:00:00").toLocaleDateString("es-AR", { day: "numeric", month: "short" })} – ${new Date(cocinaHasta + "T12:00:00").toLocaleDateString("es-AR", { day: "numeric", month: "short" })}`}</div></div>
+              </div>
+
+              {stockError && <div style={{ padding: "12px 14px", background: "#fdecea", color: "#c0392b", borderRadius: 8, fontSize: 13, fontWeight: 500, marginBottom: 16 }}>⚠️ {stockError}</div>}
+              {stockLoading && <div style={{ padding: 20, textAlign: "center", color: "#aaa", fontSize: 13 }}>Cargando stock…</div>}
+
+              {!stockLoading && filas.length === 0 && sinDemanda.length === 0 ? (
+                <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 40, textAlign: "center", color: "#aaa", fontSize: 13 }}>No hay demanda ni stock para este rango/sucursal.</div>
+              ) : (
+                <div style={s.lista}>
+                  <div style={s.cabecera}>
+                    <span style={{ ...s.col, flex: 3 }}>Producto</span>
+                    <span style={{ ...s.col, flex: 1, textAlign: "center" }}>Demanda</span>
+                    <span style={{ ...s.col, flex: 3 }}>En stock</span>
+                    <span style={{ ...s.col, flex: 2.5, textAlign: "center" }}>Para producir</span>
+                  </div>
+                  {filas.map(f => (
+                    <div key={f.clave} style={s.fila}>
+                      <div style={{ ...s.filaTop, cursor: "default", alignItems: "center" }}>
+                        <span style={{ ...s.cel, flex: 3, fontWeight: 600 }}>{f.clave}</span>
+                        <span style={{ ...s.cel, flex: 1, textAlign: "center", fontWeight: 600 }}>{f.demanda}</span>
+                        <span style={{ ...s.cel, flex: 3 }}>
+                          <span style={{ fontWeight: 700, color: f.enStock >= f.demanda ? "#27500a" : "#333" }}>{f.enStock}</span>
+                          {f.stock && f.stock.porFecha.length > 0 && <span style={{ fontSize: 11, color: "#999", marginLeft: 8 }}>({desglose(f.stock)})</span>}
+                        </span>
+                        <div style={{ flex: 2.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                          <span style={{ fontSize: 18, fontWeight: 700, color: f.paraProducir > 0 ? "#F68B32" : "#27500a" }}>{f.paraProducir}</span>
+                          {puedeProducir && (
+                            <>
+                              <input type="number" min="1" value={cocinaCant[f.clave] !== undefined ? cocinaCant[f.clave] : String(f.paraProducir || "")}
+                                onChange={e => setCocinaCant(prev => ({ ...prev, [f.clave]: e.target.value }))}
+                                style={{ width: 56, fontSize: 13, padding: "4px 6px", borderRadius: 6, border: "1px solid #ddd" }} />
+                              <button onClick={() => producirCocina(f.clave, cocinaCant[f.clave] !== undefined ? cocinaCant[f.clave] : f.paraProducir)}
+                                style={{ fontSize: 12, padding: "5px 10px", borderRadius: 6, border: "none", background: "#27500a", color: "#fff", fontWeight: 600, cursor: "pointer" }}>
+                                Marcar realizadas
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {sinDemanda.length > 0 && (
+                    <>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "#aaa", textTransform: "uppercase", letterSpacing: 0.3, margin: "18px 0 8px 4px" }}>En stock sin demanda</div>
+                      {sinDemanda.map(it => (
+                        <div key={it.clave_producto} style={{ ...s.fila, background: "#fafafa" }}>
+                          <div style={{ ...s.filaTop, cursor: "default", alignItems: "center" }}>
+                            <span style={{ ...s.cel, flex: 3, fontWeight: 600, color: "#999" }}>{it.clave_producto}</span>
+                            <span style={{ ...s.cel, flex: 1, textAlign: "center", color: "#bbb" }}>—</span>
+                            <span style={{ ...s.cel, flex: 3, color: "#999" }}>
+                              <span style={{ fontWeight: 700 }}>{it.total_disponible}</span>
+                              {it.porFecha.length > 0 && <span style={{ fontSize: 11, color: "#bbb", marginLeft: 8 }}>({desglose(it)})</span>}
+                            </span>
+                            <span style={{ ...s.cel, flex: 2.5, textAlign: "center", color: "#bbb" }}>—</span>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
                 </div>
               )}
             </div>
