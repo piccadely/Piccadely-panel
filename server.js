@@ -55,13 +55,14 @@ const pool = new Pool({
   connectionTimeoutMillis: 5000,
   // Cerrar conexiones ociosas a los 30s.
   idleTimeoutMillis: 30000,
-  // search_path aplicado por el servidor al conectar, sin la carrera del listener
-  // 'connect' (que corría client.query en paralelo a la primera query del caller).
-  options: "-c search_path=public",
+  // Nota: no se setea search_path acá. El pooler de Neon NO soporta el parámetro
+  // de arranque `options` ("unsupported startup parameter in options: search_path").
+  // `public` ya es el esquema por defecto de Postgres y todas las tablas viven ahí,
+  // así que las queries sin prefijo resuelven solo. Si se quisiera fijar explícito,
+  // hacerlo server-side por rol: ALTER ROLE <owner> SET search_path TO public;
 });
 
 async function initDB() {
-  await pool.query("SET search_path TO public");
   await pool.query(`
     CREATE TABLE IF NOT EXISTS pedidos_estados (
       id TEXT PRIMARY KEY,
