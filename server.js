@@ -48,10 +48,16 @@ const headers = {
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
-});
-
-pool.on("connect", client => {
-  client.query("SET search_path TO public").catch(console.error);
+  // max: tope de conexiones simultáneas. 20 es un punto medio para Neon; subir/bajar
+  // según el límite del plan (Neon pooler suele tolerar más; sin pooler, menos).
+  max: 20,
+  // Si el pool está saturado, fallar rápido (5s) en vez de colgar la request indefinido.
+  connectionTimeoutMillis: 5000,
+  // Cerrar conexiones ociosas a los 30s.
+  idleTimeoutMillis: 30000,
+  // search_path aplicado por el servidor al conectar, sin la carrera del listener
+  // 'connect' (que corría client.query en paralelo a la primera query del caller).
+  options: "-c search_path=public",
 });
 
 async function initDB() {
@@ -593,7 +599,7 @@ if (mailAnularPedido && !silencioso) enviarMailAnulacion(mailAnularPedido).catch
 
     // Hook de stock: al "salir" el pedido (En camino / Entregado) se descuenta del
     // stock del local (idempotente vía stock_descontado). No bloquea la respuesta.
-    if (estado === "En camino" || estado === "Entregado") descontarStockDePedidoTx(id);
+    if (estado === "En camino" || estado === "Entregado") descontarStockDePedidoTx(id).catch(err => console.error("stock descuento falló:", err));
 
     // Auditoria (no bloquea la respuesta)
     if (estado && estado !== prevData.estado) registrarAuditoria(usuarioAudit, "cambio_estado", "pedido", id, { anterior: prevData.estado || "Por empaquetar", nuevo: estado });
@@ -700,13 +706,13 @@ app.patch("/api/tandas/:id", async (req, res) => {
         await pool.query("UPDATE pedidos_estados SET estado='En camino', repartidor=$1, updated_at=NOW() WHERE tanda_id=$2", [rep, id]);
         // Hook de stock: cada pedido de la tanda "sale" -> descontar (idempotente).
         const despachados = await pool.query("SELECT id FROM pedidos_estados WHERE tanda_id=$1", [id]);
-        for (const row of despachados.rows) descontarStockDePedidoTx(row.id);
+        for (const row of despachados.rows) descontarStockDePedidoTx(row.id).catch(err => console.error("stock descuento falló:", err));
       } else if (estado === "entregada") {
         await pool.query("UPDATE pedidos_estados SET estado='Entregado', updated_at=NOW() WHERE tanda_id=$1", [id]);
         // Hook de stock: cubre el salto directo armada -> entregada (sin en_reparto).
         // Si ya pasó por en_reparto, el claim idempotente lo frena (no descuenta doble).
         const entregados = await pool.query("SELECT id FROM pedidos_estados WHERE tanda_id=$1", [id]);
-        for (const row of entregados.rows) descontarStockDePedidoTx(row.id);
+        for (const row of entregados.rows) descontarStockDePedidoTx(row.id).catch(err => console.error("stock descuento falló:", err));
       } else if (estado === "cancelada") {
         // Deshacer: liberar los pedidos (vuelven al pool), sin tocar su estado
         await pool.query("UPDATE pedidos_estados SET tanda_id=NULL, updated_at=NOW() WHERE tanda_id=$1", [id]);
@@ -887,16 +893,19 @@ async function descontarStockDePedido(pedidoId, client = pool) {
 // Corre el descuento en su propia transacción (necesaria para el FOR UPDATE del
 // FIFO). Best-effort: nunca propaga el error al despacho.
 async function descontarStockDePedidoTx(pedidoId) {
-  const client = await pool.connect();
+  let client;
   try {
+    // connect() dentro del try: si el pool está saturado y rechaza por
+    // connectionTimeoutMillis, queda atrapado acá (no escala como unhandled).
+    client = await pool.connect();
     await client.query("BEGIN");
     await descontarStockDePedido(String(pedidoId), client);
     await client.query("COMMIT");
   } catch (e) {
-    await client.query("ROLLBACK").catch(() => {});
+    if (client) await client.query("ROLLBACK").catch(() => {});
     console.error(`Hook stock pedido ${pedidoId}:`, e.message);
   } finally {
-    client.release();
+    if (client) client.release(); // solo si llegó a conectarse
   }
 }
 
