@@ -12,15 +12,9 @@ import { cotizadorRouter } from "./Routes/cotizador.js";
 const { Pool } = pg;
 
 // ─── VALIDACIÓN DE VARIABLES DE ENTORNO ──────────────────────────────
+// Obligatorias: sin estas el server NO puede funcionar -> FATAL.
 const REQUIRED_ENV = [
   "DATABASE_URL",
-  "TN_STORE_ID",
-  "TN_ACCESS_TOKEN",
-  "TN_CLIENT_SECRET",
-  "TF_APIKEY",
-  "TF_APITOKEN",
-  "TF_USERTOKEN_AT",
-  "TF_USERTOKEN_FR",
   "JWT_SECRET",
   "ADMIN_SECRET",
 ];
@@ -30,6 +24,20 @@ if (missing.length > 0) {
   console.error("❌ FATAL: faltan variables de entorno:", missing.join(", "));
   process.exit(1);
 }
+
+// Opcionales: si faltan, el server arranca igual (p. ej. staging sin integraciones
+// externas) y solo se loguea un warning. El código que las usa hace su propio guard.
+const TN_ENV = ["TN_STORE_ID", "TN_ACCESS_TOKEN", "TN_CLIENT_SECRET"];
+const TF_ENV = ["TF_APIKEY", "TF_APITOKEN", "TF_USERTOKEN_AT", "TF_USERTOKEN_FR"];
+const missingTN = TN_ENV.filter(k => !process.env[k]);
+const missingTF = TF_ENV.filter(k => !process.env[k]);
+if (missingTN.length > 0) console.warn(`⚠️ Integración Tienda Nube deshabilitada: faltan ${missingTN.join(", ")}`);
+if (missingTF.length > 0) console.warn(`⚠️ Facturación (TusFacturas) deshabilitada: faltan ${missingTF.join(", ")}`);
+if (!process.env.WEBHOOK_URL) console.warn("⚠️ WEBHOOK_URL no configurada: se usa la URL por defecto de producción.");
+
+// Flags de integración para los guards en runtime.
+const TN_ENABLED = missingTN.length === 0;
+const TF_ENABLED = missingTF.length === 0;
 
 const app = express();
 app.use(cors({ origin: "*" }));
@@ -380,6 +388,8 @@ app.get("/api/orders", async (req, res) => {
     if (result.rows.length === 0) {
       const check = await pool.query("SELECT 1 FROM pedidos_tn LIMIT 1");
       if (check.rows.length === 0) {
+        // Fallback a TN solo si la integración está configurada (en staging no).
+        if (!TN_ENABLED) { console.warn("⚠️ Tienda Nube no configurada: /api/orders devuelve []"); return res.json([]); }
         const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/orders?aggregates=fulfillment_orders`, { headers });
         return res.json(r.data);
       }
@@ -530,6 +540,7 @@ app.get("/api/reportes/pedidos", async (req, res) => {
 });
 
   app.get("/api/products", async (req, res) => {
+    if (!TN_ENABLED) { console.warn("⚠️ Tienda Nube no configurada: /api/products devuelve []"); return res.json([]); }
     try {
       const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/products?per_page=200`, { headers });
       res.json(r.data);
@@ -537,6 +548,7 @@ app.get("/api/reportes/pedidos", async (req, res) => {
   });
 
   app.get("/api/categories", async (req, res) => {
+    if (!TN_ENABLED) { console.warn("⚠️ Tienda Nube no configurada: /api/categories devuelve []"); return res.json([]); }
     try {
       const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/categories`, { headers });
       res.json(r.data);
@@ -1417,6 +1429,7 @@ app.get("/api/facturas/:pedidoId", async (req, res) => {
 });
 
 app.post("/api/facturar", async (req, res) => {
+  if (!TF_ENABLED) { console.warn("⚠️ Facturación no configurada: /api/facturar deshabilitado"); return res.status(503).json({ ok: false, error: "Facturación no configurada en este entorno" }); }
   const { pedidoId, tipo, cliente, documentoTipo, documentoNro, razonSocial, domicilio, email, total, productos, local, usuario: usuarioAudit } = req.body;
   const { usertoken: TF_USERTOKEN, pdv: TF_PDV } = getTFCredentials(local);
   const esFacturaA = tipo === "FACTURA A";
@@ -1462,6 +1475,7 @@ app.post("/api/facturar", async (req, res) => {
 });
 
 app.post("/api/nota-credito", async (req, res) => {
+  if (!TF_ENABLED) { console.warn("⚠️ Facturación no configurada: /api/nota-credito deshabilitado"); return res.status(503).json({ ok: false, error: "Facturación no configurada en este entorno" }); }
   const { facturaId, pedidoId, usuario: usuarioAudit } = req.body;
   try {
     const facturaRes = await pool.query("SELECT * FROM facturas WHERE id=$1 AND pedido_id=$2", [facturaId, pedidoId]);
@@ -1696,6 +1710,7 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL || "https://piccadely-panel-producti
 const WEBHOOK_EVENTS = ["order/created", "order/paid", "order/updated", "order/cancelled", "order/voided"];
 
 app.get("/api/admin/webhooks", requireAdmin, async (req, res) => {
+  if (!TN_ENABLED) return res.status(503).json({ error: "Tienda Nube no configurada en este entorno" });
   try {
     const response = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/webhooks`, { headers });
     res.json(response.data);
@@ -1703,6 +1718,7 @@ app.get("/api/admin/webhooks", requireAdmin, async (req, res) => {
 });
 
 app.post("/api/admin/webhooks/setup", requireAdmin, async (req, res) => {
+  if (!TN_ENABLED) return res.status(503).json({ error: "Tienda Nube no configurada en este entorno" });
   try {
     const existing = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/webhooks`, { headers });
     const existingHooks = existing.data || [];
@@ -1851,6 +1867,11 @@ async function resyncPedidosRecientes() {
   } catch (err) { console.error("Re-sync error:", err.message); }
 }
 
-setInterval(resyncPedidosRecientes, 5 * 60 * 1000);
-setTimeout(resyncPedidosRecientes, 30000);
+// El re-sync llama a TN; solo se agenda si la integración está configurada.
+if (TN_ENABLED) {
+  setInterval(resyncPedidosRecientes, 5 * 60 * 1000);
+  setTimeout(resyncPedidosRecientes, 30000);
+} else {
+  console.warn("⚠️ Tienda Nube no configurada: re-sync periódico de pedidos deshabilitado");
+}
 app.listen(process.env.PORT || 3001, () => { console.log("Servidor corriendo"); });
