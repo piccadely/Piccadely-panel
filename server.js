@@ -963,6 +963,56 @@ app.post("/api/stock/producir", requireAuth, async (req, res) => {
   } catch (err) { console.error("Error POST /api/stock/producir:", err.message); res.status(500).json({ error: "Error registrando producción" }); }
 });
 
+// POST /api/stock/descartar -> baja stock por merma/perecedero (NO por venta:
+// piccadas hechas que no se vendieron). FIFO general (lote más viejo primero) o,
+// si viene fecha_produccion, descarta solo de los lotes de esa fecha (tirar "el de
+// ayer" puntual). Best-effort: baja lo que haya, sin pasar de 0. Mismo patrón de txn
+// que el descuento por despacho (connect dentro del try + release con blindaje).
+app.post("/api/stock/descartar", requireAuth, async (req, res) => {
+  const { local, clave_producto, cantidad, fecha_produccion } = req.body;
+  const cant = Number(cantidad);
+  if (!local || !clave_producto || !Number.isFinite(cant) || cant <= 0) {
+    return res.status(400).json({ error: "local, clave_producto y cantidad (>0) son requeridos" });
+  }
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const params = [local, clave_producto];
+    let filtroFecha = "";
+    if (fecha_produccion) { params.push(fecha_produccion); filtroFecha = ` AND fecha_produccion = $${params.length}`; }
+    const lotes = await client.query(
+      `SELECT id, cantidad_disponible FROM stock_lotes
+       WHERE local=$1 AND clave_producto=$2 AND cantidad_disponible > 0${filtroFecha}
+       ORDER BY fecha_produccion ASC, id ASC
+       FOR UPDATE`,
+      params
+    );
+    let restante = cant;
+    for (const lote of lotes.rows) {
+      if (restante <= 0) break;
+      const usar = Math.min(restante, Number(lote.cantidad_disponible));
+      await client.query("UPDATE stock_lotes SET cantidad_disponible = cantidad_disponible - $1 WHERE id=$2", [usar, lote.id]);
+      restante -= usar;
+    }
+    const descartado = cant - restante;
+    const tot = await client.query(
+      `SELECT COALESCE(SUM(cantidad_disponible),0)::int AS total FROM stock_lotes
+       WHERE local=$1 AND clave_producto=$2 AND cantidad_disponible > 0`,
+      [local, clave_producto]
+    );
+    await client.query("COMMIT");
+    res.json({ ok: true, local, clave_producto, fecha_produccion: fecha_produccion || null, descartado, total_disponible: tot.rows[0].total });
+    registrarAuditoria(req.user.nombre_completo, "stock_descarte", "stock", clave_producto, { local, producto: clave_producto, cantidad: descartado, fecha: fecha_produccion || null, usuario: req.user.nombre_completo });
+  } catch (err) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    console.error("Error POST /api/stock/descartar:", err.message);
+    res.status(500).json({ error: "Error descartando stock" });
+  } finally {
+    if (client) client.release();
+  }
+});
+
 // ─── DATOS EDITABLES DE PEDIDO ────────────────────────────────────────
 app.patch("/api/pedidos/:id/datos", async (req, res) => {
   const { id } = req.params;

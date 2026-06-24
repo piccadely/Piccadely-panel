@@ -144,6 +144,33 @@ async function getStock(client, local) {
   return Object.values(map);
 }
 
+// POST /api/stock/descartar — mirror del endpoint (FIFO; fecha opcional = lote puntual).
+async function descartarStock(client, local, clave, cantidad, fecha) {
+  const params = [local, clave];
+  let filtroFecha = "";
+  if (fecha) { params.push(fecha); filtroFecha = ` AND fecha_produccion = $${params.length}`; }
+  const lotes = await client.query(
+    `SELECT id, cantidad_disponible FROM stock_lotes
+     WHERE local=$1 AND clave_producto=$2 AND cantidad_disponible > 0${filtroFecha}
+     ORDER BY fecha_produccion ASC, id ASC
+     FOR UPDATE`,
+    params
+  );
+  let restante = cantidad;
+  for (const lote of lotes.rows) {
+    if (restante <= 0) break;
+    const usar = Math.min(restante, Number(lote.cantidad_disponible));
+    await client.query("UPDATE stock_lotes SET cantidad_disponible = cantidad_disponible - $1 WHERE id=$2", [usar, lote.id]);
+    restante -= usar;
+  }
+  const tot = await client.query(
+    `SELECT COALESCE(SUM(cantidad_disponible),0)::int AS total FROM stock_lotes
+     WHERE local=$1 AND clave_producto=$2 AND cantidad_disponible > 0`,
+    [local, clave]
+  );
+  return { descartado: cantidad - restante, total: tot.rows[0].total };
+}
+
 // ── Test harness ──────────────────────────────────────────────────────
 let pass = 0, fail = 0;
 function check(label, cond, extra = "") {
@@ -255,6 +282,51 @@ try {
     console.log(`     (c) local=${JSON.stringify(localReal)}`);
     check("Pedido real parsea al menos 1 línea", lineasReal.length > 0, `(si falla, el bug está en la función; si pasa, estaba en el seed/replica)`);
   }
+
+  // ── DESCARTE de stock (merma de perecederos) ────────────────────────
+  // Producto fresco para no interferir con los pasos de descuento anteriores.
+  const CLAVE_D = "Tabla Descarte Test";
+  console.log("\n8) Descarte — seed lotes frescos (ayer x2, hoy x5)");
+  await client.query("INSERT INTO stock_lotes (local, clave_producto, fecha_produccion, cantidad_disponible) VALUES ($1,$2,$3,2)", [LOCAL, CLAVE_D, AYER]);
+  await client.query("INSERT INTO stock_lotes (local, clave_producto, fecha_produccion, cantidad_disponible) VALUES ($1,$2,$3,5)", [LOCAL, CLAVE_D, HOY]);
+
+  // 1) FIFO general: descartar 3 sin fecha -> gasta ayer(2) + hoy(1), queda hoy x4
+  console.log("\n9) Descarte FIFO general (3 sin fecha)");
+  const d1 = await descartarStock(client, LOCAL, CLAVE_D, 3, "");
+  console.log("   " + JSON.stringify(d1));
+  check("Descartó 3", d1.descartado === 3, `got ${d1.descartado}`);
+  check("Total 7 -> 4", d1.total === 4, `got ${d1.total}`);
+  const post1 = (await getStock(client, LOCAL)).find(p => p.clave_producto === CLAVE_D);
+  check("FIFO: lote de AYER agotado (gastado primero)", !post1?.porFecha.some(f => f.fecha_produccion === AYER));
+  check("FIFO: HOY queda en 4", post1?.porFecha.find(f => f.fecha_produccion === HOY)?.cantidad === 4);
+
+  // 2) Fecha puntual: re-seed AYER x2 (vuelve a haber 2 fechas: ayer 2, hoy 4) y
+  //    descartar 2 indicando HOY -> toca solo ese lote, no el de ayer.
+  console.log("\n10) Descarte de fecha puntual (2 de HOY, no toca AYER)");
+  await client.query("INSERT INTO stock_lotes (local, clave_producto, fecha_produccion, cantidad_disponible) VALUES ($1,$2,$3,2)", [LOCAL, CLAVE_D, AYER]);
+  const d2 = await descartarStock(client, LOCAL, CLAVE_D, 2, HOY);
+  console.log("   " + JSON.stringify(d2));
+  check("Descartó 2", d2.descartado === 2, `got ${d2.descartado}`);
+  const post2 = (await getStock(client, LOCAL)).find(p => p.clave_producto === CLAVE_D);
+  check("AYER intacto en 2 (no se tocó)", post2?.porFecha.find(f => f.fecha_produccion === AYER)?.cantidad === 2);
+  check("HOY bajó 4 -> 2", post2?.porFecha.find(f => f.fecha_produccion === HOY)?.cantidad === 2);
+
+  // 3) Best-effort: pedir más de lo que hay (total 4) -> baja a 0, descarta solo 4.
+  console.log("\n11) Descarte best-effort (pedir de más)");
+  const d3 = await descartarStock(client, LOCAL, CLAVE_D, 99, "");
+  console.log("   " + JSON.stringify(d3));
+  check("Descartó solo lo disponible (4)", d3.descartado === 4, `got ${d3.descartado}`);
+  check("Total queda en 0", d3.total === 0, `got ${d3.total}`);
+  check("Producto desaparece del stock (>0)", !(await getStock(client, LOCAL)).some(p => p.clave_producto === CLAVE_D));
+
+  // 4) Auditoria: el endpoint registra accion='stock_descarte'. Lo replicamos y verificamos.
+  console.log("\n12) Auditoria stock_descarte");
+  await client.query(
+    "INSERT INTO auditoria (usuario, accion, entidad_tipo, entidad_id, detalle) VALUES ($1,$2,$3,$4,$5)",
+    ["Smoke", "stock_descarte", "stock", CLAVE_D, JSON.stringify({ local: LOCAL, producto: CLAVE_D, cantidad: 4 })]
+  );
+  const aud = await client.query("SELECT 1 FROM auditoria WHERE accion='stock_descarte' AND entidad_id=$1 LIMIT 1", [CLAVE_D]);
+  check("Quedó registro accion='stock_descarte'", aud.rowCount === 1);
 
   console.log(`\n== RESUMEN: ${pass} OK, ${fail} FAIL ==`);
 } catch (e) {

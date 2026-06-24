@@ -2146,6 +2146,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [cocinaHasta, setCocinaHasta] = useState(HOY);
       const [cocinaLocal, setCocinaLocal] = useState("todos");
       const [cocinaCant, setCocinaCant] = useState({});
+      const [descartar, setDescartar] = useState(null); // { clave, cantidad, fecha } de la fila abierta
       const [stockData, setStockData] = useState([]);
       const [stockLoading, setStockLoading] = useState(false);
       const [stockError, setStockError] = useState(null);
@@ -2412,6 +2413,44 @@ setPedidosDatosOverride(datosInit);
         } catch (e) {
           setStockData(snapshot); // revertir
           alert("No se pudo registrar la producción. " + (e.response?.data?.error || ""));
+        }
+      }
+
+      // Descartar: baja stock por merma/perecedero (piccadas hechas que no se vendieron).
+      // Confirma (destructivo), optimista (resta al instante) + POST; si falla, revierte.
+      // fecha = "" -> FIFO general (lote más viejo); fecha concreta -> ese lote puntual.
+      async function descartarStock(clave, cantidadStr, fecha) {
+        const cantidad = Number(cantidadStr);
+        if (!Number.isFinite(cantidad) || cantidad <= 0) return;
+        if (cocinaLocal === "todos") return; // el stock es por local
+        if (!window.confirm(`¿Descartar ${cantidad} ${cantidad === 1 ? "unidad" : "unidades"} de "${clave}"? Es para piccadas hechas que no se vendieron y no se puede deshacer.`)) return;
+        const snapshot = stockData;
+        setStockData(curr => {
+          const copia = curr.map(it => ({ ...it, porFecha: it.porFecha.map(f => ({ ...f })) }));
+          const item = copia.find(it => it.clave_producto === clave);
+          if (!item) return curr;
+          let restante = cantidad;
+          // FIFO sobre los lotes candidatos (todos, o solo el de la fecha elegida).
+          const lotes = item.porFecha
+            .filter(f => !fecha || f.fecha_produccion === fecha)
+            .sort((a, b) => (a.fecha_produccion < b.fecha_produccion ? -1 : 1));
+          for (const f of lotes) {
+            if (restante <= 0) break;
+            const usar = Math.min(restante, f.cantidad);
+            f.cantidad -= usar;
+            restante -= usar;
+          }
+          item.porFecha = item.porFecha.filter(f => f.cantidad > 0);
+          item.total_disponible = item.porFecha.reduce((a, f) => a + f.cantidad, 0);
+          return copia;
+        });
+        setDescartar(null);
+        try {
+          await axios.post(`${API}/api/stock/descartar`, { local: cocinaLocal, clave_producto: clave, cantidad, fecha_produccion: fecha || undefined });
+          await recargarStock();
+        } catch (e) {
+          setStockData(snapshot); // revertir
+          alert("No se pudo descartar del stock. " + (e.response?.data?.error || ""));
         }
       }
 
@@ -3769,6 +3808,35 @@ if (vista === "dashboard") {
           return (est === "Por empaquetar" || est === "Listo") && p.fechaDisplay && p.fechaDisplay >= HOY;
         }).map(p => p.fechaDisplay))].sort();
 
+        // Control para descartar stock (merma de perecederos). Solo si hay lote y local elegido.
+        const stockControl = (clave, stockItem) => {
+          if (!puedeProducir || !stockItem || stockItem.total_disponible <= 0) return null;
+          const abierto = descartar && descartar.clave === clave;
+          if (!abierto) {
+            return <button onClick={() => setDescartar({ clave, cantidad: "1", fecha: "" })}
+              style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #e0b4b4", background: "#fff", color: "#c0392b", cursor: "pointer" }}>Sacar de stock</button>;
+          }
+          const tieneFechas = stockItem.porFecha.length > 1;
+          return (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <input type="number" min="1" autoFocus value={descartar.cantidad}
+                onChange={e => setDescartar(d => ({ ...d, cantidad: e.target.value }))}
+                style={{ width: 52, fontSize: 12, padding: "3px 6px", borderRadius: 6, border: "1px solid #ddd" }} />
+              {tieneFechas && (
+                <select value={descartar.fecha} onChange={e => setDescartar(d => ({ ...d, fecha: e.target.value }))}
+                  style={{ fontSize: 11, padding: "3px 6px", borderRadius: 6, border: "1px solid #ddd" }}>
+                  <option value="">Más viejo (FIFO)</option>
+                  {stockItem.porFecha.map(f => <option key={f.fecha_produccion} value={f.fecha_produccion}>{etiquetaFecha(f.fecha_produccion)} ({f.cantidad})</option>)}
+                </select>
+              )}
+              <button onClick={() => descartarStock(clave, descartar.cantidad, descartar.fecha)}
+                style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "none", background: "#c0392b", color: "#fff", fontWeight: 600, cursor: "pointer" }}>Descartar</button>
+              <button onClick={() => setDescartar(null)}
+                style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#888", cursor: "pointer" }}>Cancelar</button>
+            </div>
+          );
+        };
+
         return (
           <div style={s.wrap}>
             <Header />
@@ -3836,10 +3904,13 @@ if (vista === "dashboard") {
                       <div style={{ ...s.filaTop, cursor: "default", alignItems: "center" }}>
                         <span style={{ ...s.cel, flex: 3, fontWeight: 600 }}>{f.clave}</span>
                         <span style={{ ...s.cel, flex: 1, textAlign: "center", fontWeight: 600 }}>{f.demanda}</span>
-                        <span style={{ ...s.cel, flex: 3 }}>
-                          <span style={{ fontWeight: 700, color: f.enStock >= f.demanda ? "#27500a" : "#333" }}>{f.enStock}</span>
-                          {f.stock && f.stock.porFecha.length > 0 && <span style={{ fontSize: 11, color: "#999", marginLeft: 8 }}>({desglose(f.stock)})</span>}
-                        </span>
+                        <div style={{ ...s.cel, flex: 3, display: "flex", flexDirection: "column", gap: 4 }}>
+                          <div>
+                            <span style={{ fontWeight: 700, color: f.enStock >= f.demanda ? "#27500a" : "#333" }}>{f.enStock}</span>
+                            {f.stock && f.stock.porFecha.length > 0 && <span style={{ fontSize: 11, color: "#999", marginLeft: 8 }}>({desglose(f.stock)})</span>}
+                          </div>
+                          {stockControl(f.clave, f.stock)}
+                        </div>
                         <div style={{ flex: 2.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                           <span style={{ fontSize: 18, fontWeight: 700, color: f.paraProducir > 0 ? "#F68B32" : "#27500a" }}>{f.paraProducir}</span>
                           {puedeProducir && (
@@ -3866,10 +3937,13 @@ if (vista === "dashboard") {
                           <div style={{ ...s.filaTop, cursor: "default", alignItems: "center" }}>
                             <span style={{ ...s.cel, flex: 3, fontWeight: 600, color: "#999" }}>{it.clave_producto}</span>
                             <span style={{ ...s.cel, flex: 1, textAlign: "center", color: "#bbb" }}>—</span>
-                            <span style={{ ...s.cel, flex: 3, color: "#999" }}>
-                              <span style={{ fontWeight: 700 }}>{it.total_disponible}</span>
-                              {it.porFecha.length > 0 && <span style={{ fontSize: 11, color: "#bbb", marginLeft: 8 }}>({desglose(it)})</span>}
-                            </span>
+                            <div style={{ ...s.cel, flex: 3, color: "#999", display: "flex", flexDirection: "column", gap: 4 }}>
+                              <div>
+                                <span style={{ fontWeight: 700 }}>{it.total_disponible}</span>
+                                {it.porFecha.length > 0 && <span style={{ fontSize: 11, color: "#bbb", marginLeft: 8 }}>({desglose(it)})</span>}
+                              </div>
+                              {stockControl(it.clave_producto, it)}
+                            </div>
                             <span style={{ ...s.cel, flex: 2.5, textAlign: "center", color: "#bbb" }}>—</span>
                           </div>
                         </div>
