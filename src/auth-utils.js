@@ -7,7 +7,7 @@
 
 import axios from "axios";
 
-const API = "https://piccadely-panel-production.up.railway.app";
+const API = import.meta.env.VITE_API_URL || "https://piccadely-panel-production.up.railway.app";
 const TOKEN_KEY = "piccadely_token";
 const USER_KEY = "piccadely_user";
 

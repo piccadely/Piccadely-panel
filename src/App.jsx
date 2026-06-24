@@ -7,7 +7,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
     import Usuarios from "./Usuarios";
     import { getUsuarioGuardado, validarSesion, cerrarSesion, ROL_LABELS } from "./auth-utils";
 
-    const API = "https://piccadely-panel-production.up.railway.app";
+    const API = import.meta.env.VITE_API_URL || "https://piccadely-panel-production.up.railway.app";
 
     function parsearFranja(ownerNote) {
       if (!ownerNote) return { fecha: null, franja: null };

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import { ROL_LABELS } from "./auth-utils";
 
-const API = "https://piccadely-panel-production.up.railway.app";
+const API = import.meta.env.VITE_API_URL || "https://piccadely-panel-production.up.railway.app";
 
 const FORM_VACIO = {
   username: "",

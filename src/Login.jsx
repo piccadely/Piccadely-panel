@@ -2,7 +2,7 @@ import { useState } from "react";
 import axios from "axios";
 import { guardarSesion } from "./auth-utils";
 
-const API = "https://piccadely-panel-production.up.railway.app";
+const API = import.meta.env.VITE_API_URL || "https://piccadely-panel-production.up.railway.app";
 
 export default function Login({ onLogin }) {
   const [username, setUsername] = useState("");
