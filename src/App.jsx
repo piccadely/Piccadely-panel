@@ -83,7 +83,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
     const FORM_INICIAL = {
       cliente: "", telefono: "", email: "", direccion: "", entreCalles: "", barrio: "", zona: "",
       fecha: fechaArgentina(), franjaInicio: "", franjaFin: "", nota: "", medioPago: "Efectivo",
-      seccion: "delivery-at", cobrar: true,
+      seccion: "delivery-at", cobrar: true, esCorporativo: false,
     };
 
     function fechaArgentina(d = new Date()) {
@@ -2492,7 +2492,7 @@ setPedidosDatosOverride(datosInit);
             estado: local.estado, repartidor: local.repartidor, cobrar: local.cobrar, sobre: !!local.sobre, tandaId: local.tandaId ?? null,
             tabActual, local: localLabel(tabActual),
             nota: ovDatos.nota !== undefined ? ovDatos.nota : (p.note || ""),
-            esManual: false, entreCalles: "",
+            esManual: false, esCorporativo: false, entreCalles: "",
             transaccionMP: p.gateway_id || p.transactions?.[0]?.id || null,
             codigoPago: ovDatos.codigoPago !== undefined ? ovDatos.codigoPago : (p.gateway_id ? String(p.gateway_id) : (p.transactions?.[0]?.id ? String(p.transactions[0].id) : "")),
             identificacion: p.contact_identification || p.identification?.number || "", razonSocialFactura: p.billing_business_name || "", esFacturaA: p.billing_customer_type === "company" && p.billing_document_type === "cuit", email: ovDatos.email !== undefined ? ovDatos.email : (p.contact_email || ""),
@@ -2505,6 +2505,7 @@ setPedidosDatosOverride(datosInit);
           const ovDatos = pedidosDatosOverride[String(p.id)] || {};
           return {
             ...p,
+            esCorporativo: ovDatos.esCorporativo !== undefined ? ovDatos.esCorporativo : (p.esCorporativo || false),
             cliente: ovDatos.cliente !== undefined ? ovDatos.cliente : p.cliente,
             telefono: ovDatos.telefono !== undefined ? ovDatos.telefono : p.telefono,
             direccion: ovDatos.direccion !== undefined ? ovDatos.direccion : p.direccion,
@@ -2743,6 +2744,7 @@ setPedidosDatosOverride(datosInit);
                     const cobrar = pedidosLocales[p.id]?.cobrar;
                     const sobreActual = !!(pedidosLocales[p.id]?.sobre);
                     const abierto = expandido === p.id;
+                    const esCorp = p.esManual && p.esCorporativo; // violeta clarito (solo manuales corporativos)
                     const ec = ESTADO_COLORS[estadoActual] || { bg: "#f0f0e8", text: "#555" };
                     const ahora = new Date();
                     const fechaPedido = p.fechaDisplay || "";
@@ -2752,8 +2754,8 @@ setPedidosDatosOverride(datosInit);
                     const estaProximo = horaInicio && ahora >= new Date(horaInicio.getTime() - 60 * 60000) && ahora < horaInicio && fechaPedido === HOY && estadoActual !== "En camino" && estadoActual !== "Entregado";
 const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && estadoActual !== "En camino" && estadoActual !== "Entregado";
                     return (
-                      <div key={p.id} style={{ ...s.fila, ...(abierto ? s.filaAbierta : {}), ...(estaVencido ? { background: "#f5b7b1", borderLeft: "4px solid #922b21" } : estaProximo ? { background: "#fdecea", borderLeft: "4px solid #c0392b" } : {}) }}>
-                        <div style={s.filaTop} onClick={() => toggleExpandido(p.id)}>
+                      <div key={p.id} style={{ ...s.fila, ...(abierto ? s.filaAbierta : {}), ...(!abierto && esCorp && !estaVencido && !estaProximo ? { background: "#ede9fe" } : {}), ...(estaVencido ? { background: "#f5b7b1", borderLeft: "4px solid #922b21" } : estaProximo ? { background: "#fdecea", borderLeft: "4px solid #c0392b" } : {}) }}>
+                        <div style={{ ...s.filaTop, ...(abierto && esCorp ? { background: "#ede9fe" } : {}) }} onClick={() => toggleExpandido(p.id)}>
                           {seleccionable && p.local === modoTandaLocal && !p.tandaId && (
                             <input type="checkbox" checked={seleccionTanda.includes(p.id)} onClick={e => e.stopPropagation()} onChange={() => toggleSeleccionTanda(p.id)} style={{ marginRight: 8, transform: "scale(1.25)", cursor: "pointer" }} />
                           )}
@@ -2788,6 +2790,15 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                               📋 Datos del pedido <span style={{ color: "#aaa", fontWeight: 400 }}>(guardado automático al salir del campo)</span>
                             </div>
                             <div style={{ ...s.detalleGrid, marginBottom: 14 }}>
+                              {p.esManual && (
+                                <div style={{ ...s.detalleBloque, gridColumn: "span 2" }}>
+                                  <div style={s.detalleLabel}>Tipo de pedido</div>
+                                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13 }} onClick={e => e.stopPropagation()}>
+                                    <input type="checkbox" checked={!!p.esCorporativo} onChange={e => { e.stopPropagation(); actualizarDato(p, "esCorporativo", e.target.checked); }} onClick={e => e.stopPropagation()} />
+                                    <span style={{ color: p.esCorporativo ? "#6d28d9" : "#888", fontWeight: p.esCorporativo ? 600 : 400 }}>🏢 Pedido corporativo</span>
+                                  </label>
+                                </div>
+                              )}
                               <div style={s.detalleBloque}>
                                 <div style={s.detalleLabel}>Cliente</div>
                                 <InputBlur style={s.inputField} initialValue={p.cliente} placeholder="Nombre"
@@ -2983,6 +2994,7 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
           email: nuevosOverrides.email !== undefined ? nuevosOverrides.email : (p.email || ""),
           codigoPago: nuevosOverrides.codigoPago !== undefined ? nuevosOverrides.codigoPago : (p.codigoPago || ""),
           medioPagoOtro: nuevosOverrides.medioPagoOtro !== undefined ? nuevosOverrides.medioPagoOtro : (p.medioPagoOtro || ""),
+          esCorporativo: nuevosOverrides.esCorporativo !== undefined ? nuevosOverrides.esCorporativo : (p.esCorporativo || false),
         };
         axios.patch(`${API}/api/pedidos/${id}/datos`, { ...datosDB, usuario: usuario.nombre_completo }).catch(console.error);
 
@@ -3023,7 +3035,7 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
           productos: productosStr, totalNum: totalCarrito, total: `$${totalCarrito.toLocaleString("es-AR")}`,
           pago: ["Efectivo", "Pedidos Ya Efectivo", "Mercado Pago", "Rappi", "Pedidos Ya"].includes(form.medioPago) ? "Pendiente" : "Pagado",
           medioPago: form.medioPago, cobrar: form.cobrar, tabActual: form.seccion, local: localLabel(form.seccion),
-          nota: form.nota, esManual: true, estado: "Por empaquetar", repartidor: "Sin asignar",
+          nota: form.nota, esManual: true, esCorporativo: form.esCorporativo, estado: "Por empaquetar", repartidor: "Sin asignar",
         };
 let numeroAsignado = "";
         try {
@@ -4137,9 +4149,11 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                   <span style={{ ...s.col, flex: 1.3 }}>Factura</span>
                 </div>
                 {listaMostrada.length === 0 && <div style={s.empty}>No hay pedidos en esta sección.</div>}
-                {listaMostrada.map(p => (
-                  <div key={p.id} style={{ ...s.fila, ...(expandido === p.id ? s.filaAbierta : {}) }}>
-                    <div style={s.filaTop} onClick={() => toggleExpandido(p.id)}>
+                {listaMostrada.map(p => {
+                  const esCorp = p.esManual && p.esCorporativo; // violeta clarito (solo manuales corporativos)
+                  return (
+                  <div key={p.id} style={{ ...s.fila, ...(expandido === p.id ? s.filaAbierta : {}), ...(expandido !== p.id && esCorp ? { background: "#ede9fe" } : {}) }}>
+                    <div style={{ ...s.filaTop, ...(expandido === p.id && esCorp ? { background: "#ede9fe" } : {}) }} onClick={() => toggleExpandido(p.id)}>
                       <span style={{ ...s.cel, flex: 0.6 }}><span style={s.numero}>{p.numero}</span></span>
                       <span style={{ ...s.cel, flex: 1.2 }}>{p.cliente}{p.esManual && <span style={{ ...s.cobrarBadge, background: "#7c3aed", marginLeft: 6 }}>MANUAL</span>}</span>
                       <span style={{ ...s.cel, flex: 1, color: "#555" }}>{p.telefono}</span>
@@ -4202,7 +4216,8 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
               )}
             </div>
@@ -4300,6 +4315,12 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                       <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12 }}>
                         <input type="checkbox" checked={form.cobrar} onChange={e => setForm(f => ({...f, cobrar: e.target.checked}))} />
                         <span style={{ color: form.cobrar ? "#c0392b" : "#666", fontWeight: form.cobrar ? 600 : 400 }}>{form.cobrar ? "⚠️ Marcar como COBRAR en entrega" : "Cobrar en entrega"}</span>
+                      </label>
+                    </div>
+                    <div style={{ ...s.formBloque, gridColumn: "span 2" }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12 }}>
+                        <input type="checkbox" checked={form.esCorporativo} onChange={e => setForm(f => ({...f, esCorporativo: e.target.checked}))} />
+                        <span style={{ color: form.esCorporativo ? "#6d28d9" : "#666", fontWeight: form.esCorporativo ? 600 : 400 }}>🏢 Pedido corporativo</span>
                       </label>
                     </div>
                   </div>

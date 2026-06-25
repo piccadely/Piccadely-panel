@@ -483,7 +483,7 @@ app.get("/api/reportes/pedidos", async (req, res) => {
         zona: est.zonaOverride || p.fulfillments?.[0]?.shipping?.option?.name || "Sin zona",
         fechaDisplay,
         franjaDisplay: est.franjaManual || franja || "Sin franja",
-        esManual: false,
+        esManual: false, esCorporativo: false,
         cobrar: !!est.cobrar,
         pago: p.payment_status === "paid" ? "Pagado" : "Pendiente",
         direccion: est.direccionOverride || `${p.shipping_address?.address || ""} ${p.shipping_address?.number || ""}${p.shipping_address?.floor ? ` ${p.shipping_address.floor}` : ""}`.trim(),
@@ -524,7 +524,7 @@ app.get("/api/reportes/pedidos", async (req, res) => {
         zona: est.zonaOverride || r.zona || "",
         fechaDisplay,
         franjaDisplay: est.franjaManual || r.franja || "Sin franja",
-        esManual: true,
+        esManual: true, esCorporativo: !!r.es_corporativo,
         cobrar: (est.cobrar !== undefined && est.cobrar !== null) ? !!est.cobrar : !!r.cobrar,
         pago: r.pago,
         direccion: est.direccionOverride || r.direccion || "",
@@ -1032,12 +1032,12 @@ app.post("/api/stock/descartar", requireAuth, async (req, res) => {
 // ─── DATOS EDITABLES DE PEDIDO ────────────────────────────────────────
 app.patch("/api/pedidos/:id/datos", async (req, res) => {
   const { id } = req.params;
-  const { esManual, cliente, telefono, direccion, barrio, zona, medioPago, medioPagoOtro, nota, email, codigoPago, usuario: usuarioAudit } = req.body;
+  const { esManual, cliente, telefono, direccion, barrio, zona, medioPago, medioPagoOtro, nota, email, codigoPago, esCorporativo, usuario: usuarioAudit } = req.body;
   try {
     if (esManual) {
       await pool.query(
-        `UPDATE pedidos_manuales SET cliente=$1, telefono=$2, direccion=$3, barrio=$4, zona=$5, medio_pago=$6, nota=$7, email=$8, codigo_pago=$9 WHERE id=$10`,
-        [cliente, telefono, direccion, barrio, zona, medioPago, nota, email, codigoPago || "", id]
+        `UPDATE pedidos_manuales SET cliente=$1, telefono=$2, direccion=$3, barrio=$4, zona=$5, medio_pago=$6, nota=$7, email=$8, codigo_pago=$9, es_corporativo=$10 WHERE id=$11`,
+        [cliente, telefono, direccion, barrio, zona, medioPago, nota, email, codigoPago || "", !!esCorporativo, id]
       );
     } else {
       await pool.query(
@@ -1084,7 +1084,7 @@ app.get("/api/pedidos-manuales", async (req, res) => {
       productos: r.productos, totalNum: Number(r.total_num), total: r.total,
       pago: r.pago, medioPago: r.medio_pago, cobrar: r.cobrar,
       tabActual: r.tab_actual, local: r.local, nota: r.nota,
-codigoPago: r.codigo_pago || "", esManual: true, estado: "Por empaquetar", repartidor: "Sin asignar",
+codigoPago: r.codigo_pago || "", esManual: true, esCorporativo: !!r.es_corporativo, estado: "Por empaquetar", repartidor: "Sin asignar",
     }));
     res.json(pedidos);
   } catch (err) { res.status(500).json({ error: "Error trayendo pedidos manuales" }); }
@@ -1096,9 +1096,9 @@ app.post("/api/pedidos-manuales", async (req, res) => {
     const seqRes = await pool.query("SELECT nextval('pedidos_manuales_seq') AS n");
     const numero = `#M${seqRes.rows[0].n}`;
     await pool.query(`
-      INSERT INTO pedidos_manuales (id, numero, cliente, telefono, email, direccion, entre_calles, barrio, zona, fecha, franja, productos, total_num, total, pago, medio_pago, cobrar, tab_actual, local, nota)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
-    `, [p.id, numero, p.cliente, p.telefono, p.email || "", p.direccion, p.entreCalles, p.barrio, p.zona, p.fecha, p.franja, p.productos, p.totalNum, p.total, p.pago, p.medioPago, p.cobrar, p.tabActual, p.local, p.nota]);
+      INSERT INTO pedidos_manuales (id, numero, cliente, telefono, email, direccion, entre_calles, barrio, zona, fecha, franja, productos, total_num, total, pago, medio_pago, cobrar, tab_actual, local, nota, es_corporativo)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+    `, [p.id, numero, p.cliente, p.telefono, p.email || "", p.direccion, p.entreCalles, p.barrio, p.zona, p.fecha, p.franja, p.productos, p.totalNum, p.total, p.pago, p.medioPago, p.cobrar, p.tabActual, p.local, p.nota, !!p.esCorporativo]);
     const pedidoConNumero = { ...p, numero };
     if (p.email && p.email.trim()) enviarMailConfirmacion(pedidoConNumero).catch(console.error);
     res.json({ ok: true, numero });
