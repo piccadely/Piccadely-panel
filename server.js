@@ -1542,6 +1542,19 @@ app.get("/api/pedidos/productos/:id", async (req, res) => {
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
+// Batch: TODOS los overrides de productos en UNA sola query/respuesta (evita el N+1 del
+// front al cargar). Devuelve un mapa { [pedido_id]: { pedido_id, productos, total_num } },
+// misma forma por pedido que el endpoint /:id. La tabla solo guarda overrides, así que
+// trae solo los pedidos que tienen uno (igual que antes, que omitía los sin override).
+app.get("/api/pedidos/productos-all", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT pedido_id, productos, total_num FROM pedidos_productos");
+    const map = {};
+    for (const r of result.rows) map[r.pedido_id] = { pedido_id: r.pedido_id, productos: r.productos, total_num: r.total_num };
+    res.json(map);
+  } catch(err) { res.status(500).json({ error: "Error trayendo overrides de productos" }); }
+});
+
 // ─── WEBHOOKS TIENDA NUBE ──────────────────────────────────────────────
 function verifyTNSignature(rawBody, signature) {
   if (!TN_CLIENT_SECRET || !signature || !rawBody) return false;

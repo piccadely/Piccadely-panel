@@ -2193,15 +2193,13 @@ const [facturasMap, setFacturasMap] = useState({});
       const [varPrecio, setVarPrecio] = useState("");
       const [varCantidad, setVarCantidad] = useState("1");
 
-      async function cargarProductosOverride(ids) {
-        const overrides = {};
-        await Promise.all(ids.map(async id => {
-          try {
-            const res = await axios.get(`${API}/api/pedidos/productos/${id}`);
-            if (res.data) overrides[String(id)] = res.data;
-          } catch(e) {}
-        }));
-        setProductosOverride(overrides);
+      async function cargarProductosOverride() {
+        // UNA sola llamada batch en vez de 1 GET por pedido (evita ERR_INSUFFICIENT_RESOURCES).
+        // El backend devuelve { [id]: { productos, total_num } }, misma forma que se consumía.
+        try {
+          const res = await axios.get(`${API}/api/pedidos/productos-all`);
+          setProductosOverride(res.data || {});
+        } catch(e) {}
       }
 
       async function asegurarCatalogo() {
@@ -2268,8 +2266,7 @@ setPedidosDatosOverride(datosInit);
             });
             setFacturasMap(map);
           }).catch(console.error);
-          const ids = [...resOrders.data.map(p => String(p.id)), ...resManuales.data.map(p => p.id)];
-          cargarProductosOverride(ids);
+          cargarProductosOverride();
         }).catch(() => { setError("Error conectando con Tienda Nube"); setLoading(false); });
       }, []);
 
