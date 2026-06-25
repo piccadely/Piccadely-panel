@@ -2349,7 +2349,10 @@ setPedidosDatosOverride(datosInit);
         if (desde > hasta) { setRepPedidos([]); setRepError("El rango de fechas es inválido (desde es posterior a hasta)."); setRepLoading(false); return; }
         let cancelado = false;
         setRepLoading(true); setRepError(null);
-        axios.get(`${API}/api/reportes/pedidos`, { params: { desde, hasta } })
+        // Solo el reporte fusionado pide también los no finalizados (Por vender).
+        const paramsRep = { desde, hasta };
+        if (vista === "reporteFusionado") paramsRep.incluirActivos = 1;
+        axios.get(`${API}/api/reportes/pedidos`, { params: paramsRep })
           .then(res => {
             if (cancelado) return;
             setRepPedidos(res.data); setRepLoading(false);

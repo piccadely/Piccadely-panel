@@ -415,6 +415,10 @@ app.get("/api/reportes/pedidos", async (req, res) => {
   if (desde > hasta) {
     return res.status(400).json({ error: "'desde' no puede ser posterior a 'hasta'" });
   }
+  // OPT-IN: sin el parámetro, comportamiento idéntico (solo Entregado/Anulado).
+  // Con incluirActivos=1 también devuelve los no finalizados (Por empaquetar/Listo/
+  // En camino) con su estado vivo, para el reporte fusionado.
+  const incluirActivos = req.query.incluirActivos === "1" || req.query.incluirActivos === "true";
   try {
     // Estados (incluye overrides de datos) — keyed por id (texto)
     const estadosRes = await pool.query("SELECT * FROM pedidos_estados");
@@ -451,7 +455,7 @@ app.get("/api/reportes/pedidos", async (req, res) => {
       const p = row.data;
       const est = estadosMap[String(p.id)] || {};
       const estado = est.estado || "Por empaquetar";
-      if (estado !== "Entregado" && estado !== "Anulado") continue;
+      if (!incluirActivos && estado !== "Entregado" && estado !== "Anulado") continue;
       const { fecha, franja } = parsearFranjaBackend(p.owner_note);
       const fechaDisplay = est.fechaManual || fecha;
       if (!fechaDisplay || fechaDisplay < desde || fechaDisplay > hasta) continue;
@@ -496,7 +500,7 @@ app.get("/api/reportes/pedidos", async (req, res) => {
     for (const r of manualesRes.rows) {
       const est = estadosMap[r.id] || {};
       const estado = est.estado || "Por empaquetar";
-      if (estado !== "Entregado" && estado !== "Anulado") continue;
+      if (!incluirActivos && estado !== "Entregado" && estado !== "Anulado") continue;
       const fechaDisplay = est.fechaManual || r.fecha;
       if (!fechaDisplay || fechaDisplay < desde || fechaDisplay > hasta) continue;
       const tabActual = est.tabManual || r.tab_actual;
