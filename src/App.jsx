@@ -2139,6 +2139,10 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [rpDesde, setRpDesde] = useState("");
       const [rpHasta, setRpHasta] = useState("");
       const [rpLocal, setRpLocal] = useState(""); // "" = ambos; mismo criterio que reporteVentas (p.local)
+      // Reporte fusionado (vendido / por vender) — solo admin. Rango libre que cruza hoy.
+      const [rfDesde, setRfDesde] = useState(restarDias(HOY, 7));   // una semana atrás
+      const [rfHasta, setRfHasta] = useState(restarDias(HOY, -7));  // una semana adelante (n negativo = suma)
+      const [rfLocal, setRfLocal] = useState("");                   // "" = ambos
       const [prodFecha, setProdFecha] = useState(HOY);
       const [prodLocal, setProdLocal] = useState("todos");
       // Tablero de cocina (demanda de produccion + stock por local)
@@ -2335,10 +2339,11 @@ setPedidosDatosOverride(datosInit);
       // El dashboard pide desde el inicio del período anterior (con un día de
       // margen) para que la comparación "vs anterior" tenga datos completos.
       useEffect(() => {
-        if (vista !== "reporteVentas" && vista !== "reporteProductos" && vista !== "dashboard" && vista !== "finalizados") return;
+        if (vista !== "reporteVentas" && vista !== "reporteProductos" && vista !== "reporteFusionado" && vista !== "dashboard" && vista !== "finalizados") return;
         let desde, hasta;
         if (vista === "reporteVentas") { desde = rvDesde || REPORTE_FECHA_MIN; hasta = rvHasta || HOY; }
         else if (vista === "reporteProductos") { desde = rpDesde || REPORTE_FECHA_MIN; hasta = rpHasta || HOY; }
+        else if (vista === "reporteFusionado") { desde = rfDesde || REPORTE_FECHA_MIN; hasta = rfHasta || restarDias(HOY, -30); }
         else if (vista === "finalizados") { desde = filtroFinDesde || REPORTE_FECHA_MIN; hasta = filtroFinHasta || HOY; }
         else { const { prevDesde } = rangoAnterior(dashModo, dashDesde, dashHasta); desde = restarDias(prevDesde, 1); hasta = dashHasta; }
         if (desde > hasta) { setRepPedidos([]); setRepError("El rango de fechas es inválido (desde es posterior a hasta)."); setRepLoading(false); return; }
@@ -2364,7 +2369,7 @@ setPedidosDatosOverride(datosInit);
           })
           .catch(() => { if (!cancelado) { setRepPedidos([]); setRepError("No se pudieron cargar los datos históricos. Reintentá o revisá la conexión."); setRepLoading(false); } });
         return () => { cancelado = true; };
-      }, [vista, rvDesde, rvHasta, rpDesde, rpHasta, dashDesde, dashHasta, dashModo, filtroFinDesde, filtroFinHasta]);
+      }, [vista, rvDesde, rvHasta, rpDesde, rpHasta, rfDesde, rfHasta, dashDesde, dashHasta, dashModo, filtroFinDesde, filtroFinHasta]);
 
       // ─── COCINA: stock por local (GET /api/stock) ────────────────────────
       // Se carga al entrar a la vista y al cambiar el local. El token JWT lo
@@ -3238,6 +3243,7 @@ let numeroAsignado = "";
                       <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteVentas"); setMenuAbierto(false); }}>📊 Reporte de ventas</button>
                       <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteReservas"); setMenuAbierto(false); }}>📅 Reporte de reservas</button>
                       <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteProductos"); setMenuAbierto(false); }}>📦 Productos vendidos</button>
+                      {usuario.rol === "admin" && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteFusionado"); setMenuAbierto(false); }}>🧾 Vendido / Por vender</button>}
                     </>
                   )}
                   <button style={s.dropItem} onClick={() => { setVista("tandas"); setMenuAbierto(false); }}>🚚 Tandas activas</button>
@@ -3656,6 +3662,97 @@ if (vista === "dashboard") {
                 ))}
                 {listaProductos.length > 0 && <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#F68B32" }}>Total unidades: {totalUnidades}</div>}
               </div>
+              </>)}
+            </div>
+          </div>
+        );
+      }
+
+      if (vista === "reporteFusionado") {
+        // Reporte fusionado (solo admin): separa el rango en VENDIDO (Entregado) vs
+        // POR VENDER (En camino + Listo + Por empaquetar). Excluye Anulado.
+        const ESTADOS_POR_VENDER = ["Por empaquetar", "Listo", "En camino"];
+        const baseRf = repPedidos.filter(p => {
+          if (p.estado === "Anulado") return false;
+          if (rfDesde && p.fechaDisplay && p.fechaDisplay < rfDesde) return false;
+          if (rfHasta && p.fechaDisplay && p.fechaDisplay > rfHasta) return false;
+          if ((rfDesde || rfHasta) && !p.fechaDisplay) return false;
+          if (rfLocal && p.local !== rfLocal) return false;
+          return true;
+        });
+        const sumRf = arr => arr.reduce((a, p) => a + p.totalNum, 0);
+        const vendidos = baseRf.filter(p => p.estado === "Entregado");
+        const porVender = baseRf.filter(p => ESTADOS_POR_VENDER.includes(p.estado));
+        const vendidoValor = sumRf(vendidos);
+        const porVenderValor = sumRf(porVender);
+        const totalCount = vendidos.length + porVender.length;
+        const totalValor = vendidoValor + porVenderValor;
+        const desglosePV = ESTADOS_POR_VENDER.map(e => {
+          const grupo = porVender.filter(p => p.estado === e);
+          return { estado: e, count: grupo.length, valor: sumRf(grupo) };
+        });
+        const cardBox = { background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "20px 22px" };
+        return (
+          <div style={s.wrap}>
+            <Header />
+            <div style={{ padding: 24 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+                <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
+                <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>🧾 Vendido / Por vender</h2>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
+                  <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rfDesde} onChange={e => setRfDesde(e.target.value)} />
+                  <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
+                  <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rfHasta} onChange={e => setRfHasta(e.target.value)} />
+                  <select style={{ ...s.select, padding: "5px 8px" }} value={rfLocal} onChange={e => setRfLocal(e.target.value)}>
+                    <option value="">Todos los locales</option>
+                    <option value="A. Thomas">A. Thomas</option>
+                    <option value="French">French</option>
+                  </select>
+                </div>
+              </div>
+              {repLoading ? (
+                <div style={{ padding: "60px 0", textAlign: "center", color: "#888", fontSize: 14 }}>⏳ Cargando datos históricos…</div>
+              ) : repError ? (
+                <div style={{ padding: "20px", background: "#fdecea", color: "#c0392b", borderRadius: 8, fontSize: 14, fontWeight: 500 }}>⚠️ {repError}</div>
+              ) : (<>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginBottom: 16 }}>
+                  {/* VENDIDO */}
+                  <div style={cardBox}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, color: "#27500a", background: "#eaf3de", padding: "3px 10px", borderRadius: 20 }}>✓ VENDIDO</span>
+                      <span style={{ fontSize: 12, color: "#aaa" }}>Entregado</span>
+                    </div>
+                    <div style={{ fontSize: 34, fontWeight: 800, color: "#27500a", lineHeight: 1.1 }}>{fmt(vendidoValor)}</div>
+                    <div style={{ fontSize: 13, color: "#888", marginTop: 4 }}>{vendidos.length} pedido{vendidos.length === 1 ? "" : "s"}</div>
+                  </div>
+                  {/* POR VENDER */}
+                  <div style={cardBox}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, color: "#8a5a00", background: "#fff0db", padding: "3px 10px", borderRadius: 20 }}>⏳ POR VENDER</span>
+                      <span style={{ fontSize: 12, color: "#aaa" }}>Por empaquetar · Listo · En camino</span>
+                    </div>
+                    <div style={{ fontSize: 34, fontWeight: 800, color: "#F68B32", lineHeight: 1.1 }}>{fmt(porVenderValor)}</div>
+                    <div style={{ fontSize: 13, color: "#888", marginTop: 4, marginBottom: 12 }}>{porVender.length} pedido{porVender.length === 1 ? "" : "s"}</div>
+                    <div style={{ borderTop: "1px solid #f0f0ee", paddingTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                      {desglosePV.map(d => (
+                        <div key={d.estado} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, color: "#666" }}>
+                          <span>{d.estado} <span style={{ color: "#bbb" }}>· {d.count}</span></span>
+                          <span style={{ fontWeight: 600, color: "#555" }}>{fmt(d.valor)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                {/* TOTAL destacado */}
+                <div style={{ background: "#F68B32", border: "1px solid #F68B32", borderRadius: 10, padding: "18px 22px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: "#ffe6cf", fontWeight: 700, letterSpacing: 0.4 }}>TOTAL GENERAL</div>
+                    <div style={{ fontSize: 13, color: "#ffe6cf", marginTop: 2 }}>{totalCount} pedido{totalCount === 1 ? "" : "s"} (vendido + por vender)</div>
+                  </div>
+                  <div style={{ fontSize: 32, fontWeight: 800, color: "#fff" }}>{fmt(totalValor)}</div>
+                </div>
+                {totalCount === 0 && <div style={s.empty}>No hay pedidos en ese rango.</div>}
               </>)}
             </div>
           </div>
