@@ -2582,7 +2582,7 @@ setPedidosDatosOverride(datosInit);
               estado: "Anulado", repartidor: est.repartidor || "Sin asignar",
               tabManual: est.tabManual ?? null, fechaManual: est.fechaManual ?? null,
               franjaManual: est.franjaManual ?? null, cobrar: est.cobrar ?? false,
-              silencioso: true, usuario: usuario.nombre_completo,
+              silencioso: true, motivoAnulacion: "Anulación masiva por antigüedad", usuario: usuario.nombre_completo,
             });
             ok++;
           } catch { fail++; }
@@ -2620,8 +2620,9 @@ setPedidosDatosOverride(datosInit);
           const ncs = factRes.data.filter(f => f.tipo.includes("NOTA DE CREDITO"));
           if (activas.length > ncs.length) { alert("⚠️ Este pedido tiene una factura activa. Primero anulá la factura con nota de crédito desde el botón 🧾 Facturar."); return; }
         } catch(err) { console.error(err); }
-        if (!window.confirm(`¿Seguro que querés anular el pedido ${p.numero}?`)) return;
-        actualizarLocal(p.id, { estado: "Anulado" });
+        const motivo = window.prompt("Motivo de la anulación:");
+        if (motivo === null || !motivo.trim()) return; // obligatorio: sin motivo no se anula
+        actualizarLocal(p.id, { estado: "Anulado", motivoAnulacion: motivo.trim() });
       }
 
       function cambiarRepartidor(id, valor) { actualizarLocal(id, { repartidor: valor }); }
@@ -4170,6 +4171,9 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                       <div style={s.detalle}>
                         <div style={s.detalleGrid}>
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Productos</div><div style={s.detalleVal}>{p.productos}</div></div>
+                          {(pedidosLocales[p.id]?.estado || p.estado) === "Anulado" && (
+                            <div style={s.detalleBloque}><div style={s.detalleLabel}>Motivo de anulación</div><div style={{ ...s.detalleVal, color: p.motivoAnulacion ? "#c0392b" : "#aaa", fontStyle: p.motivoAnulacion ? "normal" : "italic" }}>{p.motivoAnulacion || "Sin motivo registrado"}</div></div>
+                          )}
                           {p.nota && <div style={s.detalleBloque}><div style={s.detalleLabel}>Nota</div><div style={{ ...s.detalleVal, color: "#666", fontStyle: "italic" }}>{p.nota}</div></div>}
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Dirección completa</div><div style={s.detalleVal}>{p.direccion}{p.barrio ? `, ${p.barrio}` : ""}{p.entreCalles ? ` (${p.entreCalles})` : ""}</div></div>
                           <div style={s.detalleBloque}><div style={s.detalleLabel}>Zona</div><div style={s.detalleVal}>{p.zona}</div></div>

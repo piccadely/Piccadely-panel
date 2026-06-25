@@ -432,6 +432,7 @@ app.get("/api/reportes/pedidos", async (req, res) => {
         zonaOverride: r.zona_override, medioPagoOverride: r.medio_pago_override,
         notaOverride: r.nota_override, emailOverride: r.email_override,
         codigoPagoOverride: r.codigo_pago_override, medioPagoOtroOverride: r.medio_pago_otro_override,
+        motivoAnulacion: r.motivo_anulacion || null,
       };
     });
     // Overrides de productos/total
@@ -483,7 +484,7 @@ app.get("/api/reportes/pedidos", async (req, res) => {
         zona: est.zonaOverride || p.fulfillments?.[0]?.shipping?.option?.name || "Sin zona",
         fechaDisplay,
         franjaDisplay: est.franjaManual || franja || "Sin franja",
-        esManual: false, esCorporativo: false,
+        esManual: false, esCorporativo: false, motivoAnulacion: est.motivoAnulacion || null,
         cobrar: !!est.cobrar,
         pago: p.payment_status === "paid" ? "Pagado" : "Pendiente",
         direccion: est.direccionOverride || `${p.shipping_address?.address || ""} ${p.shipping_address?.number || ""}${p.shipping_address?.floor ? ` ${p.shipping_address.floor}` : ""}`.trim(),
@@ -524,7 +525,7 @@ app.get("/api/reportes/pedidos", async (req, res) => {
         zona: est.zonaOverride || r.zona || "",
         fechaDisplay,
         franjaDisplay: est.franjaManual || r.franja || "Sin franja",
-        esManual: true, esCorporativo: !!r.es_corporativo,
+        esManual: true, esCorporativo: !!r.es_corporativo, motivoAnulacion: est.motivoAnulacion || null,
         cobrar: (est.cobrar !== undefined && est.cobrar !== null) ? !!est.cobrar : !!r.cobrar,
         pago: r.pago,
         direccion: est.direccionOverride || r.direccion || "",
@@ -586,10 +587,15 @@ app.get("/api/reportes/pedidos", async (req, res) => {
 
 app.post("/api/estados/:id", async (req, res) => {
   const { id } = req.params;
-const { estado, repartidor, tabManual, fechaManual, franjaManual, cobrar, silencioso, usuario: usuarioAudit } = req.body;  try {
+const { estado, repartidor, tabManual, fechaManual, franjaManual, cobrar, silencioso, motivoAnulacion, usuario: usuarioAudit } = req.body;  try {
     // Leer estado previo para auditoria
     const previo = await pool.query("SELECT * FROM pedidos_estados WHERE id=$1", [id]);
     const prevData = previo.rows[0] || {};
+
+    // Motivo de anulación: solo se setea cuando el estado es "Anulado". En cualquier
+    // otro cambio de estado va null -> el COALESCE/NULLIF del upsert conserva el existente.
+    const motivoParam = (estado === "Anulado" && motivoAnulacion && motivoAnulacion.trim())
+      ? motivoAnulacion.trim() : null;
 
     let mailAnularPedido = null;
     if (estado === "Anulado") {
@@ -601,16 +607,18 @@ const { estado, repartidor, tabManual, fechaManual, franjaManual, cobrar, silenc
       }
     }
     await pool.query(`
-      INSERT INTO pedidos_estados (id, estado, repartidor, tab_manual, fecha_manual, franja_manual, cobrar, updated_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+      INSERT INTO pedidos_estados (id, estado, repartidor, tab_manual, fecha_manual, franja_manual, cobrar, motivo_anulacion, updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
       ON CONFLICT (id) DO UPDATE SET
         estado=EXCLUDED.estado, repartidor=EXCLUDED.repartidor,
         -- Overrides de texto: si el front manda vacío/null (copia local stale), NO pisar lo guardado.
         tab_manual=COALESCE(NULLIF(EXCLUDED.tab_manual,''), pedidos_estados.tab_manual),
         fecha_manual=COALESCE(NULLIF(EXCLUDED.fecha_manual,''), pedidos_estados.fecha_manual),
         franja_manual=COALESCE(NULLIF(EXCLUDED.franja_manual,''), pedidos_estados.franja_manual),
+        -- Motivo: solo se actualiza si vino uno nuevo (anulación); otros cambios no lo pisan.
+        motivo_anulacion=COALESCE(NULLIF(EXCLUDED.motivo_anulacion,''), pedidos_estados.motivo_anulacion),
         cobrar=EXCLUDED.cobrar, updated_at=NOW()
-    `, [id, estado, repartidor, tabManual, fechaManual, franjaManual, cobrar]);
+    `, [id, estado, repartidor, tabManual, fechaManual, franjaManual, cobrar, motivoParam]);
 if (mailAnularPedido && !silencioso) enviarMailAnulacion(mailAnularPedido).catch(console.error);
     res.json({ ok: true });
 
@@ -620,7 +628,7 @@ if (mailAnularPedido && !silencioso) enviarMailAnulacion(mailAnularPedido).catch
 
     // Auditoria (no bloquea la respuesta)
     if (estado && estado !== prevData.estado) registrarAuditoria(usuarioAudit, "cambio_estado", "pedido", id, { anterior: prevData.estado || "Por empaquetar", nuevo: estado });
-    if (estado === "Anulado" && prevData.estado !== "Anulado") registrarAuditoria(usuarioAudit, "anulacion", "pedido", id, {});
+    if (estado === "Anulado" && prevData.estado !== "Anulado") registrarAuditoria(usuarioAudit, "anulacion", "pedido", id, { motivo: motivoParam });
     if (fechaManual && fechaManual !== prevData.fecha_manual) registrarAuditoria(usuarioAudit, "cambio_fecha", "pedido", id, { anterior: prevData.fecha_manual, nuevo: fechaManual });
     if (franjaManual && franjaManual !== prevData.franja_manual) registrarAuditoria(usuarioAudit, "cambio_franja", "pedido", id, { anterior: prevData.franja_manual, nuevo: franjaManual });
   } catch (err) { res.status(500).json({ error: "Error guardando estado" }); }
