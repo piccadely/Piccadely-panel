@@ -2138,6 +2138,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [tabFin, setTabFin] = useState("entregados");
       const [rpDesde, setRpDesde] = useState("");
       const [rpHasta, setRpHasta] = useState("");
+      const [rpLocal, setRpLocal] = useState(""); // "" = ambos; mismo criterio que reporteVentas (p.local)
       const [prodFecha, setProdFecha] = useState(HOY);
       const [prodLocal, setProdLocal] = useState("todos");
       // Tablero de cocina (demanda de produccion + stock por local)
@@ -3575,6 +3576,7 @@ if (vista === "dashboard") {
           if (est === "Anulado") return false;
           if (rpDesde && p.fechaDisplay && p.fechaDisplay < rpDesde) return false;
           if (rpHasta && p.fechaDisplay && p.fechaDisplay > rpHasta) return false;
+          if (rpLocal && p.local !== rpLocal) return false;
           return true;
         });
         const productosMap = {};
@@ -3613,7 +3615,12 @@ if (vista === "dashboard") {
                   <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rpDesde} onChange={e => setRpDesde(e.target.value)} />
                   <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
                   <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rpHasta} onChange={e => setRpHasta(e.target.value)} />
-                  {(rpDesde || rpHasta) && <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setRpDesde(""); setRpHasta(""); }}>✕ Limpiar</button>}
+                  <select style={{ ...s.select, padding: "5px 8px" }} value={rpLocal} onChange={e => setRpLocal(e.target.value)}>
+                    <option value="">Todos los locales</option>
+                    <option value="A. Thomas">A. Thomas</option>
+                    <option value="French">French</option>
+                  </select>
+                  {(rpDesde || rpHasta || rpLocal) && <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setRpDesde(""); setRpHasta(""); setRpLocal(""); }}>✕ Limpiar</button>}
                   {listaProductos.length > 0 && (<><button style={btnExportar("#F68B32")} onClick={exportarProdExcel}>📊 Excel</button><button style={btnExportar("#c0392b")} onClick={exportarProdPDF}>📄 PDF</button></>)}
                 </div>
               </div>
