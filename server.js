@@ -70,6 +70,67 @@ const pool = new Pool({
   // hacerlo server-side por rol: ALTER ROLE <owner> SET search_path TO public;
 });
 
+// ─── REINTENTO ANTE CONEXIONES "ENVENENADAS" DE NEON ─────────────────
+// Tras un restart/wake del compute de Neon, el pooler (PgBouncer) a veces entrega
+// conexiones que no ven el schema public: TODA query falla con 42P01 / 3F000 (u otros
+// errores de conexión). Antes esas conexiones quedaban en el pool y se reusaban -> panel
+// caído ~1h hasta reiniciar a mano. Acá envolvemos pool.query: ante un error transitorio
+// EVICTAMOS la conexión mala (client.release(err) la DESTRUYE, no la devuelve al pool) y
+// reintentamos con una conexión NUEVA. Las conexiones nuevas ya nacen sanas por el
+// `ALTER ROLE neondb_owner SET search_path TO public` corrido en Neon.
+//
+// Sólo afecta a pool.query (sentencias sueltas). pool.connect() queda intacto, así que las
+// transacciones (BEGIN…COMMIT sobre un client propio, p. ej. las funciones *Tx de stock)
+// NO se reintentan — reintentar una sentencia suelta de una transacción sería incorrecto.
+// Transitorios al EJECUTAR la query (conexión envenenada / caída a mitad).
+const ERRORES_TRANSITORIOS = new Set(["42P01", "3F000", "57P01", "08006", "08003", "ECONNRESET", "ETIMEDOUT"]);
+function esErrorTransitorio(err) {
+  if (!err) return false;
+  if (err.code && ERRORES_TRANSITORIOS.has(err.code)) return true;
+  return /Connection terminated|connection error|ECONNRESET|ETIMEDOUT/i.test(String(err.message || ""));
+}
+// Transitorios al CONECTAR (pool.connect): incluye ECONNREFUSED y el timeout propio del
+// pool de pg. NO incluye 42P01/3F000 (errores de schema, imposibles en connect).
+const ERRORES_CONNECT_TRANSITORIOS = new Set(["ECONNREFUSED", "ETIMEDOUT", "ECONNRESET", "08006", "08003", "57P01"]);
+function esConnectTransitorio(err) {
+  if (!err) return false;
+  if (err.code && ERRORES_CONNECT_TRANSITORIOS.has(err.code)) return true;
+  return /Connection terminated|connection error|timeout exceeded when trying to connect/i.test(String(err.message || ""));
+}
+const BACKOFFS_MS = [250, 500, 1000];
+const esperarMs = (ms) => new Promise(r => setTimeout(r, ms));
+
+pool.query = async function reintentarQuery(...args) {
+  let ultimoError;
+  for (let intento = 1; intento <= 3; intento++) {
+    let client;
+    try {
+      client = await pool.connect();           // si falla, client queda undefined
+      const res = await client.query(...args);
+      client.release();                          // éxito: la conexión vuelve sana al pool
+      return res;
+    } catch (err) {
+      ultimoError = err;
+      // El connect y la query comparten los 3 intentos/backoff (no se multiplican).
+      // Clasificación según en qué etapa falló: si hay client, falló la query; si no,
+      // falló el connect.
+      const transitorio = client ? esErrorTransitorio(err) : esConnectTransitorio(err);
+      if (!transitorio) {
+        if (client) client.release();            // query no-transitoria: soltar normal y propagar
+        throw err;                               // (connect no-transitorio: no hay client que soltar)
+      }
+      if (client) client.release(err);           // query transitoria: EVICTAR la conexión envenenada
+      // (connect transitorio: nunca devolvió client -> nada que evictar, solo backoff)
+      if (intento < 3) {
+        console.warn(`pool.query: reintento ${intento}/3 por error transitorio ${err.code || err.message}`);
+        await esperarMs(BACKOFFS_MS[intento - 1]);
+      }
+    }
+  }
+  console.warn(`pool.query: reintentos agotados (3/3), propago último error ${ultimoError?.code || ultimoError?.message}`);
+  throw ultimoError;
+};
+
 async function initDB() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS pedidos_estados (
