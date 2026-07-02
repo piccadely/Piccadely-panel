@@ -209,6 +209,7 @@ async function initDB() {
   await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS codigo_pago_override TEXT;`);
   await pool.query(`ALTER TABLE pedidos_manuales ADD COLUMN IF NOT EXISTS codigo_pago TEXT;`);
   await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS comandas_impresas INTEGER DEFAULT 0;`);
+  await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS tarjeta TEXT NOT NULL DEFAULT 'no';`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
   await pool.query(`CREATE TABLE IF NOT EXISTS geocoding_cache (
     address_key TEXT PRIMARY KEY,
@@ -639,6 +640,7 @@ app.get("/api/reportes/pedidos", async (req, res) => {
           medioPagoOtroOverride: r.medio_pago_otro_override,
           comandasImpresas: r.comandas_impresas || 0,
           sobre: r.sobre || false,
+          tarjeta: r.tarjeta || "no",
           tandaId: r.tanda_id ?? null,
       };
     });
@@ -726,6 +728,26 @@ app.patch("/api/orders/:id/sobre", async (req, res) => {
     );
     res.json({ ok: true, sobre });
   } catch (err) { res.status(500).json({ error: "Error guardando sobre" }); }
+});
+
+// ─── MARCADOR "TARJETA DE REGALO" POR PEDIDO (3 estados) ─────────────
+// Reemplaza al de "sobre". Valores: 'no' | 'pendiente' | 'hecha'. Upsert de UNA sola
+// columna con el mismo patrón anti-clobber: NO pisa estado/repartidor/overrides.
+app.patch("/api/orders/:id/tarjeta", async (req, res) => {
+  const { id } = req.params;
+  const { tarjeta } = req.body;
+  if (!["no", "pendiente", "hecha"].includes(tarjeta)) {
+    return res.status(400).json({ error: "tarjeta inválida (debe ser 'no', 'pendiente' o 'hecha')" });
+  }
+  try {
+    await pool.query(
+      `INSERT INTO pedidos_estados (id, tarjeta, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (id) DO UPDATE SET tarjeta = EXCLUDED.tarjeta, updated_at = NOW()`,
+      [id, tarjeta]
+    );
+    res.json({ ok: true, tarjeta });
+  } catch (err) { res.status(500).json({ error: "Error guardando tarjeta" }); }
 });
 // ─── TANDAS DE REPARTO (Fase 1) ──────────────────────────────────────
 // Membresía por pedido vía pedidos_estados.tanda_id (un pedido = una tanda).

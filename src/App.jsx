@@ -2223,10 +2223,10 @@ const [facturasMap, setFacturasMap] = useState({});
           setPedidosRaw(resOrders.data);
           const locales = {};
           resOrders.data.forEach(p => {
-            locales[p.id] = resEstados.data[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.payment_status !== "paid", sobre: false, tandaId: null };
+            locales[p.id] = resEstados.data[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.payment_status !== "paid", sobre: false, tarjeta: "no", tandaId: null };
           });
           resManuales.data.forEach(p => {
-            locales[p.id] = resEstados.data[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.cobrar, sobre: false, tandaId: null };
+            locales[p.id] = resEstados.data[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.cobrar, sobre: false, tarjeta: "no", tandaId: null };
           });
           setPedidosLocales(locales);
           setPedidosManuales(resManuales.data);
@@ -2287,8 +2287,8 @@ setPedidosDatosOverride(datosInit);
             setComandasImpresas(prev => ({ ...prev, ...comandasRefresh }));
             setPedidosLocales(prev => {
               const nuevo = { ...prev };
-              resOrders.data.forEach(p => { if (!nuevo[p.id]) nuevo[p.id] = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.payment_status !== "paid", sobre: false }; });
-              resManuales.data.forEach(p => { if (!nuevo[p.id]) nuevo[p.id] = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.cobrar, sobre: false }; });
+              resOrders.data.forEach(p => { if (!nuevo[p.id]) nuevo[p.id] = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.payment_status !== "paid", sobre: false, tarjeta: "no" }; });
+              resManuales.data.forEach(p => { if (!nuevo[p.id]) nuevo[p.id] = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: p.cobrar, sobre: false, tarjeta: "no" }; });
               return nuevo;
             });
           } catch (err) { console.warn("Auto-refresh falló:", err.message); }
@@ -2486,7 +2486,7 @@ setPedidosDatosOverride(datosInit);
             pago: p.payment_status === "paid" ? "Pagado" : "Pendiente",
             medioPago: ovDatos.medioPago || medioPagoLabel(p.gateway), medioPagoOtro: ovDatos.medioPagoOtro || "", gateway: p.gateway,
             esTakeaway: p.fulfillments?.[0]?.shipping?.type === "pickup",
-            estado: local.estado, repartidor: local.repartidor, cobrar: local.cobrar, sobre: !!local.sobre, tandaId: local.tandaId ?? null,
+            estado: local.estado, repartidor: local.repartidor, cobrar: local.cobrar, sobre: !!local.sobre, tarjeta: local.tarjeta || "no", tandaId: local.tandaId ?? null,
             tabActual, local: localLabel(tabActual),
             nota: ovDatos.nota !== undefined ? ovDatos.nota : (p.note || ""),
             esManual: false, esCorporativo: false, entreCalles: "",
@@ -2512,7 +2512,7 @@ setPedidosDatosOverride(datosInit);
             medioPagoOtro: ovDatos.medioPagoOtro || "",
             nota: ovDatos.nota !== undefined ? ovDatos.nota : (p.nota || ""),
             email: ovDatos.email !== undefined ? ovDatos.email : (p.email || ""),
-            estado: local.estado, repartidor: local.repartidor, sobre: !!local.sobre, tandaId: local.tandaId ?? null,
+            estado: local.estado, repartidor: local.repartidor, sobre: !!local.sobre, tarjeta: local.tarjeta || "no", tandaId: local.tandaId ?? null,
             cobrar: local.cobrar !== undefined ? local.cobrar : p.cobrar,
             tabActual, local: localLabel(tabActual),
             fechaDisplay: local.fechaManual || p.fecha, franjaDisplay: local.franjaManual || p.franja || "Sin franja",
@@ -2625,18 +2625,20 @@ setPedidosDatosOverride(datosInit);
       function cambiarRepartidor(id, valor) { actualizarLocal(id, { repartidor: valor }); }
       function cambiarTab(id, valor) { actualizarLocal(id, { tabManual: valor }); }
       function cambiarCobrar(id, valor) { actualizarLocal(id, { cobrar: valor }); }
-      // Marcador "sobre" (avisado): toggle optimista + PATCH dedicado. No pasa por
-      // /api/estados (no pisa estado/repartidor) y sobrevive al poll de 30s, que no
-      // sobrescribe entradas existentes de pedidosLocales. Si falla, revierte.
-      async function toggleSobre(id) {
-        const previo = !!(pedidosLocales[id]?.sobre);
-        const nuevo = !previo;
-        actualizarLocalSinGuardar(id, { sobre: nuevo });
+      // Marcador "tarjeta de regalo" (3 estados): no -> pendiente -> hecha -> no.
+      // Ciclo optimista + PATCH dedicado. No pasa por /api/estados (no pisa estado/
+      // repartidor) y sobrevive al poll de 30s, que no sobrescribe entradas existentes
+      // de pedidosLocales. Si el PATCH falla, revierte y muestra el error.
+      const TARJETA_SIGUIENTE = { no: "pendiente", pendiente: "hecha", hecha: "no" };
+      async function ciclarTarjeta(id) {
+        const previo = pedidosLocales[id]?.tarjeta || "no";
+        const nuevo = TARJETA_SIGUIENTE[previo] || "pendiente";
+        actualizarLocalSinGuardar(id, { tarjeta: nuevo });
         try {
-          await axios.patch(`${API}/api/orders/${id}/sobre`, { sobre: nuevo });
+          await axios.patch(`${API}/api/orders/${id}/tarjeta`, { tarjeta: nuevo });
         } catch (err) {
-          actualizarLocalSinGuardar(id, { sobre: previo });
-          setSobreError("No se pudo guardar el aviso. Reintentá.");
+          actualizarLocalSinGuardar(id, { tarjeta: previo });
+          setSobreError("No se pudo guardar la tarjeta. Reintentá.");
           setTimeout(() => setSobreError(""), 3000);
         }
       }
@@ -2740,7 +2742,12 @@ setPedidosDatosOverride(datosInit);
                     const fechaManual = pedidosLocales[p.id]?.fechaManual || p.fecha || "";
                     const franjaManual = pedidosLocales[p.id]?.franjaManual || p.franja || "";
                     const cobrar = pedidosLocales[p.id]?.cobrar;
-                    const sobreActual = !!(pedidosLocales[p.id]?.sobre);
+                    const tarjetaActual = pedidosLocales[p.id]?.tarjeta || "no";
+                    const tui = ({
+                      no:        { stroke: "#9ca3af", bg: "transparent", title: "No lleva tarjeta" },
+                      pendiente: { stroke: "#dc2626", bg: "#fde8e8",     title: "Lleva tarjeta — pendiente" },
+                      hecha:     { stroke: "#499342", bg: "#eaf3de",     title: "Tarjeta hecha" },
+                    })[tarjetaActual] || { stroke: "#9ca3af", bg: "transparent", title: "No lleva tarjeta" };
                     const abierto = expandido === p.id;
                     const esCorp = p.esManual && p.esCorporativo; // violeta clarito (solo manuales corporativos)
                     const ec = ESTADO_COLORS[estadoActual] || { bg: "#f0f0e8", text: "#555" };
@@ -2772,9 +2779,9 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                           <span style={{ ...s.cel, flex: 1, textAlign: "center", color: "#555" }}>{p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"short"}) : "—"}</span>
                           <span style={{ ...s.cel, flex: 0.9, textAlign: "center" }}><span style={s.franjaTag}>{p.franjaDisplay}</span></span>
                           <span style={{ ...s.cel, flex: 0.8, textAlign: "center" }}><span style={{ ...s.estadoTag, background: ec.bg, color: ec.text }}>{estadoActual}</span></span>
-                          <button title="Avisado" onClick={e => { e.stopPropagation(); toggleSobre(p.id); }}
-                            style={{ background: sobreActual ? "#eaf3de" : "transparent", border: "none", borderRadius: 6, cursor: "pointer", padding: "4px 6px", marginLeft: 4, display: "inline-flex", alignItems: "center", lineHeight: 0 }}>
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={sobreActual ? "#499342" : "#9ca3af"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <button title={tui.title} onClick={e => { e.stopPropagation(); ciclarTarjeta(p.id); }}
+                            style={{ background: tui.bg, border: "none", borderRadius: 6, cursor: "pointer", padding: "4px 6px", marginLeft: 4, display: "inline-flex", alignItems: "center", lineHeight: 0 }}>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={tui.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                               <rect x="2" y="4" width="20" height="16" rx="2" />
                               <path d="m22 7-10 5L2 7" />
                             </svg>
