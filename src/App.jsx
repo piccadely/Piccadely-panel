@@ -2129,12 +2129,14 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [rvMedio, setRvMedio] = useState("");
       const [rvRepartidor, setRvRepartidor] = useState("");
       const [rvLocal, setRvLocal] = useState("");
+      const [rvTipo, setRvTipo] = useState(""); // "" = todos, "retiro" | "delivery" (por p.tabActual)
       // Reporte de reservas: pedidos activos a futuro (no cerrados). Default desde = HOY.
       const [rrDesde, setRrDesde] = useState(HOY);
       const [rrHasta, setRrHasta] = useState("");
       const [rrMedio, setRrMedio] = useState("");
       const [rrRepartidor, setRrRepartidor] = useState("");
       const [rrLocal, setRrLocal] = useState("");
+      const [rrTipo, setRrTipo] = useState(""); // "" = todos, "retiro" | "delivery" (por p.tabActual)
       const [tabFin, setTabFin] = useState("entregados");
       const [rpDesde, setRpDesde] = useState("");
       const [rpHasta, setRpHasta] = useState("");
@@ -3464,7 +3466,7 @@ if (vista === "dashboard") {
       // y "Reporte de reservas" (pedidos activos a futuro). Misma presentación,
       // tarjetas por medio de pago, totales, filtros y exports. El modo sólo
       // cambia título/archivo/etiquetas; la lógica de agregación es idéntica.
-      const renderReporteVR = ({ pedidos, titulo, tituloExport, emoji, fileBase, sheetName, emptyMsg, loading, error, desde, setDesde, hasta, setHasta, medio, setMedio, repartidor, setRepartidor, local, setLocal }) => {
+      const renderReporteVR = ({ pedidos, titulo, tituloExport, emoji, fileBase, sheetName, emptyMsg, loading, error, desde, setDesde, hasta, setHasta, medio, setMedio, repartidor, setRepartidor, local, setLocal, tipo, setTipo }) => {
         const filtradas = pedidos.filter(p => {
           const est = p.estado;
           if (est === "Anulado") return false;
@@ -3473,6 +3475,8 @@ if (vista === "dashboard") {
           if (medio && p.medioPago !== medio) return false;
           if (repartidor && (p.repartidor || "Sin asignar") !== repartidor) return false;
           if (local && p.local !== local) return false;
+          // Tipo de entrega: "" no filtra. Retiro/Delivery por p.tabActual (retiro-*/delivery-*).
+          if (tipo && (tipo === "retiro") !== String(p.tabActual || "").startsWith("retiro")) return false;
           if ((desde || hasta) && !p.fechaDisplay) return false;
           return true;
         }).sort((a, b) => { if (!a.fechaDisplay) return 1; if (!b.fechaDisplay) return -1; return b.fechaDisplay.localeCompare(a.fechaDisplay); });
@@ -3515,8 +3519,13 @@ if (vista === "dashboard") {
                     <option value="A. Thomas">A. Thomas</option>
                     <option value="French">French</option>
                   </select>
-                  {(desde || hasta || medio || repartidor || local) && (
-                    <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setDesde(""); setHasta(""); setMedio(""); setRepartidor(""); setLocal(""); }}>✕ Limpiar</button>
+                  <select style={{ ...s.select, padding: "5px 8px" }} value={tipo} onChange={e => setTipo(e.target.value)}>
+                    <option value="">Todos</option>
+                    <option value="retiro">Retiro</option>
+                    <option value="delivery">Delivery</option>
+                  </select>
+                  {(desde || hasta || medio || repartidor || local || tipo) && (
+                    <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setDesde(""); setHasta(""); setMedio(""); setRepartidor(""); setLocal(""); setTipo(""); }}>✕ Limpiar</button>
                   )}
                   {filtradas.length > 0 && (<><button style={btnExportar("#F68B32")} onClick={exportarVRExcel}>📊 Excel</button><button style={btnExportar("#c0392b")} onClick={exportarVRPDF}>📄 PDF</button></>)}
                 </div>
@@ -3577,7 +3586,7 @@ if (vista === "dashboard") {
           loading: repLoading, error: repError,
           desde: rvDesde, setDesde: setRvDesde, hasta: rvHasta, setHasta: setRvHasta,
           medio: rvMedio, setMedio: setRvMedio, repartidor: rvRepartidor, setRepartidor: setRvRepartidor,
-          local: rvLocal, setLocal: setRvLocal,
+          local: rvLocal, setLocal: setRvLocal, tipo: rvTipo, setTipo: setRvTipo,
         });
       }
 
@@ -3592,7 +3601,7 @@ if (vista === "dashboard") {
           loading: false, error: null,
           desde: rrDesde, setDesde: setRrDesde, hasta: rrHasta, setHasta: setRrHasta,
           medio: rrMedio, setMedio: setRrMedio, repartidor: rrRepartidor, setRepartidor: setRrRepartidor,
-          local: rrLocal, setLocal: setRrLocal,
+          local: rrLocal, setLocal: setRrLocal, tipo: rrTipo, setTipo: setRrTipo,
         });
       }
 
