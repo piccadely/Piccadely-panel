@@ -2169,6 +2169,14 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [repPedidos, setRepPedidos] = useState([]);
       const [repLoading, setRepLoading] = useState(false);
       const [repError, setRepError] = useState(null);
+      // Reporte de pedidos por repartidor y zona (solo admin). Default últimos 30 días.
+      const [zonasDesde, setZonasDesde] = useState(restarDias(HOY, 30));
+      const [zonasHasta, setZonasHasta] = useState(HOY);
+      const [zonasRepartidor, setZonasRepartidor] = useState(""); // "" = todos
+      const [zonasArea, setZonasArea] = useState("");             // "" = todas ("1".."10")
+      const [zonasData, setZonasData] = useState(null);           // { repartidores, totales, costoArea }
+      const [zonasLoading, setZonasLoading] = useState(false);
+      const [zonasError, setZonasError] = useState(null);
       const menuRef = useRef(null);
 const [facturasMap, setFacturasMap] = useState({});
       const [productos, setProductos] = useState([]);
@@ -2372,6 +2380,22 @@ setPedidosDatosOverride(datosInit);
           .catch(() => { if (!cancelado) { setRepPedidos([]); setRepError("No se pudieron cargar los datos históricos. Reintentá o revisá la conexión."); setRepLoading(false); } });
         return () => { cancelado = true; };
       }, [vista, rvDesde, rvHasta, rpDesde, rpHasta, rfDesde, rfHasta, dashDesde, dashHasta, dashModo, filtroFinDesde, filtroFinHasta]);
+
+      // ─── ZONAS: reporte por repartidor y área (GET /api/reportes/zonas) ──
+      // Se carga al entrar a la vista y al cambiar el rango. Filtros repartidor/área
+      // son client-side (solo acotan lo mostrado). El token JWT lo agrega el interceptor.
+      useEffect(() => {
+        if (vista !== "zonas") return;
+        const desde = zonasDesde || REPORTE_FECHA_MIN;
+        const hasta = zonasHasta || HOY;
+        if (desde > hasta) { setZonasData(null); setZonasError("El rango de fechas es inválido (desde es posterior a hasta)."); setZonasLoading(false); return; }
+        let cancelado = false;
+        setZonasLoading(true); setZonasError(null);
+        axios.get(`${API}/api/reportes/zonas`, { params: { desde, hasta } })
+          .then(res => { if (!cancelado) { setZonasData(res.data); setZonasLoading(false); } })
+          .catch(err => { if (!cancelado) { setZonasData(null); setZonasError(err.response?.data?.error || "No se pudo cargar el reporte de zonas. Reintentá."); setZonasLoading(false); } });
+        return () => { cancelado = true; };
+      }, [vista, zonasDesde, zonasHasta]);
 
       // ─── COCINA: stock por local (GET /api/stock) ────────────────────────
       // Se carga al entrar a la vista y al cambiar el local. El token JWT lo
@@ -3266,6 +3290,7 @@ let numeroAsignado = "";
                       <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteReservas"); setMenuAbierto(false); }}>📅 Reporte de reservas</button>
                       <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteProductos"); setMenuAbierto(false); }}>📦 Productos vendidos</button>
                       {usuario.rol === "admin" && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteFusionado"); setMenuAbierto(false); }}>🧾 Vendido / Por vender</button>}
+                      {usuario.rol === "admin" && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("zonas"); setMenuAbierto(false); }}>📍 Pedidos por zona</button>}
                     </>
                   )}
                   <button style={s.dropItem} onClick={() => { setVista("tandas"); setMenuAbierto(false); }}>🚚 Tandas activas</button>
@@ -3692,6 +3717,109 @@ if (vista === "dashboard") {
                 {listaProductos.length > 0 && <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 14px", borderTop: "2px solid #eee", fontWeight: 700, fontSize: 14, color: "#F68B32" }}>Total unidades: {totalUnidades}</div>}
               </div>
               </>)}
+            </div>
+          </div>
+        );
+      }
+
+      if (vista === "zonas") {
+        // Reporte de pedidos por repartidor y área geográfica (solo admin).
+        const AREAS = Array.from({ length: 10 }, (_, i) => i + 1);
+        const filasBase = zonasData?.repartidores || [];
+        const filas = zonasRepartidor ? filasBase.filter(r => r.repartidor === zonasRepartidor) : filasBase;
+        const areasMostradas = zonasArea ? [Number(zonasArea)] : AREAS;
+        const sumCol = (key) => filas.reduce((a, r) => a + (r[key] || 0), 0);
+        const th = { padding: "8px 10px", fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase", letterSpacing: 0.3, textAlign: "center", borderBottom: "2px solid #eee", whiteSpace: "nowrap" };
+        const thL = { ...th, textAlign: "left", position: "sticky", left: 0, background: "#fff" };
+        const td = { padding: "7px 10px", fontSize: 13, color: "#333", textAlign: "center", borderBottom: "1px solid #f0f0ee", whiteSpace: "nowrap" };
+        const tdL = { ...td, textAlign: "left", fontWeight: 600, position: "sticky", left: 0, background: "#fff" };
+        const exportarZonasExcel = () => {
+          const filaObj = (r, esTotal) => {
+            const o = { "Repartidor": esTotal ? "TOTAL" : r.repartidor };
+            areasMostradas.forEach(n => { o["Área " + n] = esTotal ? sumCol("area" + n) : r["area" + n]; });
+            o["Sin coord"] = esTotal ? sumCol("sin_coordenada") : r.sin_coordenada;
+            o["Fuera de área"] = esTotal ? sumCol("fuera_de_area") : r.fuera_de_area;
+            o["Total pedidos"] = esTotal ? sumCol("total_pedidos") : r.total_pedidos;
+            o["Total costo"] = esTotal ? sumCol("total_costo") : r.total_costo;
+            return o;
+          };
+          const data = filas.map(r => filaObj(r, false));
+          data.push(filaObj(null, true));
+          exportarExcel(`zonas_${zonasDesde}_${zonasHasta}.xlsx`, [{ name: "Pedidos por zona", data }]);
+        };
+        return (
+          <div style={s.wrap}>
+            <Header />
+            <div style={{ padding: 24 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+                <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
+                <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>📍 Pedidos por zona</h2>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
+                  <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={zonasDesde} onChange={e => setZonasDesde(e.target.value)} />
+                  <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
+                  <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={zonasHasta} onChange={e => setZonasHasta(e.target.value)} />
+                  <select style={{ ...s.select, padding: "5px 8px" }} value={zonasRepartidor} onChange={e => setZonasRepartidor(e.target.value)}>
+                    <option value="">Todos los repartidores</option>
+                    {filasBase.map(r => <option key={r.repartidor} value={r.repartidor}>{r.repartidor}</option>)}
+                  </select>
+                  <select style={{ ...s.select, padding: "5px 8px" }} value={zonasArea} onChange={e => setZonasArea(e.target.value)}>
+                    <option value="">Todas las áreas</option>
+                    {AREAS.map(n => <option key={n} value={String(n)}>Área {n}</option>)}
+                  </select>
+                  {(zonasRepartidor || zonasArea) && (
+                    <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setZonasRepartidor(""); setZonasArea(""); }}>✕ Limpiar</button>
+                  )}
+                  {filas.length > 0 && <button style={btnExportar("#F68B32")} onClick={exportarZonasExcel}>📊 Excel</button>}
+                </div>
+              </div>
+              {zonasLoading ? (
+                <div style={{ padding: "60px 0", textAlign: "center", color: "#888", fontSize: 14 }}>⏳ Calculando zonas…</div>
+              ) : zonasError ? (
+                <div style={{ padding: 20, background: "#fdecea", color: "#c0392b", borderRadius: 8, fontSize: 14, fontWeight: 500 }}>⚠️ {zonasError}</div>
+              ) : filas.length === 0 ? (
+                <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 40, textAlign: "center", color: "#aaa", fontSize: 13 }}>No hay pedidos entregados de delivery en ese rango.</div>
+              ) : (
+                <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflowX: "auto" }}>
+                  <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 640 }}>
+                    <thead>
+                      <tr>
+                        <th style={thL}>Repartidor</th>
+                        {areasMostradas.map(n => <th key={n} style={th}>Área {n}</th>)}
+                        <th style={th}>Sin coord</th>
+                        <th style={th}>Fuera de área</th>
+                        <th style={th}>Total pedidos</th>
+                        <th style={th}>Total costo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filas.map(r => (
+                        <tr key={r.repartidor}>
+                          <td style={tdL}>{r.repartidor}</td>
+                          {areasMostradas.map(n => <td key={n} style={{ ...td, color: r["area" + n] ? "#333" : "#ccc" }}>{r["area" + n]}</td>)}
+                          <td style={{ ...td, color: r.sin_coordenada ? "#c0392b" : "#ccc" }}>{r.sin_coordenada}</td>
+                          <td style={{ ...td, color: r.fuera_de_area ? "#8a5a00" : "#ccc" }}>{r.fuera_de_area}</td>
+                          <td style={{ ...td, fontWeight: 700 }}>{r.total_pedidos}</td>
+                          <td style={{ ...td, fontWeight: 700, color: "#F68B32" }}>{r.total_costo}</td>
+                        </tr>
+                      ))}
+                      <tr>
+                        <td style={{ ...tdL, borderTop: "2px solid #eee", background: "#faf7f2" }}>TOTAL</td>
+                        {areasMostradas.map(n => <td key={n} style={{ ...td, borderTop: "2px solid #eee", fontWeight: 700, background: "#faf7f2" }}>{sumCol("area" + n)}</td>)}
+                        <td style={{ ...td, borderTop: "2px solid #eee", fontWeight: 700, background: "#faf7f2" }}>{sumCol("sin_coordenada")}</td>
+                        <td style={{ ...td, borderTop: "2px solid #eee", fontWeight: 700, background: "#faf7f2" }}>{sumCol("fuera_de_area")}</td>
+                        <td style={{ ...td, borderTop: "2px solid #eee", fontWeight: 800, background: "#faf7f2" }}>{sumCol("total_pedidos")}</td>
+                        <td style={{ ...td, borderTop: "2px solid #eee", fontWeight: 800, color: "#F68B32", background: "#faf7f2" }}>{sumCol("total_costo")}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {!zonasLoading && !zonasError && filas.length > 0 && (
+                <div style={{ fontSize: 11, color: "#aaa", marginTop: 10 }}>
+                  Solo pedidos <b>Entregados</b> de <b>delivery</b>. "Sin coord" = dirección no está en el cache de geolocalización; "Fuera de área" = geolocalizado pero no cae en ninguna de las 10 áreas.
+                </div>
+              )}
             </div>
           </div>
         );

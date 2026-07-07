@@ -9,6 +9,8 @@ import { initAuthDB, setupAuth } from "./auth.js";
 import { mpRouter } from "./Routes/mp.js";
 import { botWhatsappRouter } from "./Routes/botWhatsapp.js";
 import { cotizadorRouter } from "./Routes/cotizador.js";
+import { createRequire } from "module";
+const requireCJS = createRequire(import.meta.url); // server.js es ESM; require solo para el JSON de polígonos
 const { Pool } = pg;
 
 // ─── VALIDACIÓN DE VARIABLES DE ENTORNO ──────────────────────────────
@@ -603,6 +605,147 @@ app.get("/api/reportes/pedidos", async (req, res) => {
   } catch (err) {
     console.error("Error /api/reportes/pedidos:", err.message);
     res.status(500).json({ error: "Error trayendo reporte de pedidos" });
+  }
+});
+
+// ─── REPORTE: PEDIDOS POR REPARTIDOR Y ZONA GEOGRÁFICA ────────────────
+// Cuenta pedidos ENTREGADOS de delivery por repartidor y por área (polígono).
+// Solo lectura: reconstruye el address_key igual que el mapa y busca lat/lng en
+// geocoding_cache (sin llamar a Google). Point-in-polygon contra areas_poligonos.json.
+
+// Carga SEGURA de los polígonos: si falta el archivo, el server NO cae; el endpoint
+// responde 503. Reemplazá con el JSON real en la carpeta del backend.
+let AREAS_POLIGONOS = null;
+try {
+  AREAS_POLIGONOS = requireCJS("./areas_poligonos.json");
+} catch (e) {
+  console.warn("⚠️ areas_poligonos.json no encontrado: /api/reportes/zonas deshabilitado hasta agregarlo.");
+}
+
+// EDITAR: costo por área (1-10). Se completa a mano después.
+const COSTO_AREA = { "1": 1, "2": 1, "3": 1, "4": 1, "5": 1, "6": 1, "7": 1, "8": 1, "9": 1, "10": 1 };
+
+// Ray casting. Polígono = lista de puntos [lon, lat]. lng = X, lat = Y (ojo el orden).
+function puntoEnPoligono(lat, lng, poligono) {
+  let dentro = false;
+  for (let i = 0, j = poligono.length - 1; i < poligono.length; j = i++) {
+    const xi = poligono[i][0], yi = poligono[i][1]; // [lon, lat]
+    const xj = poligono[j][0], yj = poligono[j][1];
+    const intersecta = ((yi > lat) !== (yj > lat)) &&
+      (lng < ((xj - xi) * (lat - yi)) / ((yj - yi) || 1e-12) + xi);
+    if (intersecta) dentro = !dentro;
+  }
+  return dentro;
+}
+
+// Área (1-10) del punto o null. Recorre 1→10 y devuelve la PRIMERA que matchee
+// (número más bajo). Un área matchea si el punto cae en CUALQUIERA de sus polígonos.
+function areaDePunto(lat, lng) {
+  if (!AREAS_POLIGONOS) return null;
+  for (let n = 1; n <= 10; n++) {
+    const poligonos = AREAS_POLIGONOS[String(n)];
+    if (!Array.isArray(poligonos)) continue;
+    for (const poly of poligonos) {
+      if (Array.isArray(poly) && poly.length >= 3 && puntoEnPoligono(lat, lng, poly)) return n;
+    }
+  }
+  return null;
+}
+
+app.get("/api/reportes/zonas", async (req, res) => {
+  const { desde, hasta } = req.query;
+  const re = /^\d{4}-\d{2}-\d{2}$/;
+  if (!desde || !hasta || !re.test(desde) || !re.test(hasta)) {
+    return res.status(400).json({ error: "Parámetros 'desde' y 'hasta' requeridos (formato YYYY-MM-DD)" });
+  }
+  if (desde > hasta) {
+    return res.status(400).json({ error: "'desde' no puede ser posterior a 'hasta'" });
+  }
+  if (!AREAS_POLIGONOS) {
+    return res.status(503).json({ error: "areas_poligonos.json no está disponible en el backend." });
+  }
+  try {
+    // Estados: repartidor + fecha/tab (keyed por id texto).
+    const estadosRes = await pool.query("SELECT id, estado, repartidor, fecha_manual, tab_manual FROM pedidos_estados");
+    const estadosMap = {};
+    estadosRes.rows.forEach(r => { estadosMap[r.id] = { estado: r.estado, repartidor: r.repartidor, fechaManual: r.fecha_manual, tabManual: r.tab_manual }; });
+
+    // Cache de geocoding: address_key -> {lat,lng}. Una sola query, sin llamar a Google.
+    const geoRes = await pool.query("SELECT address_key, lat, lng FROM geocoding_cache");
+    const geoMap = {};
+    geoRes.rows.forEach(r => { geoMap[r.address_key] = { lat: Number(r.lat), lng: Number(r.lng) }; });
+
+    // Acumulador por repartidor (texto tal cual, sin joinear con la tabla repartidores).
+    const porRepartidor = {};
+    const nuevoRep = () => {
+      const o = { sin_coordenada: 0, fuera_de_area: 0, total_pedidos: 0, total_costo: 0 };
+      for (let n = 1; n <= 10; n++) o["area" + n] = 0;
+      return o;
+    };
+    const clasificar = (repartidor, addressKey) => {
+      const rep = repartidor || "Sin asignar";
+      if (!porRepartidor[rep]) porRepartidor[rep] = nuevoRep();
+      const acc = porRepartidor[rep];
+      acc.total_pedidos++;
+      const geo = geoMap[addressKey];
+      if (!geo) { acc.sin_coordenada++; return; }
+      const area = areaDePunto(geo.lat, geo.lng);
+      if (area == null) { acc.fuera_de_area++; return; }
+      acc["area" + area]++;
+      acc.total_costo += (COSTO_AREA[String(area)] || 0);
+    };
+
+    // TN — ventana amplia por fecha de creación; se filtra por fechaDisplay del rango.
+    const tnRes = await pool.query(
+      `SELECT t.data FROM pedidos_tn t
+       WHERE t.tn_created_at BETWEEN ($1::date - INTERVAL '30 days') AND ($2::date + INTERVAL '5 days')
+       ORDER BY t.tn_created_at DESC`,
+      [desde, hasta]
+    );
+    for (const row of tnRes.rows) {
+      const p = row.data;
+      const est = estadosMap[String(p.id)] || {};
+      if ((est.estado || "Por empaquetar") !== "Entregado") continue;
+      const { fecha } = parsearFranjaBackend(p.owner_note);
+      const fechaDisplay = est.fechaManual || fecha;
+      if (!fechaDisplay || fechaDisplay < desde || fechaDisplay > hasta) continue;
+      const tabActual = est.tabManual || clasificarPedidoBackend(p);
+      if (String(tabActual || "").startsWith("retiro")) continue; // solo delivery
+      const dir = `${p.shipping_address?.address || ""} ${p.shipping_address?.number || ""}`.trim();
+      const barrio = p.shipping_address?.locality || p.shipping_address?.city || "";
+      const addressKey = `${dir}, ${barrio}, Buenos Aires, Argentina`.toLowerCase().trim();
+      clasificar(est.repartidor, addressKey);
+    }
+
+    // Manuales
+    const manualesRes = await pool.query("SELECT id, direccion, barrio, fecha, tab_actual FROM pedidos_manuales");
+    for (const p of manualesRes.rows) {
+      const est = estadosMap[p.id] || {};
+      if ((est.estado || "Por empaquetar") !== "Entregado") continue;
+      const fechaDisplay = est.fechaManual || p.fecha;
+      if (!fechaDisplay || fechaDisplay < desde || fechaDisplay > hasta) continue;
+      const tabActual = est.tabManual || p.tab_actual;
+      if (String(tabActual || "").startsWith("retiro")) continue; // solo delivery
+      const addressKey = `${p.direccion || ""}, ${p.barrio || ""}, Buenos Aires, Argentina`.toLowerCase().trim();
+      clasificar(est.repartidor, addressKey);
+    }
+
+    // Filas por repartidor (orden alfabético) + totales por columna + gran total.
+    const repartidores = Object.keys(porRepartidor)
+      .sort((a, b) => a.localeCompare(b))
+      .map(nombre => ({ repartidor: nombre, ...porRepartidor[nombre] }));
+    const totales = nuevoRep();
+    for (const r of repartidores) {
+      for (let n = 1; n <= 10; n++) totales["area" + n] += r["area" + n];
+      totales.sin_coordenada += r.sin_coordenada;
+      totales.fuera_de_area += r.fuera_de_area;
+      totales.total_pedidos += r.total_pedidos;
+      totales.total_costo += r.total_costo;
+    }
+    res.json({ desde, hasta, costoArea: COSTO_AREA, repartidores, totales });
+  } catch (err) {
+    console.error("Error /api/reportes/zonas:", err.message);
+    res.status(500).json({ error: "Error generando reporte de zonas" });
   }
 });
 
