@@ -21,6 +21,20 @@ import { useState, useEffect, useRef, useMemo } from "react";
       };
     }
 
+    // Orden canónico de turnos (para mostrar/ordenar/desglosar).
+    const TURNOS_ORDEN = ["Mañana", "Mediodía", "Tarde", "Fuera de horario", "Sin horario"];
+    // Turno según la hora de INICIO de la franja. Reusa el mismo parseo que el panel
+    // (primer HH:MM de franjaDisplay). Sin HH:MM -> "Sin horario".
+    function turnoDe(franjaDisplay) {
+      const m = String(franjaDisplay || "").match(/(\d{1,2}):(\d{2})/);
+      if (!m) return "Sin horario";
+      const min = Number(m[1]) * 60 + Number(m[2]);
+      if (min < 360 || min >= 1380) return "Fuera de horario"; // <06:00 o >=23:00
+      if (min < 720) return "Mañana";                          // 06:00–11:59
+      if (min < 1020) return "Mediodía";                       // 12:00–16:59
+      return "Tarde";                                          // 17:00–22:59
+    }
+
     function nextEstado(e) {
       const seq = ["Por empaquetar", "Listo", "En camino", "Entregado"];
       const i = seq.indexOf(e);
@@ -2137,6 +2151,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [rrRepartidor, setRrRepartidor] = useState("");
       const [rrLocal, setRrLocal] = useState("");
       const [rrTipo, setRrTipo] = useState(""); // "" = todos, "retiro" | "delivery" (por p.tabActual)
+      const [rrTurno, setRrTurno] = useState("");   // filtro turno en Reporte de reservas ("" = todos)
       const [tabFin, setTabFin] = useState("entregados");
       const [rpDesde, setRpDesde] = useState("");
       const [rpHasta, setRpHasta] = useState("");
@@ -2147,11 +2162,13 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [rfLocal, setRfLocal] = useState("");                   // "" = ambos
       const [prodFecha, setProdFecha] = useState(HOY);
       const [prodLocal, setProdLocal] = useState("todos");
+      const [prodTurno, setProdTurno] = useState(""); // filtro turno en Análisis de producción ("" = todos)
       // Tablero de cocina (demanda de produccion + stock por local)
       // Fecha como RANGO [desde, hasta]; default HOY..HOY (= comportamiento de un día).
       const [cocinaDesde, setCocinaDesde] = useState(HOY);
       const [cocinaHasta, setCocinaHasta] = useState(HOY);
       const [cocinaLocal, setCocinaLocal] = useState("todos");
+      const [cocinaTurno, setCocinaTurno] = useState(""); // filtro turno en tablero de cocina ("" = todos)
       const [cocinaCant, setCocinaCant] = useState({});
       const [descartar, setDescartar] = useState(null); // { clave, cantidad, fecha } de la fila abierta
       const [stockData, setStockData] = useState([]);
@@ -3525,7 +3542,8 @@ if (vista === "dashboard") {
       // y "Reporte de reservas" (pedidos activos a futuro). Misma presentación,
       // tarjetas por medio de pago, totales, filtros y exports. El modo sólo
       // cambia título/archivo/etiquetas; la lógica de agregación es idéntica.
-      const renderReporteVR = ({ pedidos, titulo, tituloExport, emoji, fileBase, sheetName, emptyMsg, loading, error, desde, setDesde, hasta, setHasta, medio, setMedio, repartidor, setRepartidor, local, setLocal, tipo, setTipo }) => {
+      const renderReporteVR = ({ pedidos, titulo, tituloExport, emoji, fileBase, sheetName, emptyMsg, loading, error, desde, setDesde, hasta, setHasta, medio, setMedio, repartidor, setRepartidor, local, setLocal, tipo, setTipo, turno, setTurno }) => {
+        const conTurno = !!setTurno; // el filtro/desglose por turno solo se activa donde se pasa (reservas)
         const filtradas = pedidos.filter(p => {
           const est = p.estado;
           if (est === "Anulado") return false;
@@ -3536,6 +3554,8 @@ if (vista === "dashboard") {
           if (local && p.local !== local) return false;
           // Tipo de entrega: "" no filtra. Retiro/Delivery por p.tabActual (retiro-*/delivery-*).
           if (tipo && (tipo === "retiro") !== String(p.tabActual || "").startsWith("retiro")) return false;
+          // Turno por hora de inicio de franja ("" no filtra). Solo cuando conTurno.
+          if (turno && turnoDe(p.franjaDisplay) !== turno) return false;
           if ((desde || hasta) && !p.fechaDisplay) return false;
           return true;
         }).sort((a, b) => { if (!a.fechaDisplay) return 1; if (!b.fechaDisplay) return -1; return b.fechaDisplay.localeCompare(a.fechaDisplay); });
@@ -3543,10 +3563,18 @@ if (vista === "dashboard") {
         const porMedio = MEDIOS_PAGO.reduce((acc, m) => { acc[m] = filtradas.filter(p => p.medioPago === m).reduce((a, p) => a + p.totalNum, 0); return acc; }, {});
         const tag = fechaTagArchivo(desde, hasta);
         const exportarVRExcel = () => {
-          const datos = filtradas.map(p => ({ "Nº": p.numero, "Cliente": p.cliente, "Productos": p.productos, "Medio de pago": p.medioPago, "Código MKP": p.codigoPago || "", "Repartidor": repartidorReporte(p), "Fecha": p.fechaDisplay || "", "Local": p.local, "Total": p.totalNum }));
+          const datos = filtradas.map(p => ({ "Nº": p.numero, "Cliente": p.cliente, "Productos": p.productos, "Medio de pago": p.medioPago, "Código MKP": p.codigoPago || "", "Repartidor": repartidorReporte(p), "Fecha": p.fechaDisplay || "", "Local": p.local, "Total": p.totalNum, ...(conTurno ? { "Turno": turnoDe(p.franjaDisplay) } : {}) }));
           const resumen = MEDIOS_PAGO.filter(m => porMedio[m] > 0).map(m => ({ "Medio de pago": m, "Pedidos": filtradas.filter(p => p.medioPago === m).length, "Total": porMedio[m] }));
           resumen.push({ "Medio de pago": "TOTAL GENERAL", "Pedidos": filtradas.length, "Total": totalGeneral });
-          exportarExcel(`${fileBase}_${tag}.xlsx`, [{ name: sheetName, data: datos }, { name: "Resumen", data: resumen }]);
+          const sheets = [{ name: sheetName, data: datos }, { name: "Resumen", data: resumen }];
+          if (conTurno) {
+            // Desglose por turno (orden canónico), refleja el filtro aplicado.
+            const porTurno = TURNOS_ORDEN
+              .map(t => { const ped = filtradas.filter(p => turnoDe(p.franjaDisplay) === t); return { "Turno": t, "Pedidos": ped.length, "Total": ped.reduce((a, p) => a + p.totalNum, 0) }; })
+              .filter(r => r["Pedidos"] > 0);
+            if (porTurno.length) sheets.push({ name: "Por turno", data: porTurno });
+          }
+          exportarExcel(`${fileBase}_${tag}.xlsx`, sheets);
         };
         const exportarVRPDF = () => {
           const filas = filtradas.map(p => [p.numero, p.cliente, p.productos.length > 50 ? p.productos.substring(0, 50) + "..." : p.productos, p.medioPago, p.codigoPago || "—", p.fechaDisplay || "—", p.local, fmt(p.totalNum)]);
@@ -3583,8 +3611,14 @@ if (vista === "dashboard") {
                     <option value="retiro">Retiro</option>
                     <option value="delivery">Delivery</option>
                   </select>
-                  {(desde || hasta || medio || repartidor || local || tipo) && (
-                    <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setDesde(""); setHasta(""); setMedio(""); setRepartidor(""); setLocal(""); setTipo(""); }}>✕ Limpiar</button>
+                  {conTurno && (
+                    <select style={{ ...s.select, padding: "5px 8px" }} value={turno} onChange={e => setTurno(e.target.value)}>
+                      <option value="">Turno: todos</option>
+                      {TURNOS_ORDEN.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  )}
+                  {(desde || hasta || medio || repartidor || local || tipo || turno) && (
+                    <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setDesde(""); setHasta(""); setMedio(""); setRepartidor(""); setLocal(""); setTipo(""); if (setTurno) setTurno(""); }}>✕ Limpiar</button>
                   )}
                   {filtradas.length > 0 && (<><button style={btnExportar("#F68B32")} onClick={exportarVRExcel}>📊 Excel</button><button style={btnExportar("#c0392b")} onClick={exportarVRPDF}>📄 PDF</button></>)}
                 </div>
@@ -3660,7 +3694,7 @@ if (vista === "dashboard") {
           loading: false, error: null,
           desde: rrDesde, setDesde: setRrDesde, hasta: rrHasta, setHasta: setRrHasta,
           medio: rrMedio, setMedio: setRrMedio, repartidor: rrRepartidor, setRepartidor: setRrRepartidor,
-          local: rrLocal, setLocal: setRrLocal, tipo: rrTipo, setTipo: setRrTipo,
+          local: rrLocal, setLocal: setRrLocal, tipo: rrTipo, setTipo: setRrTipo, turno: rrTurno, setTurno: setRrTurno,
         });
       }
 
@@ -3995,6 +4029,7 @@ if (vista === "dashboard") {
           if (est === "Entregado" || est === "Anulado") return false;
           if (p.fechaDisplay !== prodFecha) return false;
           if (prodLocal !== "todos" && p.local !== prodLocal) return false;
+          if (prodTurno && turnoDe(p.franjaDisplay) !== prodTurno) return false;
           return true;
         });
         const productosMap = {};
@@ -4014,8 +4049,21 @@ if (vista === "dashboard") {
         const localTag = prodLocal === "todos" ? "todos" : prodLocal.toLowerCase().replace(/[.\s]/g, "");
         const localLabel2 = prodLocal === "todos" ? "Ambos locales" : prodLocal;
         const exportarProduccionExcel = () => {
-          const datos = listaProduccion.map(prod => ({ "Producto": prod.nombre, "Cantidad a producir": prod.cantidad }));
-          datos.push({ "Producto": "TOTAL", "Cantidad a producir": totalUnidades });
+          // Desglose por turno (orden canónico) con columna "Turno". Refleja el filtro:
+          // si prodTurno está seteado, pedidosProduccion ya trae solo ese turno.
+          const datos = [];
+          TURNOS_ORDEN.forEach(t => {
+            const peds = pedidosProduccion.filter(p => turnoDe(p.franjaDisplay) === t);
+            if (peds.length === 0) return;
+            const m = {};
+            peds.forEach(p => p.productos.split(", ").forEach(item => {
+              const mt = item.match(/^(.+) x(\d+)$/); if (!mt) return;
+              m[mt[1].trim()] = (m[mt[1].trim()] || 0) + Number(mt[2]);
+            }));
+            Object.entries(m).sort((a, b) => b[1] - a[1])
+              .forEach(([nombre, cant]) => datos.push({ "Turno": t, "Producto": nombre, "Cantidad a producir": cant }));
+          });
+          datos.push({ "Turno": "TOTAL", "Producto": "", "Cantidad a producir": totalUnidades });
           exportarExcel(`produccion_${prodFecha}_${localTag}.xlsx`, [{ name: "Producción", data: datos }]);
         };
         const exportarProduccionPDF = () => {
@@ -4055,6 +4103,11 @@ if (vista === "dashboard") {
                     {opt.label}
                   </button>
                 ))}
+                <span style={{ fontSize: 12, color: "#888", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3, marginLeft: 8 }}>Turno:</span>
+                <select style={{ ...s.select, padding: "5px 8px" }} value={prodTurno} onChange={e => setProdTurno(e.target.value)}>
+                  <option value="">Todos</option>
+                  {TURNOS_ORDEN.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 20 }}>
                 <div style={{ background: "#F68B32", border: "1px solid #F68B32", borderRadius: 8, padding: "12px 14px" }}><div style={{ fontSize: 11, color: "#a8d5b5", marginBottom: 4 }}>UNIDADES A PRODUCIR</div><div style={{ fontSize: 22, fontWeight: 700, color: "#fff" }}>{totalUnidades}</div><div style={{ fontSize: 11, color: "#a8d5b5" }}>{pedidosProduccion.length} pedidos</div></div>
@@ -4100,6 +4153,7 @@ if (vista === "dashboard") {
           // Demanda sumada sobre el rango [desde, hasta] inclusive.
           if (!p.fechaDisplay || p.fechaDisplay < cocinaDesde || p.fechaDisplay > cocinaHasta) return false;
           if (cocinaLocal !== "todos" && p.local !== cocinaLocal) return false;
+          if (cocinaTurno && turnoDe(p.franjaDisplay) !== cocinaTurno) return false;
           return true;
         });
         const demandaMap = {};
@@ -4183,6 +4237,10 @@ if (vista === "dashboard") {
                   <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={cocinaDesde} onChange={e => setCocinaDesde(e.target.value)} />
                   <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
                   <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={cocinaHasta} onChange={e => setCocinaHasta(e.target.value)} />
+                  <select style={{ ...s.select, padding: "5px 8px" }} value={cocinaTurno} onChange={e => setCocinaTurno(e.target.value)}>
+                    <option value="">Turno: todos</option>
+                    {TURNOS_ORDEN.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
                   {fechasDisponibles.length > 0 && (
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       {fechasDisponibles.map(f => {
