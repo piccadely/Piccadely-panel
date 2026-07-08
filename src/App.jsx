@@ -2174,9 +2174,13 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [zonasHasta, setZonasHasta] = useState(HOY);
       const [zonasRepartidor, setZonasRepartidor] = useState(""); // "" = todos
       const [zonasArea, setZonasArea] = useState("");             // "" = todas ("1".."10")
-      const [zonasData, setZonasData] = useState(null);           // { repartidores, totales, costoArea }
+      const [zonasData, setZonasData] = useState(null);           // { repartidores, totales, costoArea, pedidos }
       const [zonasLoading, setZonasLoading] = useState(false);
       const [zonasError, setZonasError] = useState(null);
+      const [zonasRefetch, setZonasRefetch] = useState(0);        // bump para re-pedir el reporte tras guardar costos
+      const [costosEdit, setCostosEdit] = useState({});           // inputs editables { "1".."10": string }
+      const [costosGuardando, setCostosGuardando] = useState(false);
+      const [costosMsg, setCostosMsg] = useState("");
       const menuRef = useRef(null);
 const [facturasMap, setFacturasMap] = useState({});
       const [productos, setProductos] = useState([]);
@@ -2395,7 +2399,37 @@ setPedidosDatosOverride(datosInit);
           .then(res => { if (!cancelado) { setZonasData(res.data); setZonasLoading(false); } })
           .catch(err => { if (!cancelado) { setZonasData(null); setZonasError(err.response?.data?.error || "No se pudo cargar el reporte de zonas. Reintentá."); setZonasLoading(false); } });
         return () => { cancelado = true; };
-      }, [vista, zonasDesde, zonasHasta]);
+      }, [vista, zonasDesde, zonasHasta, zonasRefetch]);
+
+      // Costos de área: al entrar a la vista, GET /api/costos-areas y poblá los inputs.
+      useEffect(() => {
+        if (vista !== "zonas") return;
+        let cancelado = false;
+        axios.get(`${API}/api/costos-areas`)
+          .then(res => { if (!cancelado) { const e = {}; for (let n = 1; n <= 10; n++) e[n] = String(res.data?.[n] ?? 1); setCostosEdit(e); } })
+          .catch(() => {});
+        return () => { cancelado = true; };
+      }, [vista]);
+
+      // Guardar los 10 costos -> PATCH -> "Guardado ✓" + re-pedir el reporte (recalcula Total costo).
+      async function guardarCostosAreas() {
+        const costos = {};
+        for (let n = 1; n <= 10; n++) {
+          const v = Number(costosEdit[n]);
+          if (!Number.isFinite(v) || v < 0) { setCostosMsg("⚠️ Todos los costos deben ser números ≥ 0."); setTimeout(() => setCostosMsg(""), 3000); return; }
+          costos[n] = v;
+        }
+        setCostosGuardando(true); setCostosMsg("");
+        try {
+          await axios.patch(`${API}/api/costos-areas`, { costos });
+          setCostosMsg("Guardado ✓");
+          setZonasRefetch(x => x + 1); // recalcula Total costo con los nuevos valores
+          setTimeout(() => setCostosMsg(""), 2500);
+        } catch (e) {
+          setCostosMsg("⚠️ " + (e.response?.data?.error || "No se pudo guardar."));
+          setTimeout(() => setCostosMsg(""), 4000);
+        } finally { setCostosGuardando(false); }
+      }
 
       // ─── COCINA: stock por local (GET /api/stock) ────────────────────────
       // Se carga al entrar a la vista y al cambiar el local. El token JWT lo
@@ -3729,11 +3763,15 @@ if (vista === "dashboard") {
         const filas = zonasRepartidor ? filasBase.filter(r => r.repartidor === zonasRepartidor) : filasBase;
         const areasMostradas = zonasArea ? [Number(zonasArea)] : AREAS;
         const sumCol = (key) => filas.reduce((a, r) => a + (r[key] || 0), 0);
+        const costos = zonasData?.costoArea || {};                       // { "1".."10": costo } (persistido)
+        const fmtCosto = (n) => `$${Number(costos[n] ?? 1).toLocaleString("es-AR")}`;
         const th = { padding: "8px 10px", fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase", letterSpacing: 0.3, textAlign: "center", borderBottom: "2px solid #eee", whiteSpace: "nowrap" };
         const thL = { ...th, textAlign: "left", position: "sticky", left: 0, background: "#fff" };
         const td = { padding: "7px 10px", fontSize: 13, color: "#333", textAlign: "center", borderBottom: "1px solid #f0f0ee", whiteSpace: "nowrap" };
         const tdL = { ...td, textAlign: "left", fontWeight: 600, position: "sticky", left: 0, background: "#fff" };
+        const motivoLabel = (pd) => pd.area != null ? pd.area : (pd.motivo === "sin_coordenada" ? "Sin coord" : pd.motivo === "fuera_de_area" ? "Fuera de área" : "");
         const exportarZonasExcel = () => {
+          // Solapa 1: Resumen (matriz, respeta filtros de repartidor/área).
           const filaObj = (r, esTotal) => {
             const o = { "Repartidor": esTotal ? "TOTAL" : r.repartidor };
             areasMostradas.forEach(n => { o["Área " + n] = esTotal ? sumCol("area" + n) : r["area" + n]; });
@@ -3743,9 +3781,18 @@ if (vista === "dashboard") {
             o["Total costo"] = esTotal ? sumCol("total_costo") : r.total_costo;
             return o;
           };
-          const data = filas.map(r => filaObj(r, false));
-          data.push(filaObj(null, true));
-          exportarExcel(`zonas_${zonasDesde}_${zonasHasta}.xlsx`, [{ name: "Pedidos por zona", data }]);
+          const resumen = filas.map(r => filaObj(r, false));
+          resumen.push(filaObj(null, true));
+          // Solapa 2: Detalle — SIEMPRE todos los pedidos del rango (NO aplica los
+          // filtros de repartidor/área de la pantalla). Ordenado por repartidor y área.
+          const detalle = (zonasData?.pedidos || [])
+            .slice()
+            .sort((a, b) => a.repartidor.localeCompare(b.repartidor) || ((a.area ?? 999) - (b.area ?? 999)))
+            .map(pd => ({ "Número": pd.numero, "Dirección": pd.direccion, "Barrio": pd.barrio, "Repartidor": pd.repartidor, "Área": motivoLabel(pd), "Fecha": pd.fecha || "" }));
+          exportarExcel(`zonas_${zonasDesde}_${zonasHasta}.xlsx`, [
+            { name: "Resumen", data: resumen },
+            { name: "Detalle", data: detalle },
+          ]);
         };
         return (
           <div style={s.wrap}>
@@ -3773,6 +3820,32 @@ if (vista === "dashboard") {
                   {filas.length > 0 && <button style={btnExportar("#F68B32")} onClick={exportarZonasExcel}>📊 Excel</button>}
                 </div>
               </div>
+
+              {/* Panel admin: costos por área editables */}
+              <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "14px 16px", marginBottom: 20 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#333" }}>💲 Costos por área</span>
+                  <button onClick={guardarCostosAreas} disabled={costosGuardando}
+                    style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: "none", background: costosGuardando ? "#ccc" : "#27500a", color: "#fff", fontWeight: 600, cursor: costosGuardando ? "default" : "pointer" }}>
+                    {costosGuardando ? "Guardando…" : "Guardar costos"}
+                  </button>
+                  {costosMsg && <span style={{ fontSize: 12, fontWeight: 600, color: costosMsg.startsWith("⚠️") ? "#c0392b" : "#27500a" }}>{costosMsg}</span>}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 10 }}>
+                  {AREAS.map(n => (
+                    <label key={n} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <span style={{ fontSize: 11, color: "#888", fontWeight: 600 }}>Área {n}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <span style={{ fontSize: 13, color: "#aaa" }}>$</span>
+                        <input type="number" min="0" step="any" value={costosEdit[n] ?? ""}
+                          onChange={e => setCostosEdit(prev => ({ ...prev, [n]: e.target.value }))}
+                          style={{ width: "100%", fontSize: 13, padding: "5px 8px", borderRadius: 6, border: "1px solid #ddd" }} />
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
               {zonasLoading ? (
                 <div style={{ padding: "60px 0", textAlign: "center", color: "#888", fontSize: 14 }}>⏳ Calculando zonas…</div>
               ) : zonasError ? (
@@ -3785,7 +3858,7 @@ if (vista === "dashboard") {
                     <thead>
                       <tr>
                         <th style={thL}>Repartidor</th>
-                        {areasMostradas.map(n => <th key={n} style={th}>Área {n}</th>)}
+                        {areasMostradas.map(n => <th key={n} style={th}>Área {n}<div style={{ fontSize: 10, fontWeight: 500, color: "#bbb", textTransform: "none", letterSpacing: 0 }}>{fmtCosto(n)}</div></th>)}
                         <th style={th}>Sin coord</th>
                         <th style={th}>Fuera de área</th>
                         <th style={th}>Total pedidos</th>

@@ -213,6 +213,8 @@ async function initDB() {
   await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS comandas_impresas INTEGER DEFAULT 0;`);
   await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS tarjeta TEXT NOT NULL DEFAULT 'no';`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS costos_areas (area INTEGER PRIMARY KEY, costo NUMERIC NOT NULL DEFAULT 1);`);
+  await pool.query(`INSERT INTO costos_areas (area, costo) SELECT g, 1 FROM generate_series(1,10) g ON CONFLICT (area) DO NOTHING;`);
   await pool.query(`CREATE TABLE IF NOT EXISTS geocoding_cache (
     address_key TEXT PRIMARY KEY,
     lat NUMERIC NOT NULL,
@@ -622,8 +624,16 @@ try {
   console.warn("⚠️ areas_poligonos.json no encontrado: /api/reportes/zonas deshabilitado hasta agregarlo.");
 }
 
-// EDITAR: costo por área (1-10). Se completa a mano después.
-const COSTO_AREA = { "1": 1, "2": 1, "3": 1, "4": 1, "5": 1, "6": 1, "7": 1, "8": 1, "9": 1, "10": 1 };
+// Costo por área (1-10) desde la tabla costos_areas. Fallback 1 si falta un área.
+async function cargarCostosAreas() {
+  const map = {};
+  for (let n = 1; n <= 10; n++) map[String(n)] = 1;
+  try {
+    const r = await pool.query("SELECT area, costo FROM costos_areas");
+    r.rows.forEach(row => { map[String(row.area)] = Number(row.costo); });
+  } catch (e) { console.error("cargarCostosAreas:", e.message); }
+  return map;
+}
 
 // Ray casting. Polígono = lista de puntos [lon, lat]. lng = X, lat = Y (ojo el orden).
 function puntoEnPoligono(lat, lng, poligono) {
@@ -652,6 +662,37 @@ function areaDePunto(lat, lng) {
   return null;
 }
 
+// GET /api/costos-areas -> { "1": costo, ..., "10": costo } (fallback 1 por área).
+app.get("/api/costos-areas", async (req, res) => {
+  try {
+    res.json(await cargarCostosAreas());
+  } catch (err) { console.error("Error GET /api/costos-areas:", err.message); res.status(500).json({ error: "Error trayendo costos de áreas" }); }
+});
+
+// PATCH /api/costos-areas -> body { costos: { "1": num, ..., "10": num } }. Cada valor
+// debe ser número finito >= 0. Upsert por área.
+app.patch("/api/costos-areas", async (req, res) => {
+  const costos = req.body?.costos;
+  if (!costos || typeof costos !== "object") {
+    return res.status(400).json({ error: "Falta 'costos' (objeto { \"1\"..\"10\": número })" });
+  }
+  for (let n = 1; n <= 10; n++) {
+    const v = Number(costos[String(n)]);
+    if (!Number.isFinite(v) || v < 0) {
+      return res.status(400).json({ error: `Costo inválido para área ${n} (debe ser número >= 0)` });
+    }
+  }
+  try {
+    for (let n = 1; n <= 10; n++) {
+      await pool.query(
+        "INSERT INTO costos_areas (area, costo) VALUES ($1, $2) ON CONFLICT (area) DO UPDATE SET costo = EXCLUDED.costo",
+        [n, Number(costos[String(n)])]
+      );
+    }
+    res.json({ ok: true, costos: await cargarCostosAreas() });
+  } catch (err) { console.error("Error PATCH /api/costos-areas:", err.message); res.status(500).json({ error: "Error guardando costos de áreas" }); }
+});
+
 app.get("/api/reportes/zonas", async (req, res) => {
   const { desde, hasta } = req.query;
   const re = /^\d{4}-\d{2}-\d{2}$/;
@@ -675,24 +716,33 @@ app.get("/api/reportes/zonas", async (req, res) => {
     const geoMap = {};
     geoRes.rows.forEach(r => { geoMap[r.address_key] = { lat: Number(r.lat), lng: Number(r.lng) }; });
 
-    // Acumulador por repartidor (texto tal cual, sin joinear con la tabla repartidores).
+    // Costos por área (desde la tabla, fallback 1). Una sola lectura.
+    const costoMap = await cargarCostosAreas();
+
+    // Acumulador por repartidor (texto tal cual, sin joinear con la tabla repartidores)
+    // + lista de pedidos (detalle por pedido para el Excel).
     const porRepartidor = {};
+    const pedidos = [];
     const nuevoRep = () => {
       const o = { sin_coordenada: 0, fuera_de_area: 0, total_pedidos: 0, total_costo: 0 };
       for (let n = 1; n <= 10; n++) o["area" + n] = 0;
       return o;
     };
-    const clasificar = (repartidor, addressKey) => {
+    // direccion/barrio LEGIBLES (crudos); addressKey ya viene normalizado (lower+trim).
+    const procesar = ({ numero, direccion, barrio, repartidor, addressKey, fechaDisplay }) => {
       const rep = repartidor || "Sin asignar";
       if (!porRepartidor[rep]) porRepartidor[rep] = nuevoRep();
       const acc = porRepartidor[rep];
       acc.total_pedidos++;
+      let area = null, motivo = null;
       const geo = geoMap[addressKey];
-      if (!geo) { acc.sin_coordenada++; return; }
-      const area = areaDePunto(geo.lat, geo.lng);
-      if (area == null) { acc.fuera_de_area++; return; }
-      acc["area" + area]++;
-      acc.total_costo += (COSTO_AREA[String(area)] || 0);
+      if (!geo) { acc.sin_coordenada++; motivo = "sin_coordenada"; }
+      else {
+        area = areaDePunto(geo.lat, geo.lng);
+        if (area == null) { acc.fuera_de_area++; motivo = "fuera_de_area"; }
+        else { acc["area" + area]++; acc.total_costo += (costoMap[String(area)] || 0); }
+      }
+      pedidos.push({ numero, direccion, barrio, repartidor: rep, area, motivo, fecha: fechaDisplay });
     };
 
     // TN — ventana amplia por fecha de creación; se filtra por fechaDisplay del rango.
@@ -714,11 +764,11 @@ app.get("/api/reportes/zonas", async (req, res) => {
       const dir = `${p.shipping_address?.address || ""} ${p.shipping_address?.number || ""}`.trim();
       const barrio = p.shipping_address?.locality || p.shipping_address?.city || "";
       const addressKey = `${dir}, ${barrio}, Buenos Aires, Argentina`.toLowerCase().trim();
-      clasificar(est.repartidor, addressKey);
+      procesar({ numero: `#${p.number}`, direccion: dir, barrio, repartidor: est.repartidor, addressKey, fechaDisplay });
     }
 
     // Manuales
-    const manualesRes = await pool.query("SELECT id, direccion, barrio, fecha, tab_actual FROM pedidos_manuales");
+    const manualesRes = await pool.query("SELECT id, numero, direccion, barrio, fecha, tab_actual FROM pedidos_manuales");
     for (const p of manualesRes.rows) {
       const est = estadosMap[p.id] || {};
       if ((est.estado || "Por empaquetar") !== "Entregado") continue;
@@ -726,8 +776,10 @@ app.get("/api/reportes/zonas", async (req, res) => {
       if (!fechaDisplay || fechaDisplay < desde || fechaDisplay > hasta) continue;
       const tabActual = est.tabManual || p.tab_actual;
       if (String(tabActual || "").startsWith("retiro")) continue; // solo delivery
-      const addressKey = `${p.direccion || ""}, ${p.barrio || ""}, Buenos Aires, Argentina`.toLowerCase().trim();
-      clasificar(est.repartidor, addressKey);
+      const dir = p.direccion || "";
+      const barrio = p.barrio || "";
+      const addressKey = `${dir}, ${barrio}, Buenos Aires, Argentina`.toLowerCase().trim();
+      procesar({ numero: p.numero, direccion: dir, barrio, repartidor: est.repartidor, addressKey, fechaDisplay });
     }
 
     // Filas por repartidor (orden alfabético) + totales por columna + gran total.
@@ -742,7 +794,7 @@ app.get("/api/reportes/zonas", async (req, res) => {
       totales.total_pedidos += r.total_pedidos;
       totales.total_costo += r.total_costo;
     }
-    res.json({ desde, hasta, costoArea: COSTO_AREA, repartidores, totales });
+    res.json({ desde, hasta, costoArea: costoMap, repartidores, totales, pedidos });
   } catch (err) {
     console.error("Error /api/reportes/zonas:", err.message);
     res.status(500).json({ error: "Error generando reporte de zonas" });
