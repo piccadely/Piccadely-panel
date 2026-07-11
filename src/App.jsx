@@ -4191,6 +4191,21 @@ if (vista === "dashboard") {
         const totalProducir = filas.reduce((a, f) => a + f.paraProducir, 0);
         const puedeProducir = cocinaLocal !== "todos";
 
+        // Export a Excel: EXACTAMENTE lo que se ve (respeta local/rango/turno, que ya
+        // están aplicados en `filas`/`sinDemanda`). Usa los valores ya calculados, no
+        // recalcula. Incluye también "en stock sin demanda" (demanda 0), como el tablero.
+        const exportarCocinaExcel = () => {
+          const datos = filas.map(f => ({
+            "Producto": f.clave, "Demanda": f.demanda, "En stock": f.enStock, "Para producir": f.paraProducir,
+          }));
+          sinDemanda.forEach(it => datos.push({
+            "Producto": it.clave_producto, "Demanda": 0, "En stock": it.total_disponible, "Para producir": 0,
+          }));
+          const rango = cocinaDesde === cocinaHasta ? cocinaDesde : `${cocinaDesde}_${cocinaHasta}`;
+          const localTag = cocinaLocal === "todos" ? "todos" : cocinaLocal.toLowerCase().replace(/[.\s]/g, "");
+          exportarExcel(`cocina_${rango}_${localTag}.xlsx`, [{ name: "Cocina", data: datos }]);
+        };
+
         const fechasDisponibles = [...new Set(pedidosProcesados.filter(p => {
           const est = pedidosLocales[p.id]?.estado || p.estado;
           return (est === "Por empaquetar" || est === "Listo") && p.fechaDisplay && p.fechaDisplay >= HOY;
@@ -4254,6 +4269,7 @@ if (vista === "dashboard") {
                       })}
                     </div>
                   )}
+                  {(filas.length > 0 || sinDemanda.length > 0) && <button style={btnExportar("#F68B32")} onClick={exportarCocinaExcel}>📊 Excel</button>}
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
