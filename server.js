@@ -10,6 +10,7 @@ import { mpRouter } from "./Routes/mp.js";
 import { botWhatsappRouter } from "./Routes/botWhatsapp.js";
 import { cotizadorRouter } from "./Routes/cotizador.js";
 import { createRequire } from "module";
+import { normalizarProducto } from "./productos-normalizacion.js"; // clave canónica compartida con el front
 const requireCJS = createRequire(import.meta.url); // server.js es ESM; require solo para el JSON de polígonos
 const { Pool } = pg;
 
@@ -1099,7 +1100,9 @@ function parsearProductosBackend(productosStr) {
   (productosStr || "").split(", ").forEach(item => {
     const m = item.match(/^(.+) x(\d+)$/);
     if (!m) return;
-    out.push({ clave: m[1].trim(), cantidad: Number(m[2]) });
+    // Clave canónica (unifica corto/largo del mismo producto físico) -> el stock
+    // descuenta con la misma clave con la que cocina/producción agrupan.
+    out.push({ clave: normalizarProducto(m[1].trim()), cantidad: Number(m[2]) });
   });
   return out;
 }

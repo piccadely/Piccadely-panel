@@ -6,6 +6,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
     import Login from "./Login";
     import Usuarios from "./Usuarios";
     import { getUsuarioGuardado, validarSesion, cerrarSesion, ROL_LABELS } from "./auth-utils";
+    import { normalizarProducto, esExcluidoProduccion } from "../productos-normalizacion.js";
 
     const API = import.meta.env.VITE_API_URL || "https://piccadely-panel-production.up.railway.app";
 
@@ -4037,7 +4038,9 @@ if (vista === "dashboard") {
           p.productos.split(", ").forEach(item => {
             const match = item.match(/^(.+) x(\d+)$/);
             if (!match) return;
-            const nombre = match[1].trim();
+            const raw = match[1].trim();
+            if (esExcluidoProduccion(raw)) return;          // envíos, medios de pago, etc.
+            const nombre = normalizarProducto(raw);          // clave canónica (unifica corto/largo)
             const cantidad = Number(match[2]);
             if (!productosMap[nombre]) productosMap[nombre] = { nombre, cantidad: 0, pedidos: [] };
             productosMap[nombre].cantidad += cantidad;
@@ -4058,7 +4061,10 @@ if (vista === "dashboard") {
             const m = {};
             peds.forEach(p => p.productos.split(", ").forEach(item => {
               const mt = item.match(/^(.+) x(\d+)$/); if (!mt) return;
-              m[mt[1].trim()] = (m[mt[1].trim()] || 0) + Number(mt[2]);
+              const raw = mt[1].trim();
+              if (esExcluidoProduccion(raw)) return;
+              const nombre = normalizarProducto(raw);
+              m[nombre] = (m[nombre] || 0) + Number(mt[2]);
             }));
             Object.entries(m).sort((a, b) => b[1] - a[1])
               .forEach(([nombre, cant]) => datos.push({ "Turno": t, "Producto": nombre, "Cantidad a producir": cant }));
@@ -4161,7 +4167,9 @@ if (vista === "dashboard") {
           p.productos.split(", ").forEach(item => {
             const match = item.match(/^(.+) x(\d+)$/);
             if (!match) return;
-            const nombre = match[1].trim();
+            const raw = match[1].trim();
+            if (esExcluidoProduccion(raw)) return;          // envíos, medios de pago, etc.
+            const nombre = normalizarProducto(raw);          // clave canónica (unifica corto/largo)
             demandaMap[nombre] = (demandaMap[nombre] || 0) + Number(match[2]);
           });
         });
