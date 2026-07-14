@@ -182,7 +182,12 @@ import { useState, useEffect, useRef, useMemo } from "react";
           "\x1B\x21\x08",
           "PRODUCTOS\n",
           "\x1B\x21\x00",
-          ...p.productos.split(", ").map(pr => `- ${pr}\n`),
+          ...p.productos.split(", ").map(pr => {
+            const m = pr.match(/^(.+) x(\d+)$/);
+            if (!m) return `- ${pr}\n`;
+            // Cantidad DESTACADA (doble alto, mismo mecanismo que las cabeceras) + nombre normal.
+            return `\x1B\x21\x10x${Number(m[2])}\x1B\x21\x00 ${m[1].trim()}\n`;
+          }),
           p.nota ? "--------------------------------\n" : "",
           p.nota ? `\x1B\x21\x08NOTA\n\x1B\x21\x00${p.nota}\n` : "",
           "--------------------------------\n",
@@ -372,6 +377,32 @@ import { useState, useEffect, useRef, useMemo } from "react";
           onBlur={() => { setFocused(false); if (value !== (initialValue ?? "")) onCommit(value); }}
           {...rest}
         />
+      );
+    }
+
+    // ─── LISTA DE PRODUCTOS CON CHIP DE CANTIDAD ─────────────────────────
+    // Muestra cada producto como [chip cantidad] + nombre, para que el "xN" no se
+    // confunda con el nombre (el repartidor cargaba mal el auto). Chip fijo a la
+    // izquierda, alineado en columna; el nombre puede partirse en varias líneas sin
+    // mover el chip. ×1 sutil (gris); ×>1 fuerte (naranja de marca). Si una línea no
+    // termina en " xN", se muestra tal cual (sin chip, no se inventa cantidad).
+    function ProductosChips({ productos }) {
+      const lineas = String(productos || "").split(", ");
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          {lineas.map((item, i) => {
+            const m = item.match(/^(.+) x(\d+)$/);
+            if (!m) return <div key={i} style={{ fontSize: 13, color: "#333" }}>{item}</div>;
+            const cant = Number(m[2]);
+            const fuerte = cant > 1;
+            return (
+              <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+                <span style={{ flex: "0 0 auto", minWidth: 32, textAlign: "center", fontWeight: 700, fontSize: 14, lineHeight: "18px", padding: "1px 6px", borderRadius: 6, background: fuerte ? "#F68B32" : "#f3f4f6", color: fuerte ? "#fff" : "#374151" }}>×{cant}</span>
+                <span style={{ fontSize: 13, color: "#333", lineHeight: "18px" }}>{m[1].trim()}</span>
+              </div>
+            );
+          })}
+        </div>
       );
     }
 
@@ -2933,7 +2964,7 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                               </div>
                               <div style={s.detalleBloque}>
                                 <div style={s.detalleLabel}>Productos</div>
-                                <div style={s.detalleVal}>{p.productos}</div>
+                                <div style={s.detalleVal}><ProductosChips productos={p.productos} /></div>
                               </div>
                               <div style={s.detalleBloque}>
                                 <div style={s.detalleLabel}>Pago</div>
@@ -3165,7 +3196,15 @@ let numeroAsignado = "";
             <div class="label">Cliente</div><div class="valor">${p.cliente}</div><div class="valor">${p.telefono}</div>
             <div class="label">Direccion</div><div class="valor">${p.direccion}${p.barrio ? ", "+p.barrio : ""}</div>
             <div class="linea"></div>
-            <div class="label">Productos</div>${p.productos.split(", ").map(pr => `<div>- ${pr}</div>`).join("")}
+            <div class="label">Productos</div>${p.productos.split(", ").map(pr => {
+              const m = pr.match(/^(.+) x(\d+)$/);
+              if (!m) return "<div>- " + pr + "</div>";
+              const cant = Number(m[2]);
+              const chip = cant > 1
+                ? "font-weight:bold;font-size:16px;background:#000;color:#fff;padding:0 4px;border-radius:3px;min-width:20px;text-align:center;"
+                : "font-weight:bold;font-size:14px;border:1px solid #000;padding:0 4px;border-radius:3px;min-width:20px;text-align:center;";
+              return '<div style="display:flex;align-items:flex-start;gap:5px;margin:2px 0;"><span style="' + chip + '">x' + cant + '</span><span>' + m[1].trim() + '</span></div>';
+            }).join("")}
             ${p.nota ? `<div class="linea"></div><div class="label">Nota</div><div style="font-style:italic;">${p.nota}</div>` : ""}
             <div class="linea"></div>
             <div class="fila"><span class="label">Medio de pago</span><span>${p.medioPago}</span></div>
@@ -3223,7 +3262,15 @@ let numeroAsignado = "";
             <div class="label">Cliente</div><div class="valor">${p.cliente}</div><div class="valor">${p.telefono}</div>
             <div class="label">Direccion</div><div class="valor">${p.direccion}${p.barrio ? ", "+p.barrio : ""}</div>
             <div class="linea"></div>
-            <div class="label">Productos</div>${p.productos.split(", ").map(pr => `<div>- ${pr}</div>`).join("")}
+            <div class="label">Productos</div>${p.productos.split(", ").map(pr => {
+              const m = pr.match(/^(.+) x(\d+)$/);
+              if (!m) return "<div>- " + pr + "</div>";
+              const cant = Number(m[2]);
+              const chip = cant > 1
+                ? "font-weight:bold;font-size:16px;background:#000;color:#fff;padding:0 4px;border-radius:3px;min-width:20px;text-align:center;"
+                : "font-weight:bold;font-size:14px;border:1px solid #000;padding:0 4px;border-radius:3px;min-width:20px;text-align:center;";
+              return '<div style="display:flex;align-items:flex-start;gap:5px;margin:2px 0;"><span style="' + chip + '">x' + cant + '</span><span>' + m[1].trim() + '</span></div>';
+            }).join("")}
             ${p.nota ? `<div class="linea"></div><div class="label">Nota</div><div style="font-style:italic;">${p.nota}</div>` : ""}
             <div class="linea"></div>
             <div class="fila"><span class="label">Medio de pago</span><span>${p.medioPago}</span></div>
@@ -3656,7 +3703,7 @@ if (vista === "dashboard") {
                     <div style={{ ...s.filaTop, cursor: "default" }}>
                       <span style={{ ...s.cel, flex: 0.6 }}><span style={s.numero}>{p.numero}</span></span>
                       <span style={{ ...s.cel, flex: 1.5 }}>{p.cliente}</span>
-                      <span style={{ ...s.cel, flex: 1, color: "#666" }}>{p.productos}</span>
+                      <span style={{ ...s.cel, flex: 1 }}><ProductosChips productos={p.productos} /></span>
                       <span style={{ ...s.cel, flex: 0.8 }}>{p.medioPago}</span>
                       <span style={{ ...s.cel, flex: 0.7, textAlign: "center", color: "#555" }}>{p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"short"}) : "—"}</span>
                       <span style={{ ...s.cel, flex: 0.7, textAlign: "center" }}><span style={{ fontSize: 11, background: "#eaf3de", color: "#27500a", padding: "2px 7px", borderRadius: 4 }}>{p.local}</span></span>
@@ -4455,7 +4502,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                       <span style={{ ...s.cel, flex: 1.2 }}>{p.cliente}{p.esManual && <span style={{ ...s.cobrarBadge, background: "#7c3aed", marginLeft: 6 }}>MANUAL</span>}</span>
                       <span style={{ ...s.cel, flex: 1, color: "#555" }}>{p.telefono}</span>
                       <span style={{ ...s.cel, flex: 1.5 }}>{p.direccion}</span>
-                      <span style={{ ...s.cel, flex: 1, color: "#666" }}>{p.productos}</span>
+                      <span style={{ ...s.cel, flex: 1 }}><ProductosChips productos={p.productos} /></span>
                       <span style={{ ...s.cel, flex: 0.8 }}>{p.medioPago}</span>
                       <span style={{ ...s.cel, flex: 0.7, textAlign: "right", fontWeight: 600 }}>{p.total}</span>
                       <span style={{ ...s.cel, flex: 0.8, textAlign: "center", color: "#555" }}>{p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"short"}) : "—"}</span>
@@ -4466,7 +4513,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                     {expandido === p.id && (
                       <div style={s.detalle}>
                         <div style={s.detalleGrid}>
-                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Productos</div><div style={s.detalleVal}>{p.productos}</div></div>
+                          <div style={s.detalleBloque}><div style={s.detalleLabel}>Productos</div><div style={s.detalleVal}><ProductosChips productos={p.productos} /></div></div>
                           {(pedidosLocales[p.id]?.estado || p.estado) === "Anulado" && (
                             <div style={s.detalleBloque}><div style={s.detalleLabel}>Motivo de anulación</div><div style={{ ...s.detalleVal, color: p.motivoAnulacion ? "#c0392b" : "#aaa", fontStyle: p.motivoAnulacion ? "normal" : "italic" }}>{p.motivoAnulacion || "Sin motivo registrado"}</div></div>
                           )}
