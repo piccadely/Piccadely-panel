@@ -2189,8 +2189,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [rpHasta, setRpHasta] = useState("");
       const [rpLocal, setRpLocal] = useState(""); // "" = ambos; mismo criterio que reporteVentas (p.local)
       // Reporte fusionado (vendido / por vender) — solo admin. Rango libre que cruza hoy.
-      const [rfDesde, setRfDesde] = useState(restarDias(HOY, 7));   // una semana atrás
-      const [rfHasta, setRfHasta] = useState(restarDias(HOY, -7));  // una semana adelante (n negativo = suma)
+      const [rfDesde, setRfDesde] = useState(HOY);   // default: día actual (HOY = fechaArgentina())
+      const [rfHasta, setRfHasta] = useState(HOY);   // default: día actual (el usuario puede ampliar el rango)
       const [rfLocal, setRfLocal] = useState("");                   // "" = ambos
       const [prodFecha, setProdFecha] = useState(HOY);
       const [prodLocal, setProdLocal] = useState("todos");
