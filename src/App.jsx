@@ -2240,6 +2240,9 @@ const [facturasMap, setFacturasMap] = useState({});
       const [carrito, setCarrito] = useState([]);
       const [form, setForm] = useState(FORM_INICIAL);
       const [pedidoCreado, setPedidoCreado] = useState(false);
+      // Autocompletar cliente por email (solo alta manual): datos del último pedido de ese mail.
+      const [clienteSugerido, setClienteSugerido] = useState(null);
+      const [buscandoCliente, setBuscandoCliente] = useState(false);
       const [comandasImpresas, setComandasImpresas] = useState({});
       const [sobreError, setSobreError] = useState("");
       // Tandas de reparto (Fase 1)
@@ -3136,6 +3139,28 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
       function quitarDelCarrito(variantId) { setCarrito(prev => prev.filter(i => i.variantId !== variantId)); }
       const totalCarrito = carrito.reduce((a, i) => a + i.precio * i.cantidad, 0);
 
+      // Busca el último pedido de ese email y ofrece autocompletar (no pisa el form solo).
+      async function buscarClientePorEmail(email) {
+        const mail = String(email || "").trim();
+        if (!mail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) { setClienteSugerido(null); return; }
+        setBuscandoCliente(true);
+        try {
+          const res = await axios.get(`${API}/api/clientes/buscar`, { params: { email: mail } });
+          setClienteSugerido(res.data?.encontrado ? res.data : null);
+        } catch (e) {
+          setClienteSugerido(null); // error de red: no molestar, se carga a mano
+        } finally {
+          setBuscandoCliente(false);
+        }
+      }
+      // Aplica los datos traídos al form (todos quedan editables).
+      function traerDatosCliente() {
+        const d = clienteSugerido;
+        if (!d) return;
+        setForm(f => ({ ...f, cliente: d.cliente || "", telefono: d.telefono || "", direccion: d.direccion || "", entreCalles: d.entreCalles || "", barrio: d.barrio || "", zona: d.zona || "", nota: d.nota || "" }));
+        setClienteSugerido(null);
+      }
+
       async function crearPedido() {
         if (!form.cliente || carrito.length === 0) return;
         const id = `manual-${Date.now()}`;
@@ -3161,7 +3186,7 @@ let numeroAsignado = "";
         await axios.post(`${API}/api/estados/${id}`, estadoInicial).catch(console.error);
         setPedidosManuales(prev => [...prev, nuevoPedido]);
         setPedidosLocales(prev => ({ ...prev, [id]: estadoInicial }));
-        setCarrito([]); setForm(FORM_INICIAL); setPedidoCreado(true);
+        setCarrito([]); setForm(FORM_INICIAL); setClienteSugerido(null); setPedidoCreado(true);
         setTimeout(() => setPedidoCreado(false), 3000);
       }
 
@@ -4648,7 +4673,20 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                   <div style={s.formGrid}>
                     <div style={s.formBloque}><label style={s.formLabel}>Nombre *</label><input style={s.formInput} value={form.cliente} onChange={e => setForm(f => ({...f, cliente: e.target.value}))} placeholder="Nombre completo" /></div>
                     <div style={s.formBloque}><label style={s.formLabel}>Teléfono</label><input style={s.formInput} value={form.telefono} onChange={e => setForm(f => ({...f, telefono: e.target.value}))} placeholder="+54 11..." /></div>
-                    <div style={{ ...s.formBloque, gridColumn: "span 2" }}><label style={s.formLabel}>Email (opcional, se envía confirmación automática)</label><input type="email" style={s.formInput} value={form.email || ""} onChange={e => setForm(f => ({...f, email: e.target.value}))} placeholder="cliente@ejemplo.com" /></div>
+                    <div style={{ ...s.formBloque, gridColumn: "span 2" }}>
+                      <label style={s.formLabel}>Email (opcional, se envía confirmación automática)</label>
+                      <input type="email" style={s.formInput} value={form.email || ""}
+                        onChange={e => { setForm(f => ({...f, email: e.target.value})); if (clienteSugerido) setClienteSugerido(null); }}
+                        onBlur={() => buscarClientePorEmail(form.email)}
+                        placeholder="cliente@ejemplo.com" />
+                      {buscandoCliente && <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>Buscando cliente…</div>}
+                      {clienteSugerido && (
+                        <button type="button" onClick={traerDatosCliente}
+                          style={{ marginTop: 6, fontSize: 12, fontWeight: 600, padding: "5px 10px", borderRadius: 6, border: "1px solid #F68B32", background: "#fff7ef", color: "#8a4b00", cursor: "pointer" }}>
+                          📋 Traer datos de {clienteSugerido.cliente || "este cliente"}
+                        </button>
+                      )}
+                    </div>
                     <div style={{ ...s.formBloque, gridColumn: "span 2" }}><label style={s.formLabel}>Dirección</label><input style={s.formInput} value={form.direccion} onChange={e => setForm(f => ({...f, direccion: e.target.value}))} placeholder="Calle y número" /></div>
                     <div style={{ ...s.formBloque, gridColumn: "span 2" }}><label style={s.formLabel}>Entre calles</label><input style={s.formInput} value={form.entreCalles || ""} onChange={e => setForm(f => ({...f, entreCalles: e.target.value}))} placeholder="ej: Entre Gorriti y Cabrera" /></div>
                     <div style={s.formBloque}><label style={s.formLabel}>Barrio</label><input style={s.formInput} value={form.barrio} onChange={e => setForm(f => ({...f, barrio: e.target.value}))} placeholder="Barrio" /></div>

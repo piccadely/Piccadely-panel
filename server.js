@@ -233,6 +233,9 @@ async function initDB() {
   );`);
   await pool.query(`CREATE SEQUENCE IF NOT EXISTS pedidos_manuales_seq START 1;`);
   await pool.query(`INSERT INTO repartidores (nombre) VALUES ('Sin asignar') ON CONFLICT (nombre) DO NOTHING;`);
+  // Índices para la búsqueda de cliente por email (autocompletar alta manual). Solo aceleran.
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_manuales_email ON pedidos_manuales (lower(email));`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tn_contact_email ON pedidos_tn (lower(contact_email));`);
      console.log("DB inicializada");
   await initAuthDB(pool);
 }
@@ -1377,6 +1380,78 @@ codigoPago: r.codigo_pago || "", esManual: true, esCorporativo: !!r.es_corporati
     }));
     res.json(pedidos);
   } catch (err) { res.status(500).json({ error: "Error trayendo pedidos manuales" }); }
+});
+
+// ─── BUSCAR CLIENTE POR EMAIL (autocompletar alta manual) ────────────
+// Devuelve los datos del cliente del pedido MÁS RECIENTE (manual o TN) con ese email,
+// aplicando los overrides de pedidos_estados. Solo lectura. No incluye CUIT (por decisión).
+app.get("/api/clientes/buscar", async (req, res) => {
+  const email = String(req.query.email || "").toLowerCase().trim();
+  if (!email) return res.status(400).json({ error: "email requerido" });
+  try {
+    // Pedido más reciente de cada canal.
+    const manRes = await pool.query(
+      "SELECT id, cliente, telefono, direccion, entre_calles, barrio, zona, nota, created_at FROM pedidos_manuales WHERE lower(email) = $1 ORDER BY created_at DESC LIMIT 1",
+      [email]
+    );
+    const tnRes = await pool.query(
+      "SELECT id, data, tn_created_at FROM pedidos_tn WHERE lower(contact_email) = $1 ORDER BY tn_created_at DESC LIMIT 1",
+      [email]
+    );
+    const man = manRes.rows[0] || null;
+    const tn = tnRes.rows[0] || null;
+    if (!man && !tn) return res.json({ encontrado: false });
+
+    // Ganador = el más reciente entre ambos (created_at vs tn_created_at).
+    const fMan = man ? new Date(man.created_at).getTime() : -Infinity;
+    const fTn = tn ? new Date(tn.tn_created_at).getTime() : -Infinity;
+    const usarManual = fMan >= fTn;
+
+    // Datos base según el canal ganador.
+    let base, pedidoId;
+    if (usarManual) {
+      pedidoId = man.id;
+      base = {
+        cliente: man.cliente || "", telefono: man.telefono || "",
+        direccion: man.direccion || "", entreCalles: man.entre_calles || "",
+        barrio: man.barrio || "", zona: man.zona || "", nota: man.nota || "",
+      };
+    } else {
+      pedidoId = String(tn.id);
+      const d = tn.data || {};
+      const sa = d.shipping_address || {};
+      const direccion = `${sa.address || ""} ${sa.number || ""}${sa.floor ? ` ${sa.floor}` : ""}`.trim();
+      base = {
+        cliente: d.contact_name || "", telefono: d.contact_phone || "",
+        direccion, entreCalles: "", // TN no tiene entre calles
+        barrio: sa.locality || sa.city || "",
+        zona: d.fulfillments?.[0]?.shipping?.option?.name || "",
+        nota: d.note || "",
+      };
+    }
+
+    // Overrides de pedidos_estados del pedido ganador (prioridad si no vacíos).
+    const ovRes = await pool.query(
+      "SELECT cliente_override, telefono_override, direccion_override, barrio_override, zona_override, nota_override FROM pedidos_estados WHERE id = $1",
+      [pedidoId]
+    );
+    const ov = ovRes.rows[0] || {};
+    const pick = (v, b) => (v !== null && v !== undefined && String(v).trim() !== "") ? v : b;
+
+    res.json({
+      encontrado: true,
+      cliente: pick(ov.cliente_override, base.cliente),
+      telefono: pick(ov.telefono_override, base.telefono),
+      direccion: pick(ov.direccion_override, base.direccion),
+      entreCalles: base.entreCalles, // no hay override de entre calles
+      barrio: pick(ov.barrio_override, base.barrio),
+      zona: pick(ov.zona_override, base.zona),
+      nota: pick(ov.nota_override, base.nota),
+    });
+  } catch (err) {
+    console.error("Error GET /api/clientes/buscar:", err.message);
+    res.status(500).json({ error: "Error buscando cliente" });
+  }
 });
 
 app.post("/api/pedidos-manuales", async (req, res) => {
