@@ -3886,7 +3886,7 @@ if (vista === "dashboard") {
         const thL = { ...th, textAlign: "left", position: "sticky", left: 0, background: "#fff" };
         const td = { padding: "7px 10px", fontSize: 13, color: "#333", textAlign: "center", borderBottom: "1px solid #f0f0ee", whiteSpace: "nowrap" };
         const tdL = { ...td, textAlign: "left", fontWeight: 600, position: "sticky", left: 0, background: "#fff" };
-        const motivoLabel = (pd) => pd.area != null ? pd.area : (pd.motivo === "sin_coordenada" ? "Sin coord" : pd.motivo === "fuera_de_area" ? "Fuera de área" : "");
+        const motivoLabel = (pd) => pd.area != null ? pd.area : (pd.motivo === "sin_coordenada" ? "Sin coord" : pd.motivo === "fuera_de_area" ? "Fuera de área" : pd.motivo === "dudosa" ? "Dudosa" : "");
         const exportarZonasExcel = () => {
           // Solapa 1: Resumen (matriz, respeta filtros de repartidor/área).
           const filaObj = (r, esTotal) => {
@@ -3894,6 +3894,7 @@ if (vista === "dashboard") {
             areasMostradas.forEach(n => { o["Área " + n] = esTotal ? sumCol("area" + n) : r["area" + n]; });
             o["Sin coord"] = esTotal ? sumCol("sin_coordenada") : r.sin_coordenada;
             o["Fuera de área"] = esTotal ? sumCol("fuera_de_area") : r.fuera_de_area;
+            o["Dudosa"] = esTotal ? sumCol("dudosa") : r.dudosa;
             o["Total pedidos"] = esTotal ? sumCol("total_pedidos") : r.total_pedidos;
             o["Total costo"] = esTotal ? sumCol("total_costo") : r.total_costo;
             return o;
@@ -3978,6 +3979,7 @@ if (vista === "dashboard") {
                         {areasMostradas.map(n => <th key={n} style={th}>Área {n}<div style={{ fontSize: 10, fontWeight: 500, color: "#bbb", textTransform: "none", letterSpacing: 0 }}>{fmtCosto(n)}</div></th>)}
                         <th style={th}>Sin coord</th>
                         <th style={th}>Fuera de área</th>
+                        <th style={th}>Dudosa</th>
                         <th style={th}>Total pedidos</th>
                         <th style={th}>Total costo</th>
                       </tr>
@@ -3989,6 +3991,7 @@ if (vista === "dashboard") {
                           {areasMostradas.map(n => <td key={n} style={{ ...td, color: r["area" + n] ? "#333" : "#ccc" }}>{r["area" + n]}</td>)}
                           <td style={{ ...td, color: r.sin_coordenada ? "#c0392b" : "#ccc" }}>{r.sin_coordenada}</td>
                           <td style={{ ...td, color: r.fuera_de_area ? "#8a5a00" : "#ccc" }}>{r.fuera_de_area}</td>
+                          <td style={{ ...td, color: r.dudosa ? "#8e44ad" : "#ccc" }}>{r.dudosa}</td>
                           <td style={{ ...td, fontWeight: 700 }}>{r.total_pedidos}</td>
                           <td style={{ ...td, fontWeight: 700, color: "#F68B32" }}>{r.total_costo}</td>
                         </tr>
@@ -3998,6 +4001,7 @@ if (vista === "dashboard") {
                         {areasMostradas.map(n => <td key={n} style={{ ...td, borderTop: "2px solid #eee", fontWeight: 700, background: "#faf7f2" }}>{sumCol("area" + n)}</td>)}
                         <td style={{ ...td, borderTop: "2px solid #eee", fontWeight: 700, background: "#faf7f2" }}>{sumCol("sin_coordenada")}</td>
                         <td style={{ ...td, borderTop: "2px solid #eee", fontWeight: 700, background: "#faf7f2" }}>{sumCol("fuera_de_area")}</td>
+                        <td style={{ ...td, borderTop: "2px solid #eee", fontWeight: 700, background: "#faf7f2" }}>{sumCol("dudosa")}</td>
                         <td style={{ ...td, borderTop: "2px solid #eee", fontWeight: 800, background: "#faf7f2" }}>{sumCol("total_pedidos")}</td>
                         <td style={{ ...td, borderTop: "2px solid #eee", fontWeight: 800, color: "#F68B32", background: "#faf7f2" }}>{sumCol("total_costo")}</td>
                       </tr>
@@ -4007,7 +4011,7 @@ if (vista === "dashboard") {
               )}
               {!zonasLoading && !zonasError && filas.length > 0 && (
                 <div style={{ fontSize: 11, color: "#aaa", marginTop: 10 }}>
-                  Solo pedidos <b>Entregados</b> de <b>delivery</b>. "Sin coord" = dirección no está en el cache de geolocalización; "Fuera de área" = geolocalizado pero no cae en ninguna de las 10 áreas.
+                  Solo pedidos <b>Entregados</b> de <b>delivery</b>. "Sin coord" = no se pudo geolocalizar la dirección; "Fuera de área" = geolocalizado pero no cae en ninguna de las 10 áreas; <b style={{ color: "#8e44ad" }}>"Dudosa"</b> = geolocalizó con baja confianza (dirección imprecisa o mal escrita) — no se asigna a un área para no contaminar los costos; revisala a mano.
                 </div>
               )}
             </div>

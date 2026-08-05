@@ -222,6 +222,11 @@ async function initDB() {
     lng NUMERIC NOT NULL,
     created_at TIMESTAMP DEFAULT NOW()
   );`);
+  // Señales de confianza del geocoder (las usa el reporte de zonas para NO clasificar
+  // direcciones dudosas). Retrocompatible: filas viejas quedan location_type NULL /
+  // partial_match FALSE. El mapa (geocodificar()) NO las escribe; solo geocodificarConConfianza().
+  await pool.query(`ALTER TABLE geocoding_cache ADD COLUMN IF NOT EXISTS location_type TEXT;`);
+  await pool.query(`ALTER TABLE geocoding_cache ADD COLUMN IF NOT EXISTS partial_match BOOLEAN DEFAULT FALSE;`);
   await pool.query(`CREATE TABLE IF NOT EXISTS auditoria (
     id SERIAL PRIMARY KEY,
     usuario TEXT NOT NULL,
@@ -715,10 +720,13 @@ app.get("/api/reportes/zonas", async (req, res) => {
     const estadosMap = {};
     estadosRes.rows.forEach(r => { estadosMap[r.id] = { estado: r.estado, repartidor: r.repartidor, fechaManual: r.fecha_manual, tabManual: r.tab_manual }; });
 
-    // Cache de geocoding: address_key -> {lat,lng}. Una sola query, sin llamar a Google.
-    const geoRes = await pool.query("SELECT address_key, lat, lng FROM geocoding_cache");
+    // Cache de geocoding: address_key -> {lat,lng,confiable}. Una sola query bulk. Las que
+    // falten se geocodifican al vuelo más abajo (con confianza) y se agregan a este mapa.
+    const geoRes = await pool.query("SELECT address_key, lat, lng, location_type, partial_match FROM geocoding_cache");
     const geoMap = {};
-    geoRes.rows.forEach(r => { geoMap[r.address_key] = { lat: Number(r.lat), lng: Number(r.lng) }; });
+    geoRes.rows.forEach(r => {
+      geoMap[r.address_key] = { lat: Number(r.lat), lng: Number(r.lng), confiable: esGeoConfiable(r.location_type, r.partial_match) };
+    });
 
     // Costos por área (desde la tabla, fallback 1). Una sola lectura.
     const costoMap = await cargarCostosAreas();
@@ -727,12 +735,15 @@ app.get("/api/reportes/zonas", async (req, res) => {
     // + lista de pedidos (detalle por pedido para el Excel).
     const porRepartidor = {};
     const pedidos = [];
+    const registros = [];   // se llenan en los loops; se clasifican DESPUÉS del geocoding pre-pass
     const nuevoRep = () => {
-      const o = { sin_coordenada: 0, fuera_de_area: 0, total_pedidos: 0, total_costo: 0 };
+      const o = { sin_coordenada: 0, fuera_de_area: 0, dudosa: 0, total_pedidos: 0, total_costo: 0 };
       for (let n = 1; n <= 10; n++) o["area" + n] = 0;
       return o;
     };
     // direccion/barrio LEGIBLES (crudos); addressKey ya viene normalizado (lower+trim).
+    // "dudosa" = geocodificó pero con baja confianza (partial_match / location_type impreciso):
+    // NO la metemos en un área para no contaminar costos; queda para revisión manual.
     const procesar = ({ numero, direccion, barrio, repartidor, addressKey, fechaDisplay }) => {
       const rep = repartidor || "Sin asignar";
       if (!porRepartidor[rep]) porRepartidor[rep] = nuevoRep();
@@ -741,6 +752,7 @@ app.get("/api/reportes/zonas", async (req, res) => {
       let area = null, motivo = null;
       const geo = geoMap[addressKey];
       if (!geo) { acc.sin_coordenada++; motivo = "sin_coordenada"; }
+      else if (geo.confiable === false) { acc.dudosa++; motivo = "dudosa"; }
       else {
         area = areaDePunto(geo.lat, geo.lng);
         if (area == null) { acc.fuera_de_area++; motivo = "fuera_de_area"; }
@@ -767,8 +779,9 @@ app.get("/api/reportes/zonas", async (req, res) => {
       if (String(tabActual || "").startsWith("retiro")) continue; // solo delivery
       const dir = `${p.shipping_address?.address || ""} ${p.shipping_address?.number || ""}`.trim();
       const barrio = p.shipping_address?.locality || p.shipping_address?.city || "";
-      const addressKey = `${dir}, ${barrio}, Buenos Aires, Argentina`.toLowerCase().trim();
-      procesar({ numero: `#${p.number}`, direccion: dir, barrio, repartidor: est.repartidor, addressKey, fechaDisplay });
+      const addressFull = `${dir}, ${barrio}, Buenos Aires, Argentina`;
+      const addressKey = addressFull.toLowerCase().trim();
+      registros.push({ numero: `#${p.number}`, direccion: dir, barrio, repartidor: est.repartidor, addressKey, addressFull, fechaDisplay });
     }
 
     // Manuales
@@ -782,9 +795,33 @@ app.get("/api/reportes/zonas", async (req, res) => {
       if (String(tabActual || "").startsWith("retiro")) continue; // solo delivery
       const dir = p.direccion || "";
       const barrio = p.barrio || "";
-      const addressKey = `${dir}, ${barrio}, Buenos Aires, Argentina`.toLowerCase().trim();
-      procesar({ numero: p.numero, direccion: dir, barrio, repartidor: est.repartidor, addressKey, fechaDisplay });
+      const addressFull = `${dir}, ${barrio}, Buenos Aires, Argentina`;
+      const addressKey = addressFull.toLowerCase().trim();
+      registros.push({ numero: p.numero, direccion: dir, barrio, repartidor: est.repartidor, addressKey, addressFull, fechaDisplay });
     }
+
+    // ─── Geocoding pre-pass (al vuelo, con confianza) ────────────────────────
+    // Direcciones de este rango que NO están en cache. Dedup por addressKey para no
+    // geocodificar la misma dos veces. Secuencial (como el mapa) — la primera corrida de
+    // un rango paga las llamadas a Google; después queda cacheado (persiste, sin TTL).
+    // Tope defensivo: si un rango tuviera muchísimas nuevas, no explota (el resto queda
+    // "sin_coordenada" hasta una próxima corrida, y se avisa con geocode.truncado).
+    const LIMITE_GEOCODE = 500;
+    const faltantes = new Map();   // addressKey -> addressFull (casing original para Google)
+    for (const r of registros) {
+      if (!geoMap[r.addressKey] && !faltantes.has(r.addressKey)) faltantes.set(r.addressKey, r.addressFull);
+    }
+    let geocodificadas = 0, geocodeTruncado = false;
+    for (const [addressKey, addressFull] of faltantes) {
+      if (geocodificadas >= LIMITE_GEOCODE) { geocodeTruncado = true; break; }
+      const g = await geocodificarConConfianza(addressFull);
+      geocodificadas++;
+      if (g) geoMap[addressKey] = { lat: g.lat, lng: g.lng, confiable: g.confiable };
+      // si g es null (Google no resolvió / sin API key): se deja fuera del mapa -> sin_coordenada
+    }
+
+    // Clasificación final (ya con el cache completado por el pre-pass).
+    for (const r of registros) procesar(r);
 
     // Filas por repartidor (orden alfabético) + totales por columna + gran total.
     const repartidores = Object.keys(porRepartidor)
@@ -795,10 +832,12 @@ app.get("/api/reportes/zonas", async (req, res) => {
       for (let n = 1; n <= 10; n++) totales["area" + n] += r["area" + n];
       totales.sin_coordenada += r.sin_coordenada;
       totales.fuera_de_area += r.fuera_de_area;
+      totales.dudosa += r.dudosa;
       totales.total_pedidos += r.total_pedidos;
       totales.total_costo += r.total_costo;
     }
-    res.json({ desde, hasta, costoArea: costoMap, repartidores, totales, pedidos });
+    res.json({ desde, hasta, costoArea: costoMap, repartidores, totales, pedidos,
+      geocode: { faltantes: faltantes.size, geocodificadas, truncado: geocodeTruncado, limite: LIMITE_GEOCODE } });
   } catch (err) {
     console.error("Error /api/reportes/zonas:", err.message);
     res.status(500).json({ error: "Error generando reporte de zonas" });
@@ -1522,6 +1561,53 @@ async function geocodificar(direccionCompleta) {
       return { lat: loc.lat, lng: loc.lng, cached: false };
     }
   } catch(e) { console.error("Geocoding error:", e.message); }
+  return null;
+}
+
+// Variante del geocoder para el REPORTE DE ZONAS. NO se usa en el mapa (que acepta
+// cualquier resultado): el reporte agrega a costo por área, así que una coord dudosa
+// contamina números. Además de lat/lng evalúa la CONFIANZA (location_type + partial_match)
+// y persiste esas señales en geocoding_cache. Devuelve { lat, lng, location_type,
+// partial_match, confiable, cached }.
+//   REGLA: confiable = partial_match !== true  Y  location_type ∈ {ROOFTOP, RANGE_INTERPOLATED}.
+//   Filas viejas cacheadas SIN location_type (NULL) se tratan como confiables (ya venían
+//   usándose; no las rompemos): el filtro solo aplica a lo que geocodificamos de nuevo.
+const LOCATION_TYPES_CONFIABLES = new Set(["ROOFTOP", "RANGE_INTERPOLATED"]);
+function esGeoConfiable(locationType, partialMatch) {
+  if (locationType == null) return true;               // legacy sin etiquetar → confiable
+  return partialMatch !== true && LOCATION_TYPES_CONFIABLES.has(locationType);
+}
+async function geocodificarConConfianza(direccionCompleta) {
+  const key = direccionCompleta.toLowerCase().trim();
+  try {
+    const cached = await pool.query("SELECT lat, lng, location_type, partial_match FROM geocoding_cache WHERE address_key=$1", [key]);
+    if (cached.rows.length > 0) {
+      const c = cached.rows[0];
+      return { lat: Number(c.lat), lng: Number(c.lng), location_type: c.location_type,
+        partial_match: !!c.partial_match, confiable: esGeoConfiable(c.location_type, c.partial_match), cached: true };
+    }
+  } catch(e) {}
+  if (!GOOGLE_MAPS_API_KEY) return null;
+  try {
+    const res = await axios.get("https://maps.googleapis.com/maps/api/geocode/json", {
+      params: { address: direccionCompleta, key: GOOGLE_MAPS_API_KEY, region: "ar", language: "es" }
+    });
+    if (res.data.status === "OK" && res.data.results[0]) {
+      const r0 = res.data.results[0];
+      const loc = r0.geometry.location;
+      const locationType = r0.geometry.location_type || null;
+      const partialMatch = r0.partial_match === true;
+      // Upsert: si por una carrera la fila ya existía, completamos/actualizamos las señales.
+      await pool.query(
+        `INSERT INTO geocoding_cache (address_key, lat, lng, location_type, partial_match)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (address_key) DO UPDATE SET location_type = EXCLUDED.location_type, partial_match = EXCLUDED.partial_match`,
+        [key, loc.lat, loc.lng, locationType, partialMatch]
+      );
+      return { lat: loc.lat, lng: loc.lng, location_type: locationType, partial_match: partialMatch,
+        confiable: esGeoConfiable(locationType, partialMatch), cached: false };
+    }
+  } catch(e) { console.error("Geocoding (confianza) error:", e.message); }
   return null;
 }
 
