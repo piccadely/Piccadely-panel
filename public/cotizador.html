@@ -27,6 +27,12 @@
   .brand{font-family:'Fraunces',serif;font-weight:700;font-size:26px;letter-spacing:-.5px}
   .brand b{color:var(--orange)}
   .tag{font-size:13px;color:var(--muted);font-weight:600}
+  /* Navegación "volver a la web" en el header */
+  .brand-group{display:flex;flex-direction:column;gap:2px}
+  .brand-link{text-decoration:none;color:inherit;cursor:pointer;display:inline-block}
+  .volver{display:inline-flex;align-items:center;white-space:nowrap;font-family:'Manrope',sans-serif;font-size:13px;font-weight:600;color:var(--orange-deep);text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:8px 14px;transition:background .15s,border-color .15s}
+  .volver:hover{background:rgba(246,139,50,.08);border-color:var(--orange)}
+  @media(max-width:520px){ .volver{font-size:12px;padding:7px 12px} .volver-extra{display:none} }
   .hero{padding:24px 0 34px;max-width:680px}
   .hero h1{font-family:'Fraunces',serif;font-weight:600;font-size:clamp(30px,5vw,46px);line-height:1.05;letter-spacing:-1px}
   .hero h1 em{color:var(--orange);font-style:normal}
@@ -96,8 +102,11 @@
 <body>
 <div class="wrap">
   <header>
-    <div class="brand">Picca<b>dely</b></div>
-    <div class="tag">Cotizador de Eventos</div>
+    <div class="brand-group">
+      <a href="https://piccadely.com" class="brand-link"><div class="brand">Picca<b>dely</b></div></a>
+      <div class="tag">Cotizador de Eventos</div>
+    </div>
+    <a href="https://piccadely.com" class="volver">← Volver<span class="volver-extra"> a la web</span></a>
   </header>
 
   <div class="hero">
