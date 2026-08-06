@@ -1432,7 +1432,9 @@ app.patch("/api/pedidos-manuales/:id/email", async (req, res) => {
 
 app.get("/api/pedidos-manuales", async (req, res) => {
   try {
-    const result = await pool.query("SELECT * FROM pedidos_manuales ORDER BY created_at DESC");
+    // LEFT JOIN a pedidos_estados para traer el area_manual (vive ahí, no en pedidos_manuales),
+    // así el objeto del pedido manual ya carga su área para el select de edición.
+    const result = await pool.query("SELECT m.*, e.area_manual FROM pedidos_manuales m LEFT JOIN pedidos_estados e ON e.id = m.id ORDER BY m.created_at DESC");
     const pedidos = result.rows.map(r => ({
       id: r.id, numero: r.numero, cliente: r.cliente, telefono: r.telefono, email: r.email || "",
       direccion: r.direccion, entreCalles: r.entre_calles, barrio: r.barrio, zona: r.zona,
@@ -1441,6 +1443,7 @@ app.get("/api/pedidos-manuales", async (req, res) => {
       pago: r.pago, medioPago: r.medio_pago, cobrar: r.cobrar,
       tabActual: r.tab_actual, local: r.local, nota: r.nota,
 codigoPago: r.codigo_pago || "", esManual: true, esCorporativo: !!r.es_corporativo, estado: "Por empaquetar", repartidor: "Sin asignar",
+      areaManual: r.area_manual ?? null,
     }));
     res.json(pedidos);
   } catch (err) { res.status(500).json({ error: "Error trayendo pedidos manuales" }); }

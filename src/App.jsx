@@ -2600,7 +2600,7 @@ setPedidosDatosOverride(datosInit);
             medioPago: ovDatos.medioPago || medioPagoLabel(p.gateway), medioPagoOtro: ovDatos.medioPagoOtro || "", gateway: p.gateway,
             esTakeaway: p.fulfillments?.[0]?.shipping?.type === "pickup",
             estado: local.estado, repartidor: local.repartidor, cobrar: local.cobrar, sobre: !!local.sobre, tarjeta: local.tarjeta || "no", tandaId: local.tandaId ?? null,
-            areaManual: ovDatos.areaManual !== undefined ? ovDatos.areaManual : (local.areaManual ?? null),
+            areaManual: ovDatos.areaManual !== undefined ? ovDatos.areaManual : (local.areaManual ?? p.areaManual ?? null),
             tabActual, local: localLabel(tabActual),
             nota: ovDatos.nota !== undefined ? ovDatos.nota : (p.note || ""),
             esManual: false, esCorporativo: false, entreCalles: "",
@@ -2631,7 +2631,7 @@ setPedidosDatosOverride(datosInit);
             nota: ovDatos.nota !== undefined ? ovDatos.nota : (p.nota || ""),
             email: ovDatos.email !== undefined ? ovDatos.email : (p.email || ""),
             estado: local.estado, repartidor: local.repartidor, sobre: !!local.sobre, tarjeta: local.tarjeta || "no", tandaId: local.tandaId ?? null,
-            areaManual: ovDatos.areaManual !== undefined ? ovDatos.areaManual : (local.areaManual ?? null),
+            areaManual: ovDatos.areaManual !== undefined ? ovDatos.areaManual : (local.areaManual ?? p.areaManual ?? null),
             cobrar: local.cobrar !== undefined ? local.cobrar : p.cobrar,
             tabActual, local: localLabel(tabActual),
             fechaDisplay: local.fechaManual || p.fecha, franjaDisplay: local.franjaManual || p.franja || "Sin franja",
@@ -2949,8 +2949,8 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                                   onCommit={v => actualizarDato(p, "zona", v)} onClick={e => e.stopPropagation()} />
                               </div>
                               <div style={s.detalleBloque}>
-                                <div style={s.detalleLabel}>Área (opcional)</div>
-                                <select style={s.inputField} value={p.areaManual != null ? String(p.areaManual) : ""}
+                                <div style={{ ...s.detalleLabel, fontSize: 13, fontWeight: 800, color: "#F68B32" }}>Área (opcional)</div>
+                                <select style={{ ...s.inputField, ...(p.areaManual != null ? { background: "#fff3e6", borderColor: "#F68B32", fontWeight: 700 } : {}) }} value={p.areaManual != null ? String(p.areaManual) : ""}
                                   onChange={e => { e.stopPropagation(); actualizarDato(p, "areaManual", e.target.value ? Number(e.target.value) : null); }}
                                   onClick={e => e.stopPropagation()}>
                                   <option value="">(sin asignar)</option>
@@ -4730,7 +4730,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                     <div style={{ ...s.formBloque, gridColumn: "span 2" }}><label style={s.formLabel}>Entre calles</label><input style={s.formInput} value={form.entreCalles || ""} onChange={e => setForm(f => ({...f, entreCalles: e.target.value}))} placeholder="ej: Entre Gorriti y Cabrera" /></div>
                     <div style={s.formBloque}><label style={s.formLabel}>Barrio</label><input style={s.formInput} value={form.barrio} onChange={e => setForm(f => ({...f, barrio: e.target.value}))} placeholder="Barrio" /></div>
                     <div style={s.formBloque}><label style={s.formLabel}>Zona de entrega</label><input style={s.formInput} value={form.zona} onChange={e => setForm(f => ({...f, zona: e.target.value}))} placeholder="ej: CABA, Zona Norte 1..." /></div>
-                    <div style={s.formBloque}><label style={s.formLabel}>Área (opcional)</label><select style={s.formInput} value={areaManual} onChange={e => setAreaManual(e.target.value)}><option value="">(sin asignar)</option>{[1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={String(n)}>Área {n}</option>)}</select></div>
+                    <div style={s.formBloque}><label style={{ ...s.formLabel, fontSize: 14, fontWeight: 800, color: "#F68B32" }}>Área (opcional)</label><select style={{ ...s.formInput, ...(areaManual ? { background: "#fff3e6", borderColor: "#F68B32", fontWeight: 700 } : {}) }} value={areaManual} onChange={e => setAreaManual(e.target.value)}><option value="">(sin asignar)</option>{[1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={String(n)}>Área {n}</option>)}</select></div>
                     <div style={s.formBloque}><label style={s.formLabel}>Fecha de entrega</label><input type="date" style={s.formInput} value={form.fecha} onChange={e => setForm(f => ({...f, fecha: e.target.value}))} /></div>
     <div style={s.formBloque}><label style={s.formLabel}>Horario</label><div style={{ display: "flex", gap: 6, alignItems: "center" }}><input type="time" style={{ ...s.formInput, flex: 1 }} value={form.franjaInicio} onChange={e => setForm(f => ({...f, franjaInicio: e.target.value}))} /><span style={{ color: "#888", fontSize: 14 }}>–</span><input type="time" style={{ ...s.formInput, flex: 1 }} value={form.franjaFin} onChange={e => setForm(f => ({...f, franjaFin: e.target.value}))} /></div></div>
                     <div style={s.formBloque}><label style={s.formLabel}>Medio de pago</label><select style={s.formInput} value={form.medioPago} onChange={e => { const m = e.target.value; setForm(f => ({...f, medioPago: m, cobrar: ["Efectivo", "Pedidos Ya Efectivo", "Mercado Pago", "Rappi", "Pedidos Ya"].includes(m)})); }}>{MEDIOS_PAGO.map(m => <option key={m}>{m}</option>)}</select></div>
