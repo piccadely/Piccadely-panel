@@ -213,6 +213,9 @@ async function initDB() {
   await pool.query(`ALTER TABLE pedidos_manuales ADD COLUMN IF NOT EXISTS codigo_pago TEXT;`);
   await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS comandas_impresas INTEGER DEFAULT 0;`);
   await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS tarjeta TEXT NOT NULL DEFAULT 'no';`);
+  // Área asignada a mano en el alta manual (1-10). NULL = sin asignar → el reporte de zonas
+  // geolocaliza como siempre. Si tiene valor, MANDA sobre el geocodificado. Retrocompatible.
+  await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS area_manual INTEGER;`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
   await pool.query(`CREATE TABLE IF NOT EXISTS costos_areas (area INTEGER PRIMARY KEY, costo NUMERIC NOT NULL DEFAULT 1);`);
   await pool.query(`INSERT INTO costos_areas (area, costo) SELECT g, 1 FROM generate_series(1,10) g ON CONFLICT (area) DO NOTHING;`);
@@ -716,9 +719,9 @@ app.get("/api/reportes/zonas", async (req, res) => {
   }
   try {
     // Estados: repartidor + fecha/tab (keyed por id texto).
-    const estadosRes = await pool.query("SELECT id, estado, repartidor, fecha_manual, tab_manual FROM pedidos_estados");
+    const estadosRes = await pool.query("SELECT id, estado, repartidor, fecha_manual, tab_manual, area_manual FROM pedidos_estados");
     const estadosMap = {};
-    estadosRes.rows.forEach(r => { estadosMap[r.id] = { estado: r.estado, repartidor: r.repartidor, fechaManual: r.fecha_manual, tabManual: r.tab_manual }; });
+    estadosRes.rows.forEach(r => { estadosMap[r.id] = { estado: r.estado, repartidor: r.repartidor, fechaManual: r.fecha_manual, tabManual: r.tab_manual, areaManual: r.area_manual }; });
 
     // Cache de geocoding: address_key -> {lat,lng,confiable}. Una sola query bulk. Las que
     // falten se geocodifican al vuelo más abajo (con confianza) y se agregan a este mapa.
@@ -744,19 +747,27 @@ app.get("/api/reportes/zonas", async (req, res) => {
     // direccion/barrio LEGIBLES (crudos); addressKey ya viene normalizado (lower+trim).
     // "dudosa" = geocodificó pero con baja confianza (partial_match / location_type impreciso):
     // NO la metemos en un área para no contaminar costos; queda para revisión manual.
-    const procesar = ({ numero, direccion, barrio, repartidor, addressKey, fechaDisplay }) => {
+    // areaManual (1-10) = área asignada a mano en el alta: MANDA sobre el geocodificado
+    // (no se geocodifica ni corre point-in-polygon).
+    const procesar = ({ numero, direccion, barrio, repartidor, addressKey, areaManual, fechaDisplay }) => {
       const rep = repartidor || "Sin asignar";
       if (!porRepartidor[rep]) porRepartidor[rep] = nuevoRep();
       const acc = porRepartidor[rep];
       acc.total_pedidos++;
       let area = null, motivo = null;
-      const geo = geoMap[addressKey];
-      if (!geo) { acc.sin_coordenada++; motivo = "sin_coordenada"; }
-      else if (geo.confiable === false) { acc.dudosa++; motivo = "dudosa"; }
-      else {
-        area = areaDePunto(geo.lat, geo.lng);
-        if (area == null) { acc.fuera_de_area++; motivo = "fuera_de_area"; }
-        else { acc["area" + area]++; acc.total_costo += (costoMap[String(area)] || 0); }
+      const areaOverride = sanitizarAreaManual(areaManual);
+      if (areaOverride != null) {
+        area = areaOverride;
+        acc["area" + area]++; acc.total_costo += (costoMap[String(area)] || 0);
+      } else {
+        const geo = geoMap[addressKey];
+        if (!geo) { acc.sin_coordenada++; motivo = "sin_coordenada"; }
+        else if (geo.confiable === false) { acc.dudosa++; motivo = "dudosa"; }
+        else {
+          area = areaDePunto(geo.lat, geo.lng);
+          if (area == null) { acc.fuera_de_area++; motivo = "fuera_de_area"; }
+          else { acc["area" + area]++; acc.total_costo += (costoMap[String(area)] || 0); }
+        }
       }
       pedidos.push({ numero, direccion, barrio, repartidor: rep, area, motivo, fecha: fechaDisplay });
     };
@@ -781,7 +792,7 @@ app.get("/api/reportes/zonas", async (req, res) => {
       const barrio = p.shipping_address?.locality || p.shipping_address?.city || "";
       const addressFull = `${dir}, ${barrio}, Buenos Aires, Argentina`;
       const addressKey = addressFull.toLowerCase().trim();
-      registros.push({ numero: `#${p.number}`, direccion: dir, barrio, repartidor: est.repartidor, addressKey, addressFull, fechaDisplay });
+      registros.push({ numero: `#${p.number}`, direccion: dir, barrio, repartidor: est.repartidor, addressKey, addressFull, areaManual: est.areaManual, fechaDisplay });
     }
 
     // Manuales
@@ -797,7 +808,7 @@ app.get("/api/reportes/zonas", async (req, res) => {
       const barrio = p.barrio || "";
       const addressFull = `${dir}, ${barrio}, Buenos Aires, Argentina`;
       const addressKey = addressFull.toLowerCase().trim();
-      registros.push({ numero: p.numero, direccion: dir, barrio, repartidor: est.repartidor, addressKey, addressFull, fechaDisplay });
+      registros.push({ numero: p.numero, direccion: dir, barrio, repartidor: est.repartidor, addressKey, addressFull, areaManual: est.areaManual, fechaDisplay });
     }
 
     // ─── Geocoding pre-pass (al vuelo, con confianza) ────────────────────────
@@ -809,6 +820,7 @@ app.get("/api/reportes/zonas", async (req, res) => {
     const LIMITE_GEOCODE = 500;
     const faltantes = new Map();   // addressKey -> addressFull (casing original para Google)
     for (const r of registros) {
+      if (sanitizarAreaManual(r.areaManual) != null) continue;   // área manual: no se geocodifica
       if (!geoMap[r.addressKey] && !faltantes.has(r.addressKey)) faltantes.set(r.addressKey, r.addressFull);
     }
     let geocodificadas = 0, geocodeTruncado = false;
@@ -880,6 +892,7 @@ app.get("/api/reportes/zonas", async (req, res) => {
           sobre: r.sobre || false,
           tarjeta: r.tarjeta || "no",
           tandaId: r.tanda_id ?? null,
+          areaManual: r.area_manual ?? null,
       };
     });
     res.json(estados);
@@ -1390,6 +1403,18 @@ app.patch("/api/pedidos/:id/datos", async (req, res) => {
        ON CONFLICT (id) DO UPDATE SET medio_pago_otro_override=EXCLUDED.medio_pago_otro_override, updated_at=NOW()`,
       [id, medioPagoOtro || ""]
     );
+    // Área manual: se actualiza SOLO si el front mandó la clave 'areaManual' (1-10 o NULL para
+    // "sin asignar"). Si la clave NO vino (front viejo), no se toca -> anti-clobber. El front
+    // SIEMPRE manda el valor vigente al editar cualquier campo, así que re-manda el área actual
+    // sin pisarla; y al elegir "(sin asignar)" manda NULL y la limpia.
+    if ("areaManual" in req.body) {
+      await pool.query(
+        `INSERT INTO pedidos_estados (id, area_manual, updated_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (id) DO UPDATE SET area_manual = EXCLUDED.area_manual, updated_at = NOW()`,
+        [id, sanitizarAreaManual(req.body.areaManual)]
+      );
+    }
     res.json({ ok: true });
     registrarAuditoria(usuarioAudit, "edicion_datos", "pedido", id, { cliente, telefono, direccion, barrio, zona, medioPago, nota, email });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1493,6 +1518,13 @@ app.get("/api/clientes/buscar", async (req, res) => {
   }
 });
 
+// Área manual válida = entero 1-10; cualquier otra cosa (null, "", fuera de rango) → null.
+function sanitizarAreaManual(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return (Number.isInteger(n) && n >= 1 && n <= 10) ? n : null;
+}
+
 app.post("/api/pedidos-manuales", async (req, res) => {
   const p = req.body;
   try {
@@ -1502,6 +1534,17 @@ app.post("/api/pedidos-manuales", async (req, res) => {
       INSERT INTO pedidos_manuales (id, numero, cliente, telefono, email, direccion, entre_calles, barrio, zona, fecha, franja, productos, total_num, total, pago, medio_pago, cobrar, tab_actual, local, nota, es_corporativo)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
     `, [p.id, numero, p.cliente, p.telefono, p.email || "", p.direccion, p.entreCalles, p.barrio, p.zona, p.fecha, p.franja, p.productos, p.totalNum, p.total, p.pago, p.medioPago, p.cobrar, p.tabActual, p.local, p.nota, !!p.esCorporativo]);
+    // Área manual (override del reporte de zonas). Se guarda en pedidos_estados; upsert de una
+    // sola columna (no toca estado/repartidor/overrides). Solo si vino un valor válido 1-10.
+    const areaManual = sanitizarAreaManual(p.areaManual);
+    if (areaManual != null) {
+      await pool.query(
+        `INSERT INTO pedidos_estados (id, area_manual, updated_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (id) DO UPDATE SET area_manual = EXCLUDED.area_manual, updated_at = NOW()`,
+        [p.id, areaManual]
+      );
+    }
     const pedidoConNumero = { ...p, numero };
     if (p.email && p.email.trim()) enviarMailConfirmacion(pedidoConNumero).catch(console.error);
     res.json({ ok: true, numero });
