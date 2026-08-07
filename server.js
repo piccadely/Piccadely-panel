@@ -571,6 +571,10 @@ app.get("/api/reportes/pedidos", async (req, res) => {
         email: (est.emailOverride !== undefined && est.emailOverride !== null) ? est.emailOverride : (p.contact_email || ""),
         nota: (est.notaOverride !== undefined && est.notaOverride !== null) ? est.notaOverride : (p.note || ""),
         transaccionMP: p.gateway_id || p.transactions?.[0]?.id || null,
+        // Cupón de descuento TN (aditivo; para mostrarlo también en Finalizados).
+        cuponCodigo: p.coupon?.[0]?.code || null,
+        cuponTipo: p.coupon?.[0]?.type || null,
+        descuentoMonto: parseFloat(p.discount_coupon || p.discount || 0) || 0,
       });
     }
 
@@ -612,6 +616,10 @@ app.get("/api/reportes/pedidos", async (req, res) => {
         email: (est.emailOverride !== undefined && est.emailOverride !== null) ? est.emailOverride : (r.email || ""),
         nota: (est.notaOverride !== undefined && est.notaOverride !== null) ? est.notaOverride : (r.nota || ""),
         transaccionMP: null,
+        // Manuales no tienen cupón de TN.
+        cuponCodigo: null,
+        cuponTipo: null,
+        descuentoMonto: 0,
       });
     }
 

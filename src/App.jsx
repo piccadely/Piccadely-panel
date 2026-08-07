@@ -4606,6 +4606,12 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                               <span style={{ fontSize: 12, color: pedidosLocales[p.id]?.cobrar ? "#c0392b" : "#888", fontWeight: pedidosLocales[p.id]?.cobrar ? 600 : 400 }}>{pedidosLocales[p.id]?.cobrar ? "⚠️ COBRAR" : "Cobrar"}</span>
                             </label>
                           </div>
+                          {p.cuponCodigo && (
+                            <div style={s.detalleBloque}>
+                              <div style={s.detalleLabel}>🎟️ Cupón</div>
+                              <div style={{ ...s.detalleVal, color: "#6d28d9", fontWeight: 600 }}>{p.cuponCodigo}{p.descuentoMonto ? ` · −${fmt(p.descuentoMonto)}` : ""}</div>
+                            </div>
+                          )}
                         {p.transaccionMP && <div style={s.detalleBloque}><div style={s.detalleLabel}>ID Transacción MP</div><div style={{ ...s.detalleVal, fontFamily: "monospace", fontSize: 12 }}>{p.transaccionMP}</div></div>}
                        <div style={s.detalleBloque}>
                                 <div style={s.detalleLabel}>Código MKP</div>
