@@ -1148,6 +1148,16 @@ const [facturaLabel, setFacturaLabel] = useState(null);
               if (!String(r["Producto"] || "").trim()) errores.push("falta producto");
               if (precioProd <= 0) errores.push("precio inválido");
               if (!String(r["Fecha"] || "").trim()) errores.push("falta fecha");
+              // Área (opcional): entero 1-10 o vacío. Inválida = aviso NO bloqueante -> la fila
+              // igual se importa, pero sin área (areaManual = null).
+              const avisos = [];
+              const areaRaw = String(r["Área"] || "").trim();
+              let areaManual = null;
+              if (areaRaw !== "") {
+                const nArea = Number(areaRaw);
+                if (Number.isInteger(nArea) && nArea >= 1 && nArea <= 10) areaManual = nArea;
+                else avisos.push(`área inválida (${areaRaw}) — se importa sin área`);
+              }
               return {
                 idx: idx + 1,
                 cliente: String(r["Cliente"] || "").trim(),
@@ -1165,6 +1175,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
                 franja: String(r["Horario"] || "").trim(),
                 nota: String(r["Nota adicional"] || "").trim(),
                 total: precioProd + envioPrecio,
+                areaManual, avisos,
                 errores,
               };
             });
@@ -1202,6 +1213,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
               pago, medioPago: f.medioPago, cobrar: esEfectivo,
               tabActual: f.seccion, local: localDe(f.seccion),
               nota: f.nota, esManual: true, estado: "Por empaquetar", repartidor: "Sin asignar",
+              areaManual: f.areaManual,   // override de área del reporte de zonas (o null = sin asignar)
             };
             await axios.post(`${API}/api/pedidos-manuales`, { ...nuevoPedido, usuario: usuario.nombre_completo });
             await axios.post(`${API}/api/estados/${id}`, { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: f.fecha, franjaManual: f.franja, cobrar: esEfectivo });
@@ -1278,6 +1290,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
                             <th style={{ padding: "8px 6px" }}>Producto</th>
                             <th style={{ padding: "8px 6px", textAlign: "right" }}>Total</th>
                             <th style={{ padding: "8px 6px" }}>Fecha</th>
+                            <th style={{ padding: "8px 6px" }}>Área</th>
                             <th style={{ padding: "8px 6px" }}>Estado</th>
                           </tr>
                         </thead>
@@ -1291,8 +1304,10 @@ const [facturaLabel, setFacturaLabel] = useState(null);
                               <td style={{ padding: "8px 6px", color: "#555" }}>{f.producto}{f.envioPrecio > 0 ? ` + ${f.envioNombre}` : ""}</td>
                               <td style={{ padding: "8px 6px", textAlign: "right", fontWeight: 600, color: "#333" }}>{fmtImp(f.total)}</td>
                               <td style={{ padding: "8px 6px", color: "#555" }}>{f.fecha}</td>
+                              <td style={{ padding: "8px 6px", color: f.areaManual != null ? "#333" : "#bbb", fontWeight: f.areaManual != null ? 600 : 400 }}>{f.areaManual != null ? `Área ${f.areaManual}` : "—"}</td>
                               <td style={{ padding: "8px 6px" }}>
                                 {f.errores.length ? <span style={{ color: "#c0392b", fontWeight: 600 }}>⚠ {f.errores.join(", ")}</span> : <span style={{ color: "#2a7a4b", fontWeight: 600 }}>✓ ok</span>}
+                                {f.avisos.length > 0 && <div style={{ color: "#8a5a00", fontWeight: 600, marginTop: 2 }}>⚠ {f.avisos.join(", ")}</div>}
                               </td>
                             </tr>
                           ))}
