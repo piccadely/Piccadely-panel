@@ -63,6 +63,27 @@ import { useState, useEffect, useRef, useMemo } from "react";
       { id: "nuevo",       label: "➕ Nuevo pedido" },
     ];
 
+    // Zonas de envío para el alta manual. El ítem que se suma al carrito se llama
+    // "Envío {nombre}" (queda excluido de cocina/producción/reporte por esExcluidoProduccion).
+    const ZONAS_ENVIO = [
+      { nombre: "CABA", precio: 2500 },
+      { nombre: "Olivos · San Isidro", precio: 5000 },
+      { nombre: "San Martín · San Fernando", precio: 8000 },
+      { nombre: "Tigre · Malvinas Argentinas", precio: 13000 },
+      { nombre: "Pilar · Escobar", precio: 25000 },
+      { nombre: "Tres de Febrero", precio: 7500 },
+      { nombre: "San Miguel · José C. Paz", precio: 15000 },
+      { nombre: "General Rodríguez", precio: 25000 },
+      { nombre: "Morón · Hurlingham", precio: 12000 },
+      { nombre: "Ituzaingó · Moreno · Merlo", precio: 17000 },
+      { nombre: "La Matanza", precio: 20000 },
+      { nombre: "Marcos Paz", precio: 25000 },
+      { nombre: "Avellaneda · Lanús", precio: 6000 },
+      { nombre: "Lomas de Zamora · Quilmes", precio: 11000 },
+      { nombre: "Pdte. Perón · Berazategui · Florencio Varela · Ezeiza", precio: 25000 },
+      { nombre: "La Plata", precio: 35000 },
+    ];
+
     const TN_CODE_FRENCH = "01KQ7S2Z0799JKAT5A1VTH12EQ";
     const TN_CODE_AT = "01KQ7TFQPTTZQ7CFFKCKVWEZQV";
 
@@ -2240,6 +2261,8 @@ const [facturasMap, setFacturasMap] = useState({});
       const [carrito, setCarrito] = useState([]);
       const [form, setForm] = useState(FORM_INICIAL);
       const [areaManual, setAreaManual] = useState("");   // alta manual: área asignada a mano (override del reporte de zonas). "" = sin asignar.
+      const [descuentoRetiro, setDescuentoRetiro] = useState(false);   // alta manual: toggle 10% OFF Retiro (descuento DERIVADO, no ítem del carrito).
+      const [envioZona, setEnvioZona] = useState("");                  // alta manual: zona de envío elegida ("" = sin envío).
       const [pedidoCreado, setPedidoCreado] = useState(false);
       // Autocompletar cliente por email (solo alta manual): datos del último pedido de ese mail.
       const [clienteSugerido, setClienteSugerido] = useState(null);
@@ -3163,6 +3186,11 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
       function cambiarCantidad(variantId, delta) { setCarrito(prev => prev.map(i => i.variantId === variantId ? { ...i, cantidad: Math.max(1, i.cantidad + delta) } : i)); }
       function quitarDelCarrito(variantId) { setCarrito(prev => prev.filter(i => i.variantId !== variantId)); }
       const totalCarrito = carrito.reduce((a, i) => a + i.precio * i.cantidad, 0);
+      // Subtotal de productos REALES (excluye el envío; el descuento no es ítem del carrito).
+      const subtotalProductosReales = carrito.filter(i => !i.esEnvio).reduce((a, i) => a + i.precio * i.cantidad, 0);
+      // Descuento 10% Retiro DERIVADO: se recalcula en vivo con el carrito (no es snapshot del click).
+      const descuentoMontoRetiro = descuentoRetiro ? Math.round(subtotalProductosReales * 0.10) : 0;
+      const totalConDescuento = totalCarrito - descuentoMontoRetiro;
 
       // Busca el último pedido de ese email y ofrece autocompletar (no pisa el form solo).
       async function buscarClientePorEmail(email) {
@@ -3189,14 +3217,16 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
       async function crearPedido() {
         if (!form.cliente || carrito.length === 0) return;
         const id = `manual-${Date.now()}`;
-        const productosStr = carrito.map(i => `${i.nombre} x${i.cantidad}`).join(", ");
+        const lineasProductos = carrito.map(i => `${i.nombre} x${i.cantidad}`);
+        if (descuentoMontoRetiro > 0) lineasProductos.push("Descuento 10% Retiro x1");
+        const productosStr = lineasProductos.join(", ");
         const nuevoPedido = {
          id, numero: "", cliente: form.cliente, telefono: form.telefono,
           email: form.email || "",
           direccion: form.direccion, barrio: form.barrio, entreCalles: form.entreCalles || "",
           zona: form.zona || "Sin zona", fecha: form.fecha, franja: (form.franjaInicio && form.franjaFin) ? `${form.franjaInicio} – ${form.franjaFin}` : "",
           fechaDisplay: form.fecha, franjaDisplay: (form.franjaInicio && form.franjaFin) ? `${form.franjaInicio} – ${form.franjaFin}` : "Sin franja",
-          productos: productosStr, totalNum: totalCarrito, total: `$${totalCarrito.toLocaleString("es-AR")}`,
+          productos: productosStr, totalNum: totalConDescuento, total: `$${totalConDescuento.toLocaleString("es-AR")}`,
           pago: ["Efectivo", "Pedidos Ya Efectivo", "Mercado Pago", "Rappi", "Pedidos Ya"].includes(form.medioPago) ? "Pendiente" : "Pagado",
           medioPago: form.medioPago, cobrar: form.cobrar, tabActual: form.seccion, local: localLabel(form.seccion),
           nota: form.nota, esManual: true, esCorporativo: form.esCorporativo, estado: "Por empaquetar", repartidor: "Sin asignar",
@@ -3212,7 +3242,7 @@ let numeroAsignado = "";
         await axios.post(`${API}/api/estados/${id}`, estadoInicial).catch(console.error);
         setPedidosManuales(prev => [...prev, nuevoPedido]);
         setPedidosLocales(prev => ({ ...prev, [id]: estadoInicial }));
-        setCarrito([]); setForm(FORM_INICIAL); setAreaManual(""); setClienteSugerido(null); setPedidoCreado(true);
+        setCarrito([]); setForm(FORM_INICIAL); setAreaManual(""); setDescuentoRetiro(false); setEnvioZona(""); setClienteSugerido(null); setPedidoCreado(true);
         setTimeout(() => setPedidoCreado(false), 3000);
       }
 
@@ -3812,6 +3842,7 @@ if (vista === "dashboard") {
             const match = item.match(/^(.+) x(\d+)$/);
             if (!match) return;
             const nombre = match[1].trim();
+            if (esExcluidoProduccion(nombre)) return;   // no contar envíos/descuentos como productos vendidos
             const cantidad = Number(match[2]);
             if (!productosMap[nombre]) productosMap[nombre] = { nombre, cantidad: 0 };
             productosMap[nombre].cantidad += cantidad;
@@ -4807,12 +4838,41 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                         <span style={{ fontSize: 12, fontWeight: 600, marginLeft: 8, minWidth: 70, textAlign: "right" }}>${(item.precio * item.cantidad).toLocaleString("es-AR")}</span>
                       </div>
                     ))}
+                    {descuentoMontoRetiro > 0 && (
+                      <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, fontWeight: 600, color: "#F68B32" }}>
+                        <span>Descuento 10% Retiro</span>
+                        <span>−${descuentoMontoRetiro.toLocaleString("es-AR")}</span>
+                      </div>
+                    )}
                     <div style={{ borderTop: "1px solid #eee", marginTop: 10, paddingTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span style={{ fontSize: 13, fontWeight: 600 }}>Total</span>
-                      <span style={{ fontSize: 16, fontWeight: 700, color: "#F68B32" }}>${totalCarrito.toLocaleString("es-AR")}</span>
+                      <span style={{ fontSize: 16, fontWeight: 700, color: "#F68B32" }}>${totalConDescuento.toLocaleString("es-AR")}</span>
                     </div>
                   </>
                 )}
+                <div style={{ borderTop: "1px solid #eee", paddingTop: 12, marginTop: 8, display: "flex", flexDirection: "column", gap: 10 }}>
+                  <button onClick={() => setDescuentoRetiro(v => !v)}
+                    style={{ width: "100%", padding: "9px", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", border: "1px solid #F68B32", background: descuentoRetiro ? "#F68B32" : "#fff", color: descuentoRetiro ? "#fff" : "#F68B32" }}>
+                    {descuentoRetiro ? "✓ 10% OFF Retiro aplicado" : "🏷️ 10% OFF Retiro"}
+                  </button>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Agregar envío</div>
+                    <select style={s.formInput} value={envioZona}
+                      onChange={e => {
+                        const zona = e.target.value;
+                        setEnvioZona(zona);
+                        setCarrito(prev => {
+                          const sinEnvio = prev.filter(i => !i.esEnvio);   // un solo envío a la vez
+                          if (!zona) return sinEnvio;
+                          const z = ZONAS_ENVIO.find(x => x.nombre === zona);
+                          return z ? [...sinEnvio, { id: "envio", variantId: "envio", nombre: `Envío ${z.nombre}`, precio: z.precio, cantidad: 1, esEnvio: true }] : sinEnvio;
+                        });
+                      }}>
+                      <option value="">(sin envío)</option>
+                      {ZONAS_ENVIO.map(z => <option key={z.nombre} value={z.nombre}>Envío {z.nombre} — ${z.precio.toLocaleString("es-AR")}</option>)}
+                    </select>
+                  </div>
+                </div>
                 <div style={{ borderTop: "1px solid #eee", paddingTop: 12, marginTop: 8 }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 8 }}>+ Producto variable</div>
                   <input style={{ ...s.formInput, marginBottom: 6 }} placeholder="Nombre del producto" value={varNombre} onChange={e => setVarNombre(e.target.value)} />

@@ -96,5 +96,9 @@ const EXCLUIDOS_PRODUCCION = new Set([
   "ajuste", "var", "variable",
 ]);
 export function esExcluidoProduccion(nombre) {
-  return EXCLUIDOS_PRODUCCION.has(_clave(nombre));
+  const k = _clave(nombre);
+  if (EXCLUIDOS_PRODUCCION.has(k)) return true;
+  // Prefijos: cubre "Envío {zona}", "Descuento 10% Retiro" y los "Envio"/"Descuento"
+  // sueltos que se cargan a mano. Ningún producto real del catálogo empieza con estas palabras.
+  return k.startsWith("envio") || k.startsWith("envío") || k.startsWith("descuento");
 }
