@@ -6,7 +6,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
     import Login from "./Login";
     import Usuarios from "./Usuarios";
     import { getUsuarioGuardado, validarSesion, cerrarSesion, ROL_LABELS } from "./auth-utils";
-    import { normalizarProducto, esExcluidoProduccion } from "../productos-normalizacion.js";
+    import { normalizarProducto, esExcluidoProduccion, calcularEnvioTN } from "../productos-normalizacion.js";
 
     const API = import.meta.env.VITE_API_URL || "https://piccadely-panel-production.up.railway.app";
 
@@ -2625,7 +2625,13 @@ setPedidosDatosOverride(datosInit);
         ...pedidosRaw.map(p => {
           const zona = p.fulfillments?.[0]?.shipping?.option?.name || "Sin zona";
           const { fecha, franja } = parsearFranja(p.owner_note);
-          const prods = p.products.map(pr => `${pr.name} x${pr.quantity}`).join(", ");
+          // Envío TN como ítem "Envío" (TN no lo manda; se calcula por diferencia). Se agrega al
+          // string Y a las líneas crudas, para que el modal Editar productos tome su precio.
+          const envioTN = calcularEnvioTN(p);
+          const lineasTN = p.products.map(pr => `${pr.name} x${pr.quantity}`);
+          const prodsRawTN = Array.isArray(p.products) ? [...p.products] : [];
+          if (envioTN > 0) { lineasTN.push("Envío x1"); prodsRawTN.push({ name: "Envío", price: envioTN, quantity: 1 }); }
+          const prods = lineasTN.join(", ");
           const local = pedidosLocales[p.id] || { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: null, franjaManual: null, cobrar: false };
           const tabAuto = clasificarPedido(p);
           const tabActual = local.tabManual || tabAuto;
@@ -2642,7 +2648,7 @@ setPedidosDatosOverride(datosInit);
             zona: ovDatos.zona || zona,
             fecha, franja, fechaDisplay: local.fechaManual || fecha, franjaDisplay: local.franjaManual || franja || "Sin franja",
             productos: ov ? ov.productos : prods,
-            productosRaw: p.products || null,   // líneas crudas de TN (precio real por ítem) para el modal Editar productos
+            productosRaw: prodsRawTN,   // líneas crudas de TN (+ ítem "Envío" con su costo) para el modal Editar productos
             totalNum: ov ? Number(ov.total_num) : totalNum,
             total: ov ? `$${Number(ov.total_num).toLocaleString("es-AR")}` : `$${totalNum.toLocaleString("es-AR")}`,
             pago: p.payment_status === "paid" ? "Pagado" : "Pendiente",

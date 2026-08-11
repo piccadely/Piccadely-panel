@@ -10,7 +10,7 @@ import { mpRouter } from "./Routes/mp.js";
 import { botWhatsappRouter } from "./Routes/botWhatsapp.js";
 import { cotizadorRouter } from "./Routes/cotizador.js";
 import { createRequire } from "module";
-import { normalizarProducto } from "./productos-normalizacion.js"; // clave canónica compartida con el front
+import { normalizarProducto, calcularEnvioTN } from "./productos-normalizacion.js"; // clave canónica + costo de envío TN, compartidos con el front
 const requireCJS = createRequire(import.meta.url); // server.js es ESM; require solo para el JSON de polígonos
 const { Pool } = pg;
 
@@ -545,11 +545,16 @@ app.get("/api/reportes/pedidos", async (req, res) => {
       const codigoPago = est.codigoPagoOverride
         ? est.codigoPagoOverride
         : (p.gateway_id ? String(p.gateway_id) : (p.transactions?.[0]?.id ? String(p.transactions[0].id) : ""));
+      // Envío TN como ítem "Envío" (misma fórmula compartida que el front). Consistente en
+      // Finalizados/Ventas/Reservas. El total (p.total) ya incluye el envío.
+      const envioTN = calcularEnvioTN(p);
+      const lineasTN = (p.products || []).map(pr => `${pr.name} x${pr.quantity}`);
+      if (envioTN > 0) lineasTN.push("Envío x1");
       resultado.push({
         id: String(p.id), numero: `#${p.number}`,
         cliente: est.clienteOverride || p.contact_name || "",
         telefono: est.telefonoOverride || p.contact_phone || "",
-        productos: ov ? ov.productos : (p.products || []).map(pr => `${pr.name} x${pr.quantity}`).join(", "),
+        productos: ov ? ov.productos : lineasTN.join(", "),
         totalNum,
         total: `$${totalNum.toLocaleString("es-AR")}`,
         medioPago: est.medioPagoOverride || medioPagoLabelBackend(p.gateway),

@@ -102,3 +102,21 @@ export function esExcluidoProduccion(nombre) {
   // sueltos que se cargan a mano. Ningún producto real del catálogo empieza con estas palabras.
   return k.startsWith("envio") || k.startsWith("envío") || k.startsWith("descuento");
 }
+
+// ─── COSTO DE ENVÍO de un pedido de Tienda Nube ────────────────────────────
+// TN NO manda el costo de envío en ningún campo; se calcula por DIFERENCIA (fórmula
+// verificada contra la tabla de zonas en 40 pedidos reales, incluidos los que tienen cupón):
+//   envio = data.total − Σ(products[].price × quantity) + discount + discount_gateway
+// (discount/discount_gateway vienen como string, o vacío -> 0). Solo aplica a ENVÍOS
+// (fulfillments[0].shipping.type === "ship") y con envio > 0; retiros -> 0.
+// COMPARTIDA por front (src/App.jsx) y backend (server.js) para que el ítem "Envío" y el
+// total cierren IGUAL en todas las vistas. Devuelve un entero (>= 0).
+export function calcularEnvioTN(data) {
+  if (!data) return 0;
+  if ((data.fulfillments?.[0]?.shipping?.type || "") !== "ship") return 0;
+  const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+  const sumaProductos = (Array.isArray(data.products) ? data.products : [])
+    .reduce((a, p) => a + num(p.price) * num(p.quantity), 0);
+  const envio = num(data.total) - sumaProductos + num(data.discount) + num(data.discount_gateway);
+  return envio > 0 ? Math.round(envio) : 0;
+}
