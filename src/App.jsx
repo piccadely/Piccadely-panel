@@ -918,27 +918,26 @@ const [facturaLabel, setFacturaLabel] = useState(null);
     }
 
     // ─── MODAL EDITAR PRODUCTOS ──────────────────────────────────────────
-    function ModalEditarProductos({ p, productos, categorias, facturado, onGuardar, onCerrar }) {
+    function ModalEditarProductos({ p, productos, categorias, onGuardar, onCerrar }) {
       const [carrito, setCarrito] = useState(() => {
-        // Líneas crudas de TN (fuente verídica del precio por ítem). Manuales no tienen -> null.
-        const rawTN = Array.isArray(p.productosRaw) ? p.productosRaw : null;
-        return p.productos.split(", ").map(item => {
+        // Líneas crudas de TN (precio real por ítem). Manuales/TN sin campo -> []. Todo defensivo.
+        const rawTN = Array.isArray(p?.productosRaw) ? p.productosRaw : [];
+        const catalogo = Array.isArray(productos) ? productos : [];
+        return String(p?.productos || "").split(", ").map(item => {
           const match = item.match(/^(.+) x(\d+)$/);
           if (!match) return null;
           const nombre = match[1].trim();
           const cantidad = Number(match[2]);
-          // Precio en ORDEN: a) línea real de TN por nombre exacto (mismo origen que armó el string),
-          // b) catálogo por nombre, c) sin precio ($0) -> bloquea el guardado (NO se inventa precio).
-          let precio = 0, conPrecio = false;
-          if (rawTN) {
-            const linea = rawTN.find(pr => String(pr.name || "").trim().toLowerCase() === nombre.toLowerCase());
-            if (linea && Number(linea.price) > 0) { precio = Number(linea.price); conPrecio = true; }
+          // Precio en ORDEN: a) línea real de TN por nombre; b) catálogo por nombre; c) $0
+          // (editable a mano en el input). No se inventa; el usuario puede ajustarlo y guardar igual.
+          let precio = 0;
+          const linea = rawTN.find(pr => String(pr?.name || "").trim().toLowerCase() === nombre.toLowerCase());
+          if (linea && Number(linea.price) > 0) precio = Number(linea.price);
+          if (precio === 0) {
+            const prod = catalogo.find(pr => pr?.name?.es?.toLowerCase() === nombre.toLowerCase());
+            if (prod && Number(prod?.variants?.[0]?.price) > 0) precio = Number(prod.variants[0].price);
           }
-          if (!conPrecio) {
-            const prod = productos.find(pr => pr.name?.es?.toLowerCase() === nombre.toLowerCase());
-            if (prod && Number(prod.variants[0].price) > 0) { precio = Number(prod.variants[0].price); conPrecio = true; }
-          }
-          return { id: nombre, variantId: nombre, nombre, precio, cantidad, esVariable: !conPrecio };
+          return { id: nombre, variantId: nombre, nombre, precio, cantidad, esVariable: precio === 0 };
         }).filter(Boolean);
       });
       const [busqueda, setBusqueda] = useState("");
@@ -949,9 +948,6 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       const [guardando, setGuardando] = useState(false);
 
       const total = carrito.reduce((a, i) => a + i.precio * i.cantidad, 0);
-      const itemsSinPrecio = carrito.filter(i => !(Number(i.precio) > 0));   // ítems en $0 / sin precio recuperado
-      const haySinPrecio = itemsSinPrecio.length > 0;
-      const totalOriginal = Number(p.totalNum) || 0;                          // total real actual del pedido
 
       const productosFiltrados = productos.filter(pr => {
         const nombre = pr.name?.es?.toLowerCase() || "";
@@ -971,18 +967,6 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       }
 
       async function guardar() {
-        // Red 1: no guardar con ítems en $0 (evita pisar el total real con uno incompleto).
-        if (haySinPrecio) {
-          alert(`Completá el precio de ${itemsSinPrecio.map(i => i.nombre).join(", ")} antes de guardar.`);
-          return;
-        }
-        // Red 2: si el total nuevo BAJA respecto del original, confirmar explícito (reforzado si está facturado).
-        if (total < totalOriginal) {
-          const msg = facturado
-            ? `⚠️ Este pedido ya está facturado (${facturado}) por ${fmt(totalOriginal)}.\n\nEl total pasa de ${fmt(totalOriginal)} a ${fmt(total)}. Cambiar el total puede desalinear la factura. ¿Seguro?`
-            : `El total del pedido pasa de ${fmt(totalOriginal)} a ${fmt(total)}. ¿Confirmás el cambio?`;
-          if (!window.confirm(msg)) return;
-        }
         setGuardando(true);
         const productosStr = carrito.map(i => `${i.nombre} x${i.cantidad}`).join(", ");
         await axios.post(`${API}/api/pedidos/productos/${p.id}`, { productos: productosStr, totalNum: total });
@@ -1069,13 +1053,8 @@ const [facturaLabel, setFacturaLabel] = useState(null);
                   <span style={{ fontSize: 13, fontWeight: 600 }}>Total</span>
                   <span style={{ fontSize: 16, fontWeight: 700, color: "#F68B32" }}>${total.toLocaleString("es-AR")}</span>
                 </div>
-                {haySinPrecio && (
-                  <div style={{ fontSize: 12, color: "#c0392b", fontWeight: 600, marginTop: 8 }}>
-                    ⚠️ Completá el precio de {itemsSinPrecio.map(i => i.nombre).join(", ")} antes de guardar.
-                  </div>
-                )}
-                <button style={{ width: "100%", marginTop: 12, padding: 10, borderRadius: 8, border: "none", background: (guardando || haySinPrecio) ? "#ccc" : "#F68B32", color: "#fff", fontSize: 13, fontWeight: 600, cursor: (guardando || haySinPrecio) ? "not-allowed" : "pointer" }}
-                  onClick={guardar} disabled={guardando || carrito.length === 0 || haySinPrecio}>
+                <button style={{ width: "100%", marginTop: 12, padding: 10, borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#F68B32", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                  onClick={guardar} disabled={guardando || carrito.length === 0}>
                   {guardando ? "Guardando..." : "✅ Guardar cambios"}
                 </button>
               </div>
@@ -4953,7 +4932,6 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
               p={editandoProductos}
               productos={productos}
               categorias={categorias}
-              facturado={facturasMap[String(editandoProductos.id)] || null}
               onCerrar={() => setEditandoProductos(null)}
               onGuardar={(id, productosStr, totalNum) => {
                 setProductosOverride(prev => ({ ...prev, [String(id)]: { productos: productosStr, total_num: totalNum } }));
