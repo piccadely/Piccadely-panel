@@ -3293,6 +3293,7 @@ let numeroAsignado = "";
 
         const fallback = () => {
           const ventana = window.open("", "_blank", "width=400,height=600");
+          if (!ventana) { alert("El navegador bloqueó la ventana de impresión. Habilitá las ventanas emergentes (pop-ups) para este sitio y reintentá."); return; }
           ventana.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Comanda ${p.numero}</title>
             <style>* { margin:0; padding:0; box-sizing:border-box; } body { font-family:'Courier New',monospace; font-size:12px; width:80mm; padding:4mm; color:#000; } .centro { text-align:center; } .titulo { font-size:18px; font-weight:bold; margin-bottom:2px; } .linea { border-top:1px dashed #000; margin:6px 0; } .fila { display:flex; justify-content:space-between; margin:2px 0; } .label { font-weight:bold; font-size:10px; text-transform:uppercase; color:#555; margin-top:6px; margin-bottom:1px; } .valor { font-size:12px; } .total { font-size:15px; font-weight:bold; text-align:right; margin-top:4px; } .cobrar { text-align:center; font-size:16px; font-weight:bold; border:2px solid #000; padding:6px; margin:8px 0; } @media print { body { width:80mm; } @page { margin:0; size:80mm auto; } }</style></head><body>
             <div class="centro"><div class="titulo">Piccadely</div><div style="font-size:11px;">comanda de pedido</div></div>
@@ -3390,6 +3391,7 @@ let numeroAsignado = "";
             <div class="centro" style="font-size:10px;color:#888;">Piccadely - juntadely</div>
           </div>`).join("");
           const ventana = window.open("", "_blank", "width=400,height=600");
+          if (!ventana) { alert("El navegador bloqueó la ventana de impresión. Habilitá las ventanas emergentes (pop-ups) para este sitio y reintentá."); return; }
           ventana.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Comandas (${lote.length})</title>
             <style>* { margin:0; padding:0; box-sizing:border-box; } body { font-family:'Courier New',monospace; font-size:12px; color:#000; } .comanda { width:80mm; padding:4mm; } .comanda:not(:last-child) { break-after:page; page-break-after:always; } .centro { text-align:center; } .titulo { font-size:18px; font-weight:bold; margin-bottom:2px; } .linea { border-top:1px dashed #000; margin:6px 0; } .fila { display:flex; justify-content:space-between; margin:2px 0; } .label { font-weight:bold; font-size:10px; text-transform:uppercase; color:#555; margin-top:6px; margin-bottom:1px; } .valor { font-size:12px; } .total { font-size:15px; font-weight:bold; text-align:right; margin-top:4px; } .cobrar { text-align:center; font-size:16px; font-weight:bold; border:2px solid #000; padding:6px; margin:8px 0; } @media print { @page { margin:0; size:80mm auto; } }</style></head><body>
             ${bloques}
@@ -4927,7 +4929,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
       return (
         <div style={s.wrap}>
           {facturando && <ModalFacturacion p={facturando} onCerrar={cerrarModal} />}
-          {editandoProductos && productos.length > 0 && (
+          {editandoProductos && (
             <ModalEditarProductos
               p={editandoProductos}
               productos={productos}
