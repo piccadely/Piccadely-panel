@@ -1686,7 +1686,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
     // ─── COMPONENTE CAJA ─────────────────────────────────────────────────
     function VistaCaja({ pedidosActivos, onVolver, usuario }) {
             const HOY_CAJA = fechaArgentina();
-      const localesPermitidos = usuario.rol === "admin"
+      const localesPermitidos = (usuario.rol === "admin" || usuario.rol === "encargado")
         ? ["A. Thomas", "French", "Administración", "Fondo Fijo A. Thomas", "Fondo Fijo French"]
         : usuario.rol === "a_thomas" ? ["A. Thomas", "Fondo Fijo A. Thomas"] : ["French", "Fondo Fijo French"];
       const [localSeleccionado, setLocalSeleccionado] = useState(localesPermitidos[0]);
@@ -2204,6 +2204,10 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [error, setError] = useState(null);
       const [tab, setTab] = useState("retiro-at");
       const [vista, setVista] = useState("panel");
+      // Nivel de acceso por rol. esAdmin: solo admin (plata/administración). esGestion:
+      // admin o encargado (operación completa). Los operarios (a_thomas/french) no son ni uno ni otro.
+      const esAdmin = usuario.rol === "admin";
+      const esGestion = usuario.rol === "admin" || usuario.rol === "encargado";
       const [filtroFecha, setFiltroFecha] = useState("");
       const [filtroZona, setFiltroZona] = useState("");
       const [expandido, setExpandido] = useState(null);
@@ -2464,7 +2468,10 @@ setPedidosDatosOverride(datosInit);
         // Solo el reporte fusionado pide también los no finalizados (Por vender).
         const paramsRep = { desde, hasta };
         if (vista === "reporteFusionado") paramsRep.incluirActivos = 1;
-        axios.get(`${API}/api/reportes/pedidos`, { params: paramsRep })
+        // Dashboard ejecutivo y Reporte de ventas consumen el endpoint admin-only; el resto
+        // (reservas/productos/finalizados/fusionado) va por el general (requireAuth).
+        const endpointRep = (vista === "dashboard" || vista === "reporteVentas") ? "/api/reportes/ventas-admin" : "/api/reportes/pedidos";
+        axios.get(`${API}${endpointRep}`, { params: paramsRep })
           .then(res => {
             if (cancelado) return;
             setRepPedidos(res.data); setRepLoading(false);
@@ -3464,7 +3471,7 @@ let numeroAsignado = "";
               </button>
           {menuAbierto && (
                 <div style={s.dropdown}>
-                  {usuario.rol === "admin" && (
+                  {esAdmin && (
                     <>
                       <button
                         style={{ ...s.dropItem, fontWeight: 700, color: "#444", background: "#fafaf8", display: "flex", justifyContent: "space-between", alignItems: "center" }}
@@ -3499,17 +3506,17 @@ let numeroAsignado = "";
                   </button>
                   {menuGrupo === "reportes" && (
                     <>
-                      {usuario.rol === "admin" && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("dashboard"); setMenuAbierto(false); }}>📈 Dashboard ejecutivo</button>}
-                      <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteVentas"); setMenuAbierto(false); }}>📊 Reporte de ventas</button>
+                      {esAdmin && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("dashboard"); setMenuAbierto(false); }}>📈 Dashboard ejecutivo</button>}
+                      {esAdmin && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteVentas"); setMenuAbierto(false); }}>📊 Reporte de ventas</button>}
                       <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteReservas"); setMenuAbierto(false); }}>📅 Reporte de reservas</button>
                       <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteProductos"); setMenuAbierto(false); }}>📦 Productos vendidos</button>
-                      {usuario.rol === "admin" && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteFusionado"); setMenuAbierto(false); }}>🧾 Vendido / Por vender</button>}
-                      {usuario.rol === "admin" && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("zonas"); setMenuAbierto(false); }}>📍 Pedidos por zona</button>}
+                      {esAdmin && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteFusionado"); setMenuAbierto(false); }}>🧾 Vendido / Por vender</button>}
+                      {esAdmin && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("zonas"); setMenuAbierto(false); }}>📍 Pedidos por zona</button>}
                     </>
                   )}
                   <button style={s.dropItem} onClick={() => { setVista("tandas"); setMenuAbierto(false); }}>🚚 Tandas activas</button>
                   <button style={s.dropItem} onClick={() => { setVista("caja"); setMenuAbierto(false); }}>💰 Caja</button>
-                  {usuario.rol === "admin" && <button style={s.dropItem} onClick={() => { setVista("importar"); setMenuAbierto(false); }}>📥 Importar pedidos</button>}
+                  {esAdmin && <button style={s.dropItem} onClick={() => { setVista("importar"); setMenuAbierto(false); }}>📥 Importar pedidos</button>}
                   <button style={s.dropItem} onClick={() => { setVista("finalizados"); setMenuAbierto(false); }}>📋 Pedidos finalizados</button>
                   <button style={s.dropItem} onClick={() => { setVista("cotizaciones"); setMenuAbierto(false); }}>🎉 Cotizaciones</button>
                   <button style={s.dropItem} onClick={() => { setVista("produccion"); setMenuAbierto(false); }}>🔧 Análisis de producción</button>
@@ -3534,6 +3541,21 @@ let numeroAsignado = "";
           ))}
         </div>
       );
+
+      // Guard de acceso: las vistas de plata/administración son SOLO admin. Si un no-admin
+      // (encargado/operario) llega igual (deep-link, estado viejo), no se renderiza el contenido.
+      const VISTAS_SOLO_ADMIN = ["dashboard", "reporteVentas", "reporteFusionado", "zonas", "usuarios", "repartidores", "importar"];
+      if (VISTAS_SOLO_ADMIN.includes(vista) && !esAdmin) {
+        return (
+          <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: "system-ui, sans-serif", background: "#f7f7f5", padding: 24, textAlign: "center" }}>
+            <div style={{ fontSize: 40 }}>🔒</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#333" }}>Sin acceso</div>
+            <div style={{ fontSize: 13, color: "#888" }}>Esta sección es solo para administradores.</div>
+            <button onClick={() => setVista("panel")} style={{ marginTop: 8, fontSize: 13, padding: "9px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }}>← Volver al panel</button>
+          </div>
+        );
+      }
+
     if (vista === "repartidores") {
         return (
           <div style={s.wrap}>

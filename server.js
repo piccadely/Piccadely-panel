@@ -484,7 +484,7 @@ app.get("/api/orders", async (req, res) => {
 // A diferencia de /api/orders (ventana de 7 días para el panel operativo),
 // este endpoint lee TODA la base y porta la misma lógica de procesamiento
 // del front (useMemo pedidosProcesados) para que un pedido dé idéntico acá.
-app.get("/api/reportes/pedidos", requireAuth, async (req, res) => {
+async function handlerReportePedidos(req, res) {
   const { desde, hasta } = req.query;
   const re = /^\d{4}-\d{2}-\d{2}$/;
   if (!desde || !hasta || !re.test(desde) || !re.test(hasta)) {
@@ -633,7 +633,17 @@ app.get("/api/reportes/pedidos", requireAuth, async (req, res) => {
     console.error("Error /api/reportes/pedidos:", err.message);
     res.status(500).json({ error: "Error trayendo reporte de pedidos" });
   }
+}
+// General (caja / reservas / productos / finalizados): cualquier usuario logueado.
+// El modo fusionado (incluirActivos = "por vender") es SOLO admin.
+app.get("/api/reportes/pedidos", requireAuth, (req, res) => {
+  const incluirActivos = req.query.incluirActivos === "1" || req.query.incluirActivos === "true";
+  if (incluirActivos && req.user?.rol !== "admin") return res.status(403).json({ error: "Requiere rol admin" });
+  return handlerReportePedidos(req, res);
 });
+// Endpoint dedicado ADMIN-ONLY: Dashboard ejecutivo y Reporte de ventas (misma data que
+// /api/reportes/pedidos, pero cerrado por rol para que el encargado/operarios no lo lean).
+app.get("/api/reportes/ventas-admin", requireAdmin, handlerReportePedidos);
 
 // ─── REPORTE: PEDIDOS POR REPARTIDOR Y ZONA GEOGRÁFICA ────────────────
 // Cuenta pedidos ENTREGADOS de delivery por repartidor y por área (polígono).

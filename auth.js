@@ -30,7 +30,7 @@ export async function initAuthDB(pool) {
       username TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       nombre_completo TEXT NOT NULL,
-      rol TEXT NOT NULL CHECK (rol IN ('admin', 'a_thomas', 'french')),
+      rol TEXT NOT NULL CHECK (rol IN ('admin', 'a_thomas', 'french', 'encargado')),
       activo BOOLEAN DEFAULT true,
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
@@ -191,7 +191,7 @@ export function setupAuth(app, pool) {
     try {
       const { username, password, nombre_completo, rol } = req.body;
       if (!username || !password || !nombre_completo || !rol) return res.status(400).json({ error: "Faltan campos" });
-      if (!["admin", "a_thomas", "french"].includes(rol)) return res.status(400).json({ error: "Rol inválido" });
+      if (!["admin", "a_thomas", "french", "encargado"].includes(rol)) return res.status(400).json({ error: "Rol inválido" });
       if (password.length < 4) return res.status(400).json({ error: "La contraseña es muy corta" });
 
       const hash = await bcrypt.hash(password, 10);
@@ -219,7 +219,7 @@ export function setupAuth(app, pool) {
 
       if (nombre_completo !== undefined) { updates.push(`nombre_completo = $${i++}`); valores.push(nombre_completo); }
       if (rol !== undefined) {
-        if (!["admin", "a_thomas", "french"].includes(rol)) return res.status(400).json({ error: "Rol inválido" });
+        if (!["admin", "a_thomas", "french", "encargado"].includes(rol)) return res.status(400).json({ error: "Rol inválido" });
         updates.push(`rol = $${i++}`); valores.push(rol);
       }
       if (activo !== undefined) { updates.push(`activo = $${i++}`); valores.push(activo); }

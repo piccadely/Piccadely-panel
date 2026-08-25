@@ -77,6 +77,7 @@ export async function validarSesion() {
 // Etiquetas legibles para los roles
 export const ROL_LABELS = {
   admin: "Admin",
+  encargado: "Encargado",
   a_thomas: "A. Thomas",
   french: "French",
 };

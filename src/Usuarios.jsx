@@ -142,6 +142,7 @@ export default function Usuarios({ onVolver }) {
 
   const rolColor = {
     admin: { bg: "#fef9e7", text: "#856404", border: "#f39c12" },
+    encargado: { bg: "#f3e8fd", text: "#6d28d9", border: "#8b5cf6" },
     a_thomas: { bg: "#e6f1fb", text: "#0c447c", border: "#3b82f6" },
     french: { bg: "#eaf3de", text: "#27500a", border: "#F68B32" },
   };
@@ -239,6 +240,7 @@ export default function Usuarios({ onVolver }) {
                 <label style={st.label}>Rol</label>
                 <select style={st.input} value={form.rol} onChange={e => setForm(f => ({ ...f, rol: e.target.value }))}>
                   <option value="admin">Admin (ve todo)</option>
+                  <option value="encargado">Encargado (todo menos plata/administración)</option>
                   <option value="a_thomas">A. Thomas</option>
                   <option value="french">French</option>
                 </select>
