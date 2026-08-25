@@ -484,7 +484,7 @@ app.get("/api/orders", async (req, res) => {
 // A diferencia de /api/orders (ventana de 7 días para el panel operativo),
 // este endpoint lee TODA la base y porta la misma lógica de procesamiento
 // del front (useMemo pedidosProcesados) para que un pedido dé idéntico acá.
-app.get("/api/reportes/pedidos", async (req, res) => {
+app.get("/api/reportes/pedidos", requireAuth, async (req, res) => {
   const { desde, hasta } = req.query;
   const re = /^\d{4}-\d{2}-\d{2}$/;
   if (!desde || !hasta || !re.test(desde) || !re.test(hasta)) {
@@ -718,7 +718,7 @@ app.patch("/api/costos-areas", async (req, res) => {
   } catch (err) { console.error("Error PATCH /api/costos-areas:", err.message); res.status(500).json({ error: "Error guardando costos de áreas" }); }
 });
 
-app.get("/api/reportes/zonas", async (req, res) => {
+app.get("/api/reportes/zonas", requireAdmin, async (req, res) => {
   const { desde, hasta } = req.query;
   const re = /^\d{4}-\d{2}-\d{2}$/;
   if (!desde || !hasta || !re.test(desde) || !re.test(hasta)) {
@@ -1753,7 +1753,7 @@ app.get("/api/auditoria/:entidadId", async (req, res) => {
 });
 
 // ─── CAJA ──────────────────────────────────────────────────────────────
-app.post("/api/caja/apertura", async (req, res) => {
+app.post("/api/caja/apertura", requireAuth, async (req, res) => {
   const { local, fecha, montoInicial, usuario: usuarioAudit } = req.body;
   try {
     const existe = await pool.query("SELECT id FROM caja_aperturas WHERE local=$1 AND fecha=$2", [local, fecha]);
@@ -1764,7 +1764,7 @@ app.post("/api/caja/apertura", async (req, res) => {
     registrarAuditoria(usuarioAudit, "apertura_caja", "caja", local, { fecha, montoInicial });
   } catch (err) { res.status(500).json({ error: "Error en apertura de caja" }); }
 });
-app.post("/api/caja/reabrir", async (req, res) => {
+app.post("/api/caja/reabrir", requireAuth, async (req, res) => {
   const { local, fecha, montoInicial, usuario: usuarioAudit } = req.body;
   try {
     const existe = await pool.query("SELECT id FROM caja_aperturas WHERE local=$1 AND fecha=$2", [local, fecha]);
@@ -1779,7 +1779,7 @@ app.post("/api/caja/reabrir", async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Error reabriendo caja" }); }
 });
 
-app.get("/api/caja/estado/:local/:fecha", async (req, res) => {
+app.get("/api/caja/estado/:local/:fecha", requireAuth, async (req, res) => {
   const { local, fecha } = req.params;
   try {
     const apertura = await pool.query("SELECT * FROM caja_aperturas WHERE local=$1 AND fecha=$2", [local, fecha]);
@@ -1788,7 +1788,7 @@ app.get("/api/caja/estado/:local/:fecha", async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Error trayendo estado de caja" }); }
 });
 
-app.post("/api/caja/ajuste", async (req, res) => {
+app.post("/api/caja/ajuste", requireAuth, async (req, res) => {
   const { local, fecha, tipo, concepto, monto, usuario: usuarioAudit } = req.body;
   try {
     await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,$2,$3,$4,$5)", [local, tipo, concepto, monto, fecha]);
@@ -1796,7 +1796,7 @@ app.post("/api/caja/ajuste", async (req, res) => {
     registrarAuditoria(usuarioAudit, "ajuste_caja", "caja", local, { fecha, tipo, concepto, monto });
   } catch (err) { res.status(500).json({ error: "Error registrando ajuste" }); }
 });
-app.post("/api/caja/sobre", async (req, res) => {
+app.post("/api/caja/sobre", requireAuth, async (req, res) => {
   const { localOrigen, fecha, monto, concepto, usuario: usuarioAudit } = req.body;
   try {
     const montoAbs = Math.abs(Number(monto));
@@ -1817,7 +1817,7 @@ app.post("/api/caja/sobre", async (req, res) => {
     registrarAuditoria(usuarioAudit, "sobre_caja", "caja", localOrigen, { monto: montoAbs, concepto, fecha });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-app.post("/api/caja/cerrar-historico", async (req, res) => {
+app.post("/api/caja/cerrar-historico", requireAuth, async (req, res) => {
   const { local, fecha, usuario: usuarioAudit } = req.body;
   try {
     await pool.query("UPDATE caja_aperturas SET cerrada=true, monto_cierre=monto_inicial WHERE local=$1 AND fecha=$2 AND cerrada=false", [local, fecha]);
@@ -1825,7 +1825,7 @@ app.post("/api/caja/cerrar-historico", async (req, res) => {
     registrarAuditoria(usuarioAudit, "cierre_historico", "caja", local, { fecha });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-app.post("/api/caja/cierre", async (req, res) => {
+app.post("/api/caja/cierre", requireAuth, async (req, res) => {
   const { local, fecha, montoCierre, usuario: usuarioAudit } = req.body;
   try {
     await pool.query("UPDATE caja_aperturas SET cerrada=true, monto_cierre=$1 WHERE local=$2 AND fecha=$3", [montoCierre, local, fecha]);
@@ -1837,7 +1837,7 @@ app.post("/api/caja/cierre", async (req, res) => {
 // ===== FONDO FIJO (uno por local) =====
 const FONDOS_VALIDOS = ["Fondo Fijo A. Thomas", "Fondo Fijo French"];
 
-app.get("/api/fondo-fijo/:local", async (req, res) => {
+app.get("/api/fondo-fijo/:local", requireAuth, async (req, res) => {
   const local = decodeURIComponent(req.params.local);
   if (!FONDOS_VALIDOS.includes(local)) return res.status(400).json({ error: "Fondo inválido" });
   try {
@@ -1851,7 +1851,7 @@ app.get("/api/fondo-fijo/:local", async (req, res) => {
     res.status(500).json({ error: "Error trayendo el fondo fijo" });
   }
 });
-app.post("/api/fondo-fijo/movimiento", async (req, res) => {
+app.post("/api/fondo-fijo/movimiento", requireAuth, async (req, res) => {
   const { local, tipo, concepto, monto, fecha, usuario: usuarioAudit } = req.body;
   try {
     if (!FONDOS_VALIDOS.includes(local) || !["entrada", "salida"].includes(tipo) || !monto) {
@@ -1870,7 +1870,7 @@ app.post("/api/fondo-fijo/movimiento", async (req, res) => {
   }
 });
 
-app.get("/api/caja/historial/:local", async (req, res) => {
+app.get("/api/caja/historial/:local", requireAuth, async (req, res) => {
   const { local } = req.params;
   try {
     const aperturas = await pool.query("SELECT * FROM caja_aperturas WHERE local=$1 ORDER BY fecha DESC LIMIT 30", [decodeURIComponent(local)]);
