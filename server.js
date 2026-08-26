@@ -6,6 +6,7 @@ import crypto from "crypto";
 import PDFDocument from "pdfkit";
 import nodemailer from "nodemailer";
 import { initAuthDB, setupAuth } from "./auth.js";
+import bcrypt from "bcrypt";
 import { mpRouter } from "./Routes/mp.js";
 import { botWhatsappRouter } from "./Routes/botWhatsapp.js";
 import { cotizadorRouter } from "./Routes/cotizador.js";
@@ -445,6 +446,56 @@ async function enviarMailAnulacion(pedido) {
     console.log(`✉ Mail anulación enviado a ${pedido.email} para pedido ${pedido.numero}`);
   } catch (err) { console.error(`Error enviando anulación:`, err.message); }
 }
+
+// ─── 2FA POR EMAIL (Parte 1: base + envío/verificación; el login se engancha en la parte 2) ───
+// Código de 6 dígitos al email_2fa del usuario. Se guarda HASHEADO (bcrypt), vence a 10 min,
+// un solo uso. email_2fa NULL = usuario sin 2FA.
+const CODIGO_2FA_TTL_MIN = 10;
+async function generarYEnviarCodigo2FA(usuario) {
+  if (!usuario?.email_2fa) return { ok: false, error: "El usuario no tiene 2FA configurado" };
+  if (!mailTransporter) return { ok: false, error: "Mail no configurado en el servidor" };
+  const codigo = String(Math.floor(100000 + Math.random() * 900000)); // 6 dígitos
+  const hash = await bcrypt.hash(codigo, 10);
+  const expira = new Date(Date.now() + CODIGO_2FA_TTL_MIN * 60 * 1000);
+  await pool.query("UPDATE usuarios SET codigo_2fa=$1, codigo_2fa_expira=$2 WHERE id=$3", [hash, expira, usuario.id]);
+  await mailTransporter.sendMail({
+    from: `Piccadely <${process.env.GMAIL_USER}>`,
+    to: usuario.email_2fa,
+    subject: "Código de acceso Piccadely Panel",
+    text: `Código de acceso para ${usuario.nombre_completo}: ${codigo}. Vence en ${CODIGO_2FA_TTL_MIN} minutos. Si no fuiste vos, avisá al administrador.`,
+  });
+  return { ok: true };
+}
+async function verificarCodigo2FA(usuario, codigo) {
+  if (!usuario?.id || !codigo) return false;
+  const { rows } = await pool.query("SELECT codigo_2fa, codigo_2fa_expira FROM usuarios WHERE id=$1", [usuario.id]);
+  const u = rows[0];
+  if (!u || !u.codigo_2fa || !u.codigo_2fa_expira) return false;
+  if (new Date(u.codigo_2fa_expira).getTime() < Date.now()) return false; // vencido
+  const ok = await bcrypt.compare(String(codigo).trim(), u.codigo_2fa);
+  if (!ok) return false;
+  await pool.query("UPDATE usuarios SET codigo_2fa=NULL, codigo_2fa_expira=NULL WHERE id=$1", [usuario.id]); // un solo uso
+  return true;
+}
+
+// Endpoints TEMPORALES de testing (parte 1). En la parte 2 el flujo real va en el login.
+app.post("/api/2fa/test-enviar", requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT id, nombre_completo, email_2fa FROM usuarios WHERE id=$1", [req.user.id]);
+    const usuario = rows[0];
+    if (!usuario) return res.status(404).json({ error: "Usuario no encontrado" });
+    if (!usuario.email_2fa) return res.status(400).json({ error: "Tu usuario no tiene email 2FA configurado" });
+    const r = await generarYEnviarCodigo2FA(usuario);
+    if (!r.ok) return res.status(500).json({ error: r.error });
+    res.json({ ok: true, enviadoA: usuario.email_2fa });
+  } catch (err) { console.error("Error /api/2fa/test-enviar:", err.message); res.status(500).json({ error: "Error enviando código 2FA" }); }
+});
+app.post("/api/2fa/test-verificar", requireAuth, async (req, res) => {
+  try {
+    const valido = await verificarCodigo2FA({ id: req.user.id }, req.body?.codigo);
+    res.json({ valido: !!valido });
+  } catch (err) { console.error("Error /api/2fa/test-verificar:", err.message); res.status(500).json({ error: "Error verificando código 2FA" }); }
+});
 
 // ─── MERCADO PAGO ─────────────────────────────────────────────────────
 app.use("/api/mp", mpRouter(pool, mailTransporter));

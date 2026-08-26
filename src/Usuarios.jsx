@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
-import { ROL_LABELS } from "./auth-utils";
+import { ROL_LABELS, getUsuarioGuardado } from "./auth-utils";
 
 const API = import.meta.env.VITE_API_URL || "https://piccadely-panel-production.up.railway.app";
 
@@ -9,6 +9,7 @@ const FORM_VACIO = {
   nombre_completo: "",
   rol: "a_thomas",
   password: "",
+  email_2fa: "",
 };
 
 export default function Usuarios({ onVolver }) {
@@ -21,6 +22,10 @@ export default function Usuarios({ onVolver }) {
   const [passwordNueva, setPasswordNueva] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState(null);
+  const [codigo2fa, setCodigo2fa] = useState("");
+  const [enviado2fa, setEnviado2fa] = useState(false);
+  const [verif2fa, setVerif2fa] = useState(null); // null | "ok" | "bad"
+  const yo = getUsuarioGuardado(); // usuario logueado (el botón "Probar 2FA" solo va sobre su propia fila)
 
   async function cargarUsuarios() {
     setLoading(true);
@@ -70,6 +75,7 @@ export default function Usuarios({ onVolver }) {
         nombre_completo: form.nombre_completo,
         rol: form.rol,
         activo: usuarioEditando.activo,
+        email_2fa: form.email_2fa,
       });
       await cargarUsuarios();
       setModal(null);
@@ -123,6 +129,33 @@ export default function Usuarios({ onVolver }) {
     }
   }
 
+  function abrir2fa(u) {
+    setUsuarioEditando(u);
+    setCodigo2fa(""); setEnviado2fa(false); setVerif2fa(null);
+    setModal("2fa");
+  }
+  async function probar2faEnviar() {
+    setGuardando(true);
+    try {
+      const res = await axios.post(`${API}/api/2fa/test-enviar`);
+      setEnviado2fa(true); setVerif2fa(null);
+      mostrarMensaje(`Código enviado a ${res.data.enviadoA}`);
+    } catch (err) {
+      mostrarMensaje(err.response?.data?.error || "Error enviando código", "error");
+    }
+    setGuardando(false);
+  }
+  async function probar2faVerificar() {
+    setGuardando(true);
+    try {
+      const res = await axios.post(`${API}/api/2fa/test-verificar`, { codigo: codigo2fa });
+      setVerif2fa(res.data.valido ? "ok" : "bad");
+    } catch (err) {
+      setVerif2fa("bad");
+    }
+    setGuardando(false);
+  }
+
   function abrirNuevo() {
     setForm(FORM_VACIO);
     setModal("nuevo");
@@ -130,7 +163,7 @@ export default function Usuarios({ onVolver }) {
 
   function abrirEditar(u) {
     setUsuarioEditando(u);
-    setForm({ username: u.username, nombre_completo: u.nombre_completo, rol: u.rol, password: "" });
+    setForm({ username: u.username, nombre_completo: u.nombre_completo, rol: u.rol, password: "", email_2fa: u.email_2fa || "" });
     setModal("editar");
   }
 
@@ -183,7 +216,7 @@ export default function Usuarios({ onVolver }) {
               <div key={u.id} style={{ ...st.fila, opacity: u.activo ? 1 : 0.55 }}>
                 <span style={{ ...st.cel, flex: 0.4, textAlign: "center", color: "#aaa", fontWeight: 600 }}>#{u.id}</span>
                 <span style={{ ...st.cel, flex: 1, fontWeight: 600, color: "#F68B32" }}>{u.username}</span>
-                <span style={{ ...st.cel, flex: 1.6 }}>{u.nombre_completo}</span>
+                <span style={{ ...st.cel, flex: 1.6 }}>{u.nombre_completo}{u.email_2fa && <span title={`2FA a ${u.email_2fa}`} style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#eef2ff", color: "#4f46e5", border: "1px solid #c7d2fe", whiteSpace: "nowrap" }}>🔐 2FA</span>}</span>
                 <span style={{ ...st.cel, flex: 0.9, textAlign: "center" }}>
                   <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 4, background: rc.bg, color: rc.text, border: `1px solid ${rc.border}` }}>
                     {ROL_LABELS[u.rol] || u.rol}
@@ -196,6 +229,7 @@ export default function Usuarios({ onVolver }) {
                 </span>
                 <span style={{ ...st.cel, flex: 1.8, textAlign: "right", display: "flex", justifyContent: "flex-end", gap: 4, flexWrap: "wrap" }}>
                   <button style={st.btnAccion} onClick={() => abrirEditar(u)}>✏️ Editar</button>
+                  {yo?.id === u.id && u.email_2fa && <button style={{ ...st.btnAccion, color: "#4f46e5", borderColor: "#c7d2fe" }} onClick={() => abrir2fa(u)}>🔐 Probar 2FA</button>}
                   <button style={st.btnAccion} onClick={() => abrirPassword(u)}>🔑 Password</button>
                   <button style={{ ...st.btnAccion, color: u.activo ? "#856404" : "#27500a", borderColor: u.activo ? "#f39c12" : "#F68B32" }} onClick={() => toggleActivo(u)}>
                     {u.activo ? "⊘ Desactivar" : "✓ Activar"}
@@ -245,6 +279,13 @@ export default function Usuarios({ onVolver }) {
                   <option value="french">French</option>
                 </select>
               </div>
+              <div>
+                <label style={st.label}>Email para 2FA (opcional)</label>
+                <input type="email" style={st.input} value={form.email_2fa}
+                  onChange={e => setForm(f => ({ ...f, email_2fa: e.target.value }))}
+                  placeholder="mail@ejemplo.com" autoCapitalize="none" autoCorrect="off" />
+                <div style={{ fontSize: 11, color: "#aaa", marginTop: 4 }}>Vacío = sin 2FA (entra normal). Con mail = se le pedirá un código al ingresar.</div>
+              </div>
               {modal === "nuevo" && (
                 <div>
                   <label style={st.label}>Contraseña inicial</label>
@@ -288,6 +329,38 @@ export default function Usuarios({ onVolver }) {
               onClick={cambiarPassword}>
               {guardando ? "Guardando..." : "Cambiar contraseña"}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL PROBAR 2FA */}
+      {modal === "2fa" && (
+        <div style={st.modalOverlay}>
+          <div style={{ ...st.modal, width: 420 }}>
+            <div style={st.modalHeader}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#333" }}>🔐 Probar 2FA</div>
+              <button style={st.btnCerrar} onClick={() => { setModal(null); setUsuarioEditando(null); }}>✕</button>
+            </div>
+            <div style={{ fontSize: 13, color: "#666", marginBottom: 14 }}>
+              Se envía un código al mail 2FA de <strong>{usuarioEditando?.username}</strong> ({usuarioEditando?.email_2fa}).
+            </div>
+            <button style={{ ...st.btnPrimary, opacity: guardando ? 0.5 : 1 }} disabled={guardando} onClick={probar2faEnviar}>
+              {guardando && !enviado2fa ? "Enviando..." : enviado2fa ? "Reenviar código" : "Enviar código al mail"}
+            </button>
+            {enviado2fa && (
+              <div style={{ marginTop: 16 }}>
+                <label style={st.label}>Código recibido (6 dígitos)</label>
+                <input style={st.input} value={codigo2fa}
+                  onChange={e => { setCodigo2fa(e.target.value.replace(/\D/g, "").slice(0, 6)); setVerif2fa(null); }}
+                  placeholder="000000" inputMode="numeric" autoFocus />
+                <button style={{ ...st.btnPrimary, marginTop: 12, opacity: (guardando || codigo2fa.length < 6) ? 0.5 : 1 }}
+                  disabled={guardando || codigo2fa.length < 6} onClick={probar2faVerificar}>
+                  {guardando ? "Verificando..." : "Verificar código"}
+                </button>
+                {verif2fa === "ok" && <div style={{ marginTop: 14, fontSize: 15, fontWeight: 700, color: "#27500a", textAlign: "center" }}>✓ Código válido</div>}
+                {verif2fa === "bad" && <div style={{ marginTop: 14, fontSize: 15, fontWeight: 700, color: "#c0392b", textAlign: "center" }}>✗ Código incorrecto</div>}
+              </div>
+            )}
           </div>
         </div>
       )}

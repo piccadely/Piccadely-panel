@@ -37,6 +37,11 @@ export async function initAuthDB(pool) {
     );
   `);
 
+  // 2FA por email (parte 1): columnas opcionales. email_2fa NULL = usuario sin 2FA (entra normal).
+  await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS email_2fa TEXT;`);
+  await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS codigo_2fa TEXT;`);
+  await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS codigo_2fa_expira TIMESTAMP;`);
+
   const { rows } = await pool.query("SELECT COUNT(*)::int AS n FROM usuarios");
   if (rows[0].n > 0) {
     console.log(`Auth: ${rows[0].n} usuarios ya cargados, skip seed`);
@@ -181,7 +186,7 @@ export function setupAuth(app, pool) {
   app.get("/api/usuarios", requireAdmin, async (req, res) => {
     try {
       const { rows } = await pool.query(
-        "SELECT id, username, nombre_completo, rol, activo, created_at FROM usuarios ORDER BY rol, nombre_completo"
+        "SELECT id, username, nombre_completo, rol, activo, email_2fa, created_at FROM usuarios ORDER BY rol, nombre_completo"
       );
       res.json(rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -189,17 +194,19 @@ export function setupAuth(app, pool) {
 
   app.post("/api/usuarios", requireAdmin, async (req, res) => {
     try {
-      const { username, password, nombre_completo, rol } = req.body;
+      const { username, password, nombre_completo, rol, email_2fa } = req.body;
       if (!username || !password || !nombre_completo || !rol) return res.status(400).json({ error: "Faltan campos" });
       if (!["admin", "a_thomas", "french", "encargado"].includes(rol)) return res.status(400).json({ error: "Rol inválido" });
       if (password.length < 4) return res.status(400).json({ error: "La contraseña es muy corta" });
+      const email2fa = (email_2fa && String(email_2fa).trim()) ? String(email_2fa).trim() : null;
+      if (email2fa && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email2fa)) return res.status(400).json({ error: "Email 2FA inválido" });
 
       const hash = await bcrypt.hash(password, 10);
       const { rows } = await pool.query(
-        `INSERT INTO usuarios (username, password_hash, nombre_completo, rol)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id, username, nombre_completo, rol, activo`,
-        [String(username).toLowerCase().trim(), hash, nombre_completo, rol]
+        `INSERT INTO usuarios (username, password_hash, nombre_completo, rol, email_2fa)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, username, nombre_completo, rol, activo, email_2fa`,
+        [String(username).toLowerCase().trim(), hash, nombre_completo, rol, email2fa]
       );
       res.json(rows[0]);
     } catch (err) {
@@ -211,7 +218,7 @@ export function setupAuth(app, pool) {
   app.patch("/api/usuarios/:id", requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
-      const { nombre_completo, rol, activo, password } = req.body;
+      const { nombre_completo, rol, activo, password, email_2fa } = req.body;
 
       const updates = [];
       const valores = [];
@@ -228,6 +235,11 @@ export function setupAuth(app, pool) {
         const hash = await bcrypt.hash(password, 10);
         updates.push(`password_hash = $${i++}`); valores.push(hash);
       }
+      if (email_2fa !== undefined) {
+        const email2fa = (email_2fa && String(email_2fa).trim()) ? String(email_2fa).trim() : null;
+        if (email2fa && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email2fa)) return res.status(400).json({ error: "Email 2FA inválido" });
+        updates.push(`email_2fa = $${i++}`); valores.push(email2fa);
+      }
 
       if (updates.length === 0) return res.status(400).json({ error: "Nada para actualizar" });
 
@@ -235,7 +247,7 @@ export function setupAuth(app, pool) {
       valores.push(id);
 
       const sql = `UPDATE usuarios SET ${updates.join(", ")} WHERE id = $${i}
-                   RETURNING id, username, nombre_completo, rol, activo`;
+                   RETURNING id, username, nombre_completo, rol, activo, email_2fa`;
       const { rows } = await pool.query(sql, valores);
 
       if (rows.length === 0) return res.status(404).json({ error: "Usuario no encontrado" });
