@@ -20,6 +20,9 @@ import jwt from "jsonwebtoken";
 const JWT_SECRET = process.env.JWT_SECRET;
 const ADMIN_SECRET = process.env.ADMIN_SECRET;
 const JWT_EXPIRES_IN = "14h";
+const CODIGO_2FA_TTL_MIN = 10;              // vencimiento del código 2FA de 6 dígitos (minutos)
+const CHALLENGE_2FA_EXPIRES_IN = "10m";     // vencimiento del challengeToken (paso 2 del login)
+const REENVIO_2FA_MIN_MS = 30 * 1000;       // no reenviar el código más de 1 vez cada 30s
 const PASSWORD_INICIAL = process.env.PASSWORD_INICIAL || "Piccadely2026!";
 
 // ─── INIT DB: tabla + seed ───────────────────────────────────────────
@@ -78,7 +81,7 @@ export async function initAuthDB(pool) {
 }
 
 // ─── SETUP: middlewares + endpoints ──────────────────────────────────
-export function setupAuth(app, pool) {
+export function setupAuth(app, pool, mailTransporter) {
   function requireAuth(req, res, next) {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -127,6 +130,41 @@ export function setupAuth(app, pool) {
     }
   }
 
+  // ─── 2FA POR EMAIL ───────────────────────────────────────────────────
+  // Código de 6 dígitos al email_2fa del usuario. Se guarda HASHEADO (bcrypt), vence a
+  // CODIGO_2FA_TTL_MIN, un solo uso. mailTransporter se inyecta desde server.js.
+  async function generarYEnviarCodigo2FA(usuario) {
+    if (!usuario?.email_2fa) return { ok: false, error: "El usuario no tiene 2FA configurado" };
+    if (!mailTransporter) return { ok: false, error: "Mail no configurado en el servidor" };
+    const codigo = String(Math.floor(100000 + Math.random() * 900000));
+    const hash = await bcrypt.hash(codigo, 10);
+    const expira = new Date(Date.now() + CODIGO_2FA_TTL_MIN * 60 * 1000);
+    await pool.query("UPDATE usuarios SET codigo_2fa=$1, codigo_2fa_expira=$2 WHERE id=$3", [hash, expira, usuario.id]);
+    try {
+      await mailTransporter.sendMail({
+        from: `Piccadely <${process.env.GMAIL_USER}>`,
+        to: usuario.email_2fa,
+        subject: "Código de acceso Piccadely Panel",
+        text: `Código de acceso para ${usuario.nombre_completo}: ${codigo}. Vence en ${CODIGO_2FA_TTL_MIN} minutos. Si no fuiste vos, avisá al administrador.`,
+      });
+    } catch (err) {
+      console.error("Error enviando código 2FA:", err.message);
+      return { ok: false, error: "No se pudo enviar el mail" };
+    }
+    return { ok: true };
+  }
+  async function verificarCodigo2FA(usuario, codigo) {
+    if (!usuario?.id || !codigo) return false;
+    const { rows } = await pool.query("SELECT codigo_2fa, codigo_2fa_expira FROM usuarios WHERE id=$1", [usuario.id]);
+    const u = rows[0];
+    if (!u || !u.codigo_2fa || !u.codigo_2fa_expira) return false;
+    if (new Date(u.codigo_2fa_expira).getTime() < Date.now()) return false; // vencido
+    const ok = await bcrypt.compare(String(codigo).trim(), u.codigo_2fa);
+    if (!ok) return false;
+    await pool.query("UPDATE usuarios SET codigo_2fa=NULL, codigo_2fa_expira=NULL WHERE id=$1", [usuario.id]); // un solo uso
+    return true;
+  }
+
   app.post("/api/login", async (req, res) => {
     try {
       const { username, password } = req.body;
@@ -142,6 +180,15 @@ export function setupAuth(app, pool) {
       const ok = await bcrypt.compare(password, user.password_hash);
       if (!ok) return res.status(401).json({ error: "Usuario o contraseña incorrectos" });
 
+      // 2FA: si el usuario tiene email_2fa, NO damos el token todavía — mandamos el código y
+      // devolvemos un challengeToken corto (paso 2). Sin email_2fa entra directo, como siempre.
+      if (user.email_2fa) {
+        const envio = await generarYEnviarCodigo2FA(user);
+        if (!envio.ok) return res.status(503).json({ error: "No pudimos enviar el código. Contactá al administrador." });
+        const challengeToken = jwt.sign({ pending2fa: true, userId: user.id }, JWT_SECRET, { expiresIn: CHALLENGE_2FA_EXPIRES_IN });
+        return res.json({ requiere2FA: true, challengeToken });
+      }
+
       const token = jwt.sign(
         { id: user.id, username: user.username, rol: user.rol, nombre_completo: user.nombre_completo },
         JWT_SECRET,
@@ -156,6 +203,78 @@ export function setupAuth(app, pool) {
       console.error("Error /api/login:", err.message);
       res.status(500).json({ error: "Error en el servidor" });
     }
+  });
+
+  // Paso 2 del login: verifica el challengeToken + el código, y recién ahí da el JWT de sesión.
+  app.post("/api/login/2fa", async (req, res) => {
+    try {
+      const { challengeToken, codigo } = req.body;
+      if (!challengeToken || !codigo) return res.status(400).json({ error: "Faltan datos" });
+      let payload;
+      try { payload = jwt.verify(challengeToken, JWT_SECRET); } catch { return res.status(401).json({ error: "La verificación venció. Ingresá de nuevo." }); }
+      if (!payload.pending2fa || !payload.userId) return res.status(401).json({ error: "Token de verificación inválido" });
+      const { rows } = await pool.query("SELECT * FROM usuarios WHERE id=$1 AND activo=true", [payload.userId]);
+      const user = rows[0];
+      if (!user) return res.status(401).json({ error: "Usuario no encontrado o inactivo" });
+      const valido = await verificarCodigo2FA(user, codigo);
+      if (!valido) return res.status(401).json({ error: "Código incorrecto o vencido" });
+      const token = jwt.sign(
+        { id: user.id, username: user.username, rol: user.rol, nombre_completo: user.nombre_completo },
+        JWT_SECRET,
+        { expiresIn: JWT_EXPIRES_IN }
+      );
+      res.json({
+        token,
+        user: { id: user.id, username: user.username, nombre_completo: user.nombre_completo, rol: user.rol }
+      });
+    } catch (err) {
+      console.error("Error /api/login/2fa:", err.message);
+      res.status(500).json({ error: "Error en el servidor" });
+    }
+  });
+
+  // Reenvío del código (botón "reenviar"). Rate limit: 1 cada 30s (stateless, vía codigo_2fa_expira).
+  app.post("/api/login/2fa/reenviar", async (req, res) => {
+    try {
+      const { challengeToken } = req.body;
+      if (!challengeToken) return res.status(400).json({ error: "Falta challengeToken" });
+      let payload;
+      try { payload = jwt.verify(challengeToken, JWT_SECRET); } catch { return res.status(401).json({ error: "La verificación venció. Ingresá de nuevo." }); }
+      if (!payload.pending2fa || !payload.userId) return res.status(401).json({ error: "Token de verificación inválido" });
+      const { rows } = await pool.query("SELECT * FROM usuarios WHERE id=$1 AND activo=true", [payload.userId]);
+      const user = rows[0];
+      if (!user || !user.email_2fa) return res.status(400).json({ error: "El usuario no tiene 2FA" });
+      // Antigüedad del último código = TTL - (expira - ahora). Si < 30s, todavía no se puede reenviar.
+      if (user.codigo_2fa_expira) {
+        const antiguedadMs = (CODIGO_2FA_TTL_MIN * 60 * 1000) - (new Date(user.codigo_2fa_expira).getTime() - Date.now());
+        if (antiguedadMs < REENVIO_2FA_MIN_MS) return res.status(429).json({ error: "Esperá unos segundos antes de reenviar." });
+      }
+      const envio = await generarYEnviarCodigo2FA(user);
+      if (!envio.ok) return res.status(503).json({ error: "No pudimos reenviar el código. Contactá al administrador." });
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Error /api/login/2fa/reenviar:", err.message);
+      res.status(500).json({ error: "Error en el servidor" });
+    }
+  });
+
+  // Endpoints de testing del 2FA (desde el ABM, sin tocar el login). Operan sobre el usuario logueado.
+  app.post("/api/2fa/test-enviar", requireAuth, async (req, res) => {
+    try {
+      const { rows } = await pool.query("SELECT id, nombre_completo, email_2fa FROM usuarios WHERE id=$1", [req.user.id]);
+      const usuario = rows[0];
+      if (!usuario) return res.status(404).json({ error: "Usuario no encontrado" });
+      if (!usuario.email_2fa) return res.status(400).json({ error: "Tu usuario no tiene email 2FA configurado" });
+      const r = await generarYEnviarCodigo2FA(usuario);
+      if (!r.ok) return res.status(500).json({ error: r.error });
+      res.json({ ok: true, enviadoA: usuario.email_2fa });
+    } catch (err) { console.error("Error /api/2fa/test-enviar:", err.message); res.status(500).json({ error: "Error enviando código 2FA" }); }
+  });
+  app.post("/api/2fa/test-verificar", requireAuth, async (req, res) => {
+    try {
+      const valido = await verificarCodigo2FA({ id: req.user.id }, req.body?.codigo);
+      res.json({ valido: !!valido });
+    } catch (err) { console.error("Error /api/2fa/test-verificar:", err.message); res.status(500).json({ error: "Error verificando código 2FA" }); }
   });
 
   app.get("/api/me", requireAuth, (req, res) => {
