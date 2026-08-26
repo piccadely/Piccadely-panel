@@ -23,6 +23,7 @@ const JWT_EXPIRES_IN = "14h";
 const CODIGO_2FA_TTL_MIN = 10;              // vencimiento del código 2FA de 6 dígitos (minutos)
 const CHALLENGE_2FA_EXPIRES_IN = "10m";     // vencimiento del challengeToken (paso 2 del login)
 const REENVIO_2FA_MIN_MS = 30 * 1000;       // no reenviar el código más de 1 vez cada 30s
+const MODO_LECTURA_EXPIRES_IN = "4h";       // duración del token de emergencia (modo solo-lectura)
 const PASSWORD_INICIAL = process.env.PASSWORD_INICIAL || "Piccadely2026!";
 
 // ─── INIT DB: tabla + seed ───────────────────────────────────────────
@@ -82,6 +83,26 @@ export async function initAuthDB(pool) {
 
 // ─── SETUP: middlewares + endpoints ──────────────────────────────────
 export function setupAuth(app, pool, mailTransporter) {
+  // ─── GATE MODO SOLO-LECTURA (emergencia por mail caído) ────────────────
+  // Un token con modoLectura:true SOLO puede hacer los GET del panel de pedidos activos
+  // (allowlist explícita). Cualquier otra cosa — escrituras, reportes, caja, ABM, etc. — → 403.
+  // Se monta ANTES de cualquier ruta, así cubre también los endpoints que hoy no tienen auth.
+  const RUTAS_LECTURA_OK = [
+    /^\/api\/orders$/, /^\/api\/estados$/, /^\/api\/pedidos-manuales$/,
+    /^\/api\/pedidos\/productos-all$/, /^\/api\/repartidores$/,
+    /^\/api\/tandas$/, /^\/api\/facturas-all$/, /^\/api\/me$/,
+  ];
+  app.use((req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) return next(); // sin token → flujo normal
+    let payload;
+    try { payload = jwt.verify(authHeader.slice(7), JWT_SECRET); } catch { return next(); } // inválido → lo maneja el requireAuth de la ruta
+    if (!payload.modoLectura) return next();  // token normal → sin restricción acá
+    const permitido = req.method === "GET" && RUTAS_LECTURA_OK.some(re => re.test(req.path));
+    if (permitido) return next();
+    return res.status(403).json({ error: "Modo solo lectura: acción no permitida." });
+  });
+
   function requireAuth(req, res, next) {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -184,7 +205,12 @@ export function setupAuth(app, pool, mailTransporter) {
       // devolvemos un challengeToken corto (paso 2). Sin email_2fa entra directo, como siempre.
       if (user.email_2fa) {
         const envio = await generarYEnviarCodigo2FA(user);
-        if (!envio.ok) return res.status(503).json({ error: "No pudimos enviar el código. Contactá al administrador." });
+        if (!envio.ok) {
+          // Mail caído (user+pass YA validados): ofrecemos entrar en MODO SOLO-LECTURA.
+          // OJO: esto NO es un bypass — solo se llega acá con credenciales correctas.
+          const emergencyChallengeToken = jwt.sign({ emergencyPending: true, userId: user.id }, JWT_SECRET, { expiresIn: CHALLENGE_2FA_EXPIRES_IN });
+          return res.json({ emergenciaDisponible: true, emergencyChallengeToken });
+        }
         const challengeToken = jwt.sign({ pending2fa: true, userId: user.id }, JWT_SECRET, { expiresIn: CHALLENGE_2FA_EXPIRES_IN });
         return res.json({ requiere2FA: true, challengeToken });
       }
@@ -254,6 +280,34 @@ export function setupAuth(app, pool, mailTransporter) {
       res.json({ ok: true });
     } catch (err) {
       console.error("Error /api/login/2fa/reenviar:", err.message);
+      res.status(500).json({ error: "Error en el servidor" });
+    }
+  });
+
+  // Acceso de EMERGENCIA (modo solo-lectura) cuando el mail está caído. Requiere el
+  // emergencyChallengeToken que devuelve /api/login al fallar el envío del código.
+  app.post("/api/login/emergencia", async (req, res) => {
+    try {
+      const { emergencyChallengeToken } = req.body;
+      if (!emergencyChallengeToken) return res.status(400).json({ error: "Falta el token de emergencia" });
+      let payload;
+      try { payload = jwt.verify(emergencyChallengeToken, JWT_SECRET); } catch { return res.status(401).json({ error: "El acceso de emergencia venció. Ingresá de nuevo." }); }
+      if (!payload.emergencyPending || !payload.userId) return res.status(401).json({ error: "Token de emergencia inválido" });
+      const { rows } = await pool.query("SELECT * FROM usuarios WHERE id=$1 AND activo=true", [payload.userId]);
+      const user = rows[0];
+      if (!user) return res.status(401).json({ error: "Usuario no encontrado o inactivo" });
+      // Token de sesión ESPECIAL marcado modoLectura:true (el gate global lo restringe a los GET del panel).
+      const token = jwt.sign(
+        { id: user.id, username: user.username, rol: user.rol, nombre_completo: user.nombre_completo, modoLectura: true },
+        JWT_SECRET,
+        { expiresIn: MODO_LECTURA_EXPIRES_IN }
+      );
+      res.json({
+        token,
+        user: { id: user.id, username: user.username, nombre_completo: user.nombre_completo, rol: user.rol, modoLectura: true }
+      });
+    } catch (err) {
+      console.error("Error /api/login/emergencia:", err.message);
       res.status(500).json({ error: "Error en el servidor" });
     }
   });

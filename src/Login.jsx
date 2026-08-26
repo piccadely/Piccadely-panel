@@ -21,6 +21,7 @@ export default function Login({ onLogin }) {
   const [challengeToken, setChallengeToken] = useState("");
   const [codigo, setCodigo] = useState("");
   const [info, setInfo] = useState("");
+  const [emergencyToken, setEmergencyToken] = useState(""); // modo emergencia (mail caído)
 
   // Paso 1: usuario + contraseña
   async function handleSubmit(e) {
@@ -29,7 +30,10 @@ export default function Login({ onLogin }) {
     setError(""); setInfo(""); setCargando(true);
     try {
       const res = await axios.post(`${API}/api/login`, { username: username.trim(), password });
-      if (res.data.requiere2FA) {
+      if (res.data.emergenciaDisponible) {
+        setEmergencyToken(res.data.emergencyChallengeToken);
+        setPaso("emergencia");
+      } else if (res.data.requiere2FA) {
         setChallengeToken(res.data.challengeToken);
         setCodigo("");
         setPaso("codigo");
@@ -68,13 +72,26 @@ export default function Login({ onLogin }) {
     }
   }
 
+  // Modo emergencia: entrar solo-lectura cuando el mail está caído.
+  async function handleEmergencia() {
+    setError(""); setCargando(true);
+    try {
+      const res = await axios.post(`${API}/api/login/emergencia`, { emergencyChallengeToken: emergencyToken });
+      guardarSesion(res.data.token, res.data.user);
+      onLogin(res.data.user);
+    } catch (err) {
+      setError(err.response?.data?.error || "No se pudo entrar en modo lectura");
+    }
+    setCargando(false);
+  }
+
   function volver() {
-    setPaso("credenciales"); setChallengeToken(""); setCodigo(""); setError(""); setInfo("");
+    setPaso("credenciales"); setChallengeToken(""); setCodigo(""); setEmergencyToken(""); setError(""); setInfo("");
   }
 
   return (
     <div style={{ minHeight: "100vh", background: "#f7f7f5", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "system-ui, sans-serif", padding: 16 }}>
-      {paso === "credenciales" ? (
+      {paso === "credenciales" && (
         <form onSubmit={handleSubmit} style={cardStyle}>
           <div style={{ textAlign: "center", marginBottom: 20 }}>
             <img src="/Piccadely_Logotipo-Centrado-Negro.svg" alt="Piccadely" style={{ height: 48, objectFit: "contain" }} />
@@ -98,7 +115,9 @@ export default function Login({ onLogin }) {
             {cargando ? "Ingresando..." : "Ingresar"}
           </button>
         </form>
-      ) : (
+      )}
+
+      {paso === "codigo" && (
         <form onSubmit={handleVerificar} style={cardStyle}>
           <div style={{ textAlign: "center", marginBottom: 20 }}>
             <img src="/Piccadely_Logotipo-Centrado-Negro.svg" alt="Piccadely" style={{ height: 48, objectFit: "contain" }} />
@@ -124,6 +143,24 @@ export default function Login({ onLogin }) {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14 }}>
             <button type="button" onClick={volver} style={{ background: "none", border: "none", color: "#888", fontSize: 12, cursor: "pointer", padding: 0 }}>← Volver</button>
             <button type="button" onClick={handleReenviar} disabled={cargando} style={{ background: "none", border: "none", color: "#F68B32", fontSize: 12, fontWeight: 600, cursor: cargando ? "default" : "pointer", padding: 0 }}>Reenviar código</button>
+          </div>
+        </form>
+      )}
+
+      {paso === "emergencia" && (
+        <form onSubmit={e => { e.preventDefault(); handleEmergencia(); }} style={cardStyle}>
+          <div style={{ textAlign: "center", marginBottom: 20 }}>
+            <img src="/Piccadely_Logotipo-Centrado-Negro.svg" alt="Piccadely" style={{ height: 48, objectFit: "contain" }} />
+          </div>
+          <div style={{ background: "#fff4e5", border: "1px solid #f0c98a", borderRadius: 8, padding: "12px 14px", marginBottom: 16, fontSize: 13, color: "#8a5a00", lineHeight: 1.5 }}>
+            ⚠️ No podemos enviar el código de verificación en este momento (problema con el sistema de mail). Podés entrar en <b>modo SOLO LECTURA</b> para ver los pedidos. No vas a poder facturar, cobrar ni acceder a reportes.
+          </div>
+          {error && <div style={errorBox}>{error}</div>}
+          <button type="submit" disabled={cargando} style={btnStyle(cargando)}>
+            {cargando ? "Ingresando..." : "Entrar en modo solo lectura"}
+          </button>
+          <div style={{ marginTop: 14, textAlign: "center" }}>
+            <button type="button" onClick={volver} style={{ background: "none", border: "none", color: "#888", fontSize: 12, cursor: "pointer", padding: 0 }}>← Volver</button>
           </div>
         </form>
       )}

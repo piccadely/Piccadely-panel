@@ -2208,6 +2208,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       // admin o encargado (operación completa). Los operarios (a_thomas/french) no son ni uno ni otro.
       const esAdmin = usuario.rol === "admin";
       const esGestion = usuario.rol === "admin" || usuario.rol === "encargado";
+      const soloLectura = !!usuario.modoLectura;   // sesión de emergencia (mail caído): solo ver pedidos
       const [filtroFecha, setFiltroFecha] = useState("");
       const [filtroZona, setFiltroZona] = useState("");
       const [expandido, setExpandido] = useState(null);
@@ -3078,7 +3079,7 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                                 <div style={s.detalleLabel}>Estado</div>
                                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                                   <span style={{ ...s.estadoTag, background: ec.bg, color: ec.text }}>{estadoActual}</span>
-                                  {estadoActual !== "Entregado" && <button style={s.btnEstado} onClick={e => cambiarEstado(p, e)}>→ {nextEstado(estadoActual)}</button>}
+                                  {!soloLectura && estadoActual !== "Entregado" && <button style={s.btnEstado} onClick={e => cambiarEstado(p, e)}>→ {nextEstado(estadoActual)}</button>}
                                 </div>
                               </div>
                               <div style={s.detalleBloque}><div style={s.detalleLabel}>Fecha de entrega</div><InputBlur type="date" style={s.inputField} initialValue={fechaManual} onCommit={v => { actualizarLocalSinGuardar(p.id, { fechaManual: v }); guardarLocalEnDB(p.id); }} onClick={e => e.stopPropagation()} /></div>
@@ -3086,6 +3087,7 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                               <div style={s.detalleBloque}><div style={s.detalleLabel}>Mover a sección</div><select style={s.inputField} value={tabActual} onChange={e => cambiarTab(p.id, e.target.value)}>{TABS.filter(t => t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}</select></div>
                             </div>
                             <AuditoriaInline pedidoId={String(p.id)} />
+                            {!soloLectura && (
                             <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
                               <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>
                                 🖨️ Imprimir comanda {comandasImpresas[p.id] ? <span style={{ marginLeft: 4, background: "#f39c12", color: "#fff", borderRadius: 99, fontSize: 10, padding: "1px 6px", fontWeight: 700 }}>{comandasImpresas[p.id]}</span> : null}
@@ -3101,6 +3103,7 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                                 🚫 Anular pedido
                               </button>
                             </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -3466,9 +3469,11 @@ let numeroAsignado = "";
               <button style={s.btnLogout} onClick={() => { if (window.confirm("¿Cerrar sesión?")) cerrarSesion(); }} title="Cerrar sesión">⎋</button>
             </div>
             <div style={{ position: "relative" }} ref={menuRef}>
+              {!soloLectura && (
               <button style={s.hamburger} onClick={() => setMenuAbierto(m => !m)}>
                 <div style={s.hambLine} /><div style={s.hambLine} /><div style={s.hambLine} />
               </button>
+              )}
           {menuAbierto && (
                 <div style={s.dropdown}>
                   {esAdmin && (
@@ -3532,7 +3537,7 @@ let numeroAsignado = "";
 
       const TabBar = () => (
         <div style={s.tabs}>
-          {TABS.map(t => (
+          {TABS.filter(t => !soloLectura || t.id !== "nuevo").map(t => (
             <button key={t.id} style={{ ...s.tab, ...(tab === t.id ? s.tabActive : {}) }}
               onClick={() => { setTab(t.id); setVista("panel"); setFiltroFecha(""); setFiltroZona(""); }}>
               {t.label}
@@ -4971,6 +4976,11 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
           )}
           {modalEmailMPNode}
           <Header />
+          {soloLectura && (
+            <div style={{ background: "#fff4e5", borderBottom: "1px solid #f0c98a", color: "#8a5a00", padding: "10px 16px", fontSize: 13, fontWeight: 600, textAlign: "center" }}>
+              🔒 MODO SOLO LECTURA — el sistema de mail está caído. Solo podés ver los pedidos. Facturación, caja y reportes no están disponibles.
+            </div>
+          )}
           <TabBar />
           <div style={s.stats}>
             {[["Total", totalFiltrados, "#333"], ["Pendientes", totalPendientes, "#333"], ["En camino", totalEnCamino, "#0c447c"], ["Listos", totalListos, "#633806"]].map(([label, val, color]) => (
@@ -4989,6 +4999,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
               <option value="">Todas las zonas</option>
               {zonas.map(z => <option key={z} value={z}>{z}</option>)}
             </select>
+            {!soloLectura && (<>
             <button
               onClick={imprimirComandasLote}
               disabled={comandasPendientes.length === 0}
@@ -5014,6 +5025,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
               style={{ fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 6, border: "1px solid #7c3aed", cursor: "pointer", background: "#fff", color: "#7c3aed" }}>
               🚚 Tandas activas
             </button>
+            </>)}
           </div>
           <div style={s.lista}>
             <div style={s.cabecera}>
