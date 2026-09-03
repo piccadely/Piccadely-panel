@@ -34,7 +34,7 @@ export async function initAuthDB(pool) {
       username TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       nombre_completo TEXT NOT NULL,
-      rol TEXT NOT NULL CHECK (rol IN ('admin', 'a_thomas', 'french', 'encargado')),
+      rol TEXT NOT NULL CHECK (rol IN ('admin', 'a_thomas', 'french', 'encargado', 'superadmin', 'solo_lectura')),
       activo BOOLEAN DEFAULT true,
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
@@ -97,10 +97,19 @@ export function setupAuth(app, pool, mailTransporter) {
     if (!authHeader || !authHeader.startsWith("Bearer ")) return next(); // sin token → flujo normal
     let payload;
     try { payload = jwt.verify(authHeader.slice(7), JWT_SECRET); } catch { return next(); } // inválido → lo maneja el requireAuth de la ruta
-    if (!payload.modoLectura) return next();  // token normal → sin restricción acá
-    const permitido = req.method === "GET" && RUTAS_LECTURA_OK.some(re => re.test(req.path));
-    if (permitido) return next();
-    return res.status(403).json({ error: "Modo solo lectura: acción no permitida." });
+    // Emergencia (mail caído): allowlist ESTRICTA, solo el panel de pedidos activos.
+    if (payload.modoLectura) {
+      const permitido = req.method === "GET" && RUTAS_LECTURA_OK.some(re => re.test(req.path));
+      if (permitido) return next();
+      return res.status(403).json({ error: "Modo solo lectura: acción no permitida." });
+    }
+    // Rol solo_lectura: ve como encargado (todo GET) pero NO puede escribir (bloquea todo no-GET).
+    // Lo admin-only igual lo frena requireAdmin (solo_lectura no es admin).
+    if (payload.rol === "solo_lectura") {
+      if (req.method === "GET") return next();
+      return res.status(403).json({ error: "Rol de solo lectura: acción no permitida." });
+    }
+    return next();  // token normal → sin restricción acá
   });
 
   function requireAuth(req, res, next) {
@@ -141,7 +150,7 @@ export function setupAuth(app, pool, mailTransporter) {
     const token = authHeader.slice(7);
     try {
       const payload = jwt.verify(token, JWT_SECRET);
-      if (payload.rol !== "admin") {
+      if (!["admin", "superadmin"].includes(payload.rol)) {
         return res.status(403).json({ error: "Requiere rol admin" });
       }
       req.user = payload;
@@ -369,7 +378,7 @@ export function setupAuth(app, pool, mailTransporter) {
     try {
       const { username, password, nombre_completo, rol, email_2fa } = req.body;
       if (!username || !password || !nombre_completo || !rol) return res.status(400).json({ error: "Faltan campos" });
-      if (!["admin", "a_thomas", "french", "encargado"].includes(rol)) return res.status(400).json({ error: "Rol inválido" });
+      if (!["admin", "a_thomas", "french", "encargado", "superadmin", "solo_lectura"].includes(rol)) return res.status(400).json({ error: "Rol inválido" });
       if (password.length < 4) return res.status(400).json({ error: "La contraseña es muy corta" });
       const email2fa = (email_2fa && String(email_2fa).trim()) ? String(email_2fa).trim() : null;
       if (email2fa && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email2fa)) return res.status(400).json({ error: "Email 2FA inválido" });
@@ -399,7 +408,7 @@ export function setupAuth(app, pool, mailTransporter) {
 
       if (nombre_completo !== undefined) { updates.push(`nombre_completo = $${i++}`); valores.push(nombre_completo); }
       if (rol !== undefined) {
-        if (!["admin", "a_thomas", "french", "encargado"].includes(rol)) return res.status(400).json({ error: "Rol inválido" });
+        if (!["admin", "a_thomas", "french", "encargado", "superadmin", "solo_lectura"].includes(rol)) return res.status(400).json({ error: "Rol inválido" });
         updates.push(`rol = $${i++}`); valores.push(rol);
       }
       if (activo !== undefined) { updates.push(`activo = $${i++}`); valores.push(activo); }

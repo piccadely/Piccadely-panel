@@ -641,7 +641,7 @@ async function handlerReportePedidos(req, res) {
 // El modo fusionado (incluirActivos = "por vender") es SOLO admin.
 app.get("/api/reportes/pedidos", requireAuth, (req, res) => {
   const incluirActivos = req.query.incluirActivos === "1" || req.query.incluirActivos === "true";
-  if (incluirActivos && req.user?.rol !== "admin") return res.status(403).json({ error: "Requiere rol admin" });
+  if (incluirActivos && !["admin", "superadmin"].includes(req.user?.rol)) return res.status(403).json({ error: "Requiere rol admin" });
   return handlerReportePedidos(req, res);
 });
 // Endpoint dedicado ADMIN-ONLY: Dashboard ejecutivo y Reporte de ventas (misma data que
@@ -1766,8 +1766,18 @@ app.get("/api/auditoria/:entidadId", async (req, res) => {
 });
 
 // ─── CAJA ──────────────────────────────────────────────────────────────
+// La caja "Administración" es exclusiva de superadmin (los demás locales, sin cambios).
+// Responde 403 y devuelve true si hay que bloquear la operación.
+function bloqueaCajaAdmin(req, res, local) {
+  if (String(local) === "Administración" && req.user?.rol !== "superadmin") {
+    res.status(403).json({ error: "La caja Administración es solo para superadmin." });
+    return true;
+  }
+  return false;
+}
 app.post("/api/caja/apertura", requireAuth, async (req, res) => {
   const { local, fecha, montoInicial, usuario: usuarioAudit } = req.body;
+  if (bloqueaCajaAdmin(req, res, local)) return;
   try {
     const existe = await pool.query("SELECT id FROM caja_aperturas WHERE local=$1 AND fecha=$2", [local, fecha]);
     if (existe.rows.length > 0) return res.json({ ok: true, yaExiste: true });
@@ -1779,6 +1789,7 @@ app.post("/api/caja/apertura", requireAuth, async (req, res) => {
 });
 app.post("/api/caja/reabrir", requireAuth, async (req, res) => {
   const { local, fecha, montoInicial, usuario: usuarioAudit } = req.body;
+  if (bloqueaCajaAdmin(req, res, local)) return;
   try {
     const existe = await pool.query("SELECT id FROM caja_aperturas WHERE local=$1 AND fecha=$2", [local, fecha]);
     if (existe.rows.length === 0) {
@@ -1794,6 +1805,7 @@ app.post("/api/caja/reabrir", requireAuth, async (req, res) => {
 
 app.get("/api/caja/estado/:local/:fecha", requireAuth, async (req, res) => {
   const { local, fecha } = req.params;
+  if (bloqueaCajaAdmin(req, res, local)) return;
   try {
     const apertura = await pool.query("SELECT * FROM caja_aperturas WHERE local=$1 AND fecha=$2", [local, fecha]);
     const movimientos = await pool.query("SELECT * FROM caja_movimientos WHERE local=$1 AND fecha=$2 ORDER BY created_at ASC", [local, fecha]);
@@ -1803,6 +1815,7 @@ app.get("/api/caja/estado/:local/:fecha", requireAuth, async (req, res) => {
 
 app.post("/api/caja/ajuste", requireAuth, async (req, res) => {
   const { local, fecha, tipo, concepto, monto, usuario: usuarioAudit } = req.body;
+  if (bloqueaCajaAdmin(req, res, local)) return;
   try {
     await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,$2,$3,$4,$5)", [local, tipo, concepto, monto, fecha]);
     res.json({ ok: true });
@@ -1811,6 +1824,7 @@ app.post("/api/caja/ajuste", requireAuth, async (req, res) => {
 });
 app.post("/api/caja/sobre", requireAuth, async (req, res) => {
   const { localOrigen, fecha, monto, concepto, usuario: usuarioAudit } = req.body;
+  if (bloqueaCajaAdmin(req, res, localOrigen)) return;   // no se envía un sobre DESDE la caja Administración
   try {
     const montoAbs = Math.abs(Number(monto));
     if (!montoAbs || montoAbs <= 0) return res.status(400).json({ error: "Monto inválido" });
@@ -1832,6 +1846,7 @@ app.post("/api/caja/sobre", requireAuth, async (req, res) => {
 });
 app.post("/api/caja/cerrar-historico", requireAuth, async (req, res) => {
   const { local, fecha, usuario: usuarioAudit } = req.body;
+  if (bloqueaCajaAdmin(req, res, local)) return;
   try {
     await pool.query("UPDATE caja_aperturas SET cerrada=true, monto_cierre=monto_inicial WHERE local=$1 AND fecha=$2 AND cerrada=false", [local, fecha]);
     res.json({ ok: true });
@@ -1840,6 +1855,7 @@ app.post("/api/caja/cerrar-historico", requireAuth, async (req, res) => {
 });
 app.post("/api/caja/cierre", requireAuth, async (req, res) => {
   const { local, fecha, montoCierre, usuario: usuarioAudit } = req.body;
+  if (bloqueaCajaAdmin(req, res, local)) return;
   try {
     await pool.query("UPDATE caja_aperturas SET cerrada=true, monto_cierre=$1 WHERE local=$2 AND fecha=$3", [montoCierre, local, fecha]);
     await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'cierre','Cierre Z',$2,$3)", [local, montoCierre, fecha]);
@@ -1885,6 +1901,7 @@ app.post("/api/fondo-fijo/movimiento", requireAuth, async (req, res) => {
 
 app.get("/api/caja/historial/:local", requireAuth, async (req, res) => {
   const { local } = req.params;
+  if (bloqueaCajaAdmin(req, res, decodeURIComponent(local))) return;
   try {
     const aperturas = await pool.query("SELECT * FROM caja_aperturas WHERE local=$1 ORDER BY fecha DESC LIMIT 30", [decodeURIComponent(local)]);
     const resultado = [];

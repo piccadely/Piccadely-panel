@@ -1686,9 +1686,11 @@ const [facturaLabel, setFacturaLabel] = useState(null);
     // ─── COMPONENTE CAJA ─────────────────────────────────────────────────
     function VistaCaja({ pedidosActivos, onVolver, usuario }) {
             const HOY_CAJA = fechaArgentina();
-      const localesPermitidos = (usuario.rol === "admin" || usuario.rol === "encargado")
-        ? ["A. Thomas", "French", "Administración", "Fondo Fijo A. Thomas", "Fondo Fijo French"]
-        : usuario.rol === "a_thomas" ? ["A. Thomas", "Fondo Fijo A. Thomas"] : ["French", "Fondo Fijo French"];
+      const localesPermitidos = usuario.rol === "superadmin"
+        ? ["A. Thomas", "French", "Administración", "Fondo Fijo A. Thomas", "Fondo Fijo French"]   // solo superadmin ve la caja Administración
+        : ["admin", "encargado", "solo_lectura"].includes(usuario.rol)
+          ? ["A. Thomas", "French", "Fondo Fijo A. Thomas", "Fondo Fijo French"]                   // sin Administración
+          : usuario.rol === "a_thomas" ? ["A. Thomas", "Fondo Fijo A. Thomas"] : ["French", "Fondo Fijo French"];
       const [localSeleccionado, setLocalSeleccionado] = useState(localesPermitidos[0]);
       const [estadoCaja, setEstadoCaja] = useState(null);
       const [loadingCaja, setLoadingCaja] = useState(false);
@@ -2206,9 +2208,11 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [vista, setVista] = useState("panel");
       // Nivel de acceso por rol. esAdmin: solo admin (plata/administración). esGestion:
       // admin o encargado (operación completa). Los operarios (a_thomas/french) no son ni uno ni otro.
-      const esAdmin = usuario.rol === "admin";
-      const esGestion = usuario.rol === "admin" || usuario.rol === "encargado";
-      const soloLectura = !!usuario.modoLectura;   // sesión de emergencia (mail caído): solo ver pedidos
+      const esSuperadmin = usuario.rol === "superadmin";
+      const esAdmin = usuario.rol === "admin" || esSuperadmin;   // ambos ven el menú admin
+      const esGestion = esAdmin || ["encargado", "solo_lectura"].includes(usuario.rol);
+      const emergencia = !!usuario.modoLectura;                  // sesión de emergencia (mail caído): oculta el menú entero
+      const soloLectura = emergencia || usuario.rol === "solo_lectura";   // no puede modificar (oculta acciones de escritura)
       const [filtroFecha, setFiltroFecha] = useState("");
       const [filtroZona, setFiltroZona] = useState("");
       const [expandido, setExpandido] = useState(null);
@@ -3469,7 +3473,7 @@ let numeroAsignado = "";
               <button style={s.btnLogout} onClick={() => { if (window.confirm("¿Cerrar sesión?")) cerrarSesion(); }} title="Cerrar sesión">⎋</button>
             </div>
             <div style={{ position: "relative" }} ref={menuRef}>
-              {!soloLectura && (
+              {!emergencia && (
               <button style={s.hamburger} onClick={() => setMenuAbierto(m => !m)}>
                 <div style={s.hambLine} /><div style={s.hambLine} /><div style={s.hambLine} />
               </button>

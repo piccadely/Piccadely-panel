@@ -174,8 +174,10 @@ export default function Usuarios({ onVolver }) {
   }
 
   const rolColor = {
+    superadmin: { bg: "#fdecea", text: "#c0392b", border: "#c0392b" },
     admin: { bg: "#fef9e7", text: "#856404", border: "#f39c12" },
     encargado: { bg: "#f3e8fd", text: "#6d28d9", border: "#8b5cf6" },
+    solo_lectura: { bg: "#f1f1f1", text: "#555", border: "#bbb" },
     a_thomas: { bg: "#e6f1fb", text: "#0c447c", border: "#3b82f6" },
     french: { bg: "#eaf3de", text: "#27500a", border: "#F68B32" },
   };
@@ -273,8 +275,10 @@ export default function Usuarios({ onVolver }) {
               <div>
                 <label style={st.label}>Rol</label>
                 <select style={st.input} value={form.rol} onChange={e => setForm(f => ({ ...f, rol: e.target.value }))}>
-                  <option value="admin">Admin (ve todo)</option>
+                  <option value="superadmin">Superadmin (todo + caja Administración)</option>
+                  <option value="admin">Admin (todo menos caja Administración)</option>
                   <option value="encargado">Encargado (todo menos plata/administración)</option>
+                  <option value="solo_lectura">Solo lectura (ve como encargado, no modifica)</option>
                   <option value="a_thomas">A. Thomas</option>
                   <option value="french">French</option>
                 </select>
