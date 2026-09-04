@@ -1752,14 +1752,9 @@ const res = await axios.get(`${API}/api/caja/estado/${encodeURIComponent(localSe
         } catch (e) { console.error("Caja: error refrescando ventas de hoy:", e.message); }
       }
 
-      useEffect(() => { if (localSeleccionado.startsWith("Fondo Fijo")) { cargarFondo(); } else { cargarEstado(); cargarHistorial(); } }, [localSeleccionado]);
-      useEffect(() => {
-        if (localSeleccionado === "Administración" && estadoCaja !== null && !estadoCaja?.apertura && !loadingCaja) {
-          axios.post(`${API}/api/caja/apertura`, { local: "Administración", fecha: HOY_CAJA, montoInicial: 0 })
-            .then(() => cargarEstado())
-            .catch(console.error);
-        }
-      }, [localSeleccionado, estadoCaja, loadingCaja]);
+      // Administración pasa a ser PERSISTENTE (como el Fondo Fijo): se carga con cargarFondo,
+      // no con el estado diario, y ya NO se auto-abre en 0 cada día.
+      useEffect(() => { if (localSeleccionado.startsWith("Fondo Fijo") || localSeleccionado === "Administración") { cargarFondo(); } else { cargarEstado(); cargarHistorial(); } }, [localSeleccionado]);
       // Rango completo (HOY + días del historial): SOLO al entrar/cambiar de local
       // o cuando cambia el historial (que es estático salvo reapertura). Acá está el
       // costo grande, pero no se repite cada 30s.
@@ -1861,19 +1856,34 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
       async function cargarFondo() {
         setLoadingFondo(true);
-        try { const res = await axios.get(`${API}/api/fondo-fijo/${encodeURIComponent(localSeleccionado)}`); setFondo(res.data); }
-        catch (e) { console.error(e); }
+        try {
+          const url = localSeleccionado === "Administración"
+            ? `${API}/api/caja/administracion`                                   // caja persistente (saldo acumulado)
+            : `${API}/api/fondo-fijo/${encodeURIComponent(localSeleccionado)}`;
+          const res = await axios.get(url);
+          setFondo(res.data);
+        } catch (e) { console.error(e); }
         setLoadingFondo(false);
       }
       async function registrarMovimientoFondo() {
         if (!fondoMov.concepto || !fondoMov.monto) return;
         setGuardando(true);
         try {
-          await axios.post(`${API}/api/fondo-fijo/movimiento`, {
-            local: localSeleccionado,
-            tipo: fondoMov.tipo, concepto: fondoMov.concepto, monto: Number(fondoMov.monto),
-            fecha: HOY_CAJA, usuario: usuario.nombre_completo
-          });
+          if (localSeleccionado === "Administración") {
+            // Caja Administración (persistente): el movimiento se guarda como entrada/salida con
+            // monto FIRMADO (salida negativa), igual que el saldo acumulado los suma.
+            const montoFirmado = fondoMov.tipo === "salida" ? -Math.abs(Number(fondoMov.monto)) : Math.abs(Number(fondoMov.monto));
+            await axios.post(`${API}/api/caja/ajuste`, {
+              local: "Administración", fecha: HOY_CAJA, tipo: fondoMov.tipo,
+              concepto: fondoMov.concepto, monto: montoFirmado, usuario: usuario.nombre_completo
+            });
+          } else {
+            await axios.post(`${API}/api/fondo-fijo/movimiento`, {
+              local: localSeleccionado,
+              tipo: fondoMov.tipo, concepto: fondoMov.concepto, monto: Number(fondoMov.monto),
+              fecha: HOY_CAJA, usuario: usuario.nombre_completo
+            });
+          }
           setFondoMov({ tipo: "salida", concepto: "", monto: "" });
           await cargarFondo();
         } catch (err) { alert("Error registrando movimiento: " + err.message); }
@@ -1887,7 +1897,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
             <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 24, marginBottom: 20 }}>
              <div style={{ fontSize: 12, color: "#888", marginBottom: 6, letterSpacing: 0.5 }}>SALDO ACTUAL · {localSeleccionado.toUpperCase()}</div>
               <div style={{ fontSize: 34, fontWeight: 700, color: saldo < 0 ? "#c0392b" : "#F68B32" }}>{loadingFondo ? "..." : fmt(saldo)}</div>
-              <div style={{ fontSize: 12, color: "#aaa", marginTop: 4 }}>El saldo se mantiene día a día · fondo fijo del local</div>
+              <div style={{ fontSize: 12, color: "#aaa", marginTop: 4 }}>El saldo se mantiene día a día · {localSeleccionado === "Administración" ? "caja Administración (persistente)" : "fondo fijo del local"}</div>
             </div>
 
             <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20, marginBottom: 20 }}>
@@ -1955,7 +1965,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               </div>
             </div>
             <div style={{ padding: 24 }}>
-              {localSeleccionado.startsWith("Fondo Fijo") ? renderFondoFijo() : loadingCaja ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando caja...</div>
+              {(localSeleccionado.startsWith("Fondo Fijo") || localSeleccionado === "Administración") ? renderFondoFijo() : loadingCaja ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando caja...</div>
               : !estadoCaja?.apertura ? (
                 <div style={{ maxWidth: 400 }}>
                   <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 24 }}>

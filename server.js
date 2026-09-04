@@ -1831,13 +1831,7 @@ app.post("/api/caja/sobre", requireAuth, async (req, res) => {
     // 1. Salida en el local origen
     await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'salida',$2,$3,$4)",
       [localOrigen, concepto ? `Sobre: ${concepto}` : "Sobre a Administración", -montoAbs, fecha]);
-    // 2. Auto-abrir caja Administración si no existe
-    const existe = await pool.query("SELECT id FROM caja_aperturas WHERE local='Administración' AND fecha=$1", [fecha]);
-    if (existe.rows.length === 0) {
-      await pool.query("INSERT INTO caja_aperturas (local, fecha, monto_inicial) VALUES ('Administración',$1,0)", [fecha]);
-      await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ('Administración','apertura','Apertura de caja',0,$1)", [fecha]);
-    }
-    // 3. Entrada en Administración
+    // 2. Entrada en Administración (caja persistente: no se auto-abre; el saldo acumula por movimientos)
     await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ('Administración','entrada',$1,$2,$3)",
       [concepto ? `Sobre desde ${localOrigen}: ${concepto}` : `Sobre desde ${localOrigen}`, montoAbs, fecha]);
     res.json({ ok: true });
@@ -1911,6 +1905,19 @@ app.get("/api/caja/historial/:local", requireAuth, async (req, res) => {
     }
     res.json(resultado);
   } catch (err) { res.status(500).json({ error: "Error trayendo historial" }); }
+});
+
+// Caja "Administración" PERSISTENTE (saldo acumulado, como el Fondo Fijo): suma entrada/salida
+// de TODOS sus movimientos, sin filtrar por fecha. Excluye apertura/cierre. Solo superadmin.
+app.get("/api/caja/administracion", requireAuth, async (req, res) => {
+  if (bloqueaCajaAdmin(req, res, "Administración")) return;
+  try {
+    const movs = await pool.query(
+      "SELECT * FROM caja_movimientos WHERE local='Administración' AND tipo IN ('entrada','salida') ORDER BY created_at DESC"
+    );
+    const saldo = movs.rows.reduce((a, m) => a + Number(m.monto), 0);
+    res.json({ saldo, movimientos: movs.rows });
+  } catch (err) { res.status(500).json({ error: "Error trayendo la caja Administración" }); }
 });
 
 // ─── FACTURACIÓN ───────────────────────────────────────────────────────
