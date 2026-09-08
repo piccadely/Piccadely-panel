@@ -166,6 +166,19 @@ async function initDB() {
       cerrada BOOLEAN DEFAULT false, monto_cierre NUMERIC,
       created_at TIMESTAMP DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS sobres (
+      id SERIAL PRIMARY KEY,
+      local_origen TEXT NOT NULL,
+      monto_declarado NUMERIC NOT NULL,
+      monto_real NUMERIC,
+      concepto TEXT,
+      estado TEXT NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente','recibido','rechazado')),
+      caja_destino TEXT,
+      fecha_creacion TEXT NOT NULL,
+      fecha_resolucion TEXT,
+      usuario_crea TEXT, usuario_resuelve TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
     CREATE TABLE IF NOT EXISTS facturas (
       id SERIAL PRIMARY KEY,
       pedido_id TEXT, tipo TEXT, numero TEXT, cae TEXT,
@@ -1822,21 +1835,51 @@ app.post("/api/caja/ajuste", requireAuth, async (req, res) => {
     registrarAuditoria(usuarioAudit, "ajuste_caja", "caja", local, { fecha, tipo, concepto, monto });
   } catch (err) { res.status(500).json({ error: "Error registrando ajuste" }); }
 });
+// SOBRE — Etapa 1: sale de la caja del local y queda PENDIENTE en la bandeja (tabla sobres),
+// SIN impactar ninguna caja destino. Atómico (salida local + sobre pendiente, las dos o ninguna).
+// La recepción/rechazo (Parte B) la hace el superadmin. La entrada a Administración YA NO ocurre acá.
 app.post("/api/caja/sobre", requireAuth, async (req, res) => {
-  const { localOrigen, fecha, monto, concepto, usuario: usuarioAudit } = req.body;
+  const { localOrigen, monto, concepto, usuario: usuarioAudit } = req.body;
   if (bloqueaCajaAdmin(req, res, localOrigen)) return;   // no se envía un sobre DESDE la caja Administración
+  const montoAbs = Math.abs(Number(monto));
+  if (!Number.isFinite(montoAbs) || montoAbs <= 0) return res.status(400).json({ error: "Monto inválido" });
+  const conceptoTxt = (concepto && String(concepto).trim()) || "";
+  const fecha = fechaArgentinaISO();   // día del local (siempre hoy)
+  let client;
   try {
-    const montoAbs = Math.abs(Number(monto));
-    if (!montoAbs || montoAbs <= 0) return res.status(400).json({ error: "Monto inválido" });
-    // 1. Salida en el local origen
-    await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'salida',$2,$3,$4)",
-      [localOrigen, concepto ? `Sobre: ${concepto}` : "Sobre a Administración", -montoAbs, fecha]);
-    // 2. Entrada en Administración (caja persistente: no se auto-abre; el saldo acumula por movimientos)
-    await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ('Administración','entrada',$1,$2,$3)",
-      [concepto ? `Sobre desde ${localOrigen}: ${concepto}` : `Sobre desde ${localOrigen}`, montoAbs, fecha]);
-    res.json({ ok: true });
-    registrarAuditoria(usuarioAudit, "sobre_caja", "caja", localOrigen, { monto: montoAbs, concepto, fecha });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    client = await pool.connect();
+    await client.query("BEGIN");
+    // 1. Salida en el local origen (la plata queda EN TRÁNSITO, no en ninguna caja destino).
+    await client.query(
+      "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'salida',$2,$3,$4)",
+      [localOrigen, conceptoTxt ? `Sobre a bandeja: ${conceptoTxt}` : "Sobre a bandeja", -montoAbs, fecha]
+    );
+    // 2. Sobre PENDIENTE en la bandeja (lo recibe/rechaza el superadmin en la Parte B).
+    await client.query(
+      "INSERT INTO sobres (local_origen, monto_declarado, concepto, estado, fecha_creacion, usuario_crea) VALUES ($1,$2,$3,'pendiente',$4,$5)",
+      [localOrigen, montoAbs, conceptoTxt || null, fecha, usuarioAudit || null]
+    );
+    await client.query("COMMIT");
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    console.error("Error /api/caja/sobre:", e.message);
+    return res.status(500).json({ error: "Error registrando el sobre" });
+  } finally {
+    if (client) client.release();
+  }
+  res.json({ ok: true });
+  registrarAuditoria(usuarioAudit, "sobre_creado", "sobre", localOrigen, { monto: montoAbs, concepto: conceptoTxt, fecha });
+});
+
+// Bandeja de sobres PENDIENTES (para el superadmin): lista + total en tránsito.
+app.get("/api/sobres/pendientes", requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT id, local_origen, monto_declarado, concepto, fecha_creacion, usuario_crea FROM sobres WHERE estado='pendiente' ORDER BY created_at ASC"
+    );
+    const total = rows.reduce((a, s) => a + Number(s.monto_declarado), 0);
+    res.json({ total, sobres: rows });
+  } catch (err) { console.error("Error /api/sobres/pendientes:", err.message); res.status(500).json({ error: "Error trayendo sobres pendientes" }); }
 });
 app.post("/api/caja/cerrar-historico", requireAuth, async (req, res) => {
   const { local, fecha, usuario: usuarioAudit } = req.body;

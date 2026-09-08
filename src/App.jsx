@@ -1687,11 +1687,16 @@ const [facturaLabel, setFacturaLabel] = useState(null);
     function VistaCaja({ pedidosActivos, onVolver, usuario }) {
             const HOY_CAJA = fechaArgentina();
       const localesPermitidos = usuario.rol === "superadmin"
-        ? ["A. Thomas", "French", "Administración", "Fondo Fijo A. Thomas", "Fondo Fijo French"]   // solo superadmin ve la caja Administración
+        ? ["A. Thomas", "French", "Administración", "Fondo Fijo A. Thomas", "Fondo Fijo French", "Sobres"]   // solo superadmin: caja Administración + bandeja Sobres
         : ["admin", "encargado", "solo_lectura"].includes(usuario.rol)
           ? ["A. Thomas", "French", "Fondo Fijo A. Thomas", "Fondo Fijo French"]                   // sin Administración
           : usuario.rol === "a_thomas" ? ["A. Thomas", "Fondo Fijo A. Thomas"] : ["French", "Fondo Fijo French"];
       const [localSeleccionado, setLocalSeleccionado] = useState(localesPermitidos[0]);
+      const esCajaPersistente = localSeleccionado.startsWith("Fondo Fijo") || localSeleccionado === "Administración";
+      const esBandejaSobres = localSeleccionado === "Sobres";
+      const noEsCajaDiaria = esCajaPersistente || esBandejaSobres;   // no computa ventas del día ni estado diario
+      const [sobresPend, setSobresPend] = useState({ total: 0, sobres: [] });
+      const [loadingSobres, setLoadingSobres] = useState(false);
       const [estadoCaja, setEstadoCaja] = useState(null);
       const [loadingCaja, setLoadingCaja] = useState(false);
       const [montoApertura, setMontoApertura] = useState("");
@@ -1736,7 +1741,7 @@ const res = await axios.get(`${API}/api/caja/estado/${encodeURIComponent(localSe
       // endpoint histórico, así la caja del día y el saldo del historial no dependen
       // de la ventana de 7 días de /api/orders (pedidos cargados con anticipación).
       async function cargarFinalizadosCaja() {
-        if (localSeleccionado.startsWith("Fondo Fijo") || localSeleccionado === "Administración") { setCajaFinalizados([]); return; }
+        if (noEsCajaDiaria) { setCajaFinalizados([]); return; }
         const fechas = historial.map(h => h.apertura?.fecha).filter(Boolean);
         const desde = fechas.length ? fechas.reduce((m, f) => (f < m ? f : m), HOY_CAJA) : HOY_CAJA;
         try {
@@ -1748,7 +1753,7 @@ const res = await axios.get(`${API}/api/caja/estado/${encodeURIComponent(localSe
       // Refetch "en vivo": SOLO el día de caja (1 día, barato). Reemplaza la porción
       // de HOY dentro de cajaFinalizados y deja intactos los días del historial (estáticos).
       async function cargarFinalizadosHoy() {
-        if (localSeleccionado.startsWith("Fondo Fijo") || localSeleccionado === "Administración") return;
+        if (noEsCajaDiaria) return;
         try {
           const res = await axios.get(`${API}/api/reportes/pedidos`, { params: { desde: HOY_CAJA, hasta: HOY_CAJA } });
           setCajaFinalizados(prev => [...prev.filter(p => p.fechaDisplay !== HOY_CAJA), ...res.data]);
@@ -1757,19 +1762,19 @@ const res = await axios.get(`${API}/api/caja/estado/${encodeURIComponent(localSe
 
       // Administración pasa a ser PERSISTENTE (como el Fondo Fijo): se carga con cargarFondo,
       // no con el estado diario, y ya NO se auto-abre en 0 cada día.
-      useEffect(() => { if (localSeleccionado.startsWith("Fondo Fijo") || localSeleccionado === "Administración") { cargarFondo(); } else { cargarEstado(); cargarHistorial(); } }, [localSeleccionado]);
+      useEffect(() => { if (esCajaPersistente) { cargarFondo(); } else if (esBandejaSobres) { cargarSobres(); } else { cargarEstado(); cargarHistorial(); } }, [localSeleccionado]);
       // Rango completo (HOY + días del historial): SOLO al entrar/cambiar de local
       // o cuando cambia el historial (que es estático salvo reapertura). Acá está el
       // costo grande, pero no se repite cada 30s.
       useEffect(() => {
-        if (localSeleccionado.startsWith("Fondo Fijo") || localSeleccionado === "Administración") { setCajaFinalizados([]); return; }
+        if (noEsCajaDiaria) { setCajaFinalizados([]); return; }
         cargarFinalizadosCaja();
       }, [localSeleccionado, historial]);
       // "En vivo": interval corto SOLO mientras la caja está montada (se limpia al
       // salir) que refetchea únicamente HOY (1 día). El historial no se re-trae. No
       // toca el poll global de 30s.
       useEffect(() => {
-        if (localSeleccionado.startsWith("Fondo Fijo") || localSeleccionado === "Administración") return;
+        if (noEsCajaDiaria) return;
         const iv = setInterval(cargarFinalizadosHoy, 30000);
         return () => clearInterval(iv);
       }, [localSeleccionado]);
@@ -1857,6 +1862,12 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const saldoEsperado = Number(montoInicial) + totalEfectivo + totalAjustes;
       const cerrada = estadoCaja?.apertura?.cerrada;
 
+      async function cargarSobres() {
+        setLoadingSobres(true);
+        try { const res = await axios.get(`${API}/api/sobres/pendientes`); setSobresPend(res.data || { total: 0, sobres: [] }); }
+        catch (e) { console.error(e); }
+        setLoadingSobres(false);
+      }
       async function cargarFondo() {
         setLoadingFondo(true);
         try {
@@ -1906,12 +1917,39 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           setMostrarTransferir(false);
           alert("Transferencia realizada.");
           // Refrescar el saldo de la caja que se está viendo.
-          if (localSeleccionado.startsWith("Fondo Fijo") || localSeleccionado === "Administración") await cargarFondo();
+          if (esCajaPersistente) await cargarFondo();
+          else if (esBandejaSobres) await cargarSobres();
           else { await cargarEstado(); await cargarHistorial(); }
         } catch (err) {
           alert("Error en la transferencia: " + (err.response?.data?.error || err.message));
         }
         setGuardando(false);
+      }
+      function renderBandejaSobres() {
+        const lista = sobresPend.sobres || [];
+        return (
+          <div style={{ maxWidth: 720 }}>
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 24, marginBottom: 20 }}>
+              <div style={{ fontSize: 12, color: "#888", marginBottom: 6, letterSpacing: 0.5 }}>EN TRÁNSITO · SOBRES PENDIENTES</div>
+              <div style={{ fontSize: 34, fontWeight: 700, color: "#7c3aed" }}>{loadingSobres ? "..." : fmt(sobresPend.total || 0)}</div>
+              <div style={{ fontSize: 12, color: "#aaa", marginTop: 4 }}>Plata que salió de los locales y todavía no se recibió en ninguna caja</div>
+            </div>
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#333", marginBottom: 14 }}>📥 Sobres pendientes</div>
+              {loadingSobres ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando...</div>
+                : lista.length === 0 ? <div style={{ color: "#aaa", fontSize: 13 }}>No hay sobres pendientes.</div>
+                : lista.map(s => (
+                  <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #f5f5f5", gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 13, color: "#333", fontWeight: 600 }}>{s.local_origen} · {fmt(Number(s.monto_declarado))}</div>
+                      <div style={{ fontSize: 11, color: "#888" }}>{s.concepto || "Sin concepto"} · {s.fecha_creacion}{s.usuario_crea ? ` · ${s.usuario_crea}` : ""}</div>
+                    </div>
+                    <span style={{ fontSize: 11, color: "#aaa", fontStyle: "italic", whiteSpace: "nowrap" }}>Recibir / Rechazar (próximamente)</span>
+                  </div>
+                ))}
+            </div>
+          </div>
+        );
       }
       function renderFondoFijo() {
         const saldo = fondo?.saldo || 0;
@@ -2024,7 +2062,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                   </div>
                 );
               })()}
-              {(localSeleccionado.startsWith("Fondo Fijo") || localSeleccionado === "Administración") ? renderFondoFijo() : loadingCaja ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando caja...</div>
+              {esBandejaSobres ? renderBandejaSobres() : esCajaPersistente ? renderFondoFijo() : loadingCaja ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando caja...</div>
               : !estadoCaja?.apertura ? (
                 <div style={{ maxWidth: 400 }}>
                   <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 24 }}>
@@ -2108,7 +2146,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                   </div>
                   {mostrarSobre && !cerrada && localSeleccionado !== "Administración" && (
                     <div style={{ background: "#f5f3ff", border: "1px solid #7c3aed", borderRadius: 8, padding: 12, marginBottom: 12 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: "#7c3aed", marginBottom: 8 }}>💼 Enviar sobre a Administración</div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#7c3aed", marginBottom: 8 }}>💼 Enviar sobre a la bandeja</div>
                       <input style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 6 }} placeholder="Concepto (opcional)" value={sobre.concepto} onChange={e => setSobre(s => ({...s, concepto: e.target.value}))} />
                       <input type="number" style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginBottom: 8 }} placeholder="Monto" value={sobre.monto} onChange={e => setSobre(s => ({...s, monto: e.target.value}))} />
                       <button style={{ width: "100%", padding: "7px", borderRadius: 6, border: "none", background: "#7c3aed", color: "#fff", fontSize: 12, cursor: "pointer" }} onClick={registrarSobre} disabled={guardando}>Registrar sobre</button>
