@@ -1708,6 +1708,9 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       const [fondo, setFondo] = useState(null);
       const [loadingFondo, setLoadingFondo] = useState(false);
       const [fondoMov, setFondoMov] = useState({ tipo: "salida", concepto: "", monto: "" });
+      const puedeTransferir = ["admin", "superadmin"].includes(usuario.rol);   // solo admin/superadmin transfieren
+      const [mostrarTransferir, setMostrarTransferir] = useState(false);
+      const [transf, setTransf] = useState({ origen: "", destino: "", monto: "", concepto: "" });
       // Finalizados del rango [min(historial), HOY_CAJA] traídos por /api/reportes/pedidos
       // (NO de la ventana de 7 días). Fuente de ventas del día y del saldo del historial.
       const [cajaFinalizados, setCajaFinalizados] = useState([]);
@@ -1889,6 +1892,27 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         } catch (err) { alert("Error registrando movimiento: " + err.message); }
         setGuardando(false);
       }
+      async function registrarTransferencia() {
+        const montoNum = Number(transf.monto);
+        if (!transf.origen || !transf.destino || transf.origen === transf.destino || !montoNum || montoNum <= 0 || !transf.concepto.trim()) return;
+        if (!window.confirm(`Vas a transferir ${fmt(montoNum)} de ${transf.origen} a ${transf.destino}. ¿Confirmás?`)) return;
+        setGuardando(true);
+        try {
+          await axios.post(`${API}/api/caja/transferencia`, {
+            origen: transf.origen, destino: transf.destino, monto: montoNum,
+            concepto: transf.concepto.trim(), usuario: usuario.nombre_completo
+          });
+          setTransf({ origen: "", destino: "", monto: "", concepto: "" });
+          setMostrarTransferir(false);
+          alert("Transferencia realizada.");
+          // Refrescar el saldo de la caja que se está viendo.
+          if (localSeleccionado.startsWith("Fondo Fijo") || localSeleccionado === "Administración") await cargarFondo();
+          else { await cargarEstado(); await cargarHistorial(); }
+        } catch (err) {
+          alert("Error en la transferencia: " + (err.response?.data?.error || err.message));
+        }
+        setGuardando(false);
+      }
       function renderFondoFijo() {
         const saldo = fondo?.saldo || 0;
         const movs = fondo?.movimientos || [];
@@ -1952,6 +1976,12 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <button style={{ fontSize: 12, padding: "6px 12px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer", color: "#555" }} onClick={onVolver}>← Volver</button>
               <h2 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>💰 Caja</h2>
+              {puedeTransferir && (
+                <button onClick={() => setMostrarTransferir(m => !m)}
+                  style={{ fontSize: 12, fontWeight: 600, padding: "6px 12px", borderRadius: 6, border: "1px solid #7c3aed", cursor: "pointer", background: mostrarTransferir ? "#7c3aed" : "#fff", color: mostrarTransferir ? "#fff" : "#7c3aed" }}>
+                  🔄 Transferir
+                </button>
+              )}
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               {localesPermitidos.length > 1 && localesPermitidos.map(l => (
@@ -1965,6 +1995,35 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               </div>
             </div>
             <div style={{ padding: 24 }}>
+              {puedeTransferir && mostrarTransferir && (() => {
+                const cajasTransf = localesPermitidos;   // admin: sin Administración; superadmin: todas
+                const puedeConfirmar = transf.origen && transf.destino && transf.origen !== transf.destino && Number(transf.monto) > 0 && transf.concepto.trim();
+                const selStyle = { fontSize: 13, padding: "8px 12px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", background: "#fff" };
+                return (
+                  <div style={{ background: "#fff", border: "1px solid #7c3aed", borderRadius: 10, padding: 20, marginBottom: 20, maxWidth: 480 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#7c3aed", marginBottom: 14 }}>🔄 Transferir entre cajas</div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Desde</div>
+                    <select style={{ ...selStyle, marginBottom: 10 }} value={transf.origen} onChange={e => setTransf(t => ({ ...t, origen: e.target.value }))}>
+                      <option value="">Elegí caja origen…</option>
+                      {cajasTransf.map(l => <option key={l} value={l}>{l}</option>)}
+                    </select>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Hacia</div>
+                    <select style={{ ...selStyle, marginBottom: 10 }} value={transf.destino} onChange={e => setTransf(t => ({ ...t, destino: e.target.value }))}>
+                      <option value="">Elegí caja destino…</option>
+                      {cajasTransf.filter(l => l !== transf.origen).map(l => <option key={l} value={l}>{l}</option>)}
+                    </select>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Monto</div>
+                    <input type="number" min="0" placeholder="$0" style={{ ...selStyle, marginBottom: 10 }} value={transf.monto} onChange={e => setTransf(t => ({ ...t, monto: e.target.value }))} />
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Concepto (obligatorio)</div>
+                    <input type="text" placeholder="ej: reposición de fondo" style={{ ...selStyle, marginBottom: 6 }} value={transf.concepto} onChange={e => setTransf(t => ({ ...t, concepto: e.target.value }))} />
+                    {puedeConfirmar && <div style={{ fontSize: 12, color: "#555", margin: "6px 0 12px" }}>Vas a transferir <b>{fmt(Number(transf.monto))}</b> de <b>{transf.origen}</b> a <b>{transf.destino}</b>.</div>}
+                    <button onClick={registrarTransferencia} disabled={guardando || !puedeConfirmar}
+                      style={{ width: "100%", padding: 10, borderRadius: 8, border: "none", background: (guardando || !puedeConfirmar) ? "#ccc" : "#7c3aed", color: "#fff", fontSize: 13, fontWeight: 600, cursor: (guardando || !puedeConfirmar) ? "default" : "pointer", marginTop: 6 }}>
+                      {guardando ? "Transfiriendo…" : "Transferir"}
+                    </button>
+                  </div>
+                );
+              })()}
               {(localSeleccionado.startsWith("Fondo Fijo") || localSeleccionado === "Administración") ? renderFondoFijo() : loadingCaja ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando caja...</div>
               : !estadoCaja?.apertura ? (
                 <div style={{ maxWidth: 400 }}>

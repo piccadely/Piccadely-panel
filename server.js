@@ -1920,6 +1920,50 @@ app.get("/api/caja/administracion", requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Error trayendo la caja Administración" }); }
 });
 
+// ─── TRANSFERENCIA ENTRE CAJAS ─────────────────────────────────────────
+// Salida en origen (−monto) + entrada en destino (+monto), mismo monto, ATÓMICO (BEGIN/COMMIT/
+// ROLLBACK). Solo admin/superadmin; si toca "Administración" (origen o destino) exige superadmin.
+// Fecha SIEMPRE hoy (Argentina): cae en el día abierto de las cajas de local; para las
+// persistentes (fondo/Administración) la fecha es informativa. Se relacionan por el concepto.
+const CAJAS_TRANSFERIBLES = ["A. Thomas", "French", "Administración", "Fondo Fijo A. Thomas", "Fondo Fijo French"];
+app.post("/api/caja/transferencia", requireAuth, async (req, res) => {
+  const { origen, destino, monto, concepto, usuario: usuarioAudit } = req.body;
+  const rol = req.user?.rol;
+  if (!["admin", "superadmin"].includes(rol)) return res.status(403).json({ error: "Solo admin puede transferir entre cajas." });
+  if (!CAJAS_TRANSFERIBLES.includes(origen) || !CAJAS_TRANSFERIBLES.includes(destino)) return res.status(400).json({ error: "Caja de origen o destino inválida." });
+  if (origen === destino) return res.status(400).json({ error: "El origen y el destino no pueden ser la misma caja." });
+  const montoAbs = Math.abs(Number(monto));
+  if (!Number.isFinite(montoAbs) || montoAbs <= 0) return res.status(400).json({ error: "Monto inválido." });
+  if (!concepto || !String(concepto).trim()) return res.status(400).json({ error: "El concepto es obligatorio." });
+  if ((origen === "Administración" || destino === "Administración") && rol !== "superadmin") {
+    return res.status(403).json({ error: "Transferir con la caja Administración es solo para superadmin." });
+  }
+  const conceptoTxt = String(concepto).trim();
+  const fecha = fechaArgentinaISO();   // SIEMPRE hoy
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    await client.query(
+      "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'salida',$2,$3,$4)",
+      [origen, `Transferencia a ${destino}: ${conceptoTxt}`, -montoAbs, fecha]
+    );
+    await client.query(
+      "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'entrada',$2,$3,$4)",
+      [destino, `Transferencia desde ${origen}: ${conceptoTxt}`, montoAbs, fecha]
+    );
+    await client.query("COMMIT");
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    console.error("Error /api/caja/transferencia:", e.message);
+    return res.status(500).json({ error: "Error registrando la transferencia" });
+  } finally {
+    if (client) client.release();
+  }
+  res.json({ ok: true, origen, destino, monto: montoAbs, fecha });
+  registrarAuditoria(usuarioAudit, "transferencia_caja", "caja", origen, { origen, destino, monto: montoAbs, concepto: conceptoTxt, fecha });
+});
+
 // ─── FACTURACIÓN ───────────────────────────────────────────────────────
 function esNotaCredito(f) { return String(f.tipo || "").toUpperCase().includes("NOTA DE CREDITO"); }
 
