@@ -1135,6 +1135,25 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       const SECCIONES = { "Delivery A. Thomas": "delivery-at", "Delivery French": "delivery-fr" };
       const localDe = (sec) => sec === "delivery-at" ? "A. Thomas" : sec === "delivery-fr" ? "French" : "—";
       const fmtImp = (n) => "$" + Number(n || 0).toLocaleString("es-AR");
+
+      // Excel guarda las celdas con formato fecha como número serial (ej. 46249 = 2026-08-10).
+      // Si viene número lo convertimos a YYYY-MM-DD con el parser de SheetJS; si ya vino como
+      // string (el usuario tipeó la fecha como texto) lo dejamos tal cual para validarlo abajo.
+      const excelToYMD = (v) => {
+        if (typeof v === "number") {
+          const d = XLSX.SSF.parse_date_code(v);
+          if (d && d.y) return `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
+          return "";
+        }
+        return String(v || "").trim();
+      };
+      // Valida que sea un YYYY-MM-DD real (formato correcto + fecha existente, ej. rechaza 2026-13-40).
+      const esFechaValida = (s) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+        const [y, m, d] = s.split("-").map(Number);
+        const dt = new Date(y, m - 1, d);
+        return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+      };
  
       function leerArchivo(e) {
         const file = e.target.files && e.target.files[0];
@@ -1152,12 +1171,14 @@ const [facturaLabel, setFacturaLabel] = useState(null);
               const seccion = SECCIONES[sucursal] || "";
               const precioProd = Number(r["Precio producto"]) || 0;
               const envioPrecio = Number(r["Envío (precio)"]) || 0;
+              const fecha = excelToYMD(r["Fecha"]);   // serial de Excel → YYYY-MM-DD (o string tal cual)
               const errores = [];
               if (!String(r["Cliente"] || "").trim()) errores.push("falta cliente");
               if (!seccion) errores.push("sucursal inválida");
               if (!String(r["Producto"] || "").trim()) errores.push("falta producto");
               if (precioProd <= 0) errores.push("precio inválido");
-              if (!String(r["Fecha"] || "").trim()) errores.push("falta fecha");
+              if (!fecha) errores.push("falta fecha");
+              else if (!esFechaValida(fecha)) errores.push(`fecha inválida (${fecha})`);
               // Área (opcional): entero 1-10 o vacío. Inválida = aviso NO bloqueante -> la fila
               // igual se importa, pero sin área (areaManual = null).
               const avisos = [];
@@ -1181,7 +1202,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
                 envioNombre: String(r["Envío (nombre)"] || "Envío").trim() || "Envío",
                 envioPrecio,
                 medioPago: String(r["Medio de pago"] || "Efectivo").trim() || "Efectivo",
-                fecha: String(r["Fecha"] || "").trim(),
+                fecha,
                 franja: String(r["Horario"] || "").trim(),
                 nota: String(r["Nota adicional"] || "").trim(),
                 total: precioProd + envioPrecio,
