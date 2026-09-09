@@ -1697,6 +1697,11 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       const noEsCajaDiaria = esCajaPersistente || esBandejaSobres;   // no computa ventas del día ni estado diario
       const [sobresPend, setSobresPend] = useState({ total: 0, sobres: [] });
       const [loadingSobres, setLoadingSobres] = useState(false);
+      const [seleccionSobres, setSeleccionSobres] = useState([]);      // ids marcados para recepción en lote
+      const [cajaDestinoLote, setCajaDestinoLote] = useState("");
+      const [sobreAjuste, setSobreAjuste] = useState(null);            // id del sobre en recepción individual
+      const [ajusteDestino, setAjusteDestino] = useState("");
+      const [ajusteMonto, setAjusteMonto] = useState("");
       const [estadoCaja, setEstadoCaja] = useState(null);
       const [loadingCaja, setLoadingCaja] = useState(false);
       const [montoApertura, setMontoApertura] = useState("");
@@ -1868,6 +1873,44 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         catch (e) { console.error(e); }
         setLoadingSobres(false);
       }
+      function toggleSelSobre(id) { setSeleccionSobres(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]); }
+      function abrirAjusteSobre(s) { setSobreAjuste(sobreAjuste === s.id ? null : s.id); setAjusteDestino(""); setAjusteMonto(String(s.monto_declarado)); }
+      async function recibirMultipleSobres() {
+        const total = (sobresPend.sobres || []).filter(s => seleccionSobres.includes(s.id)).reduce((a, s) => a + Number(s.monto_declarado), 0);
+        if (!seleccionSobres.length || !cajaDestinoLote) return;
+        if (!window.confirm(`Vas a recibir ${seleccionSobres.length} sobre(s) por ${fmt(total)} en ${cajaDestinoLote}. ¿Confirmás?`)) return;
+        setGuardando(true);
+        try {
+          await axios.post(`${API}/api/sobres/recibir-multiple`, { sobreIds: seleccionSobres, cajaDestino: cajaDestinoLote, usuario: usuario.nombre_completo });
+          setSeleccionSobres([]); setCajaDestinoLote("");
+          await cargarSobres();
+        } catch (err) { alert("Error recibiendo sobres: " + (err.response?.data?.error || err.message)); }
+        setGuardando(false);
+      }
+      async function recibirIndividualSobre(s) {
+        const X = Number(s.monto_declarado), Y = Number(ajusteMonto);
+        if (!ajusteDestino || !Number.isFinite(Y) || Y < 0) return;
+        const dif = X - Y;
+        const ajusteMsg = dif > 0 ? ` Se le devolverán ${fmt(dif)} al local ${s.local_origen}.`
+          : dif < 0 ? ` Se le descontarán ${fmt(Math.abs(dif))} al local ${s.local_origen}.` : "";
+        if (!window.confirm(`Recibir ${fmt(Y)} en ${ajusteDestino} (declarado ${fmt(X)}).${ajusteMsg} ¿Confirmás?`)) return;
+        setGuardando(true);
+        try {
+          await axios.post(`${API}/api/sobres/${s.id}/recibir`, { cajaDestino: ajusteDestino, montoReal: Y, usuario: usuario.nombre_completo });
+          setSobreAjuste(null); setAjusteDestino(""); setAjusteMonto("");
+          await cargarSobres();
+        } catch (err) { alert("Error recibiendo el sobre: " + (err.response?.data?.error || err.message)); }
+        setGuardando(false);
+      }
+      async function rechazarSobre(s) {
+        if (!window.confirm(`El sobre de ${fmt(Number(s.monto_declarado))} volverá a ${s.local_origen}. ¿Confirmás el rechazo?`)) return;
+        setGuardando(true);
+        try {
+          await axios.post(`${API}/api/sobres/${s.id}/rechazar`, { usuario: usuario.nombre_completo });
+          await cargarSobres();
+        } catch (err) { alert("Error rechazando el sobre: " + (err.response?.data?.error || err.message)); }
+        setGuardando(false);
+      }
       async function cargarFondo() {
         setLoadingFondo(true);
         try {
@@ -1927,26 +1970,79 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       }
       function renderBandejaSobres() {
         const lista = sobresPend.sobres || [];
+        const cajasDestino = localesPermitidos.filter(l => l !== "Sobres");   // 5 cajas reales (superadmin)
+        const totalSel = lista.filter(s => seleccionSobres.includes(s.id)).reduce((a, s) => a + Number(s.monto_declarado), 0);
+        const selStyle = { fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff" };
         return (
-          <div style={{ maxWidth: 720 }}>
+          <div style={{ maxWidth: 760 }}>
             <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 24, marginBottom: 20 }}>
               <div style={{ fontSize: 12, color: "#888", marginBottom: 6, letterSpacing: 0.5 }}>EN TRÁNSITO · SOBRES PENDIENTES</div>
               <div style={{ fontSize: 34, fontWeight: 700, color: "#7c3aed" }}>{loadingSobres ? "..." : fmt(sobresPend.total || 0)}</div>
               <div style={{ fontSize: 12, color: "#aaa", marginTop: 4 }}>Plata que salió de los locales y todavía no se recibió en ninguna caja</div>
             </div>
+
+            {lista.length > 0 && (
+              <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 14, marginBottom: 20, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#555" }}>Recibir seleccionados en:</span>
+                <select style={selStyle} value={cajaDestinoLote} onChange={e => setCajaDestinoLote(e.target.value)}>
+                  <option value="">Caja destino…</option>
+                  {cajasDestino.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <button onClick={recibirMultipleSobres} disabled={guardando || !seleccionSobres.length || !cajaDestinoLote}
+                  style={{ fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 6, border: "none", background: (guardando || !seleccionSobres.length || !cajaDestinoLote) ? "#ccc" : "#2a7a4b", color: "#fff", cursor: (guardando || !seleccionSobres.length || !cajaDestinoLote) ? "default" : "pointer" }}>
+                  Recibir {seleccionSobres.length ? `${seleccionSobres.length} · ${fmt(totalSel)}` : "seleccionados"}
+                </button>
+              </div>
+            )}
+
             <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: "#333", marginBottom: 14 }}>📥 Sobres pendientes</div>
               {loadingSobres ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando...</div>
                 : lista.length === 0 ? <div style={{ color: "#aaa", fontSize: 13 }}>No hay sobres pendientes.</div>
-                : lista.map(s => (
-                  <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #f5f5f5", gap: 10 }}>
-                    <div>
-                      <div style={{ fontSize: 13, color: "#333", fontWeight: 600 }}>{s.local_origen} · {fmt(Number(s.monto_declarado))}</div>
-                      <div style={{ fontSize: 11, color: "#888" }}>{s.concepto || "Sin concepto"} · {s.fecha_creacion}{s.usuario_crea ? ` · ${s.usuario_crea}` : ""}</div>
+                : lista.map(s => {
+                  const X = Number(s.monto_declarado);
+                  const Y = Number(ajusteMonto);
+                  const dif = (sobreAjuste === s.id && Number.isFinite(Y)) ? X - Y : 0;
+                  return (
+                    <div key={s.id} style={{ padding: "10px 0", borderBottom: "1px solid #f5f5f5" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                          <input type="checkbox" checked={seleccionSobres.includes(s.id)} onChange={() => toggleSelSobre(s.id)} />
+                          <span>
+                            <span style={{ fontSize: 13, color: "#333", fontWeight: 600 }}>{s.local_origen} · {fmt(X)}</span>
+                            <span style={{ display: "block", fontSize: 11, color: "#888" }}>{s.concepto || "Sin concepto"} · {s.fecha_creacion}{s.usuario_crea ? ` · ${s.usuario_crea}` : ""}</span>
+                          </span>
+                        </label>
+                        <div style={{ display: "flex", gap: 6, whiteSpace: "nowrap" }}>
+                          <button onClick={() => abrirAjusteSobre(s)} disabled={guardando}
+                            style={{ fontSize: 11, padding: "5px 10px", borderRadius: 5, border: "1px solid #7c3aed", background: sobreAjuste === s.id ? "#7c3aed" : "#fff", color: sobreAjuste === s.id ? "#fff" : "#7c3aed", cursor: "pointer" }}>Recibir (ajustar)</button>
+                          <button onClick={() => rechazarSobre(s)} disabled={guardando}
+                            style={{ fontSize: 11, padding: "5px 10px", borderRadius: 5, border: "1px solid #c0392b", background: "#fff", color: "#c0392b", cursor: "pointer" }}>Rechazar</button>
+                        </div>
+                      </div>
+                      {sobreAjuste === s.id && (
+                        <div style={{ background: "#f5f3ff", border: "1px solid #7c3aed", borderRadius: 8, padding: 12, marginTop: 8 }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Caja destino</div>
+                          <select style={{ ...selStyle, width: "100%", boxSizing: "border-box", marginBottom: 8 }} value={ajusteDestino} onChange={e => setAjusteDestino(e.target.value)}>
+                            <option value="">Elegí caja destino…</option>
+                            {cajasDestino.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>Monto real (declarado: {fmt(X)})</div>
+                          <input type="number" min="0" style={{ ...selStyle, width: "100%", boxSizing: "border-box", marginBottom: 6 }} value={ajusteMonto} onChange={e => setAjusteMonto(e.target.value)} />
+                          {dif !== 0 && Number.isFinite(Y) && (
+                            <div style={{ fontSize: 12, color: dif > 0 ? "#2a7a4b" : "#c0392b", marginBottom: 8 }}>
+                              {dif > 0 ? `Se le devolverán ${fmt(dif)} a ${s.local_origen}` : `Se le descontarán ${fmt(Math.abs(dif))} a ${s.local_origen}`}
+                            </div>
+                          )}
+                          <button onClick={() => recibirIndividualSobre(s)} disabled={guardando || !ajusteDestino || !(Number(ajusteMonto) >= 0) || ajusteMonto === ""}
+                            style={{ width: "100%", padding: "8px", borderRadius: 6, border: "none", background: (guardando || !ajusteDestino || ajusteMonto === "") ? "#ccc" : "#2a7a4b", color: "#fff", fontSize: 12, fontWeight: 600, cursor: (guardando || !ajusteDestino || ajusteMonto === "") ? "default" : "pointer" }}>
+                            Confirmar recepción
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    <span style={{ fontSize: 11, color: "#aaa", fontStyle: "italic", whiteSpace: "nowrap" }}>Recibir / Rechazar (próximamente)</span>
-                  </div>
-                ))}
+                  );
+                })}
             </div>
           </div>
         );

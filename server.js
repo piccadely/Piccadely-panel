@@ -1881,6 +1881,126 @@ app.get("/api/sobres/pendientes", requireAuth, async (req, res) => {
     res.json({ total, sobres: rows });
   } catch (err) { console.error("Error /api/sobres/pendientes:", err.message); res.status(500).json({ error: "Error trayendo sobres pendientes" }); }
 });
+
+// Recepción en LOTE (confía en lo declarado, sin corrección): entrada en cajaDestino por el monto
+// declarado de cada sobre + marca 'recibido'. TODO el lote en UNA transacción (todo o nada). Solo superadmin.
+app.post("/api/sobres/recibir-multiple", requireAuth, async (req, res) => {
+  if (req.user?.rol !== "superadmin") return res.status(403).json({ error: "Solo superadmin puede recibir sobres." });
+  const { sobreIds, cajaDestino, usuario: usuarioAudit } = req.body;
+  if (!Array.isArray(sobreIds) || sobreIds.length === 0) return res.status(400).json({ error: "No hay sobres seleccionados." });
+  if (!CAJAS_TRANSFERIBLES.includes(cajaDestino)) return res.status(400).json({ error: "Caja destino inválida." });
+  const ids = sobreIds.map(Number).filter(Number.isInteger);
+  const fecha = fechaArgentinaISO();
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      "SELECT id, local_origen, monto_declarado, concepto FROM sobres WHERE id = ANY($1::int[]) AND estado='pendiente' FOR UPDATE",
+      [ids]
+    );
+    if (rows.length !== ids.length) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "Alguno de los sobres ya no está pendiente. Refrescá e intentá de nuevo." });
+    }
+    for (const s of rows) {
+      await client.query(
+        "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'entrada',$2,$3,$4)",
+        [cajaDestino, `Sobre recibido desde ${s.local_origen}${s.concepto ? `: ${s.concepto}` : ""}`, Number(s.monto_declarado), fecha]
+      );
+      await client.query(
+        "UPDATE sobres SET estado='recibido', monto_real=monto_declarado, caja_destino=$1, fecha_resolucion=$2, usuario_resuelve=$3 WHERE id=$4",
+        [cajaDestino, fecha, usuarioAudit || null, s.id]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    console.error("Error /api/sobres/recibir-multiple:", e.message);
+    return res.status(500).json({ error: "Error recibiendo sobres" });
+  } finally {
+    if (client) client.release();
+  }
+  res.json({ ok: true, recibidos: ids.length });
+  registrarAuditoria(usuarioAudit, "sobres_recibidos_lote", "sobre", cajaDestino, { sobreIds: ids, cajaDestino, fecha });
+});
+
+// Recepción INDIVIDUAL con corrección de monto real (X−Y). Atómico. Solo superadmin.
+app.post("/api/sobres/:id/recibir", requireAuth, async (req, res) => {
+  if (req.user?.rol !== "superadmin") return res.status(403).json({ error: "Solo superadmin puede recibir sobres." });
+  const { cajaDestino, montoReal, usuario: usuarioAudit } = req.body;
+  if (!CAJAS_TRANSFERIBLES.includes(cajaDestino)) return res.status(400).json({ error: "Caja destino inválida." });
+  const Y = Number(montoReal);
+  if (!Number.isFinite(Y) || Y < 0) return res.status(400).json({ error: "Monto real inválido." });
+  const fecha = fechaArgentinaISO();
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const { rows } = await client.query("SELECT id, local_origen, monto_declarado, concepto FROM sobres WHERE id=$1 AND estado='pendiente' FOR UPDATE", [req.params.id]);
+    const s = rows[0];
+    if (!s) { await client.query("ROLLBACK"); return res.status(409).json({ error: "El sobre ya no está pendiente." }); }
+    const X = Number(s.monto_declarado);
+    if (Y > 0) {
+      await client.query(
+        "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'entrada',$2,$3,$4)",
+        [cajaDestino, `Sobre recibido desde ${s.local_origen}${s.concepto ? `: ${s.concepto}` : ""}`, Y, fecha]
+      );
+    }
+    const dif = X - Y;   // >0: declaró de más (se devuelve al local); <0: declaró de menos (se baja del local)
+    if (dif !== 0) {
+      await client.query(
+        "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,$2,$3,$4,$5)",
+        [s.local_origen, dif > 0 ? "entrada" : "salida", `Ajuste sobre (declarado ${X} / real ${Y})`, dif, fecha]
+      );
+    }
+    await client.query(
+      "UPDATE sobres SET estado='recibido', monto_real=$1, caja_destino=$2, fecha_resolucion=$3, usuario_resuelve=$4 WHERE id=$5",
+      [Y, cajaDestino, fecha, usuarioAudit || null, s.id]
+    );
+    await client.query("COMMIT");
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    console.error("Error /api/sobres/:id/recibir:", e.message);
+    return res.status(500).json({ error: "Error recibiendo el sobre" });
+  } finally {
+    if (client) client.release();
+  }
+  res.json({ ok: true });
+  registrarAuditoria(usuarioAudit, "sobre_recibido", "sobre", req.params.id, { cajaDestino, montoReal: Y, fecha });
+});
+
+// RECHAZO: la plata vuelve al local origen (revierte la salida inicial). Atómico. Solo superadmin.
+app.post("/api/sobres/:id/rechazar", requireAuth, async (req, res) => {
+  if (req.user?.rol !== "superadmin") return res.status(403).json({ error: "Solo superadmin puede rechazar sobres." });
+  const { usuario: usuarioAudit } = req.body;
+  const fecha = fechaArgentinaISO();
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const { rows } = await client.query("SELECT id, local_origen, monto_declarado FROM sobres WHERE id=$1 AND estado='pendiente' FOR UPDATE", [req.params.id]);
+    const s = rows[0];
+    if (!s) { await client.query("ROLLBACK"); return res.status(409).json({ error: "El sobre ya no está pendiente." }); }
+    await client.query(
+      "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'entrada',$2,$3,$4)",
+      [s.local_origen, "Sobre rechazado (devuelto)", Number(s.monto_declarado), fecha]
+    );
+    await client.query(
+      "UPDATE sobres SET estado='rechazado', fecha_resolucion=$1, usuario_resuelve=$2 WHERE id=$3",
+      [fecha, usuarioAudit || null, s.id]
+    );
+    await client.query("COMMIT");
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    console.error("Error /api/sobres/:id/rechazar:", e.message);
+    return res.status(500).json({ error: "Error rechazando el sobre" });
+  } finally {
+    if (client) client.release();
+  }
+  res.json({ ok: true });
+  registrarAuditoria(usuarioAudit, "sobre_rechazado", "sobre", req.params.id, { fecha });
+});
 app.post("/api/caja/cerrar-historico", requireAuth, async (req, res) => {
   const { local, fecha, usuario: usuarioAudit } = req.body;
   if (bloqueaCajaAdmin(req, res, local)) return;
