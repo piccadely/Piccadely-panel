@@ -236,6 +236,38 @@ async function initDB() {
       motivo_anulacion TEXT,
       created_at TIMESTAMP DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS facturas_compra (
+      id SERIAL PRIMARY KEY,
+      proveedor_id INTEGER REFERENCES proveedores(id),
+      categoria_gasto_id INTEGER REFERENCES categorias_gasto(id),
+      orden_compra_id INTEGER REFERENCES ordenes_compra(id),
+      proveedor_cuit TEXT,
+      proveedor_razon_social TEXT,
+      tipo_comprobante TEXT NOT NULL,
+      punto_venta TEXT,
+      numero_comprobante TEXT,
+      cae TEXT,
+      fecha TEXT NOT NULL,
+      alicuota_iva NUMERIC NOT NULL,
+      neto_gravado NUMERIC NOT NULL DEFAULT 0,
+      iva NUMERIC NOT NULL DEFAULT 0,
+      percep_iva NUMERIC NOT NULL DEFAULT 0,
+      percep_iibb_bsas NUMERIC NOT NULL DEFAULT 0,
+      percep_iibb_caba NUMERIC NOT NULL DEFAULT 0,
+      neto_no_gravado NUMERIC NOT NULL DEFAULT 0,
+      exentas NUMERIC NOT NULL DEFAULT 0,
+      otros_tributos NUMERIC NOT NULL DEFAULT 0,
+      total NUMERIC NOT NULL,
+      estado_pago TEXT NOT NULL DEFAULT 'pendiente' CHECK (estado_pago IN ('pendiente','pagada','anulada')),
+      motivo_anulacion TEXT,
+      usuario_crea TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_factura_compra_num
+      ON facturas_compra (proveedor_id, tipo_comprobante, numero_comprobante)
+      WHERE estado_pago != 'anulada';
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_factura_compra_orden
+      ON facturas_compra (orden_compra_id) WHERE orden_compra_id IS NOT NULL AND estado_pago != 'anulada';
   `);
 
   // Migraciones
@@ -1844,6 +1876,167 @@ app.post("/api/compras/ordenes/:id/anular", requireAdmin, async (req, res) => {
     if (result.rows.length === 0) return res.status(400).json({ error: "La orden no se puede anular (debe estar pendiente o aprobada)." });
     res.json({ ok: true });
     registrarAuditoria(usuario, "orden_compra_anular", "orden_compra", req.params.id, { motivo: motivo.trim() });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── COMPRAS — FACTURAS DE PROVEEDOR (Entrega 3) ────────────────────────
+// Una factura con estado_pago='pendiente' ES la cuenta por pagar. Se carga desde una orden
+// aprobada (la pasa a 'recibida', atómico) o suelta (orden_compra_id NULL).
+const ALICUOTAS_IVA = [0, 2.5, 5, 10.5, 21, 27];
+
+// Valida el cuadre del comprobante. Devuelve { ok, calculado } (tolerancia ±1 peso por redondeo).
+function chequearCuadreFactura(f) {
+  const n = (x) => Number(x) || 0;
+  const calculado = n(f.neto_gravado) + n(f.iva) + n(f.neto_no_gravado) + n(f.exentas) +
+    n(f.otros_tributos) + n(f.percep_iva) + n(f.percep_iibb_bsas) + n(f.percep_iibb_caba);
+  return { ok: Math.abs(calculado - n(f.total)) <= 1, calculado: Math.round(calculado * 100) / 100 };
+}
+
+// Valida campos fiscales comunes (crear/editar). Devuelve string de error o null.
+function validarFacturaCompra(b) {
+  if (!b.tipo_comprobante || !String(b.tipo_comprobante).trim()) return "El tipo de comprobante es obligatorio.";
+  if (!b.numero_comprobante || !String(b.numero_comprobante).trim()) return "El número de comprobante es obligatorio.";
+  if (!esFechaISO(b.fecha)) return "Fecha inválida (formato YYYY-MM-DD).";
+  if (!ALICUOTAS_IVA.includes(Number(b.alicuota_iva))) return "Alícuota de IVA inválida.";
+  if (!(Number(b.total) > 0)) return "El total debe ser mayor a 0.";
+  const cuadre = chequearCuadreFactura(b);
+  if (!cuadre.ok) return `El total no coincide: cargado $${Number(b.total)}, calculado $${cuadre.calculado}.`;
+  return null;
+}
+
+app.get("/api/compras/facturas", requireAdmin, async (req, res) => {
+  const { estado_pago, proveedor } = req.query;
+  try {
+    const params = [];
+    let sql = `SELECT fc.*, c.nombre AS categoria_nombre, oc.descripcion AS orden_descripcion
+               FROM facturas_compra fc
+               LEFT JOIN categorias_gasto c ON c.id = fc.categoria_gasto_id
+               LEFT JOIN ordenes_compra oc ON oc.id = fc.orden_compra_id
+               WHERE 1=1`;
+    if (estado_pago) { params.push(estado_pago); sql += ` AND fc.estado_pago = $${params.length}`; }
+    if (proveedor) { params.push(proveedor); sql += ` AND fc.proveedor_id = $${params.length}`; }
+    sql += " ORDER BY fc.fecha DESC, fc.created_at DESC";
+    const result = await pool.query(sql, params);
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get("/api/compras/ordenes-aprobadas", requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT oc.*, p.razon_social AS proveedor_nombre, c.nombre AS categoria_nombre
+       FROM ordenes_compra oc
+       LEFT JOIN proveedores p ON p.id = oc.proveedor_id
+       LEFT JOIN categorias_gasto c ON c.id = oc.categoria_gasto_id
+       WHERE oc.estado = 'aprobada' ORDER BY oc.fecha DESC, oc.created_at DESC`
+    );
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/compras/facturas", requireAdmin, async (req, res) => {
+  const b = req.body;
+  const errValidacion = validarFacturaCompra(b);
+  if (errValidacion) return res.status(400).json({ error: errValidacion });
+  let client;
+  try {
+    // Proveedor y categoría activos (+ snapshot de datos del proveedor).
+    const prov = await pool.query("SELECT id, cuit, razon_social FROM proveedores WHERE id = $1 AND activo = true", [b.proveedor_id]);
+    if (prov.rows.length === 0) return res.status(400).json({ error: "Proveedor inválido." });
+    const cat = await pool.query("SELECT id FROM categorias_gasto WHERE id = $1 AND activo = true", [b.categoria_gasto_id]);
+    if (cat.rows.length === 0) return res.status(400).json({ error: "Categoría de gasto inválida." });
+    const snapCuit = prov.rows[0].cuit || null;
+    const snapRazon = prov.rows[0].razon_social || null;
+
+    const cols = `(proveedor_id, categoria_gasto_id, orden_compra_id, proveedor_cuit, proveedor_razon_social,
+      tipo_comprobante, punto_venta, numero_comprobante, cae, fecha, alicuota_iva, neto_gravado, iva,
+      percep_iva, percep_iibb_bsas, percep_iibb_caba, neto_no_gravado, exentas, otros_tributos, total, usuario_crea)`;
+    const vals = [
+      b.proveedor_id, b.categoria_gasto_id, b.orden_compra_id || null, snapCuit, snapRazon,
+      String(b.tipo_comprobante).trim(), b.punto_venta?.trim() || null, String(b.numero_comprobante).trim(),
+      b.cae?.trim() || null, b.fecha, Number(b.alicuota_iva), Number(b.neto_gravado) || 0, Number(b.iva) || 0,
+      Number(b.percep_iva) || 0, Number(b.percep_iibb_bsas) || 0, Number(b.percep_iibb_caba) || 0,
+      Number(b.neto_no_gravado) || 0, Number(b.exentas) || 0, Number(b.otros_tributos) || 0, Number(b.total),
+      b.usuario || null,
+    ];
+    const ph = vals.map((_, i) => `$${i + 1}`).join(",");
+
+    if (b.orden_compra_id) {
+      // Carga DESDE orden: transacción atómica (crea factura + pasa la orden a 'recibida').
+      client = await pool.connect();
+      await client.query("BEGIN");
+      const ord = await client.query("SELECT estado FROM ordenes_compra WHERE id = $1 FOR UPDATE", [b.orden_compra_id]);
+      if (ord.rows.length === 0) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Orden no encontrada." }); }
+      if (ord.rows[0].estado !== "aprobada") { await client.query("ROLLBACK"); return res.status(409).json({ error: "La orden no está aprobada (ya fue recibida o anulada)." }); }
+      const ins = await client.query(`INSERT INTO facturas_compra ${cols} VALUES (${ph}) RETURNING id`, vals);
+      await client.query("UPDATE ordenes_compra SET estado = 'recibida' WHERE id = $1 AND estado = 'aprobada'", [b.orden_compra_id]);
+      await client.query("COMMIT");
+      res.json({ ok: true, id: ins.rows[0].id });
+      registrarAuditoria(b.usuario, "factura_compra_crear", "factura_compra", ins.rows[0].id, { orden_compra_id: b.orden_compra_id, total: Number(b.total) });
+    } else {
+      // Factura suelta: INSERT simple (el índice único evita duplicados).
+      const ins = await pool.query(`INSERT INTO facturas_compra ${cols} VALUES (${ph}) RETURNING id`, vals);
+      res.json({ ok: true, id: ins.rows[0].id });
+      registrarAuditoria(b.usuario, "factura_compra_crear", "factura_compra", ins.rows[0].id, { suelta: true, total: Number(b.total) });
+    }
+  } catch (err) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    if (err.code === "23505") return res.status(409).json({ error: "Ya existe una factura con ese número para este proveedor." });
+    console.error("Error POST /api/compras/facturas:", err.message);
+    res.status(500).json({ error: "Error cargando la factura" });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+app.patch("/api/compras/facturas/:id", requireAdmin, async (req, res) => {
+  const b = req.body;
+  try {
+    const actual = await pool.query("SELECT estado_pago FROM facturas_compra WHERE id = $1", [req.params.id]);
+    if (actual.rows.length === 0) return res.status(404).json({ error: "Factura no encontrada." });
+    if (actual.rows[0].estado_pago !== "pendiente") return res.status(403).json({ error: `No se puede editar una factura ${actual.rows[0].estado_pago}.` });
+    const errValidacion = validarFacturaCompra(b);
+    if (errValidacion) return res.status(400).json({ error: errValidacion });
+    if (b.categoria_gasto_id !== undefined) {
+      const cat = await pool.query("SELECT id FROM categorias_gasto WHERE id = $1 AND activo = true", [b.categoria_gasto_id]);
+      if (cat.rows.length === 0) return res.status(400).json({ error: "Categoría de gasto inválida." });
+    }
+    await pool.query(
+      `UPDATE facturas_compra SET
+         categoria_gasto_id = COALESCE($1, categoria_gasto_id),
+         tipo_comprobante = $2, punto_venta = $3, numero_comprobante = $4, cae = $5, fecha = $6,
+         alicuota_iva = $7, neto_gravado = $8, iva = $9,
+         percep_iva = $10, percep_iibb_bsas = $11, percep_iibb_caba = $12,
+         neto_no_gravado = $13, exentas = $14, otros_tributos = $15, total = $16
+       WHERE id = $17`,
+      [
+        b.categoria_gasto_id ?? null, String(b.tipo_comprobante).trim(), b.punto_venta?.trim() || null,
+        String(b.numero_comprobante).trim(), b.cae?.trim() || null, b.fecha, Number(b.alicuota_iva),
+        Number(b.neto_gravado) || 0, Number(b.iva) || 0, Number(b.percep_iva) || 0,
+        Number(b.percep_iibb_bsas) || 0, Number(b.percep_iibb_caba) || 0, Number(b.neto_no_gravado) || 0,
+        Number(b.exentas) || 0, Number(b.otros_tributos) || 0, Number(b.total), req.params.id,
+      ]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === "23505") return res.status(409).json({ error: "Ya existe una factura con ese número para este proveedor." });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Anula la factura (estado_pago='anulada'). Solo desde 'pendiente'. DECISIÓN: NO revierte la orden
+// asociada a 'aprobada' (queda 'recibida'); si hiciera falta revertir, se maneja aparte.
+app.post("/api/compras/facturas/:id/anular", requireAdmin, async (req, res) => {
+  const { motivo, usuario } = req.body;
+  if (!motivo || !motivo.trim()) return res.status(400).json({ error: "El motivo de anulación es obligatorio." });
+  try {
+    const result = await pool.query(
+      "UPDATE facturas_compra SET estado_pago = 'anulada', motivo_anulacion = $1 WHERE id = $2 AND estado_pago = 'pendiente' RETURNING id",
+      [motivo.trim(), req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(400).json({ error: "La factura no se puede anular (debe estar pendiente)." });
+    res.json({ ok: true });
+    registrarAuditoria(usuario, "factura_compra_anular", "factura_compra", req.params.id, { motivo: motivo.trim() });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

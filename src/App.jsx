@@ -2808,6 +2808,309 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       );
     }
 
+    // ─── COMPRAS — FACTURAS DE PROVEEDOR (Entrega 3) ──────────────────────
+    // Admin + superadmin. Factura con estado_pago='pendiente' = cuenta por pagar.
+    // Se carga desde orden aprobada (la pasa a 'recibida') o suelta.
+    const FC_ESTADO_BADGE = {
+      pendiente: { label: "Pendiente", bg: "#fef3c7", color: "#b45309" },
+      pagada:    { label: "Pagada",    bg: "#eafaf1", color: "#2a7a4b" },
+      anulada:   { label: "Anulada",   bg: "#f3f4f6", color: "#c0392b" },
+    };
+    const FC_ALICUOTAS = [21, 10.5, 27, 5, 2.5, 0];
+    const FC_TIPOS = ["Factura A", "Factura B", "Factura C"];
+    const FC_FORM_VACIO = {
+      proveedor_id: "", categoria_gasto_id: "", orden_compra_id: "",
+      tipo_comprobante: "Factura A", punto_venta: "", numero_comprobante: "", cae: "", fecha: "",
+      alicuota_iva: "21", neto_gravado: "", iva: "", percep_iva: "", percep_iibb_bsas: "", percep_iibb_caba: "",
+      neto_no_gravado: "", exentas: "", otros_tributos: "", total: "",
+    };
+
+    function VistaFacturasCompra({ usuario, onVolver }) {
+      const hoyStr = (() => { const h = new Date(); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`; })();
+      const [facturas, setFacturas] = useState([]);
+      const [proveedores, setProveedores] = useState([]);
+      const [categorias, setCategorias] = useState([]);
+      const [ordenesAprob, setOrdenesAprob] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [filtroEstado, setFiltroEstado] = useState("");
+      const [filtroProveedor, setFiltroProveedor] = useState("");
+      const [modal, setModal] = useState(null);          // null | "nuevo" | "editar"
+      const [modoCarga, setModoCarga] = useState("suelta"); // "orden" | "suelta"
+      const [editandoId, setEditandoId] = useState(null);
+      const [form, setForm] = useState(FC_FORM_VACIO);
+      const [guardando, setGuardando] = useState(false);
+      const [mensaje, setMensaje] = useState(null);
+
+      const money = (n) => "$" + Number(n || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const num = (x) => Number(x) || 0;
+      // Total calculado en vivo (mismo criterio que el backend).
+      const totalCalc = num(form.neto_gravado) + num(form.iva) + num(form.neto_no_gravado) + num(form.exentas) +
+        num(form.otros_tributos) + num(form.percep_iva) + num(form.percep_iibb_bsas) + num(form.percep_iibb_caba);
+      const cuadra = Math.abs(totalCalc - num(form.total)) <= 1;
+
+      async function cargar() {
+        setLoading(true);
+        try {
+          const params = {};
+          if (filtroEstado) params.estado_pago = filtroEstado;
+          if (filtroProveedor) params.proveedor = filtroProveedor;
+          const res = await axios.get(`${API}/api/compras/facturas`, { params });
+          setFacturas(res.data);
+        } catch (err) { setMensaje({ texto: err.response?.data?.error || "Error cargando facturas", tipo: "error" }); }
+        setLoading(false);
+      }
+      async function cargarCombos() {
+        try {
+          const [rp, rc, ro] = await Promise.all([
+            axios.get(`${API}/api/compras/proveedores`),
+            axios.get(`${API}/api/compras/categorias`),
+            axios.get(`${API}/api/compras/ordenes-aprobadas`),
+          ]);
+          setProveedores(rp.data); setCategorias(rc.data); setOrdenesAprob(ro.data);
+        } catch (err) { /* combos vacíos → el form lo avisa */ }
+      }
+      useEffect(() => { cargarCombos(); }, []);
+      useEffect(() => { cargar(); }, [filtroEstado, filtroProveedor]);
+
+      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 3000); }
+      const setCampo = (k, v) => setForm(f => ({ ...f, [k]: v }));
+      // IVA precalculado al cambiar neto o alícuota (editable después).
+      const ivaDe = (neto, alic) => Math.round(num(neto) * num(alic) / 100 * 100) / 100;
+      function setNeto(v) { setForm(f => ({ ...f, neto_gravado: v, iva: String(ivaDe(v, f.alicuota_iva)) })); }
+      function setAlicuota(v) { setForm(f => ({ ...f, alicuota_iva: v, iva: String(ivaDe(f.neto_gravado, v)) })); }
+
+      function abrirSuelta() { setForm({ ...FC_FORM_VACIO, fecha: hoyStr }); setModoCarga("suelta"); setEditandoId(null); setModal("nuevo"); }
+      function abrirDesdeOrden() { setForm({ ...FC_FORM_VACIO, fecha: hoyStr }); setModoCarga("orden"); setEditandoId(null); setModal("nuevo"); }
+      function elegirOrden(ordenId) {
+        const o = ordenesAprob.find(x => String(x.id) === String(ordenId));
+        setForm(f => ({ ...f, orden_compra_id: ordenId, proveedor_id: o ? String(o.proveedor_id) : "", categoria_gasto_id: o ? String(o.categoria_gasto_id) : "" }));
+      }
+      function abrirEditar(fac) {
+        setForm({
+          proveedor_id: String(fac.proveedor_id || ""), categoria_gasto_id: String(fac.categoria_gasto_id || ""),
+          orden_compra_id: fac.orden_compra_id ? String(fac.orden_compra_id) : "",
+          tipo_comprobante: fac.tipo_comprobante || "Factura A", punto_venta: fac.punto_venta || "",
+          numero_comprobante: fac.numero_comprobante || "", cae: fac.cae || "", fecha: fac.fecha || hoyStr,
+          alicuota_iva: String(fac.alicuota_iva ?? "21"), neto_gravado: String(fac.neto_gravado ?? ""), iva: String(fac.iva ?? ""),
+          percep_iva: String(fac.percep_iva ?? ""), percep_iibb_bsas: String(fac.percep_iibb_bsas ?? ""), percep_iibb_caba: String(fac.percep_iibb_caba ?? ""),
+          neto_no_gravado: String(fac.neto_no_gravado ?? ""), exentas: String(fac.exentas ?? ""), otros_tributos: String(fac.otros_tributos ?? ""), total: String(fac.total ?? ""),
+        });
+        setModoCarga(fac.orden_compra_id ? "orden" : "suelta"); setEditandoId(fac.id); setModal("editar");
+      }
+
+      async function guardar() {
+        if (!form.proveedor_id) { mostrarMensaje("Elegí un proveedor", "error"); return; }
+        if (!form.categoria_gasto_id) { mostrarMensaje("Elegí una categoría", "error"); return; }
+        if (!form.numero_comprobante.trim()) { mostrarMensaje("El número de comprobante es obligatorio", "error"); return; }
+        if (!(num(form.total) > 0)) { mostrarMensaje("El total debe ser mayor a 0", "error"); return; }
+        if (!cuadra) { mostrarMensaje(`El total no coincide: cargado ${money(form.total)}, calculado ${money(totalCalc)}`, "error"); return; }
+        setGuardando(true);
+        const payload = {
+          proveedor_id: Number(form.proveedor_id), categoria_gasto_id: Number(form.categoria_gasto_id),
+          orden_compra_id: modoCarga === "orden" && form.orden_compra_id ? Number(form.orden_compra_id) : null,
+          tipo_comprobante: form.tipo_comprobante, punto_venta: form.punto_venta, numero_comprobante: form.numero_comprobante,
+          cae: form.cae, fecha: form.fecha, alicuota_iva: Number(form.alicuota_iva),
+          neto_gravado: num(form.neto_gravado), iva: num(form.iva), percep_iva: num(form.percep_iva),
+          percep_iibb_bsas: num(form.percep_iibb_bsas), percep_iibb_caba: num(form.percep_iibb_caba),
+          neto_no_gravado: num(form.neto_no_gravado), exentas: num(form.exentas), otros_tributos: num(form.otros_tributos),
+          total: num(form.total), usuario: usuario.nombre_completo,
+        };
+        try {
+          if (modal === "editar") await axios.patch(`${API}/api/compras/facturas/${editandoId}`, payload);
+          else await axios.post(`${API}/api/compras/facturas`, payload);
+          await cargar(); await cargarCombos();   // recargar órdenes (una pasó a recibida)
+          setModal(null); setForm(FC_FORM_VACIO); setEditandoId(null);
+          mostrarMensaje(modal === "editar" ? "Factura actualizada" : "Factura cargada");
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error guardando", "error"); }
+        setGuardando(false);
+      }
+      async function anular(fac) {
+        const motivo = window.prompt(`Motivo de anulación de la factura ${fac.tipo_comprobante} ${fac.numero_comprobante} (${money(fac.total)}):`);
+        if (motivo === null) return;
+        if (!motivo.trim()) { mostrarMensaje("El motivo es obligatorio", "error"); return; }
+        try { await axios.post(`${API}/api/compras/facturas/${fac.id}/anular`, { motivo, usuario: usuario.nombre_completo }); await cargar(); mostrarMensaje("Factura anulada"); }
+        catch (err) { mostrarMensaje(err.response?.data?.error || "Error anulando", "error"); }
+      }
+
+      const inputStyle = { width: "100%", boxSizing: "border-box", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", marginTop: 4 };
+      const lbl = { fontSize: 12, color: "#555", fontWeight: 600, display: "block", marginBottom: 10 };
+      const filtroSel = { fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff" };
+      const numLbl = { fontSize: 11, color: "#666", fontWeight: 600, display: "block" };
+      const numInput = { width: "100%", boxSizing: "border-box", fontSize: 13, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", marginTop: 2 };
+
+      return (
+        <div style={{ padding: 24, maxWidth: 1000, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>🧾 Facturas de compra</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={{ fontSize: 13, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "1px solid #7c3aed", background: "#fff", color: "#7c3aed", cursor: "pointer" }} onClick={abrirDesdeOrden}>+ Desde orden</button>
+              <button style={{ fontSize: 13, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer" }} onClick={abrirSuelta}>+ Factura suelta</button>
+              <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver al panel</button>
+            </div>
+          </div>
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 12, marginBottom: 16, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#555" }}>Estado:</span>
+            <select style={filtroSel} value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)}>
+              <option value="">Todas</option>
+              <option value="pendiente">Pendientes (a pagar)</option>
+              <option value="pagada">Pagadas</option>
+              <option value="anulada">Anuladas</option>
+            </select>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#555" }}>Proveedor:</span>
+            <select style={filtroSel} value={filtroProveedor} onChange={e => setFiltroProveedor(e.target.value)}>
+              <option value="">Todos</option>
+              {proveedores.map(p => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
+            </select>
+          </div>
+
+          {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>}
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 8 }}>
+            {loading ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>Cargando…</div>
+              : facturas.length === 0 ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>No hay facturas para el filtro elegido.</div>
+              : facturas.map(fac => {
+                const badge = FC_ESTADO_BADGE[fac.estado_pago] || { label: fac.estado_pago, bg: "#eee", color: "#333" };
+                return (
+                  <div key={fac.id} style={{ padding: "12px", borderBottom: "1px solid #f5f5f5" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#333", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          {fac.proveedor_razon_social || "— proveedor —"}
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: badge.bg, color: badge.color }}>{badge.label}</span>
+                          {fac.orden_compra_id && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 10, background: "#ede9fe", color: "#7c3aed" }}>Orden #{fac.orden_compra_id}</span>}
+                        </div>
+                        <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
+                          {fac.tipo_comprobante} {fac.punto_venta ? `${fac.punto_venta}-` : ""}{fac.numero_comprobante} · {fac.fecha} · {fac.categoria_nombre || "sin categoría"}{fac.proveedor_cuit ? ` · CUIT ${fac.proveedor_cuit}` : ""}
+                        </div>
+                        <div style={{ fontSize: 12, color: "#444", marginTop: 3 }}>
+                          Neto {money(fac.neto_gravado)} · IVA {fac.alicuota_iva}% {money(fac.iva)}
+                          {(num(fac.percep_iva) + num(fac.percep_iibb_bsas) + num(fac.percep_iibb_caba)) > 0 ? ` · Percep. ${money(num(fac.percep_iva) + num(fac.percep_iibb_bsas) + num(fac.percep_iibb_caba))}` : ""}
+                        </div>
+                        {fac.estado_pago === "anulada" && fac.motivo_anulacion && <div style={{ fontSize: 11, color: "#c0392b", marginTop: 3 }}>Anulada: {fac.motivo_anulacion}</div>}
+                      </div>
+                      <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: "#333", marginBottom: 6 }}>{money(fac.total)}</div>
+                        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                          {fac.estado_pago === "pendiente" && (
+                            <>
+                              <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #7c3aed", background: "#fff", color: "#7c3aed", cursor: "pointer" }} onClick={() => abrirEditar(fac)}>✎ Editar</button>
+                              <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => anular(fac)}>✕ Anular</button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+
+          {modal && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }} onClick={() => setModal(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 560, maxWidth: "100%", maxHeight: "92vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 16 }}>
+                  {modal === "editar" ? "Editar factura" : modoCarga === "orden" ? "Cargar factura desde orden" : "Nueva factura suelta"}
+                </div>
+
+                {modoCarga === "orden" && modal === "nuevo" && (
+                  <label style={lbl}>Orden aprobada *
+                    <select style={inputStyle} value={form.orden_compra_id} onChange={e => elegirOrden(e.target.value)}>
+                      <option value="">— Elegí una orden —</option>
+                      {ordenesAprob.map(o => <option key={o.id} value={o.id}>#{o.id} · {o.proveedor_nombre} · {o.fecha} · {money(o.monto_total)}</option>)}
+                    </select>
+                  </label>
+                )}
+
+                <label style={lbl}>Proveedor *
+                  <select style={inputStyle} value={form.proveedor_id} disabled={modal === "editar" || (modoCarga === "orden" && !!form.orden_compra_id)} onChange={e => setCampo("proveedor_id", e.target.value)}>
+                    <option value="">— Elegí proveedor —</option>
+                    {proveedores.map(p => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
+                  </select>
+                </label>
+                <label style={lbl}>Categoría de gasto *
+                  <select style={inputStyle} value={form.categoria_gasto_id} onChange={e => setCampo("categoria_gasto_id", e.target.value)}>
+                    <option value="">— Elegí categoría —</option>
+                    {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                  </select>
+                </label>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                  <label style={lbl}>Tipo *
+                    <select style={inputStyle} value={form.tipo_comprobante} onChange={e => setCampo("tipo_comprobante", e.target.value)}>
+                      {FC_TIPOS.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </label>
+                  <label style={lbl}>Punto de venta
+                    <input style={inputStyle} value={form.punto_venta} onChange={e => setCampo("punto_venta", e.target.value)} placeholder="0001" />
+                  </label>
+                  <label style={lbl}>Número *
+                    <input style={inputStyle} value={form.numero_comprobante} onChange={e => setCampo("numero_comprobante", e.target.value)} placeholder="00001234" />
+                  </label>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <label style={lbl}>Fecha *
+                    <input type="date" style={inputStyle} value={form.fecha} onChange={e => setCampo("fecha", e.target.value)} />
+                  </label>
+                  <label style={lbl}>CAE
+                    <input style={inputStyle} value={form.cae} onChange={e => setCampo("cae", e.target.value)} placeholder="Opcional" />
+                  </label>
+                </div>
+
+                <div style={{ borderTop: "1px solid #eee", margin: "6px 0 12px" }} />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                  <label style={numLbl}>Alícuota IVA
+                    <select style={numInput} value={form.alicuota_iva} onChange={e => setAlicuota(e.target.value)}>
+                      {FC_ALICUOTAS.map(a => <option key={a} value={a}>{a}%</option>)}
+                    </select>
+                  </label>
+                  <label style={numLbl}>Neto gravado
+                    <input type="number" step="0.01" style={numInput} value={form.neto_gravado} onChange={e => setNeto(e.target.value)} placeholder="0.00" />
+                  </label>
+                  <label style={numLbl}>IVA (editable)
+                    <input type="number" step="0.01" style={numInput} value={form.iva} onChange={e => setCampo("iva", e.target.value)} placeholder="0.00" />
+                  </label>
+                  <label style={numLbl}>Percep. IVA
+                    <input type="number" step="0.01" style={numInput} value={form.percep_iva} onChange={e => setCampo("percep_iva", e.target.value)} placeholder="0" />
+                  </label>
+                  <label style={numLbl}>Percep. IIBB Bs.As.
+                    <input type="number" step="0.01" style={numInput} value={form.percep_iibb_bsas} onChange={e => setCampo("percep_iibb_bsas", e.target.value)} placeholder="0" />
+                  </label>
+                  <label style={numLbl}>Percep. IIBB CABA
+                    <input type="number" step="0.01" style={numInput} value={form.percep_iibb_caba} onChange={e => setCampo("percep_iibb_caba", e.target.value)} placeholder="0" />
+                  </label>
+                  <label style={numLbl}>Neto no gravado
+                    <input type="number" step="0.01" style={numInput} value={form.neto_no_gravado} onChange={e => setCampo("neto_no_gravado", e.target.value)} placeholder="0" />
+                  </label>
+                  <label style={numLbl}>Exentas
+                    <input type="number" step="0.01" style={numInput} value={form.exentas} onChange={e => setCampo("exentas", e.target.value)} placeholder="0" />
+                  </label>
+                  <label style={numLbl}>Otros tributos
+                    <input type="number" step="0.01" style={numInput} value={form.otros_tributos} onChange={e => setCampo("otros_tributos", e.target.value)} placeholder="0" />
+                  </label>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                  <label style={{ ...numLbl, flex: 1 }}>Total factura *
+                    <input type="number" step="0.01" style={{ ...numInput, fontWeight: 700 }} value={form.total} onChange={e => setCampo("total", e.target.value)} placeholder="0.00" />
+                  </label>
+                  <div style={{ fontSize: 12, textAlign: "right", flex: 1 }}>
+                    <div style={{ color: "#888" }}>Calculado</div>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: cuadra ? "#2a7a4b" : "#c0392b" }}>{money(totalCalc)} {cuadra ? "✓" : "✗ no coincide"}</div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button style={{ flex: 1, padding: 10, borderRadius: 8, border: "none", background: (guardando || !cuadra) ? "#ccc" : "#F68B32", color: "#fff", fontSize: 13, fontWeight: 600, cursor: (guardando || !cuadra) ? "default" : "pointer" }} disabled={guardando || !cuadra} onClick={guardar}>{guardando ? "Guardando…" : "Guardar factura"}</button>
+                  <button style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", fontSize: 13, cursor: "pointer" }} onClick={() => setModal(null)}>Cancelar</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     // ─── CONTABLE — LIBRO DE VENTAS (formato AFIP) ───────────────────────
     // Solo superadmin (guard de vista + endpoint superadmin-only). Lee el libro ya calculado
     // del backend y lo muestra/exporta con las columnas del formato AFIP tal cual las manda.
@@ -4304,6 +4607,7 @@ let numeroAsignado = "";
                       {menuGrupo === "compras" && (
                         <>
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("ordenesCompra"); setMenuAbierto(false); }}>📋 Órdenes de compra</button>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("facturasCompra"); setMenuAbierto(false); }}>🧾 Facturas de compra</button>
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("proveedores"); setMenuAbierto(false); }}>🏭 Proveedores</button>
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("categoriasGasto"); setMenuAbierto(false); }}>🏷️ Categorías de gasto</button>
                         </>
@@ -4366,7 +4670,7 @@ let numeroAsignado = "";
       }
 
       // Guard módulo Compras (admin + superadmin).
-      const VISTAS_COMPRAS = ["ordenesCompra", "proveedores", "categoriasGasto"];
+      const VISTAS_COMPRAS = ["ordenesCompra", "facturasCompra", "proveedores", "categoriasGasto"];
       if (VISTAS_COMPRAS.includes(vista) && !esAdmin) {
         return (
           <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: "system-ui, sans-serif", background: "#f7f7f5", padding: 24, textAlign: "center" }}>
@@ -5400,6 +5704,9 @@ if (vista === "dashboard") {
     }
     if (vista === "ordenesCompra") {
       return <div style={s.wrap}><Header /><VistaOrdenesCompra usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "facturasCompra") {
+      return <div style={s.wrap}><Header /><VistaFacturasCompra usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "proveedores") {
       return <div style={s.wrap}><Header /><VistaProveedores onVolver={() => setVista("panel")} /></div>;
