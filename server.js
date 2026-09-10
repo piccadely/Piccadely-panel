@@ -205,6 +205,22 @@ async function initDB() {
       processed_at TIMESTAMP DEFAULT NOW(),
       UNIQUE(event_type, resource_id, signature)
     );
+    CREATE TABLE IF NOT EXISTS proveedores (
+      id SERIAL PRIMARY KEY,
+      razon_social TEXT NOT NULL,
+      cuit TEXT,
+      condicion_iva TEXT,
+      email TEXT,
+      telefono TEXT,
+      activo BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS categorias_gasto (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL,
+      activo BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
   `);
 
   // Migraciones
@@ -1622,6 +1638,85 @@ app.patch("/api/repartidores/:id", requireAdmin, async (req, res) => {
 app.delete("/api/repartidores/:id", requireAdmin, async (req, res) => {
   try {
     await pool.query("UPDATE repartidores SET activo = false WHERE id = $1 AND nombre != 'Sin asignar'", [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── COMPRAS — ABM PROVEEDORES Y CATEGORÍAS DE GASTO ────────────────────
+// Cimiento del módulo de compras (admin + superadmin). Después: órdenes, facturas, pagos, libro.
+const CONDICIONES_IVA = ["RI", "Monotributo", "Exento", "CF"];
+
+app.get("/api/compras/proveedores", requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM proveedores WHERE activo = true ORDER BY razon_social ASC");
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/compras/proveedores", requireAdmin, async (req, res) => {
+  const { razon_social, cuit, condicion_iva, email, telefono } = req.body;
+  if (!razon_social || !razon_social.trim()) return res.status(400).json({ error: "La razón social es obligatoria." });
+  const cuitLimpio = cuit ? String(cuit).replace(/\D/g, "") : "";
+  if (cuitLimpio && cuitLimpio.length !== 11) return res.status(400).json({ error: "El CUIT debe tener 11 dígitos." });
+  if (condicion_iva && !CONDICIONES_IVA.includes(condicion_iva)) return res.status(400).json({ error: "Condición de IVA inválida." });
+  try {
+    const result = await pool.query(
+      "INSERT INTO proveedores (razon_social, cuit, condicion_iva, email, telefono) VALUES ($1,$2,$3,$4,$5) RETURNING *",
+      [razon_social.trim(), cuitLimpio || null, condicion_iva || null, email?.trim() || null, telefono?.trim() || null]
+    );
+    res.json({ ok: true, proveedor: result.rows[0] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.patch("/api/compras/proveedores/:id", requireAdmin, async (req, res) => {
+  const { razon_social, cuit, condicion_iva, email, telefono } = req.body;
+  let cuitLimpio;
+  if (cuit !== undefined) {
+    cuitLimpio = cuit ? String(cuit).replace(/\D/g, "") : null;
+    if (cuitLimpio && cuitLimpio.length !== 11) return res.status(400).json({ error: "El CUIT debe tener 11 dígitos." });
+  }
+  if (condicion_iva && !CONDICIONES_IVA.includes(condicion_iva)) return res.status(400).json({ error: "Condición de IVA inválida." });
+  try {
+    await pool.query(
+      `UPDATE proveedores SET
+         razon_social = COALESCE($1, razon_social),
+         cuit = COALESCE($2, cuit),
+         condicion_iva = COALESCE($3, condicion_iva),
+         email = COALESCE($4, email),
+         telefono = COALESCE($5, telefono)
+       WHERE id = $6`,
+      [razon_social?.trim() || null, cuitLimpio ?? null, condicion_iva || null, email?.trim() || null, telefono?.trim() || null, req.params.id]
+    );
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete("/api/compras/proveedores/:id", requireAdmin, async (req, res) => {
+  try {
+    await pool.query("UPDATE proveedores SET activo = false WHERE id = $1", [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get("/api/compras/categorias", requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM categorias_gasto WHERE activo = true ORDER BY nombre ASC");
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/compras/categorias", requireAdmin, async (req, res) => {
+  const { nombre } = req.body;
+  if (!nombre || !nombre.trim()) return res.status(400).json({ error: "El nombre es obligatorio." });
+  try {
+    const result = await pool.query("INSERT INTO categorias_gasto (nombre) VALUES ($1) RETURNING *", [nombre.trim()]);
+    res.json({ ok: true, categoria: result.rows[0] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete("/api/compras/categorias/:id", requireAdmin, async (req, res) => {
+  try {
+    await pool.query("UPDATE categorias_gasto SET activo = false WHERE id = $1", [req.params.id]);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

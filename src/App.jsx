@@ -2421,6 +2421,188 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       );
     }
 
+    // ─── COMPRAS — ABM PROVEEDORES ───────────────────────────────────────
+    // Admin + superadmin. Estilo Usuarios.jsx: lista + modal crear/editar. Soft delete.
+    const CONDICIONES_IVA_OPCIONES = [
+      { value: "RI", label: "Responsable Inscripto" },
+      { value: "Monotributo", label: "Monotributo" },
+      { value: "Exento", label: "Exento" },
+      { value: "CF", label: "Consumidor Final" },
+    ];
+    const labelCondicionIva = (v) => CONDICIONES_IVA_OPCIONES.find(o => o.value === v)?.label || v || "—";
+    const PROVEEDOR_FORM_VACIO = { razon_social: "", cuit: "", condicion_iva: "", email: "", telefono: "" };
+
+    function VistaProveedores({ onVolver }) {
+      const [proveedores, setProveedores] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [modal, setModal] = useState(null);          // null | "nuevo" | "editar"
+      const [editandoId, setEditandoId] = useState(null);
+      const [form, setForm] = useState(PROVEEDOR_FORM_VACIO);
+      const [guardando, setGuardando] = useState(false);
+      const [mensaje, setMensaje] = useState(null);
+
+      async function cargar() {
+        setLoading(true);
+        try { const res = await axios.get(`${API}/api/compras/proveedores`); setProveedores(res.data); }
+        catch (err) { setMensaje({ texto: err.response?.data?.error || "Error cargando proveedores", tipo: "error" }); }
+        setLoading(false);
+      }
+      useEffect(() => { cargar(); }, []);
+
+      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 3000); }
+      function abrirNuevo() { setForm(PROVEEDOR_FORM_VACIO); setEditandoId(null); setModal("nuevo"); }
+      function abrirEditar(p) {
+        setForm({ razon_social: p.razon_social || "", cuit: p.cuit || "", condicion_iva: p.condicion_iva || "", email: p.email || "", telefono: p.telefono || "" });
+        setEditandoId(p.id); setModal("editar");
+      }
+      const setCampo = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+      async function guardar() {
+        if (!form.razon_social.trim()) { mostrarMensaje("La razón social es obligatoria", "error"); return; }
+        setGuardando(true);
+        try {
+          if (modal === "editar") await axios.patch(`${API}/api/compras/proveedores/${editandoId}`, form);
+          else await axios.post(`${API}/api/compras/proveedores`, form);
+          await cargar();
+          setModal(null); setForm(PROVEEDOR_FORM_VACIO); setEditandoId(null);
+          mostrarMensaje(modal === "editar" ? "Proveedor actualizado" : "Proveedor creado");
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error guardando", "error"); }
+        setGuardando(false);
+      }
+
+      async function eliminar(p) {
+        if (!window.confirm(`¿Eliminar el proveedor "${p.razon_social}"?`)) return;
+        try { await axios.delete(`${API}/api/compras/proveedores/${p.id}`); await cargar(); mostrarMensaje("Proveedor eliminado"); }
+        catch (err) { mostrarMensaje(err.response?.data?.error || "Error eliminando", "error"); }
+      }
+
+      const inputStyle = { width: "100%", boxSizing: "border-box", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", marginTop: 4 };
+      const lbl = { fontSize: 12, color: "#555", fontWeight: 600, display: "block", marginBottom: 10 };
+
+      return (
+        <div style={{ padding: 24, maxWidth: 820, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>🏭 Proveedores</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={{ fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer" }} onClick={abrirNuevo}>+ Nuevo proveedor</button>
+              <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver al panel</button>
+            </div>
+          </div>
+
+          {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>}
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 8 }}>
+            {loading ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>Cargando…</div>
+              : proveedores.length === 0 ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>No hay proveedores cargados.</div>
+              : proveedores.map(p => (
+                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 12px", borderBottom: "1px solid #f5f5f5", gap: 12 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>{p.razon_social}</div>
+                    <div style={{ fontSize: 12, color: "#888" }}>
+                      {p.cuit ? `CUIT ${p.cuit}` : "Sin CUIT"} · {labelCondicionIva(p.condicion_iva)}
+                      {p.email ? ` · ${p.email}` : ""}{p.telefono ? ` · ${p.telefono}` : ""}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, whiteSpace: "nowrap" }}>
+                    <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #7c3aed", background: "#fff", color: "#7c3aed", cursor: "pointer" }} onClick={() => abrirEditar(p)}>✎ Editar</button>
+                    <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => eliminar(p)}>✕ Eliminar</button>
+                  </div>
+                </div>
+              ))}
+          </div>
+
+          {modal && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }} onClick={() => setModal(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 420, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 16 }}>{modal === "editar" ? "Editar proveedor" : "Nuevo proveedor"}</div>
+                <label style={lbl}>Razón social *
+                  <input style={inputStyle} value={form.razon_social} onChange={e => setCampo("razon_social", e.target.value)} placeholder="Nombre / razón social" />
+                </label>
+                <label style={lbl}>CUIT
+                  <input style={inputStyle} value={form.cuit} onChange={e => setCampo("cuit", e.target.value)} placeholder="11 dígitos (opcional)" />
+                </label>
+                <label style={lbl}>Condición frente al IVA
+                  <select style={inputStyle} value={form.condicion_iva} onChange={e => setCampo("condicion_iva", e.target.value)}>
+                    <option value="">— Sin especificar —</option>
+                    {CONDICIONES_IVA_OPCIONES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </label>
+                <label style={lbl}>Email
+                  <input style={inputStyle} value={form.email} onChange={e => setCampo("email", e.target.value)} placeholder="Opcional" />
+                </label>
+                <label style={lbl}>Teléfono
+                  <input style={inputStyle} value={form.telefono} onChange={e => setCampo("telefono", e.target.value)} placeholder="Opcional" />
+                </label>
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button style={{ flex: 1, padding: 10, borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#F68B32", color: "#fff", fontSize: 13, fontWeight: 600, cursor: guardando ? "default" : "pointer" }} disabled={guardando} onClick={guardar}>{guardando ? "Guardando…" : "Guardar"}</button>
+                  <button style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", fontSize: 13, cursor: "pointer" }} onClick={() => setModal(null)}>Cancelar</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─── COMPRAS — ABM CATEGORÍAS DE GASTO ────────────────────────────────
+    // Admin + superadmin. ABM inline estilo repartidores (1 campo + soft delete).
+    function VistaCategoriasGasto({ onVolver }) {
+      const [categorias, setCategorias] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [nombre, setNombre] = useState("");
+      const [guardando, setGuardando] = useState(false);
+      const [mensaje, setMensaje] = useState(null);
+
+      async function cargar() {
+        setLoading(true);
+        try { const res = await axios.get(`${API}/api/compras/categorias`); setCategorias(res.data); }
+        catch (err) { setMensaje({ texto: err.response?.data?.error || "Error cargando categorías", tipo: "error" }); }
+        setLoading(false);
+      }
+      useEffect(() => { cargar(); }, []);
+      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 3000); }
+
+      async function agregar() {
+        if (!nombre.trim()) return;
+        setGuardando(true);
+        try { await axios.post(`${API}/api/compras/categorias`, { nombre: nombre.trim() }); setNombre(""); await cargar(); mostrarMensaje("Categoría creada"); }
+        catch (err) { mostrarMensaje(err.response?.data?.error || "Error creando categoría", "error"); }
+        setGuardando(false);
+      }
+      async function eliminar(c) {
+        if (!window.confirm(`¿Eliminar la categoría "${c.nombre}"?`)) return;
+        try { await axios.delete(`${API}/api/compras/categorias/${c.id}`); await cargar(); mostrarMensaje("Categoría eliminada"); }
+        catch (err) { mostrarMensaje(err.response?.data?.error || "Error eliminando", "error"); }
+      }
+
+      return (
+        <div style={{ padding: 24, maxWidth: 520, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>🏷️ Categorías de gasto</div>
+            <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver al panel</button>
+          </div>
+
+          {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>}
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+              <input style={{ flex: 1, fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd" }} placeholder="Nueva categoría (ej. Mercadería, Insumos, Servicios)" value={nombre}
+                onChange={e => setNombre(e.target.value)} onKeyDown={e => { if (e.key === "Enter") agregar(); }} />
+              <button style={{ fontSize: 12, fontWeight: 600, padding: "7px 14px", borderRadius: 6, border: "none", background: (guardando || !nombre.trim()) ? "#ccc" : "#F68B32", color: "#fff", cursor: (guardando || !nombre.trim()) ? "default" : "pointer" }} disabled={guardando || !nombre.trim()} onClick={agregar}>+ Agregar</button>
+            </div>
+            {loading ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando…</div>
+              : categorias.length === 0 ? <div style={{ color: "#aaa", fontSize: 13 }}>No hay categorías cargadas.</div>
+              : categorias.map(c => (
+                <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid #f5f5f5" }}>
+                  <span style={{ fontSize: 13, color: "#333", fontWeight: 500 }}>{c.nombre}</span>
+                  <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => eliminar(c)}>✕ Eliminar</button>
+                </div>
+              ))}
+          </div>
+        </div>
+      );
+    }
+
     // ─── CONTABLE — LIBRO DE VENTAS (formato AFIP) ───────────────────────
     // Solo superadmin (guard de vista + endpoint superadmin-only). Lee el libro ya calculado
     // del backend y lo muestra/exporta con las columnas del formato AFIP tal cual las manda.
@@ -3906,6 +4088,22 @@ let numeroAsignado = "";
                       )}
                     </>
                   )}
+                  {esAdmin && (
+                    <>
+                      <button
+                        style={{ ...s.dropItem, fontWeight: 700, color: "#444", background: "#fafaf8", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                        onClick={() => setMenuGrupo(g => g === "compras" ? "" : "compras")}>
+                        <span>🛒 Compras</span>
+                        <span style={{ fontSize: 10, color: "#aaa" }}>{menuGrupo === "compras" ? "▾" : "▸"}</span>
+                      </button>
+                      {menuGrupo === "compras" && (
+                        <>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("proveedores"); setMenuAbierto(false); }}>🏭 Proveedores</button>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("categoriasGasto"); setMenuAbierto(false); }}>🏷️ Categorías de gasto</button>
+                        </>
+                      )}
+                    </>
+                  )}
                   <button style={s.dropItem} onClick={() => { setVista("tandas"); setMenuAbierto(false); }}>🚚 Tandas activas</button>
                   <button style={s.dropItem} onClick={() => { setVista("caja"); setMenuAbierto(false); }}>💰 Caja</button>
                   {esAdmin && <button style={s.dropItem} onClick={() => { setVista("importar"); setMenuAbierto(false); }}>📥 Importar pedidos</button>}
@@ -3956,6 +4154,19 @@ let numeroAsignado = "";
             <div style={{ fontSize: 40 }}>🔒</div>
             <div style={{ fontSize: 16, fontWeight: 700, color: "#333" }}>Sin acceso</div>
             <div style={{ fontSize: 13, color: "#888" }}>Esta sección es solo para superadministradores.</div>
+            <button onClick={() => setVista("panel")} style={{ marginTop: 8, fontSize: 13, padding: "9px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }}>← Volver al panel</button>
+          </div>
+        );
+      }
+
+      // Guard módulo Compras (admin + superadmin).
+      const VISTAS_COMPRAS = ["proveedores", "categoriasGasto"];
+      if (VISTAS_COMPRAS.includes(vista) && !esAdmin) {
+        return (
+          <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: "system-ui, sans-serif", background: "#f7f7f5", padding: 24, textAlign: "center" }}>
+            <div style={{ fontSize: 40 }}>🔒</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#333" }}>Sin acceso</div>
+            <div style={{ fontSize: 13, color: "#888" }}>Esta sección es solo para administradores.</div>
             <button onClick={() => setVista("panel")} style={{ marginTop: 8, fontSize: 13, padding: "9px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }}>← Volver al panel</button>
           </div>
         );
@@ -4980,6 +5191,12 @@ if (vista === "dashboard") {
     }
     if (vista === "libroVentas") {
       return <div style={s.wrap}><Header /><VistaLibroVentas onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "proveedores") {
+      return <div style={s.wrap}><Header /><VistaProveedores onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "categoriasGasto") {
+      return <div style={s.wrap}><Header /><VistaCategoriasGasto onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "mapa") {
         return <div style={s.wrap}><Header /><VistaMapa onVolver={() => setVista("panel")} repartidores={repartidoresLista} onCrearTanda={crearTanda} /></div>;
