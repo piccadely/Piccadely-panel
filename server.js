@@ -2321,6 +2321,8 @@ app.get("/api/contable/libro-ventas", requireAuth, async (req, res) => {
     sql += " ORDER BY created_at ASC, id ASC";
     const { rows } = await pool.query(sql, params);
     const filas = [];
+    const tipos = [];   // tipo ORIGINAL (string) por fila, paralelo a `filas`. Solo para mostrar
+                        // texto legible en pantalla; NO forma parte de las columnas oficiales del Excel.
     const tot = { neto21: 0, iva21: 0, netoTotal: 0, noGravado: 0, exentas: 0, totalIva: 0, impTotal: 0 };
     for (const f of rows) {
       const total = round2(f.total);
@@ -2333,6 +2335,7 @@ app.get("/api/contable/libro-ventas", requireAuth, async (req, res) => {
       const numeroSolo = Number(numeroSinPuntoVenta(f.numero)) || 0;
       tot.neto21 += neto21; tot.iva21 += iva21; tot.netoTotal += netoTotal;
       tot.exentas += exentas; tot.totalIva += totalIva; tot.impTotal += total;
+      tipos.push(f.tipo || "");
       filas.push({
         "Fecha de Emision": f.fecha || "",
         "Tipo de Comprobante": codComprobanteAFIP(f.tipo),
@@ -2364,7 +2367,7 @@ app.get("/api/contable/libro-ventas", requireAuth, async (req, res) => {
       noGravado: 0, exentas: round2(tot.exentas), totalIva: round2(tot.totalIva),
       impTotal: round2(tot.impTotal), cantidad: filas.length,
     };
-    res.json({ columnas: LIBRO_VENTAS_COLUMNAS, filas, totales });
+    res.json({ columnas: LIBRO_VENTAS_COLUMNAS, filas, tipos, totales });
   } catch (err) {
     console.error("Error /api/contable/libro-ventas:", err.message);
     res.status(500).json({ error: "Error generando el libro de ventas" });

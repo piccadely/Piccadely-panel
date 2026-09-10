@@ -2436,6 +2436,16 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [error, setError] = useState("");
 
       const nf = (n) => Number(n || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      // Texto legible del tipo original (solo pantalla; el Excel usa el código AFIP oficial).
+      const tipoLegible = (t) => {
+        const s = String(t || "").toUpperCase();
+        if (s.includes("NOTA DE CREDITO A")) return "Nota de Crédito A";
+        if (s.includes("NOTA DE CREDITO B")) return "Nota de Crédito B";
+        if (s.includes("FACTURA A")) return "Factura A";
+        if (s.includes("EXENTO")) return "Factura B Exento";
+        if (s.includes("FACTURA B")) return "Factura B";
+        return t || "";
+      };
       const COLS_NUM = new Set([
         "Imp. Neto Gravado IVA 0%",
         "IVA 2,5%", "Imp. Neto Gravado IVA 2,5%", "IVA 5%", "Imp. Neto Gravado IVA 5%",
@@ -2526,15 +2536,21 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                 <div style={{ overflowX: "auto", maxHeight: "60vh", overflowY: "auto" }}>
                   <table style={{ borderCollapse: "collapse", width: "100%" }}>
                     <thead>
-                      <tr>{cols.map(c => <th key={c} style={{ ...th, textAlign: COLS_NUM.has(c) ? "right" : "left" }}>{c}</th>)}</tr>
+                      <tr>
+                        {/* Columna SOLO-pantalla: tipo en texto (no va al Excel oficial) */}
+                        <th style={{ ...th, textAlign: "left" }}>Comprobante</th>
+                        {cols.map(c => <th key={c} style={{ ...th, textAlign: COLS_NUM.has(c) ? "right" : "left" }}>{c}</th>)}
+                      </tr>
                     </thead>
                     <tbody>
                       {data.filas.map((fila, i) => (
                         <tr key={i}>
+                          <td style={{ ...td, fontWeight: 600, color: "#7c3aed" }}>{tipoLegible(data.tipos?.[i])}</td>
                           {cols.map(c => <td key={c} style={{ ...td, textAlign: COLS_NUM.has(c) ? "right" : "left" }}>{COLS_NUM.has(c) ? nf(fila[c]) : fila[c]}</td>)}
                         </tr>
                       ))}
                       <tr>
+                        <td style={{ ...td, fontWeight: 700, borderTop: "2px solid #ddd", background: "#fafaf8" }}></td>
                         {cols.map(c => (
                           <td key={c} style={{ ...td, fontWeight: 700, borderTop: "2px solid #ddd", background: "#fafaf8", textAlign: COLS_NUM.has(c) ? "right" : "left" }}>
                             {COLS_NUM.has(c) ? nf(totFila[c]) : (totFila[c] || "")}
