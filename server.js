@@ -221,6 +221,21 @@ async function initDB() {
       activo BOOLEAN DEFAULT true,
       created_at TIMESTAMP DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS ordenes_compra (
+      id SERIAL PRIMARY KEY,
+      proveedor_id INTEGER REFERENCES proveedores(id),
+      categoria_gasto_id INTEGER REFERENCES categorias_gasto(id),
+      fecha TEXT NOT NULL,
+      descripcion TEXT NOT NULL,
+      monto_total NUMERIC NOT NULL,
+      estado TEXT NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente','aprobada','recibida','anulada')),
+      nota TEXT,
+      usuario_crea TEXT,
+      usuario_aprueba TEXT,
+      fecha_aprobacion TEXT,
+      motivo_anulacion TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
   `);
 
   // Migraciones
@@ -1718,6 +1733,117 @@ app.delete("/api/compras/categorias/:id", requireAdmin, async (req, res) => {
   try {
     await pool.query("UPDATE categorias_gasto SET activo = false WHERE id = $1", [req.params.id]);
     res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── COMPRAS — ÓRDENES DE COMPRA (Entrega 2) ────────────────────────────
+// Flujo: pendiente → aprobada → (recibida = Entrega 3) ; anulable desde pendiente/aprobada.
+const esFechaISO = (s) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(s || ""))) return false;
+  const [y, m, d] = s.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+};
+
+app.get("/api/compras/ordenes", requireAdmin, async (req, res) => {
+  const { estado, proveedor } = req.query;
+  try {
+    const params = [];
+    let sql = `SELECT oc.*, p.razon_social AS proveedor_nombre, c.nombre AS categoria_nombre
+               FROM ordenes_compra oc
+               LEFT JOIN proveedores p ON p.id = oc.proveedor_id
+               LEFT JOIN categorias_gasto c ON c.id = oc.categoria_gasto_id
+               WHERE 1=1`;
+    if (estado) { params.push(estado); sql += ` AND oc.estado = $${params.length}`; }
+    if (proveedor) { params.push(proveedor); sql += ` AND oc.proveedor_id = $${params.length}`; }
+    sql += " ORDER BY oc.fecha DESC, oc.created_at DESC";
+    const result = await pool.query(sql, params);
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/compras/ordenes", requireAdmin, async (req, res) => {
+  const { proveedor_id, categoria_gasto_id, fecha, descripcion, monto_total, nota, usuario } = req.body;
+  if (!descripcion || !descripcion.trim()) return res.status(400).json({ error: "La descripción es obligatoria." });
+  const monto = Number(monto_total);
+  if (!Number.isFinite(monto) || monto <= 0) return res.status(400).json({ error: "El monto total debe ser mayor a 0." });
+  if (!esFechaISO(fecha)) return res.status(400).json({ error: "Fecha inválida (formato YYYY-MM-DD)." });
+  try {
+    const prov = await pool.query("SELECT id FROM proveedores WHERE id = $1 AND activo = true", [proveedor_id]);
+    if (prov.rows.length === 0) return res.status(400).json({ error: "Proveedor inválido." });
+    const cat = await pool.query("SELECT id FROM categorias_gasto WHERE id = $1 AND activo = true", [categoria_gasto_id]);
+    if (cat.rows.length === 0) return res.status(400).json({ error: "Categoría de gasto inválida." });
+    const result = await pool.query(
+      `INSERT INTO ordenes_compra (proveedor_id, categoria_gasto_id, fecha, descripcion, monto_total, nota, usuario_crea)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [proveedor_id, categoria_gasto_id, fecha, descripcion.trim(), monto, nota?.trim() || null, usuario || null]
+    );
+    res.json({ ok: true, orden: result.rows[0] });
+    registrarAuditoria(usuario, "orden_compra_crear", "orden_compra", result.rows[0].id, { proveedor_id, monto });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.patch("/api/compras/ordenes/:id", requireAdmin, async (req, res) => {
+  const { proveedor_id, categoria_gasto_id, fecha, descripcion, monto_total, nota } = req.body;
+  try {
+    const actual = await pool.query("SELECT estado FROM ordenes_compra WHERE id = $1", [req.params.id]);
+    if (actual.rows.length === 0) return res.status(404).json({ error: "Orden no encontrada." });
+    if (actual.rows[0].estado !== "pendiente") return res.status(403).json({ error: `No se puede editar una orden ${actual.rows[0].estado}.` });
+    if (descripcion !== undefined && !String(descripcion).trim()) return res.status(400).json({ error: "La descripción es obligatoria." });
+    let monto;
+    if (monto_total !== undefined) {
+      monto = Number(monto_total);
+      if (!Number.isFinite(monto) || monto <= 0) return res.status(400).json({ error: "El monto total debe ser mayor a 0." });
+    }
+    if (fecha !== undefined && !esFechaISO(fecha)) return res.status(400).json({ error: "Fecha inválida (formato YYYY-MM-DD)." });
+    if (proveedor_id !== undefined) {
+      const prov = await pool.query("SELECT id FROM proveedores WHERE id = $1 AND activo = true", [proveedor_id]);
+      if (prov.rows.length === 0) return res.status(400).json({ error: "Proveedor inválido." });
+    }
+    if (categoria_gasto_id !== undefined) {
+      const cat = await pool.query("SELECT id FROM categorias_gasto WHERE id = $1 AND activo = true", [categoria_gasto_id]);
+      if (cat.rows.length === 0) return res.status(400).json({ error: "Categoría de gasto inválida." });
+    }
+    await pool.query(
+      `UPDATE ordenes_compra SET
+         proveedor_id = COALESCE($1, proveedor_id),
+         categoria_gasto_id = COALESCE($2, categoria_gasto_id),
+         fecha = COALESCE($3, fecha),
+         descripcion = COALESCE($4, descripcion),
+         monto_total = COALESCE($5, monto_total),
+         nota = COALESCE($6, nota)
+       WHERE id = $7`,
+      [proveedor_id ?? null, categoria_gasto_id ?? null, fecha ?? null, descripcion?.trim() ?? null, monto ?? null, nota?.trim() ?? null, req.params.id]
+    );
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/compras/ordenes/:id/aprobar", requireAdmin, async (req, res) => {
+  const { usuario } = req.body;
+  const fechaAprob = fechaArgentinaISO();
+  try {
+    const result = await pool.query(
+      "UPDATE ordenes_compra SET estado = 'aprobada', usuario_aprueba = $1, fecha_aprobacion = $2 WHERE id = $3 AND estado = 'pendiente' RETURNING id",
+      [usuario || null, fechaAprob, req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(400).json({ error: "La orden no está pendiente (no se puede aprobar)." });
+    res.json({ ok: true });
+    registrarAuditoria(usuario, "orden_compra_aprobar", "orden_compra", req.params.id, { fecha: fechaAprob });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/compras/ordenes/:id/anular", requireAdmin, async (req, res) => {
+  const { motivo, usuario } = req.body;
+  if (!motivo || !motivo.trim()) return res.status(400).json({ error: "El motivo de anulación es obligatorio." });
+  try {
+    const result = await pool.query(
+      "UPDATE ordenes_compra SET estado = 'anulada', motivo_anulacion = $1 WHERE id = $2 AND estado IN ('pendiente','aprobada') RETURNING id",
+      [motivo.trim(), req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(400).json({ error: "La orden no se puede anular (debe estar pendiente o aprobada)." });
+    res.json({ ok: true });
+    registrarAuditoria(usuario, "orden_compra_anular", "orden_compra", req.params.id, { motivo: motivo.trim() });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -2603,6 +2603,211 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       );
     }
 
+    // ─── COMPRAS — ÓRDENES DE COMPRA (Entrega 2) ──────────────────────────
+    // Admin + superadmin. Flujo pendiente → aprobada → (recibida = Entrega 3); anulable.
+    const OC_ESTADO_BADGE = {
+      pendiente: { label: "Pendiente", bg: "#fef3c7", color: "#b45309" },
+      aprobada:  { label: "Aprobada",  bg: "#eafaf1", color: "#2a7a4b" },
+      recibida:  { label: "Recibida",  bg: "#dbeafe", color: "#1d4ed8" },
+      anulada:   { label: "Anulada",   bg: "#f3f4f6", color: "#c0392b" },
+    };
+    const OC_FORM_VACIO = { proveedor_id: "", categoria_gasto_id: "", fecha: "", descripcion: "", monto_total: "", nota: "" };
+
+    function VistaOrdenesCompra({ usuario, onVolver }) {
+      const hoyStr = (() => { const h = new Date(); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`; })();
+      const [ordenes, setOrdenes] = useState([]);
+      const [proveedores, setProveedores] = useState([]);
+      const [categorias, setCategorias] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [filtroEstado, setFiltroEstado] = useState("");
+      const [filtroProveedor, setFiltroProveedor] = useState("");
+      const [modal, setModal] = useState(null);          // null | "nuevo" | "editar"
+      const [editandoId, setEditandoId] = useState(null);
+      const [form, setForm] = useState(OC_FORM_VACIO);
+      const [guardando, setGuardando] = useState(false);
+      const [mensaje, setMensaje] = useState(null);
+
+      const money = (n) => "$" + Number(n || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+      async function cargar() {
+        setLoading(true);
+        try {
+          const params = {};
+          if (filtroEstado) params.estado = filtroEstado;
+          if (filtroProveedor) params.proveedor = filtroProveedor;
+          const res = await axios.get(`${API}/api/compras/ordenes`, { params });
+          setOrdenes(res.data);
+        } catch (err) { setMensaje({ texto: err.response?.data?.error || "Error cargando órdenes", tipo: "error" }); }
+        setLoading(false);
+      }
+      async function cargarCombos() {
+        try {
+          const [rp, rc] = await Promise.all([
+            axios.get(`${API}/api/compras/proveedores`),
+            axios.get(`${API}/api/compras/categorias`),
+          ]);
+          setProveedores(rp.data); setCategorias(rc.data);
+        } catch (err) { /* combos vacíos → el form lo avisa */ }
+      }
+      useEffect(() => { cargarCombos(); }, []);
+      useEffect(() => { cargar(); }, [filtroEstado, filtroProveedor]);   // recarga al cambiar filtros
+
+      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 3000); }
+      function abrirNuevo() { setForm({ ...OC_FORM_VACIO, fecha: hoyStr }); setEditandoId(null); setModal("nuevo"); }
+      function abrirEditar(o) {
+        setForm({
+          proveedor_id: String(o.proveedor_id || ""), categoria_gasto_id: String(o.categoria_gasto_id || ""),
+          fecha: o.fecha || hoyStr, descripcion: o.descripcion || "", monto_total: String(o.monto_total ?? ""), nota: o.nota || "",
+        });
+        setEditandoId(o.id); setModal("editar");
+      }
+      const setCampo = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+      async function guardar() {
+        if (!form.proveedor_id) { mostrarMensaje("Elegí un proveedor", "error"); return; }
+        if (!form.categoria_gasto_id) { mostrarMensaje("Elegí una categoría", "error"); return; }
+        if (!form.descripcion.trim()) { mostrarMensaje("La descripción es obligatoria", "error"); return; }
+        if (!(Number(form.monto_total) > 0)) { mostrarMensaje("El monto debe ser mayor a 0", "error"); return; }
+        setGuardando(true);
+        const payload = {
+          proveedor_id: Number(form.proveedor_id), categoria_gasto_id: Number(form.categoria_gasto_id),
+          fecha: form.fecha, descripcion: form.descripcion, monto_total: Number(form.monto_total),
+          nota: form.nota, usuario: usuario.nombre_completo,
+        };
+        try {
+          if (modal === "editar") await axios.patch(`${API}/api/compras/ordenes/${editandoId}`, payload);
+          else await axios.post(`${API}/api/compras/ordenes`, payload);
+          await cargar();
+          setModal(null); setForm(OC_FORM_VACIO); setEditandoId(null);
+          mostrarMensaje(modal === "editar" ? "Orden actualizada" : "Orden creada");
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error guardando", "error"); }
+        setGuardando(false);
+      }
+
+      async function aprobar(o) {
+        if (!window.confirm(`¿Aprobar la orden de ${o.proveedor_nombre || "proveedor"} por ${money(o.monto_total)}?`)) return;
+        try { await axios.post(`${API}/api/compras/ordenes/${o.id}/aprobar`, { usuario: usuario.nombre_completo }); await cargar(); mostrarMensaje("Orden aprobada"); }
+        catch (err) { mostrarMensaje(err.response?.data?.error || "Error aprobando", "error"); }
+      }
+      async function anular(o) {
+        const motivo = window.prompt(`Motivo de anulación de la orden de ${o.proveedor_nombre || "proveedor"} (${money(o.monto_total)}):`);
+        if (motivo === null) return;                 // canceló el prompt
+        if (!motivo.trim()) { mostrarMensaje("El motivo es obligatorio", "error"); return; }
+        try { await axios.post(`${API}/api/compras/ordenes/${o.id}/anular`, { motivo, usuario: usuario.nombre_completo }); await cargar(); mostrarMensaje("Orden anulada"); }
+        catch (err) { mostrarMensaje(err.response?.data?.error || "Error anulando", "error"); }
+      }
+
+      const inputStyle = { width: "100%", boxSizing: "border-box", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", marginTop: 4 };
+      const lbl = { fontSize: 12, color: "#555", fontWeight: 600, display: "block", marginBottom: 10 };
+      const filtroSel = { fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff" };
+
+      return (
+        <div style={{ padding: 24, maxWidth: 960, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>📋 Órdenes de compra</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={{ fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer" }} onClick={abrirNuevo}>+ Nueva orden</button>
+              <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver al panel</button>
+            </div>
+          </div>
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 12, marginBottom: 16, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#555" }}>Estado:</span>
+            <select style={filtroSel} value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)}>
+              <option value="">Todas</option>
+              <option value="pendiente">Pendientes</option>
+              <option value="aprobada">Aprobadas</option>
+              <option value="recibida">Recibidas</option>
+              <option value="anulada">Anuladas</option>
+            </select>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#555" }}>Proveedor:</span>
+            <select style={filtroSel} value={filtroProveedor} onChange={e => setFiltroProveedor(e.target.value)}>
+              <option value="">Todos</option>
+              {proveedores.map(p => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
+            </select>
+          </div>
+
+          {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>}
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 8 }}>
+            {loading ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>Cargando…</div>
+              : ordenes.length === 0 ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>No hay órdenes para el filtro elegido.</div>
+              : ordenes.map(o => {
+                const badge = OC_ESTADO_BADGE[o.estado] || { label: o.estado, bg: "#eee", color: "#333" };
+                return (
+                  <div key={o.id} style={{ padding: "12px", borderBottom: "1px solid #f5f5f5" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#333", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          {o.proveedor_nombre || "— proveedor —"}
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: badge.bg, color: badge.color }}>{badge.label}</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
+                          {o.fecha} · {o.categoria_nombre || "sin categoría"}{o.usuario_crea ? ` · creó ${o.usuario_crea}` : ""}{o.usuario_aprueba ? ` · aprobó ${o.usuario_aprueba}` : ""}
+                        </div>
+                        <div style={{ fontSize: 13, color: "#444", marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 560 }} title={o.descripcion}>{o.descripcion}</div>
+                        {o.estado === "anulada" && o.motivo_anulacion && <div style={{ fontSize: 11, color: "#c0392b", marginTop: 3 }}>Anulada: {o.motivo_anulacion}</div>}
+                      </div>
+                      <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: "#333", marginBottom: 6 }}>{money(o.monto_total)}</div>
+                        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                          {o.estado === "pendiente" && (
+                            <>
+                              <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #7c3aed", background: "#fff", color: "#7c3aed", cursor: "pointer" }} onClick={() => abrirEditar(o)}>✎ Editar</button>
+                              <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #2a7a4b", background: "#eafaf1", color: "#2a7a4b", cursor: "pointer" }} onClick={() => aprobar(o)}>✓ Aprobar</button>
+                              <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => anular(o)}>✕ Anular</button>
+                            </>
+                          )}
+                          {o.estado === "aprobada" && (
+                            <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => anular(o)}>✕ Anular</button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+
+          {modal && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }} onClick={() => setModal(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 460, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 16 }}>{modal === "editar" ? "Editar orden de compra" : "Nueva orden de compra"}</div>
+                <label style={lbl}>Proveedor *
+                  <select style={inputStyle} value={form.proveedor_id} onChange={e => setCampo("proveedor_id", e.target.value)}>
+                    <option value="">— Elegí proveedor —</option>
+                    {proveedores.map(p => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
+                  </select>
+                </label>
+                <label style={lbl}>Categoría de gasto *
+                  <select style={inputStyle} value={form.categoria_gasto_id} onChange={e => setCampo("categoria_gasto_id", e.target.value)}>
+                    <option value="">— Elegí categoría —</option>
+                    {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                  </select>
+                </label>
+                <label style={lbl}>Fecha *
+                  <input type="date" style={inputStyle} value={form.fecha} onChange={e => setCampo("fecha", e.target.value)} />
+                </label>
+                <label style={lbl}>Descripción *
+                  <textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={form.descripcion} onChange={e => setCampo("descripcion", e.target.value)} placeholder="Qué se compra / servicio" />
+                </label>
+                <label style={lbl}>Monto total *
+                  <input type="number" min="0" step="0.01" style={inputStyle} value={form.monto_total} onChange={e => setCampo("monto_total", e.target.value)} placeholder="0.00" />
+                </label>
+                <label style={lbl}>Nota
+                  <input style={inputStyle} value={form.nota} onChange={e => setCampo("nota", e.target.value)} placeholder="Opcional" />
+                </label>
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button style={{ flex: 1, padding: 10, borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#F68B32", color: "#fff", fontSize: 13, fontWeight: 600, cursor: guardando ? "default" : "pointer" }} disabled={guardando} onClick={guardar}>{guardando ? "Guardando…" : "Guardar"}</button>
+                  <button style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", fontSize: 13, cursor: "pointer" }} onClick={() => setModal(null)}>Cancelar</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     // ─── CONTABLE — LIBRO DE VENTAS (formato AFIP) ───────────────────────
     // Solo superadmin (guard de vista + endpoint superadmin-only). Lee el libro ya calculado
     // del backend y lo muestra/exporta con las columnas del formato AFIP tal cual las manda.
@@ -4098,6 +4303,7 @@ let numeroAsignado = "";
                       </button>
                       {menuGrupo === "compras" && (
                         <>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("ordenesCompra"); setMenuAbierto(false); }}>📋 Órdenes de compra</button>
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("proveedores"); setMenuAbierto(false); }}>🏭 Proveedores</button>
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("categoriasGasto"); setMenuAbierto(false); }}>🏷️ Categorías de gasto</button>
                         </>
@@ -4160,7 +4366,7 @@ let numeroAsignado = "";
       }
 
       // Guard módulo Compras (admin + superadmin).
-      const VISTAS_COMPRAS = ["proveedores", "categoriasGasto"];
+      const VISTAS_COMPRAS = ["ordenesCompra", "proveedores", "categoriasGasto"];
       if (VISTAS_COMPRAS.includes(vista) && !esAdmin) {
         return (
           <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: "system-ui, sans-serif", background: "#f7f7f5", padding: 24, textAlign: "center" }}>
@@ -5191,6 +5397,9 @@ if (vista === "dashboard") {
     }
     if (vista === "libroVentas") {
       return <div style={s.wrap}><Header /><VistaLibroVentas onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "ordenesCompra") {
+      return <div style={s.wrap}><Header /><VistaOrdenesCompra usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "proveedores") {
       return <div style={s.wrap}><Header /><VistaProveedores onVolver={() => setVista("panel")} /></div>;
