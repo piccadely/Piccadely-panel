@@ -2264,6 +2264,113 @@ app.post("/api/nota-credito", async (req, res) => {
   } catch (err) { res.status(500).json({ ok: false, error: err.response?.data || err.message }); }
 });
 
+// ─── CONTABLE — LIBRO DE VENTAS (formato AFIP) ───────────────────────
+// SOLO superadmin. Lee de la tabla facturas (NO la modifica ni cambia cómo se emite).
+// Toda factura se emite con alícuota ÚNICA 21% (o EXENTO alícuota 0), así que el neto y
+// el IVA se calculan sin ambigüedad desde `total`. El filtro es por created_at (timestamp
+// real); la columna `fecha` es DD/MM/YYYY (texto) y solo se usa para mostrar/exportar.
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+// Tipo de comprobante (string) → código AFIP.
+function codComprobanteAFIP(tipo) {
+  const t = String(tipo || "").toUpperCase();
+  if (t.includes("NOTA DE CREDITO A")) return 3;
+  if (t.includes("NOTA DE CREDITO B")) return 8;
+  if (t.includes("FACTURA A")) return 1;
+  return 6;   // FACTURA B y FACTURA B EXENTO
+}
+// Tipo de documento del receptor (string) → código AFIP.
+function codDocReceptorAFIP(docTipo, docNro) {
+  const t = String(docTipo || "").toUpperCase();
+  if (t.includes("CUIT")) return 80;
+  if (t.includes("CUIL")) return 86;
+  if (t.includes("DNI")) return 96;
+  const nro = String(docNro || "").trim();
+  if (nro === "" || nro === "0") return 99;   // Consumidor Final
+  return 96;
+}
+// Punto de venta: del prefijo de `numero` (ej "00017-…") o, si no lo tuviera, del local.
+function pdvDeFactura(f) {
+  const s = String(f.numero || "");
+  if (s.includes("-")) { const n = Number(s.split("-")[0]); if (n) return n; }
+  return f.local === "French" ? 18 : 17;
+}
+// Columnas del formato AFIP (IVA_VENTAS), en orden. El front las usa tal cual para la
+// tabla en pantalla y para el header del Excel, así el export sale idéntico.
+const LIBRO_VENTAS_COLUMNAS = [
+  "Fecha de Emision", "Tipo de Comprobante", "Punto de Venta", "Numero Desde", "Numero Hasta",
+  "Cod. Autorizacion", "Tipo Doc. Receptor", "Nro. Doc. Receptor", "Denominacion Receptor",
+  "Tipo Cambio", "Moneda",
+  "Imp. Neto Gravado IVA 0%",
+  "IVA 2,5%", "Imp. Neto Gravado IVA 2,5%",
+  "IVA 5%", "Imp. Neto Gravado IVA 5%",
+  "IVA 10,5%", "Imp. Neto Gravado IVA 10,5%",
+  "IVA 21%", "Imp. Neto Gravado IVA 21%",
+  "IVA 27%", "Imp. Neto Gravado IVA 27%",
+  "Imp. Neto Gravado Total", "Imp. Neto No Gravado", "Imp. Op. Exentas",
+  "Otros Tributos", "Total IVA", "Imp. Total",
+];
+
+app.get("/api/contable/libro-ventas", requireAuth, async (req, res) => {
+  if (req.user?.rol !== "superadmin") return res.status(403).json({ error: "Solo superadmin puede ver el libro de ventas." });
+  const { desde, hasta, local } = req.query;
+  if (!desde || !hasta) return res.status(400).json({ error: "Faltan las fechas desde/hasta." });
+  try {
+    const params = [desde, hasta];
+    let sql = "SELECT tipo, numero, cae, cliente, documento_tipo, documento_nro, total, fecha, local, created_at FROM facturas WHERE created_at::date >= $1 AND created_at::date <= $2";
+    if (local && local !== "Ambos") { params.push(local); sql += ` AND local = $${params.length}`; }
+    sql += " ORDER BY created_at ASC, id ASC";
+    const { rows } = await pool.query(sql, params);
+    const filas = [];
+    const tot = { neto21: 0, iva21: 0, netoTotal: 0, noGravado: 0, exentas: 0, totalIva: 0, impTotal: 0 };
+    for (const f of rows) {
+      const total = round2(f.total);
+      const esExento = String(f.tipo || "").toUpperCase().includes("EXENTO");
+      let neto21 = 0, iva21 = 0, exentas = 0;
+      if (esExento) { exentas = total; }
+      else { neto21 = round2(total / 1.21); iva21 = round2(total - neto21); }
+      const netoTotal = neto21;
+      const totalIva = iva21;
+      const numeroSolo = Number(numeroSinPuntoVenta(f.numero)) || 0;
+      tot.neto21 += neto21; tot.iva21 += iva21; tot.netoTotal += netoTotal;
+      tot.exentas += exentas; tot.totalIva += totalIva; tot.impTotal += total;
+      filas.push({
+        "Fecha de Emision": f.fecha || "",
+        "Tipo de Comprobante": codComprobanteAFIP(f.tipo),
+        "Punto de Venta": pdvDeFactura(f),
+        "Numero Desde": numeroSolo,
+        "Numero Hasta": numeroSolo,
+        "Cod. Autorizacion": f.cae || "",
+        "Tipo Doc. Receptor": codDocReceptorAFIP(f.documento_tipo, f.documento_nro),
+        "Nro. Doc. Receptor": f.documento_nro || "0",
+        "Denominacion Receptor": f.cliente || "",
+        "Tipo Cambio": 1,
+        "Moneda": "PES",
+        "Imp. Neto Gravado IVA 0%": 0,
+        "IVA 2,5%": 0, "Imp. Neto Gravado IVA 2,5%": 0,
+        "IVA 5%": 0, "Imp. Neto Gravado IVA 5%": 0,
+        "IVA 10,5%": 0, "Imp. Neto Gravado IVA 10,5%": 0,
+        "IVA 21%": iva21, "Imp. Neto Gravado IVA 21%": neto21,
+        "IVA 27%": 0, "Imp. Neto Gravado IVA 27%": 0,
+        "Imp. Neto Gravado Total": netoTotal,
+        "Imp. Neto No Gravado": 0,
+        "Imp. Op. Exentas": exentas,
+        "Otros Tributos": 0,
+        "Total IVA": totalIva,
+        "Imp. Total": total,
+      });
+    }
+    const totales = {
+      neto21: round2(tot.neto21), iva21: round2(tot.iva21), netoTotal: round2(tot.netoTotal),
+      noGravado: 0, exentas: round2(tot.exentas), totalIva: round2(tot.totalIva),
+      impTotal: round2(tot.impTotal), cantidad: filas.length,
+    };
+    res.json({ columnas: LIBRO_VENTAS_COLUMNAS, filas, totales });
+  } catch (err) {
+    console.error("Error /api/contable/libro-ventas:", err.message);
+    res.status(500).json({ error: "Error generando el libro de ventas" });
+  }
+});
+
 // ─── TUSFACTURAS WEBHOOK ──────────────────────────────────────────────
 app.post("/api/tusfacturas/webhook", async (req, res) => {
   console.log("TusFacturas webhook:", JSON.stringify(req.body));

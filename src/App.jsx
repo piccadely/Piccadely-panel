@@ -2421,6 +2421,136 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       );
     }
 
+    // ─── CONTABLE — LIBRO DE VENTAS (formato AFIP) ───────────────────────
+    // Solo superadmin (guard de vista + endpoint superadmin-only). Lee el libro ya calculado
+    // del backend y lo muestra/exporta con las columnas del formato AFIP tal cual las manda.
+    function VistaLibroVentas({ onVolver }) {
+      const hoy = new Date();
+      const iniMes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-01`;
+      const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
+      const [desde, setDesde] = useState(iniMes);
+      const [hasta, setHasta] = useState(hoyStr);
+      const [local, setLocal] = useState("Ambos");
+      const [data, setData] = useState(null);   // { columnas, filas, totales }
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState("");
+
+      const nf = (n) => Number(n || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const COLS_NUM = new Set([
+        "Imp. Neto Gravado IVA 0%",
+        "IVA 2,5%", "Imp. Neto Gravado IVA 2,5%", "IVA 5%", "Imp. Neto Gravado IVA 5%",
+        "IVA 10,5%", "Imp. Neto Gravado IVA 10,5%", "IVA 21%", "Imp. Neto Gravado IVA 21%",
+        "IVA 27%", "Imp. Neto Gravado IVA 27%", "Imp. Neto Gravado Total", "Imp. Neto No Gravado",
+        "Imp. Op. Exentas", "Otros Tributos", "Total IVA", "Imp. Total",
+      ]);
+
+      async function generar() {
+        setLoading(true); setError(""); setData(null);
+        try {
+          const res = await axios.get(`${API}/api/contable/libro-ventas`, { params: { desde, hasta, local } });
+          setData(res.data);
+        } catch (err) { setError(err.response?.data?.error || err.message); }
+        setLoading(false);
+      }
+
+      // Fila de TOTALES con las MISMAS claves que las columnas (sirve para la tabla y para el Excel).
+      function filaTotales(cols, t) {
+        const fila = Object.fromEntries(cols.map(c => [c, ""]));
+        fila["Denominacion Receptor"] = "TOTALES";
+        fila["IVA 21%"] = t.iva21;
+        fila["Imp. Neto Gravado IVA 21%"] = t.neto21;
+        fila["Imp. Neto Gravado Total"] = t.netoTotal;
+        fila["Imp. Neto No Gravado"] = t.noGravado;
+        fila["Imp. Op. Exentas"] = t.exentas;
+        fila["Total IVA"] = t.totalIva;
+        fila["Imp. Total"] = t.impTotal;
+        return fila;
+      }
+
+      function exportar() {
+        if (!data) return;
+        const cols = data.columnas;
+        const rows = [...data.filas, filaTotales(cols, data.totales)];
+        const ws = XLSX.utils.json_to_sheet(rows, { header: cols });   // header fija el orden exacto
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "IVA_VENTAS");
+        const tag = local === "Ambos" ? "ambos" : (local === "French" ? "french" : "athomas");
+        XLSX.writeFile(wb, `libro_ventas_${desde}_a_${hasta}_${tag}.xlsx`);
+      }
+
+      const cols = data?.columnas || [];
+      const totFila = data ? filaTotales(cols, data.totales) : null;
+      const inputStyle = { fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", background: "#fff" };
+      const th = { padding: "8px 10px", fontSize: 11, fontWeight: 700, color: "#555", textAlign: "left", borderBottom: "2px solid #eee", whiteSpace: "nowrap", background: "#fafaf8", position: "sticky", top: 0 };
+      const td = { padding: "6px 10px", fontSize: 12, color: "#333", borderBottom: "1px solid #f2f2f2", whiteSpace: "nowrap" };
+
+      return (
+        <div style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>📕 Libro de ventas (AFIP)</div>
+            <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver al panel</button>
+          </div>
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 16, marginBottom: 16, display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <label style={{ fontSize: 12, color: "#555" }}>Desde<br /><input type="date" value={desde} onChange={e => setDesde(e.target.value)} style={inputStyle} /></label>
+            <label style={{ fontSize: 12, color: "#555" }}>Hasta<br /><input type="date" value={hasta} onChange={e => setHasta(e.target.value)} style={inputStyle} /></label>
+            <label style={{ fontSize: 12, color: "#555" }}>Local / PDV<br />
+              <select value={local} onChange={e => setLocal(e.target.value)} style={inputStyle}>
+                <option value="Ambos">Ambos</option>
+                <option value="A. Thomas">A. Thomas (PDV 17)</option>
+                <option value="French">French (PDV 18)</option>
+              </select>
+            </label>
+            <button onClick={generar} disabled={loading || !desde || !hasta}
+              style={{ fontSize: 13, fontWeight: 600, padding: "9px 18px", borderRadius: 8, border: "none", background: (loading || !desde || !hasta) ? "#ccc" : "#F68B32", color: "#fff", cursor: (loading || !desde || !hasta) ? "default" : "pointer" }}>
+              {loading ? "Generando…" : "Generar"}
+            </button>
+            {data && data.filas.length > 0 && (
+              <button onClick={exportar}
+                style={{ fontSize: 13, fontWeight: 600, padding: "9px 18px", borderRadius: 8, border: "none", background: "#2a7a4b", color: "#fff", cursor: "pointer" }}>
+                📊 Exportar Excel
+              </button>
+            )}
+          </div>
+
+          {error && <div style={{ background: "#fdecea", border: "1px solid #f5c6cb", color: "#c0392b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{error}</div>}
+
+          {data && (
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 12 }}>
+              <div style={{ fontSize: 12, color: "#888", marginBottom: 10 }}>
+                {data.totales.cantidad} comprobante(s) · Neto gravado {nf(data.totales.netoTotal)} · IVA {nf(data.totales.totalIva)} · Total {nf(data.totales.impTotal)}
+              </div>
+              {data.filas.length === 0 ? (
+                <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>No hay comprobantes en el rango elegido.</div>
+              ) : (
+                <div style={{ overflowX: "auto", maxHeight: "60vh", overflowY: "auto" }}>
+                  <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                    <thead>
+                      <tr>{cols.map(c => <th key={c} style={{ ...th, textAlign: COLS_NUM.has(c) ? "right" : "left" }}>{c}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      {data.filas.map((fila, i) => (
+                        <tr key={i}>
+                          {cols.map(c => <td key={c} style={{ ...td, textAlign: COLS_NUM.has(c) ? "right" : "left" }}>{COLS_NUM.has(c) ? nf(fila[c]) : fila[c]}</td>)}
+                        </tr>
+                      ))}
+                      <tr>
+                        {cols.map(c => (
+                          <td key={c} style={{ ...td, fontWeight: 700, borderTop: "2px solid #ddd", background: "#fafaf8", textAlign: COLS_NUM.has(c) ? "right" : "left" }}>
+                            {COLS_NUM.has(c) ? nf(totFila[c]) : (totFila[c] || "")}
+                          </td>
+                        ))}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     // ─── PANEL PRINCIPAL ─────────────────────────────────────────────────
     function PanelApp({ usuario }) {
       const [pedidosRaw, setPedidosRaw] = useState([]);
@@ -3747,6 +3877,19 @@ let numeroAsignado = "";
                       {esAdmin && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("zonas"); setMenuAbierto(false); }}>📍 Pedidos por zona</button>}
                     </>
                   )}
+                  {esSuperadmin && (
+                    <>
+                      <button
+                        style={{ ...s.dropItem, fontWeight: 700, color: "#444", background: "#fafaf8", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                        onClick={() => setMenuGrupo(g => g === "contable" ? "" : "contable")}>
+                        <span>📒 Contable</span>
+                        <span style={{ fontSize: 10, color: "#aaa" }}>{menuGrupo === "contable" ? "▾" : "▸"}</span>
+                      </button>
+                      {menuGrupo === "contable" && (
+                        <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("libroVentas"); setMenuAbierto(false); }}>📕 Libro de ventas</button>
+                      )}
+                    </>
+                  )}
                   <button style={s.dropItem} onClick={() => { setVista("tandas"); setMenuAbierto(false); }}>🚚 Tandas activas</button>
                   <button style={s.dropItem} onClick={() => { setVista("caja"); setMenuAbierto(false); }}>💰 Caja</button>
                   {esAdmin && <button style={s.dropItem} onClick={() => { setVista("importar"); setMenuAbierto(false); }}>📥 Importar pedidos</button>}
@@ -3784,6 +3927,19 @@ let numeroAsignado = "";
             <div style={{ fontSize: 40 }}>🔒</div>
             <div style={{ fontSize: 16, fontWeight: 700, color: "#333" }}>Sin acceso</div>
             <div style={{ fontSize: 13, color: "#888" }}>Esta sección es solo para administradores.</div>
+            <button onClick={() => setVista("panel")} style={{ marginTop: 8, fontSize: 13, padding: "9px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }}>← Volver al panel</button>
+          </div>
+        );
+      }
+
+      // Guard superadmin-only (módulo Contable). Mismo patrón que el admin, pero exige superadmin.
+      const VISTAS_SOLO_SUPERADMIN = ["libroVentas"];
+      if (VISTAS_SOLO_SUPERADMIN.includes(vista) && !esSuperadmin) {
+        return (
+          <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: "system-ui, sans-serif", background: "#f7f7f5", padding: 24, textAlign: "center" }}>
+            <div style={{ fontSize: 40 }}>🔒</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#333" }}>Sin acceso</div>
+            <div style={{ fontSize: 13, color: "#888" }}>Esta sección es solo para superadministradores.</div>
             <button onClick={() => setVista("panel")} style={{ marginTop: 8, fontSize: 13, padding: "9px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }}>← Volver al panel</button>
           </div>
         );
@@ -4805,6 +4961,9 @@ if (vista === "dashboard") {
       }
      if (vista === "importar") {
       return <div style={s.wrap}><Header /><VistaImportar usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "libroVentas") {
+      return <div style={s.wrap}><Header /><VistaLibroVentas onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "mapa") {
         return <div style={s.wrap}><Header /><VistaMapa onVolver={() => setVista("panel")} repartidores={repartidoresLista} onCrearTanda={crearTanda} /></div>;
