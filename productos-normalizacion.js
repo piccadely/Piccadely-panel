@@ -14,7 +14,7 @@
 // ⚠️ Espaciado/guiones IRREGULARES a propósito — copiados tal cual del catálogo.
 // (Chica dice "Come 1"; el resto "Comen 2/4/6"; "Grande Comen 4- Piccan 9" NO
 //  lleva guion después de "Grande".) NO "corregir".
-const SUFIJOS_TAMANO = {
+export const SUFIJOS_TAMANO = {
   "Chica":   "(Chica - Come 1 - Piccan 3)",
   "Mediana": "(Mediana - Comen 2- Piccan 5)",
   "Grande":  "(Grande Comen 4- Piccan 9)",
