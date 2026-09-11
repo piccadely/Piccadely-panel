@@ -292,6 +292,11 @@ async function initDB() {
   // Área asignada a mano en el alta manual (1-10). NULL = sin asignar → el reporte de zonas
   // geolocaliza como siempre. Si tiene valor, MANDA sobre el geocodificado. Retrocompatible.
   await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS area_manual INTEGER;`);
+  // Compras Entrega 4 — pago (total) de facturas de proveedor. caja_origen NULL = pago externo.
+  await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS fecha_pago TEXT;`);
+  await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS medio_pago TEXT;`);
+  await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS caja_origen TEXT;`);
+  await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS usuario_paga TEXT;`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
   await pool.query(`CREATE TABLE IF NOT EXISTS costos_areas (area INTEGER PRIMARY KEY, costo NUMERIC NOT NULL DEFAULT 1);`);
   await pool.query(`INSERT INTO costos_areas (area, costo) SELECT g, 1 FROM generate_series(1,10) g ON CONFLICT (area) DO NOTHING;`);
@@ -2037,6 +2042,89 @@ app.post("/api/compras/facturas/:id/anular", requireAdmin, async (req, res) => {
     if (result.rows.length === 0) return res.status(400).json({ error: "La factura no se puede anular (debe estar pendiente)." });
     res.json({ ok: true });
     registrarAuditoria(usuario, "factura_compra_anular", "factura_compra", req.params.id, { motivo: motivo.trim() });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── COMPRAS — PAGOS (Entrega 4) ────────────────────────────────────────
+// Pago TOTAL de una factura 'pendiente' → 'pagada'. Origen: externo (caja_origen NULL, no toca
+// caja) o "sale de caja" (SALIDA en caja_origen + pago, atómico como la transferencia).
+// Las CAJAS reales válidas son las mismas que CAJAS_TRANSFERIBLES (definida más abajo, se accede
+// en request-time). Administración solo la puede usar superadmin (bloqueaCajaAdmin).
+app.post("/api/compras/facturas/:id/pagar", requireAdmin, async (req, res) => {
+  const { medioPago, cajaOrigen, fechaPago, usuario } = req.body;
+  if (!medioPago || !String(medioPago).trim()) return res.status(400).json({ error: "El medio de pago es obligatorio." });
+  const fPago = fechaPago && esFechaISO(fechaPago) ? fechaPago : fechaArgentinaISO();
+  const desdeCaja = cajaOrigen && String(cajaOrigen).trim() !== "";
+  if (desdeCaja) {
+    if (!CAJAS_TRANSFERIBLES.includes(cajaOrigen)) return res.status(400).json({ error: "Caja de origen inválida." });
+    if (bloqueaCajaAdmin(req, res, cajaOrigen)) return;   // Administración solo superadmin
+  }
+
+  // Pago EXTERNO: no toca caja, solo marca pagada (guard atómico en el WHERE).
+  if (!desdeCaja) {
+    try {
+      const r = await pool.query(
+        "UPDATE facturas_compra SET estado_pago='pagada', fecha_pago=$1, medio_pago=$2, caja_origen=NULL, usuario_paga=$3 WHERE id=$4 AND estado_pago='pendiente' RETURNING id, total",
+        [fPago, String(medioPago).trim(), usuario || null, req.params.id]
+      );
+      if (r.rows.length === 0) return res.status(409).json({ error: "La factura no está pendiente (no se puede pagar)." });
+      res.json({ ok: true });
+      registrarAuditoria(usuario, "factura_compra_pago", "factura_compra", req.params.id, { medioPago, cajaOrigen: null, total: Number(r.rows[0].total), fecha: fPago });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+    return;
+  }
+
+  // Pago DESDE CAJA: transacción atómica (SALIDA en la caja + factura pagada, todo o nada).
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const sel = await client.query(
+      "SELECT estado_pago, total, proveedor_razon_social, numero_comprobante FROM facturas_compra WHERE id=$1 FOR UPDATE",
+      [req.params.id]
+    );
+    const f = sel.rows[0];
+    if (!f) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Factura no encontrada." }); }
+    if (f.estado_pago !== "pendiente") { await client.query("ROLLBACK"); return res.status(409).json({ error: "La factura no está pendiente (no se puede pagar)." }); }
+    const total = Number(f.total);
+    const concepto = `Pago factura ${f.proveedor_razon_social || "proveedor"}${f.numero_comprobante ? ` ${f.numero_comprobante}` : ""}`;
+    await client.query(
+      "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'salida',$2,$3,$4)",
+      [cajaOrigen, concepto, -Math.abs(total), fechaArgentinaISO()]   // HOY para caer en el día abierto de la caja
+    );
+    await client.query(
+      "UPDATE facturas_compra SET estado_pago='pagada', fecha_pago=$1, medio_pago=$2, caja_origen=$3, usuario_paga=$4 WHERE id=$5",
+      [fPago, String(medioPago).trim(), cajaOrigen, usuario || null, req.params.id]
+    );
+    await client.query("COMMIT");
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    console.error("Error /api/compras/facturas/:id/pagar:", e.message);
+    return res.status(500).json({ error: "Error registrando el pago" });
+  } finally {
+    if (client) client.release();
+  }
+  res.json({ ok: true });
+  registrarAuditoria(usuario, "factura_compra_pago", "factura_compra", req.params.id, { medioPago, cajaOrigen, fecha: fPago });
+});
+
+// Cuenta corriente: saldo por proveedor (anuladas excluidas de todo).
+app.get("/api/compras/cuenta-corriente", requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT p.id, p.razon_social, p.cuit,
+        COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago <> 'anulada'), 0) AS total_facturado,
+        COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago = 'pagada'), 0)   AS total_pagado,
+        COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago = 'pendiente'), 0) AS saldo_pendiente,
+        COUNT(*) FILTER (WHERE fc.estado_pago = 'pendiente')                   AS facturas_pendientes
+      FROM proveedores p
+      LEFT JOIN facturas_compra fc ON fc.proveedor_id = p.id
+      WHERE p.activo = true
+      GROUP BY p.id, p.razon_social, p.cuit
+      ORDER BY saldo_pendiente DESC, p.razon_social ASC
+    `);
+    const totalDeuda = result.rows.reduce((a, r) => a + Number(r.saldo_pendiente), 0);
+    res.json({ proveedores: result.rows, totalDeuda });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

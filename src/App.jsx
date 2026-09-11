@@ -2840,6 +2840,15 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [form, setForm] = useState(FC_FORM_VACIO);
       const [guardando, setGuardando] = useState(false);
       const [mensaje, setMensaje] = useState(null);
+      // Pago (Entrega 4)
+      const [pagando, setPagando] = useState(null);        // factura en pago | null
+      const [pagoOrigen, setPagoOrigen] = useState("caja"); // "caja" | "externo"
+      const [pagoCaja, setPagoCaja] = useState("");
+      const [pagoMedio, setPagoMedio] = useState("Efectivo");
+      const [pagoFecha, setPagoFecha] = useState("");
+      // Cajas reales para pagar desde caja: Administración solo si es superadmin (= criterio localesPermitidos).
+      const CAJAS_PAGO = ["A. Thomas", "French", "Administración", "Fondo Fijo A. Thomas", "Fondo Fijo French"]
+        .filter(c => c !== "Administración" || usuario.rol === "superadmin");
 
       const money = (n) => "$" + Number(n || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const num = (x) => Number(x) || 0;
@@ -2931,6 +2940,27 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         try { await axios.post(`${API}/api/compras/facturas/${fac.id}/anular`, { motivo, usuario: usuario.nombre_completo }); await cargar(); mostrarMensaje("Factura anulada"); }
         catch (err) { mostrarMensaje(err.response?.data?.error || "Error anulando", "error"); }
       }
+      function abrirPago(fac) { setPagando(fac); setPagoOrigen("caja"); setPagoCaja(CAJAS_PAGO[0] || ""); setPagoMedio("Efectivo"); setPagoFecha(hoyStr); }
+      async function confirmarPago() {
+        if (!pagando) return;
+        if (!pagoMedio.trim()) { mostrarMensaje("Indicá el medio de pago", "error"); return; }
+        if (pagoOrigen === "caja" && !pagoCaja) { mostrarMensaje("Elegí la caja de origen", "error"); return; }
+        const origenTxt = pagoOrigen === "caja" ? `caja ${pagoCaja}` : "externo (no toca caja)";
+        if (!window.confirm(`Pagar ${money(pagando.total)} a ${pagando.proveedor_razon_social} desde ${origenTxt}. ¿Confirmás?`)) return;
+        setGuardando(true);
+        try {
+          await axios.post(`${API}/api/compras/facturas/${pagando.id}/pagar`, {
+            medioPago: pagoMedio.trim(),
+            cajaOrigen: pagoOrigen === "caja" ? pagoCaja : null,
+            fechaPago: pagoFecha,
+            usuario: usuario.nombre_completo,
+          });
+          setPagando(null);
+          await cargar();
+          mostrarMensaje("Pago registrado");
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error registrando el pago", "error"); }
+        setGuardando(false);
+      }
 
       const inputStyle = { width: "100%", boxSizing: "border-box", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", marginTop: 4 };
       const lbl = { fontSize: 12, color: "#555", fontWeight: 600, display: "block", marginBottom: 10 };
@@ -2994,9 +3024,13 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                         <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                           {fac.estado_pago === "pendiente" && (
                             <>
+                              <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #2a7a4b", background: "#eafaf1", color: "#2a7a4b", cursor: "pointer", fontWeight: 600 }} onClick={() => abrirPago(fac)}>💵 Registrar pago</button>
                               <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #7c3aed", background: "#fff", color: "#7c3aed", cursor: "pointer" }} onClick={() => abrirEditar(fac)}>✎ Editar</button>
                               <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => anular(fac)}>✕ Anular</button>
                             </>
+                          )}
+                          {fac.estado_pago === "pagada" && (
+                            <span style={{ fontSize: 11, color: "#2a7a4b" }}>{fac.fecha_pago || ""}{fac.caja_origen ? ` · ${fac.caja_origen}` : " · externo"}{fac.medio_pago ? ` · ${fac.medio_pago}` : ""}</span>
                           )}
                         </div>
                       </div>
@@ -3107,6 +3141,129 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               </div>
             </div>
           )}
+
+          {pagando && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }} onClick={() => setPagando(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 420, maxWidth: "100%" }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 6 }}>💵 Registrar pago</div>
+                <div style={{ fontSize: 13, color: "#555", marginBottom: 16 }}>{pagando.proveedor_razon_social} · {pagando.tipo_comprobante} {pagando.numero_comprobante} · <b>{money(pagando.total)}</b></div>
+                <label style={lbl}>Origen de la plata
+                  <select style={inputStyle} value={pagoOrigen} onChange={e => setPagoOrigen(e.target.value)}>
+                    <option value="caja">Sale de caja</option>
+                    <option value="externo">Externo (no toca caja)</option>
+                  </select>
+                </label>
+                {pagoOrigen === "caja" && (
+                  <label style={lbl}>Caja de origen *
+                    <select style={inputStyle} value={pagoCaja} onChange={e => setPagoCaja(e.target.value)}>
+                      <option value="">— Elegí caja —</option>
+                      {CAJAS_PAGO.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </label>
+                )}
+                <label style={lbl}>Medio de pago *
+                  <input style={inputStyle} value={pagoMedio} onChange={e => setPagoMedio(e.target.value)} placeholder="Efectivo / Transferencia / etc." />
+                </label>
+                <label style={lbl}>Fecha de pago
+                  <input type="date" style={inputStyle} value={pagoFecha} onChange={e => setPagoFecha(e.target.value)} />
+                </label>
+                <div style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>
+                  Vas a pagar <b>{money(pagando.total)}</b> a {pagando.proveedor_razon_social} desde {pagoOrigen === "caja" ? `la caja ${pagoCaja || "…"}` : "un origen externo (no impacta caja)"}.
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button style={{ flex: 1, padding: 10, borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#2a7a4b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: guardando ? "default" : "pointer" }} disabled={guardando} onClick={confirmarPago}>{guardando ? "Registrando…" : "Confirmar pago"}</button>
+                  <button style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", fontSize: 13, cursor: "pointer" }} onClick={() => setPagando(null)}>Cancelar</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─── COMPRAS — CUENTAS POR PAGAR / CUENTA CORRIENTE (Entrega 4) ────────
+    // Admin + superadmin. Saldo por proveedor + detalle de sus facturas (reusa GET facturas?proveedor).
+    function VistaCuentasPorPagar({ usuario, onVolver }) {
+      const [data, setData] = useState(null);          // { proveedores, totalDeuda }
+      const [loading, setLoading] = useState(true);
+      const [expandido, setExpandido] = useState(null); // proveedor_id abierto
+      const [detalle, setDetalle] = useState({});        // proveedor_id → facturas[]
+      const [mensaje, setMensaje] = useState(null);
+
+      const money = (n) => "$" + Number(n || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const FC_BADGE = { pendiente: { t: "Pendiente", bg: "#fef3c7", c: "#b45309" }, pagada: { t: "Pagada", bg: "#eafaf1", c: "#2a7a4b" }, anulada: { t: "Anulada", bg: "#f3f4f6", c: "#c0392b" } };
+
+      async function cargar() {
+        setLoading(true);
+        try { const res = await axios.get(`${API}/api/compras/cuenta-corriente`); setData(res.data); }
+        catch (err) { setMensaje(err.response?.data?.error || "Error cargando cuentas por pagar"); }
+        setLoading(false);
+      }
+      useEffect(() => { cargar(); }, []);
+
+      async function toggle(provId) {
+        if (expandido === provId) { setExpandido(null); return; }
+        setExpandido(provId);
+        if (!detalle[provId]) {
+          try {
+            const res = await axios.get(`${API}/api/compras/facturas`, { params: { proveedor: provId } });
+            setDetalle(prev => ({ ...prev, [provId]: res.data }));
+          } catch (err) { /* silencioso; el header ya muestra los totales */ }
+        }
+      }
+
+      return (
+        <div style={{ padding: 24, maxWidth: 960, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>💳 Cuentas por pagar</div>
+            <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver al panel</button>
+          </div>
+
+          {data && (
+            <div style={{ background: "#c0392b", borderRadius: 10, padding: "14px 18px", marginBottom: 16 }}>
+              <div style={{ fontSize: 11, color: "#f5c6cb", letterSpacing: 0.5 }}>DEUDA TOTAL A PROVEEDORES</div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: "#fff" }}>{money(data.totalDeuda)}</div>
+            </div>
+          )}
+
+          {mensaje && <div style={{ background: "#fdecea", border: "1px solid #f5c6cb", color: "#c0392b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje}</div>}
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 8 }}>
+            {loading ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>Cargando…</div>
+              : !data || data.proveedores.length === 0 ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>No hay proveedores.</div>
+              : data.proveedores.map(p => (
+                <div key={p.id} style={{ borderBottom: "1px solid #f5f5f5" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px", cursor: "pointer", gap: 12 }} onClick={() => toggle(p.id)}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>{expandido === p.id ? "▾" : "▸"} {p.razon_social}</div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Facturado {money(p.total_facturado)} · Pagado {money(p.total_pagado)} · {p.facturas_pendientes} pendiente(s)</div>
+                    </div>
+                    <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                      <div style={{ fontSize: 11, color: "#888" }}>SALDO</div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: Number(p.saldo_pendiente) > 0 ? "#c0392b" : "#2a7a4b" }}>{money(p.saldo_pendiente)}</div>
+                    </div>
+                  </div>
+                  {expandido === p.id && (
+                    <div style={{ padding: "0 12px 12px 24px" }}>
+                      {!detalle[p.id] ? <div style={{ fontSize: 12, color: "#aaa" }}>Cargando facturas…</div>
+                        : detalle[p.id].length === 0 ? <div style={{ fontSize: 12, color: "#aaa" }}>Sin facturas.</div>
+                        : detalle[p.id].map(fac => {
+                          const b = FC_BADGE[fac.estado_pago] || { t: fac.estado_pago, bg: "#eee", c: "#333" };
+                          return (
+                            <div key={fac.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #f7f7f7", fontSize: 12 }}>
+                              <span style={{ color: "#555" }}>{fac.tipo_comprobante} {fac.numero_comprobante} · {fac.fecha}
+                                <span style={{ marginLeft: 8, fontWeight: 700, padding: "1px 7px", borderRadius: 10, background: b.bg, color: b.c }}>{b.t}</span>
+                                {fac.estado_pago === "pagada" && <span style={{ marginLeft: 6, color: "#2a7a4b" }}>{fac.caja_origen ? `desde ${fac.caja_origen}` : "externo"}{fac.fecha_pago ? ` · ${fac.fecha_pago}` : ""}</span>}
+                              </span>
+                              <span style={{ fontWeight: 600, color: "#333" }}>{money(fac.total)}</span>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+              ))}
+          </div>
         </div>
       );
     }
@@ -4652,6 +4809,7 @@ let numeroAsignado = "";
                         <>
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("ordenesCompra"); setMenuAbierto(false); }}>📋 Órdenes de compra</button>
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("facturasCompra"); setMenuAbierto(false); }}>🧾 Facturas de compra</button>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("cuentasPorPagar"); setMenuAbierto(false); }}>💳 Cuentas por pagar</button>
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("proveedores"); setMenuAbierto(false); }}>🏭 Proveedores</button>
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("categoriasGasto"); setMenuAbierto(false); }}>🏷️ Categorías de gasto</button>
                         </>
@@ -4714,7 +4872,7 @@ let numeroAsignado = "";
       }
 
       // Guard módulo Compras (admin + superadmin).
-      const VISTAS_COMPRAS = ["ordenesCompra", "facturasCompra", "proveedores", "categoriasGasto"];
+      const VISTAS_COMPRAS = ["ordenesCompra", "facturasCompra", "cuentasPorPagar", "proveedores", "categoriasGasto"];
       if (VISTAS_COMPRAS.includes(vista) && !esAdmin) {
         return (
           <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: "system-ui, sans-serif", background: "#f7f7f5", padding: 24, textAlign: "center" }}>
@@ -5767,6 +5925,9 @@ if (vista === "dashboard") {
     }
     if (vista === "facturasCompra") {
       return <div style={s.wrap}><Header /><VistaFacturasCompra usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "cuentasPorPagar") {
+      return <div style={s.wrap}><Header /><VistaCuentasPorPagar usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "proveedores") {
       return <div style={s.wrap}><Header /><VistaProveedores onVolver={() => setVista("panel")} /></div>;
