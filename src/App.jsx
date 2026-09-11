@@ -3550,6 +3550,10 @@ setPedidosDatosOverride(datosInit);
               const cat = ult ? topLevelDe(ult) : "";
               mapa[claveProducto(nombre)] = cat || "Sin categoría";
             });
+            // TEMP DEBUG — sacar después
+            console.log("[cat] productos TN:", (resP.data||[]).length, "| categorias:", (resC.data||[]).length);
+            console.log("[cat] ejemplo producto:", JSON.stringify((resP.data||[])[0]?.name), "categories:", JSON.stringify((resP.data||[])[0]?.categories));
+            console.log("[cat] mapa size:", Object.keys(mapa).length, "| muestra claves:", Object.keys(mapa).slice(0, 8));
             setCatVentasMap(mapa);
           })
           .catch(() => { if (!cancelado) setCatVentasMap({}); });   // TN caído → sin categorías, no rompe el reporte
@@ -5074,6 +5078,8 @@ if (vista === "dashboard") {
           });
         });
         const listaCompleta = Object.values(productosMap).sort((a, b) => b.cantidad - a.cantidad);
+        // TEMP DEBUG — comparar contra las claves del mapa de arriba
+        if (listaCompleta[0]) console.log("[cat] clave que busca el reporte:", claveProducto(listaCompleta[0].nombre), "→", listaCompleta[0].categoria);
         // Categorías presentes (para el select): alfabético, con "Sin categoría" al final.
         const categoriasDisponibles = Array.from(new Set(listaCompleta.map(p => p.categoria)))
           .sort((a, b) => a === "Sin categoría" ? 1 : b === "Sin categoría" ? -1 : a.localeCompare(b));
