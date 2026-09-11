@@ -35,6 +35,7 @@ const PRODUCTOS_4_TAMANOS = [
   "Esquesitos",
   "Incontro",
   "Quesos del Gourmet",
+  "MegaPromo Divertida",
 ];
 
 // Alias de formatos con unidades (corto -> largo canónico). Incluye las dos
@@ -78,7 +79,10 @@ for (const corto of Object.keys(ALIAS_UNIDADES)) {
 export function normalizarProducto(nombre) {
   let s = String(nombre || "");
   // Rótulo "Nueva"/"Nueva!" (con o sin "!"), en cualquier posición -> fuera.
-  s = s.replace(/\bnueva!?(?=\s|$)/gi, " ").replace(/\s+/g, " ").trim();
+  s = s.replace(/\bnueva!?(?=\s|$)/gi, " ");
+  // Sufijo "MKP" (marketplace), en cualquier posición -> fuera (igual que "Nueva").
+  s = s.replace(/\bmkp\b/gi, " ");
+  s = s.replace(/\s+/g, " ").trim();
   // Typo Sutille -> Suttile.
   s = s.replace(/\bsutille\b/gi, "Suttile");
   const canon = ALIAS[_clave(s)];
@@ -94,6 +98,8 @@ const EXCLUIDOS_PRODUCCION = new Set([
   "rappi", "peya", "pedidos ya", "pedido ya",
   "mercado pago", "mp", "efectivo", "transferencia",
   "ajuste", "var", "variable",
+  // Medios de pago (variantes que faltaban). Un medio de pago nunca es producto ni algo a fabricar.
+  "pedidoya", "ped ya", "mp delivery", "mp app", "pedido mp",
 ]);
 export function esExcluidoProduccion(nombre) {
   const k = _clave(nombre);
@@ -101,6 +107,28 @@ export function esExcluidoProduccion(nombre) {
   // Prefijos: cubre "Envío {zona}", "Descuento 10% Retiro" y los "Envio"/"Descuento"
   // sueltos que se cargan a mano. Ningún producto real del catálogo empieza con estas palabras.
   return k.startsWith("envio") || k.startsWith("envío") || k.startsWith("descuento");
+}
+
+// ─── BASURA del reporte de VENTAS (NO son productos) ───────────────────────
+// SOLO para el reporte de "Productos vendidos" (NO cocina/producción). Blacklist en 3 capas,
+// pensada para filtrar la basura SIN perder ventas reales cargadas a mano (piccadas con typos, etc.):
+//   (a) frases/marcas inequívocas (substring/regex, case-insensitive),
+//   (b) códigos/cupones (regex estructural),
+//   (c) SET EXACTO para palabras cortas ambiguas (nunca substring, o se comería productos).
+const BASURA_FRASES = /rappi|peya|pedido ?ya|pedidoya|ped ya|mp delivery|mp app|pedido mp|abonado|pago en pedido|autorizado por|reenv[ií]o|regalo de|pre-?compra|no entregado|club la naci[oó]n|sport club|fanbag|\d+ ?% ?(off|mas|más)|\b\d+ ?x ?\d+\b/i;
+const BASURA_EXACTA = new Set(["variable", "var", "e", "desc", "pan", "vai"]);
+export function esBasuraVenta(nombre) {
+  const original = String(nombre || "").trim();
+  const k = _clave(original);
+  if (k === "") return true;                          // vacío
+  if (BASURA_EXACTA.has(k)) return true;              // (c) palabra corta exacta
+  if (BASURA_FRASES.test(original)) return true;      // (a) frase/marca
+  // (b) código/cupón: número puro, o token único en MAYÚSCULAS con al menos un dígito,
+  //     sin espacios y de largo >= 4 (ej. "10AGOURB", "URBSEP15", "BON14ENE", "10GCM651").
+  if (/^\d+$/.test(original)) return true;
+  if (!/\s/.test(original) && original.length >= 4 && /\d/.test(original) &&
+      /[A-ZÁÉÍÓÚÑ]/.test(original) && original === original.toUpperCase()) return true;
+  return false;
 }
 
 // ─── COSTO DE ENVÍO de un pedido de Tienda Nube ────────────────────────────

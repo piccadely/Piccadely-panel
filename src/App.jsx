@@ -6,7 +6,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
     import Login from "./Login";
     import Usuarios from "./Usuarios";
     import { getUsuarioGuardado, validarSesion, cerrarSesion, ROL_LABELS } from "./auth-utils";
-    import { normalizarProducto, esExcluidoProduccion, calcularEnvioTN } from "../productos-normalizacion.js";
+    import { normalizarProducto, esExcluidoProduccion, esBasuraVenta, calcularEnvioTN } from "../productos-normalizacion.js";
 
     const API = import.meta.env.VITE_API_URL || "https://piccadely-panel-production.up.railway.app";
 
@@ -5023,8 +5023,9 @@ if (vista === "dashboard") {
           p.productos.split(", ").forEach(item => {
             const match = item.match(/^(.+) x(\d+)$/);
             if (!match) return;
-            const nombre = match[1].trim();
-            if (esExcluidoProduccion(nombre)) return;   // no contar envíos/descuentos como productos vendidos
+            const raw = match[1].trim();
+            const nombre = normalizarProducto(raw);      // unifica corto/largo/MKP/Nueva
+            if (esExcluidoProduccion(nombre) || esBasuraVenta(nombre)) return;   // envíos/medios de pago + basura (cupones, notas, promos, variables)
             const cantidad = Number(match[2]);
             if (!productosMap[nombre]) productosMap[nombre] = { nombre, cantidad: 0 };
             productosMap[nombre].cantidad += cantidad;
