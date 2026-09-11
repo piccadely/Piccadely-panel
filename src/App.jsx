@@ -6,7 +6,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
     import Login from "./Login";
     import Usuarios from "./Usuarios";
     import { getUsuarioGuardado, validarSesion, cerrarSesion, ROL_LABELS } from "./auth-utils";
-    import { normalizarProducto, esExcluidoProduccion, esBasuraVenta, calcularEnvioTN } from "../productos-normalizacion.js";
+    import { normalizarProducto, esExcluidoProduccion, esBasuraVenta, claveProducto, calcularEnvioTN } from "../productos-normalizacion.js";
 
     const API = import.meta.env.VITE_API_URL || "https://piccadely-panel-production.up.railway.app";
 
@@ -3303,6 +3303,10 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [rpDesde, setRpDesde] = useState("");
       const [rpHasta, setRpHasta] = useState("");
       const [rpLocal, setRpLocal] = useState(""); // "" = ambos; mismo criterio que reporteVentas (p.local)
+      const [rpCategoria, setRpCategoria] = useState("");   // "" = todas; filtro por categoría TN (top-level)
+      // Mapa NOMBRE(clave tolerante) → categoría top-level del catálogo TN. null = todavía no cargado.
+      // Se trae EN VIVO (catálogo COMPLETO, sin filtrar por precio) solo para el reporte de productos.
+      const [catVentasMap, setCatVentasMap] = useState(null);
       // Reporte fusionado (vendido / por vender) — solo admin. Rango libre que cruza hoy.
       const [rfDesde, setRfDesde] = useState(HOY);   // default: día actual (HOY = fechaArgentina())
       const [rfHasta, setRfHasta] = useState(HOY);   // default: día actual (el usuario puede ampliar el rango)
@@ -3519,6 +3523,39 @@ setPedidosDatosOverride(datosInit);
       // Se dispara al entrar a una vista de reporte y al cambiar su rango.
       // El dashboard pide desde el inicio del período anterior (con un día de
       // margen) para que la comparación "vs anterior" tenga datos completos.
+      // Catálogo TN (EN VIVO, COMPLETO sin filtrar por precio) → mapa nombre→categoría TOP-LEVEL,
+      // solo para el reporte de productos vendidos. Degradación: si TN falla, mapa vacío ({}) y todo
+      // cae en "Sin categoría" sin romper el reporte.
+      useEffect(() => {
+        if (vista !== "reporteProductos" || catVentasMap !== null) return;
+        let cancelado = false;
+        Promise.all([axios.get(`${API}/api/products`), axios.get(`${API}/api/categories`)])
+          .then(([resP, resC]) => {
+            if (cancelado) return;
+            const byId = {};
+            (resC.data || []).forEach(c => { byId[c.id] = c; });
+            const topLevelDe = (cat) => {
+              let node = byId[cat?.id] || cat;
+              const seen = new Set();
+              while (node && node.parent != null && byId[node.parent] && !seen.has(node.id)) {
+                seen.add(node.id); node = byId[node.parent];
+              }
+              return node?.name?.es || cat?.name?.es || "";
+            };
+            const mapa = {};
+            (resP.data || []).forEach(prod => {
+              const nombre = prod?.name?.es;
+              if (!nombre) return;
+              const ult = prod.categories?.[prod.categories.length - 1];   // convención del catálogo: la última
+              const cat = ult ? topLevelDe(ult) : "";
+              mapa[claveProducto(nombre)] = cat || "Sin categoría";
+            });
+            setCatVentasMap(mapa);
+          })
+          .catch(() => { if (!cancelado) setCatVentasMap({}); });   // TN caído → sin categorías, no rompe el reporte
+        return () => { cancelado = true; };
+      }, [vista, catVentasMap]);
+
       useEffect(() => {
         if (vista !== "reporteVentas" && vista !== "reporteProductos" && vista !== "reporteFusionado" && vista !== "dashboard" && vista !== "finalizados") return;
         let desde, hasta;
@@ -5027,22 +5064,32 @@ if (vista === "dashboard") {
             const nombre = normalizarProducto(raw);      // unifica corto/largo/MKP/Nueva
             if (esExcluidoProduccion(nombre) || esBasuraVenta(nombre)) return;   // envíos/medios de pago + basura (cupones, notas, promos, variables)
             const cantidad = Number(match[2]);
-            if (!productosMap[nombre]) productosMap[nombre] = { nombre, cantidad: 0 };
+            if (!productosMap[nombre]) {
+              // Categoría heredada del catálogo TN por nombre canónico (clave tolerante). Los
+              // manuales heredan la del equivalente web. Sin match / TN caído → "Sin categoría".
+              const categoria = (catVentasMap && catVentasMap[claveProducto(nombre)]) || "Sin categoría";
+              productosMap[nombre] = { nombre, cantidad: 0, categoria };
+            }
             productosMap[nombre].cantidad += cantidad;
           });
         });
-        const listaProductos = Object.values(productosMap).sort((a, b) => b.cantidad - a.cantidad);
+        const listaCompleta = Object.values(productosMap).sort((a, b) => b.cantidad - a.cantidad);
+        // Categorías presentes (para el select): alfabético, con "Sin categoría" al final.
+        const categoriasDisponibles = Array.from(new Set(listaCompleta.map(p => p.categoria)))
+          .sort((a, b) => a === "Sin categoría" ? 1 : b === "Sin categoría" ? -1 : a.localeCompare(b));
+        const listaProductos = rpCategoria ? listaCompleta.filter(p => p.categoria === rpCategoria) : listaCompleta;
         const totalUnidades = listaProductos.reduce((a, p) => a + p.cantidad, 0);
         const tagRp = fechaTagArchivo(rpDesde, rpHasta);
         const exportarProdExcel = () => {
-          const datos = listaProductos.map((prod, i) => ({ "Ranking": i + 1, "Producto": prod.nombre, "Unidades vendidas": prod.cantidad, "% del total": totalUnidades > 0 ? `${((prod.cantidad / totalUnidades) * 100).toFixed(1)}%` : "0%" }));
-          datos.push({ "Ranking": "", "Producto": "TOTAL", "Unidades vendidas": totalUnidades, "% del total": "100%" });
+          const datos = listaProductos.map((prod, i) => ({ "Ranking": i + 1, "Producto": prod.nombre, "Categoría": prod.categoria, "Unidades vendidas": prod.cantidad, "% del total": totalUnidades > 0 ? `${((prod.cantidad / totalUnidades) * 100).toFixed(1)}%` : "0%" }));
+          datos.push({ "Ranking": "", "Producto": "TOTAL", "Categoría": "", "Unidades vendidas": totalUnidades, "% del total": "100%" });
           exportarExcel(`productos_vendidos_${tagRp}.xlsx`, [{ name: "Productos", data: datos }]);
         };
         const exportarProdPDF = () => {
-          const filas = listaProductos.map((prod, i) => [i + 1, prod.nombre, prod.cantidad, totalUnidades > 0 ? `${((prod.cantidad / totalUnidades) * 100).toFixed(1)}%` : "0%"]);
-          const subt = (rpDesde || rpHasta) ? `Desde ${rpDesde || "inicio"} hasta ${rpHasta || "hoy"}` : "Todas las fechas";
-          exportarPDF(`productos_vendidos_${tagRp}.pdf`, "Productos Vendidos", ["#", "Producto", "Unidades", "% del total"], filas, `Total: ${totalUnidades} unidades  ·  ${pedidosBase.length} pedidos`, subt);
+          const filas = listaProductos.map((prod, i) => [i + 1, prod.nombre, prod.categoria, prod.cantidad, totalUnidades > 0 ? `${((prod.cantidad / totalUnidades) * 100).toFixed(1)}%` : "0%"]);
+          const subtBase = (rpDesde || rpHasta) ? `Desde ${rpDesde || "inicio"} hasta ${rpHasta || "hoy"}` : "Todas las fechas";
+          const subt = rpCategoria ? `${subtBase}  ·  Categoría: ${rpCategoria}` : subtBase;
+          exportarPDF(`productos_vendidos_${tagRp}.pdf`, "Productos Vendidos", ["#", "Producto", "Categoría", "Unidades", "% del total"], filas, `Total: ${totalUnidades} unidades  ·  ${pedidosBase.length} pedidos`, subt);
         };
         return (
           <div style={s.wrap}>
@@ -5061,7 +5108,11 @@ if (vista === "dashboard") {
                     <option value="A. Thomas">A. Thomas</option>
                     <option value="French">French</option>
                   </select>
-                  {(rpDesde || rpHasta || rpLocal) && <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setRpDesde(""); setRpHasta(""); setRpLocal(""); }}>✕ Limpiar</button>}
+                  <select style={{ ...s.select, padding: "5px 8px" }} value={rpCategoria} onChange={e => setRpCategoria(e.target.value)} title={catVentasMap === null ? "Cargando categorías…" : ""}>
+                    <option value="">Todas las categorías</option>
+                    {categoriasDisponibles.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  {(rpDesde || rpHasta || rpLocal || rpCategoria) && <button style={{ ...s.btnVolver, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setRpDesde(""); setRpHasta(""); setRpLocal(""); setRpCategoria(""); }}>✕ Limpiar</button>}
                   {listaProductos.length > 0 && (<><button style={btnExportar("#F68B32")} onClick={exportarProdExcel}>📊 Excel</button><button style={btnExportar("#c0392b")} onClick={exportarProdPDF}>📄 PDF</button></>)}
                 </div>
               </div>
@@ -5076,7 +5127,7 @@ if (vista === "dashboard") {
               </div>
               <div style={s.lista}>
                 <div style={s.cabecera}>
-                  <span style={{ ...s.col, flex: 0.5, textAlign: "center" }}>#</span><span style={{ ...s.col, flex: 3 }}>Producto</span>
+                  <span style={{ ...s.col, flex: 0.5, textAlign: "center" }}>#</span><span style={{ ...s.col, flex: 2.5 }}>Producto</span><span style={{ ...s.col, flex: 1 }}>Categoría</span>
                   <span style={{ ...s.col, flex: 1, textAlign: "center" }}>Unidades vendidas</span><span style={{ ...s.col, flex: 1, textAlign: "center" }}>% del total</span>
                 </div>
                 {listaProductos.length === 0 && <div style={s.empty}>No hay ventas en ese rango.</div>}
@@ -5084,7 +5135,8 @@ if (vista === "dashboard") {
                   <div key={prod.nombre} style={s.fila}>
                     <div style={{ ...s.filaTop, cursor: "default" }}>
                       <span style={{ ...s.cel, flex: 0.5, textAlign: "center", color: "#aaa", fontWeight: 600 }}>{i + 1}</span>
-                      <span style={{ ...s.cel, flex: 3, fontWeight: i < 3 ? 600 : 400 }}>{i === 0 && <span style={{ marginRight: 6 }}>🥇</span>}{i === 1 && <span style={{ marginRight: 6 }}>🥈</span>}{i === 2 && <span style={{ marginRight: 6 }}>🥉</span>}{prod.nombre}</span>
+                      <span style={{ ...s.cel, flex: 2.5, fontWeight: i < 3 ? 600 : 400 }}>{i === 0 && <span style={{ marginRight: 6 }}>🥇</span>}{i === 1 && <span style={{ marginRight: 6 }}>🥈</span>}{i === 2 && <span style={{ marginRight: 6 }}>🥉</span>}{prod.nombre}</span>
+                      <span style={{ ...s.cel, flex: 1, fontSize: 12, color: prod.categoria === "Sin categoría" ? "#bbb" : "#888" }}>{prod.categoria}</span>
                       <span style={{ ...s.cel, flex: 1, textAlign: "center", fontWeight: 600, color: "#F68B32", fontSize: 14 }}>{prod.cantidad}</span>
                       <span style={{ ...s.cel, flex: 1, textAlign: "center" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>

@@ -59,6 +59,10 @@ function _clave(s) {
   return String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+// Versión pública de _clave: para indexar mapas externos (ej. nombre→categoría del catálogo TN)
+// con EXACTAMENTE la misma normalización tolerante que usa la tabla de alias.
+export function claveProducto(s) { return _clave(s); }
+
 // Tabla final de alias: clave tolerante -> valor canónico EXACTO.
 const ALIAS = {};
 for (const base of PRODUCTOS_4_TAMANOS) {
