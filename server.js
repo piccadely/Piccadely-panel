@@ -2876,6 +2876,73 @@ app.get("/api/contable/libro-ventas", requireAuth, async (req, res) => {
   }
 });
 
+// ─── CONTABLE — LIBRO DE COMPRAS (formato AFIP IVA_COMPRAS) ─────────────
+// SOLO superadmin. Lee de facturas_compra (NO la modifica). Excluye anuladas.
+// Tipo de comprobante recibido (string) → "código - texto" como el Excel de referencia.
+function tipoCompraAFIP(tipo) {
+  const t = String(tipo || "").toUpperCase();
+  if (t.includes("FACTURA A")) return "1 - Factura A";
+  if (t.includes("FACTURA B")) return "6 - Factura B";
+  if (t.includes("FACTURA C")) return "11 - Factura C";
+  return tipo || "";
+}
+// ⚠️ Varios headers llevan un ESPACIO FINAL a propósito — copiados EXACTO del Excel de referencia
+// (FECHA , FACTURA , CUIT , PROVEEDOR , NETO , NETO NO GRAVADO , OTROS TRIBUTOS , TOTAL IVA , IMP. TOTAL ).
+// NO "corregir". Las claves de las filas de abajo deben coincidir carácter a carácter.
+const LIBRO_COMPRAS_COLUMNAS = [
+  "FECHA ", "TIPO", "FACTURA ", "CUIT ", "PROVEEDOR ", "NETO ",
+  "PERCEP. IVA", "PERCEP. IIBB BSAS", "PERCEP. IIBB CABA",
+  "NETO NO GRAVADO ", "OP. EXENTAS", "OTROS TRIBUTOS ", "TOTAL IVA ", "IMP. TOTAL ",
+];
+
+app.get("/api/contable/libro-compras", requireAuth, async (req, res) => {
+  if (req.user?.rol !== "superadmin") return res.status(403).json({ error: "Solo superadmin puede ver el libro de compras." });
+  const { desde, hasta, proveedor } = req.query;
+  if (!desde || !hasta) return res.status(400).json({ error: "Faltan las fechas desde/hasta." });
+  try {
+    const params = [desde, hasta];
+    let sql = "SELECT * FROM facturas_compra WHERE estado_pago <> 'anulada' AND fecha >= $1 AND fecha <= $2";
+    if (proveedor) { params.push(proveedor); sql += ` AND proveedor_id = $${params.length}`; }
+    sql += " ORDER BY fecha ASC, id ASC";
+    const { rows } = await pool.query(sql, params);
+    const filas = [];
+    const tot = { neto: 0, percepIva: 0, percepBsas: 0, percepCaba: 0, noGravado: 0, exentas: 0, otros: 0, totalIva: 0, impTotal: 0 };
+    for (const f of rows) {
+      const neto = Number(f.neto_gravado) || 0, pIva = Number(f.percep_iva) || 0, pBsas = Number(f.percep_iibb_bsas) || 0,
+        pCaba = Number(f.percep_iibb_caba) || 0, noGrav = Number(f.neto_no_gravado) || 0, ex = Number(f.exentas) || 0,
+        otros = Number(f.otros_tributos) || 0, iva = Number(f.iva) || 0, total = Number(f.total) || 0;
+      tot.neto += neto; tot.percepIva += pIva; tot.percepBsas += pBsas; tot.percepCaba += pCaba;
+      tot.noGravado += noGrav; tot.exentas += ex; tot.otros += otros; tot.totalIva += iva; tot.impTotal += total;
+      filas.push({
+        "FECHA ": f.fecha || "",
+        "TIPO": tipoCompraAFIP(f.tipo_comprobante),
+        "FACTURA ": f.numero_comprobante || "",
+        "CUIT ": f.proveedor_cuit || "",
+        "PROVEEDOR ": f.proveedor_razon_social || "",
+        "NETO ": neto,
+        "PERCEP. IVA": pIva,
+        "PERCEP. IIBB BSAS": pBsas,
+        "PERCEP. IIBB CABA": pCaba,
+        "NETO NO GRAVADO ": noGrav,
+        "OP. EXENTAS": ex,
+        "OTROS TRIBUTOS ": otros,
+        "TOTAL IVA ": iva,
+        "IMP. TOTAL ": total,
+      });
+    }
+    const r2 = (n) => Math.round(n * 100) / 100;
+    const totales = {
+      neto: r2(tot.neto), percepIva: r2(tot.percepIva), percepBsas: r2(tot.percepBsas), percepCaba: r2(tot.percepCaba),
+      noGravado: r2(tot.noGravado), exentas: r2(tot.exentas), otros: r2(tot.otros), totalIva: r2(tot.totalIva),
+      impTotal: r2(tot.impTotal), cantidad: filas.length,
+    };
+    res.json({ columnas: LIBRO_COMPRAS_COLUMNAS, filas, totales });
+  } catch (err) {
+    console.error("Error /api/contable/libro-compras:", err.message);
+    res.status(500).json({ error: "Error generando el libro de compras" });
+  }
+});
+
 // ─── TUSFACTURAS WEBHOOK ──────────────────────────────────────────────
 app.post("/api/tusfacturas/webhook", async (req, res) => {
   console.log("TusFacturas webhook:", JSON.stringify(req.body));

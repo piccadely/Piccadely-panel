@@ -3268,9 +3268,139 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       );
     }
 
+    // ─── CONTABLE — LIBRO DE COMPRAS (formato AFIP IVA_COMPRAS) ──────────
+    // Solo superadmin. Lee facturas_compra (excluye anuladas). Mismo patrón que el libro de ventas.
+    function VistaLibroCompras({ onVolver }) {
+      const hoy = new Date();
+      const iniMes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-01`;
+      const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
+      const [desde, setDesde] = useState(iniMes);
+      const [hasta, setHasta] = useState(hoyStr);
+      const [proveedorFiltro, setProveedorFiltro] = useState("");
+      const [proveedores, setProveedores] = useState([]);
+      const [data, setData] = useState(null);   // { columnas, filas, totales }
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState("");
+
+      const nf = (n) => Number(n || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const COLS_NUM = new Set([
+        "NETO ", "PERCEP. IVA", "PERCEP. IIBB BSAS", "PERCEP. IIBB CABA",
+        "NETO NO GRAVADO ", "OP. EXENTAS", "OTROS TRIBUTOS ", "TOTAL IVA ", "IMP. TOTAL ",
+      ]);
+
+      useEffect(() => {
+        axios.get(`${API}/api/compras/proveedores`).then(r => setProveedores(r.data)).catch(() => {});
+      }, []);
+
+      async function generar() {
+        setLoading(true); setError(""); setData(null);
+        try {
+          const res = await axios.get(`${API}/api/contable/libro-compras`, { params: { desde, hasta, proveedor: proveedorFiltro || undefined } });
+          setData(res.data);
+        } catch (err) { setError(err.response?.data?.error || err.message); }
+        setLoading(false);
+      }
+
+      // Fila de TOTALES con las MISMAS claves que las columnas (para tabla y Excel).
+      function filaTotales(cols, t) {
+        const fila = Object.fromEntries(cols.map(c => [c, ""]));
+        fila["PROVEEDOR "] = "TOTALES";
+        fila["NETO "] = t.neto;
+        fila["PERCEP. IVA"] = t.percepIva;
+        fila["PERCEP. IIBB BSAS"] = t.percepBsas;
+        fila["PERCEP. IIBB CABA"] = t.percepCaba;
+        fila["NETO NO GRAVADO "] = t.noGravado;
+        fila["OP. EXENTAS"] = t.exentas;
+        fila["OTROS TRIBUTOS "] = t.otros;
+        fila["TOTAL IVA "] = t.totalIva;
+        fila["IMP. TOTAL "] = t.impTotal;
+        return fila;
+      }
+
+      function exportar() {
+        if (!data) return;
+        const cols = data.columnas;
+        const rows = [...data.filas, filaTotales(cols, data.totales)];
+        const ws = XLSX.utils.json_to_sheet(rows, { header: cols });   // header fija el orden exacto
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "IVA_COMPRAS");
+        XLSX.writeFile(wb, `libro_compras_${desde}_a_${hasta}.xlsx`);
+      }
+
+      const cols = data?.columnas || [];
+      const totFila = data ? filaTotales(cols, data.totales) : null;
+      const inputStyle = { fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", background: "#fff" };
+      const th = { padding: "8px 10px", fontSize: 11, fontWeight: 700, color: "#555", textAlign: "left", borderBottom: "2px solid #eee", whiteSpace: "nowrap", background: "#fafaf8", position: "sticky", top: 0 };
+      const td = { padding: "6px 10px", fontSize: 12, color: "#333", borderBottom: "1px solid #f2f2f2", whiteSpace: "nowrap" };
+
+      return (
+        <div style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>📗 Libro de compras (AFIP)</div>
+            <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver al panel</button>
+          </div>
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 16, marginBottom: 16, display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <label style={{ fontSize: 12, color: "#555" }}>Desde<br /><input type="date" value={desde} onChange={e => setDesde(e.target.value)} style={inputStyle} /></label>
+            <label style={{ fontSize: 12, color: "#555" }}>Hasta<br /><input type="date" value={hasta} onChange={e => setHasta(e.target.value)} style={inputStyle} /></label>
+            <label style={{ fontSize: 12, color: "#555" }}>Proveedor<br />
+              <select value={proveedorFiltro} onChange={e => setProveedorFiltro(e.target.value)} style={inputStyle}>
+                <option value="">Todos</option>
+                {proveedores.map(p => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
+              </select>
+            </label>
+            <button onClick={generar} disabled={loading || !desde || !hasta}
+              style={{ fontSize: 13, fontWeight: 600, padding: "9px 18px", borderRadius: 8, border: "none", background: (loading || !desde || !hasta) ? "#ccc" : "#F68B32", color: "#fff", cursor: (loading || !desde || !hasta) ? "default" : "pointer" }}>
+              {loading ? "Generando…" : "Generar"}
+            </button>
+            {data && data.filas.length > 0 && (
+              <button onClick={exportar}
+                style={{ fontSize: 13, fontWeight: 600, padding: "9px 18px", borderRadius: 8, border: "none", background: "#2a7a4b", color: "#fff", cursor: "pointer" }}>
+                📊 Exportar Excel
+              </button>
+            )}
+          </div>
+
+          {error && <div style={{ background: "#fdecea", border: "1px solid #f5c6cb", color: "#c0392b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{error}</div>}
+
+          {data && (
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 12 }}>
+              <div style={{ fontSize: 12, color: "#888", marginBottom: 10 }}>
+                {data.totales.cantidad} comprobante(s) · Neto {nf(data.totales.neto)} · IVA {nf(data.totales.totalIva)} · Total {nf(data.totales.impTotal)}
+              </div>
+              {data.filas.length === 0 ? (
+                <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>No hay comprobantes en el rango elegido.</div>
+              ) : (
+                <div style={{ overflowX: "auto", maxHeight: "60vh", overflowY: "auto" }}>
+                  <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                    <thead>
+                      <tr>{cols.map(c => <th key={c} style={{ ...th, textAlign: COLS_NUM.has(c) ? "right" : "left" }}>{c}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      {data.filas.map((fila, i) => (
+                        <tr key={i}>
+                          {cols.map(c => <td key={c} style={{ ...td, textAlign: COLS_NUM.has(c) ? "right" : "left" }}>{COLS_NUM.has(c) ? nf(fila[c]) : fila[c]}</td>)}
+                        </tr>
+                      ))}
+                      <tr>
+                        {cols.map(c => (
+                          <td key={c} style={{ ...td, fontWeight: 700, borderTop: "2px solid #ddd", background: "#fafaf8", textAlign: COLS_NUM.has(c) ? "right" : "left" }}>
+                            {COLS_NUM.has(c) ? nf(totFila[c]) : (totFila[c] || "")}
+                          </td>
+                        ))}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     // ─── CONTABLE — LIBRO DE VENTAS (formato AFIP) ───────────────────────
-    // Solo superadmin (guard de vista + endpoint superadmin-only). Lee el libro ya calculado
-    // del backend y lo muestra/exporta con las columnas del formato AFIP tal cual las manda.
+    // Solo superadmin. Lee el libro ya calculado del backend y lo muestra/exporta con columnas AFIP.
     function VistaLibroVentas({ onVolver }) {
       const hoy = new Date();
       const iniMes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-01`;
@@ -4793,7 +4923,10 @@ let numeroAsignado = "";
                         <span style={{ fontSize: 10, color: "#aaa" }}>{menuGrupo === "contable" ? "▾" : "▸"}</span>
                       </button>
                       {menuGrupo === "contable" && (
-                        <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("libroVentas"); setMenuAbierto(false); }}>📕 Libro de ventas</button>
+                        <>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("libroVentas"); setMenuAbierto(false); }}>📕 Libro de ventas</button>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("libroCompras"); setMenuAbierto(false); }}>📗 Libro de compras</button>
+                        </>
                       )}
                     </>
                   )}
@@ -4859,7 +4992,7 @@ let numeroAsignado = "";
       }
 
       // Guard superadmin-only (módulo Contable). Mismo patrón que el admin, pero exige superadmin.
-      const VISTAS_SOLO_SUPERADMIN = ["libroVentas"];
+      const VISTAS_SOLO_SUPERADMIN = ["libroVentas", "libroCompras"];
       if (VISTAS_SOLO_SUPERADMIN.includes(vista) && !esSuperadmin) {
         return (
           <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: "system-ui, sans-serif", background: "#f7f7f5", padding: 24, textAlign: "center" }}>
@@ -5919,6 +6052,9 @@ if (vista === "dashboard") {
     }
     if (vista === "libroVentas") {
       return <div style={s.wrap}><Header /><VistaLibroVentas onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "libroCompras") {
+      return <div style={s.wrap}><Header /><VistaLibroCompras onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "ordenesCompra") {
       return <div style={s.wrap}><Header /><VistaOrdenesCompra usuario={usuario} onVolver={() => setVista("panel")} /></div>;
