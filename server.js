@@ -965,10 +965,27 @@ app.get("/api/reportes/zonas", requireAdmin, async (req, res) => {
 
   app.get("/api/products", async (req, res) => {
     if (!TN_ENABLED) { console.warn("⚠️ Tienda Nube no configurada: /api/products devuelve []"); return res.json([]); }
+    // TN pagina con ?page=N&per_page=200 (200 = máximo por página). Traemos TODAS las páginas
+    // (mismo patrón que el backfill de pedidos), si no los productos >200 quedan afuera.
+    const PER_PAGE = 200, MAX_PAGES = 50;   // tope de seguridad: 10.000 productos
+    const todos = [];
+    let page = 1;
     try {
-      const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/products?per_page=200`, { headers });
-      res.json(r.data);
-    } catch (err) { res.status(500).json({ error: "Error trayendo productos" }); }
+      while (page <= MAX_PAGES) {
+        const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/products?per_page=${PER_PAGE}&page=${page}`, { headers });
+        const lote = Array.isArray(r.data) ? r.data : [];
+        todos.push(...lote);
+        if (lote.length < PER_PAGE) break;   // última página
+        page++;
+      }
+      res.json(todos);
+    } catch (err) {
+      // Si una página falla, no dejamos el catálogo a medias en silencio: si ya juntamos algo,
+      // lo devolvemos (mejor incompleto que vacío) y logueamos; si no juntamos nada, error 500.
+      console.error(`Error /api/products (página ${page}, ${todos.length} juntados):`, err.message);
+      if (todos.length > 0) return res.json(todos);
+      res.status(500).json({ error: "Error trayendo productos" });
+    }
   });
 
   app.get("/api/categories", async (req, res) => {
