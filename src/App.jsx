@@ -4335,14 +4335,17 @@ setPedidosDatosOverride(datosInit);
                     const minutosVencido = horaInicio ? Math.floor((ahora - horaInicio) / 60000) : 0;
                     const estaProximo = horaInicio && ahora >= new Date(horaInicio.getTime() - 60 * 60000) && ahora < horaInicio && fechaPedido === HOY && estadoActual !== "En camino" && estadoActual !== "Entregado";
 const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && estadoActual !== "En camino" && estadoActual !== "Entregado";
+                    // Pedido de TN con pago NO aprobado (rechazado/en análisis/pendiente). NO aplica a manuales
+                    // (su "Pendiente" es cobro al entregar, no un rechazo). Al aprobarse el pago pasa a "Pagado" solo.
+                    const mostrarRevisarPago = !p.esManual && p.pago !== "Pagado";
                     return (
-                      <div key={p.id} style={{ ...s.fila, ...(abierto ? s.filaAbierta : {}), ...(!abierto && esCorp && !estaVencido && !estaProximo ? { background: "#ede9fe" } : {}), ...(estaVencido ? { background: "#f5b7b1", borderLeft: "4px solid #922b21" } : estaProximo ? { background: "#fdecea", borderLeft: "4px solid #c0392b" } : {}) }}>
+                      <div key={p.id} style={{ ...s.fila, ...(abierto ? s.filaAbierta : {}), ...(!abierto && esCorp && !estaVencido && !estaProximo && !mostrarRevisarPago ? { background: "#ede9fe" } : {}), ...(!abierto && mostrarRevisarPago && !estaVencido && !estaProximo ? { background: "#f5b7b1", borderLeft: "4px solid #922b21" } : {}), ...(estaVencido ? { background: "#f5b7b1", borderLeft: "4px solid #922b21" } : estaProximo ? { background: "#fdecea", borderLeft: "4px solid #c0392b" } : {}) }}>
                         <div style={{ ...s.filaTop, ...(abierto && esCorp ? { background: "#ede9fe" } : {}) }} onClick={() => toggleExpandido(p.id)}>
                           {seleccionable && p.local === modoTandaLocal && !p.tandaId && (
                             <input type="checkbox" checked={seleccionTanda.includes(p.id)} onClick={e => e.stopPropagation()} onChange={() => toggleSeleccionTanda(p.id)} style={{ marginRight: 8, transform: "scale(1.25)", cursor: "pointer" }} />
                           )}
                           <span style={{ ...s.cel, flex: 1.2 }}>
-                            <span style={s.numero}>{p.numero}</span>{p.tandaId && <span title={`En la tanda #${p.tandaId}`} style={{ fontSize: 11, fontWeight: 700, background: "#7c3aed", color: "#fff", padding: "1px 7px", borderRadius: 4, marginLeft: 6 }}>T{p.tandaId}</span>}{!comandasImpresas[p.id] && <span style={s.nuevoBadge}>● NUEVO</span>} {p.cliente}
+                            <span style={s.numero}>{p.numero}</span>{p.tandaId && <span title={`En la tanda #${p.tandaId}`} style={{ fontSize: 11, fontWeight: 700, background: "#7c3aed", color: "#fff", padding: "1px 7px", borderRadius: 4, marginLeft: 6 }}>T{p.tandaId}</span>}{mostrarRevisarPago && <span style={s.revisarPagoBadge} title="El pago de este pedido NO está aprobado en Tienda Nube">⚠️ REVISAR PAGO</span>}{!comandasImpresas[p.id] && <span style={s.nuevoBadge}>● NUEVO</span>} {p.cliente}
                             {cobrar && <span style={s.cobrarBadge}>COBRAR</span>}
                             {p.esManual && <span style={{ ...s.cobrarBadge, background: "#7c3aed" }}>MANUAL</span>}
                             {productosOverride[String(p.id)] && <span style={{ ...s.cobrarBadge, background: "#7c3aed" }}>EDITADO</span>}
@@ -4367,6 +4370,11 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                         </div>
                         {abierto && (
                           <div style={s.detalle}>
+                            {mostrarRevisarPago && (
+                              <div style={{ background: "#f5b7b1", border: "1px solid #922b21", borderRadius: 8, padding: "10px 12px", marginBottom: 12, color: "#922b21", fontSize: 13, fontWeight: 600 }}>
+                                ⚠️ REVISAR PAGO — el pago de este pedido NO está aprobado en Tienda Nube. Verificá antes de entregar.
+                              </div>
+                            )}
                             {/* DATOS EDITABLES */}
                             <div style={{ fontSize: 10, fontWeight: 700, color: "#F68B32", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
                               📋 Datos del pedido <span style={{ color: "#aaa", fontWeight: 400 }}>(guardado automático al salir del campo)</span>
@@ -6676,6 +6684,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
       estadoTag: { fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 4, textTransform: "uppercase", letterSpacing: 0.3 },
       cobrarBadge: { fontSize: 9, fontWeight: 700, background: "#c0392b", color: "#fff", padding: "2px 6px", borderRadius: 3, marginLeft: 6, letterSpacing: 0.5 },
       nuevoBadge: { fontSize: 10, fontWeight: 800, background: "#16a34a", color: "#fff", padding: "2px 8px", borderRadius: 4, marginRight: 6, letterSpacing: 0.5, textTransform: "uppercase", boxShadow: "0 0 0 2px rgba(22,163,74,0.25)" },
+      revisarPagoBadge: { fontSize: 10, fontWeight: 800, background: "#c0392b", color: "#fff", padding: "2px 8px", borderRadius: 4, marginLeft: 6, letterSpacing: 0.5, textTransform: "uppercase", boxShadow: "0 0 0 2px rgba(192,57,43,0.3)" },
       chevron: { fontSize: 10, color: "#aaa", marginLeft: 4 },
       detalle: { padding: "14px 18px", borderTop: "1px solid #eee", background: "#fafaf8" },
       detalleGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 },
