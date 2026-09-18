@@ -297,6 +297,8 @@ async function initDB() {
   await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS medio_pago TEXT;`);
   await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS caja_origen TEXT;`);
   await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS usuario_paga TEXT;`);
+  // NC/ND de proveedor — vínculo informativo opcional a otra factura del mismo proveedor.
+  await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS factura_asociada_id INTEGER REFERENCES facturas_compra(id);`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
   await pool.query(`CREATE TABLE IF NOT EXISTS costos_areas (area INTEGER PRIMARY KEY, costo NUMERIC NOT NULL DEFAULT 1);`);
   await pool.query(`INSERT INTO costos_areas (area, costo) SELECT g, 1 FROM generate_series(1,10) g ON CONFLICT (area) DO NOTHING;`);
@@ -1906,6 +1908,12 @@ app.post("/api/compras/ordenes/:id/anular", requireAdmin, async (req, res) => {
 // aprobada (la pasa a 'recibida', atómico) o suelta (orden_compra_id NULL).
 const ALICUOTAS_IVA = [0, 2.5, 5, 10.5, 21, 27];
 
+// ── Signo por tipo (regla central, reusada en libro de compras y cuenta corriente) ──
+// Nota de Crédito RESTA (-1). Factura y Nota de Débito SUMAN (+1). Los montos SIEMPRE se guardan
+// en positivo; el signo se aplica al calcular/mostrar.
+function esNotaCreditoCompra(tipo) { return String(tipo || "").toUpperCase().includes("NOTA DE CREDITO"); }
+function signoComprobante(tipo) { return esNotaCreditoCompra(tipo) ? -1 : 1; }
+
 // Valida el cuadre del comprobante. Devuelve { ok, calculado } (tolerancia ±1 peso por redondeo).
 function chequearCuadreFactura(f) {
   const n = (x) => Number(x) || 0;
@@ -1970,16 +1978,24 @@ app.post("/api/compras/facturas", requireAdmin, async (req, res) => {
     const snapCuit = prov.rows[0].cuit || null;
     const snapRazon = prov.rows[0].razon_social || null;
 
+    // Factura asociada (NC/ND): vínculo informativo OPCIONAL a otra factura del MISMO proveedor.
+    let facturaAsociadaId = null;
+    if (b.factura_asociada_id) {
+      const fa = await pool.query("SELECT id FROM facturas_compra WHERE id = $1 AND proveedor_id = $2", [b.factura_asociada_id, b.proveedor_id]);
+      if (fa.rows.length === 0) return res.status(400).json({ error: "La factura asociada no existe o no es del mismo proveedor." });
+      facturaAsociadaId = Number(b.factura_asociada_id);
+    }
+
     const cols = `(proveedor_id, categoria_gasto_id, orden_compra_id, proveedor_cuit, proveedor_razon_social,
       tipo_comprobante, punto_venta, numero_comprobante, cae, fecha, alicuota_iva, neto_gravado, iva,
-      percep_iva, percep_iibb_bsas, percep_iibb_caba, neto_no_gravado, exentas, otros_tributos, total, usuario_crea)`;
+      percep_iva, percep_iibb_bsas, percep_iibb_caba, neto_no_gravado, exentas, otros_tributos, total, usuario_crea, factura_asociada_id)`;
     const vals = [
       b.proveedor_id, b.categoria_gasto_id, b.orden_compra_id || null, snapCuit, snapRazon,
       String(b.tipo_comprobante).trim(), b.punto_venta?.trim() || null, String(b.numero_comprobante).trim(),
       b.cae?.trim() || null, b.fecha, Number(b.alicuota_iva), Number(b.neto_gravado) || 0, Number(b.iva) || 0,
       Number(b.percep_iva) || 0, Number(b.percep_iibb_bsas) || 0, Number(b.percep_iibb_caba) || 0,
       Number(b.neto_no_gravado) || 0, Number(b.exentas) || 0, Number(b.otros_tributos) || 0, Number(b.total),
-      b.usuario || null,
+      b.usuario || null, facturaAsociadaId,
     ];
     const ph = vals.map((_, i) => `$${i + 1}`).join(",");
 
@@ -2070,6 +2086,10 @@ app.post("/api/compras/facturas/:id/anular", requireAdmin, async (req, res) => {
 app.post("/api/compras/facturas/:id/pagar", requireAdmin, async (req, res) => {
   const { medioPago, cajaOrigen, fechaPago, usuario } = req.body;
   if (!medioPago || !String(medioPago).trim()) return res.status(400).json({ error: "El medio de pago es obligatorio." });
+  // Una nota de crédito NO se paga (es un crédito, resta del saldo). Facturas y ND sí.
+  const tipoRow = await pool.query("SELECT tipo_comprobante FROM facturas_compra WHERE id=$1", [req.params.id]);
+  if (tipoRow.rows.length === 0) return res.status(404).json({ error: "Factura no encontrada." });
+  if (esNotaCreditoCompra(tipoRow.rows[0].tipo_comprobante)) return res.status(400).json({ error: "Una nota de crédito no se paga." });
   const fPago = fechaPago && esFechaISO(fechaPago) ? fechaPago : fechaArgentinaISO();
   const desdeCaja = cajaOrigen && String(cajaOrigen).trim() !== "";
   if (desdeCaja) {
@@ -2128,12 +2148,18 @@ app.post("/api/compras/facturas/:id/pagar", requireAdmin, async (req, res) => {
 // Cuenta corriente: saldo por proveedor (anuladas excluidas de todo).
 app.get("/api/compras/cuenta-corriente", requireAdmin, async (req, res) => {
   try {
+    // Saldo con signo: facturas + ND 'pendiente' SUMAN; NC 'no anulada' RESTAN (la NC no se paga,
+    // resta por existir). total_facturado/total_pagado también netean las NC para que cierre.
     const result = await pool.query(`
       SELECT p.id, p.razon_social, p.cuit,
-        COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago <> 'anulada'), 0) AS total_facturado,
-        COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago = 'pagada'), 0)   AS total_pagado,
-        COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago = 'pendiente'), 0) AS saldo_pendiente,
-        COUNT(*) FILTER (WHERE fc.estado_pago = 'pendiente')                   AS facturas_pendientes
+        COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago <> 'anulada' AND UPPER(fc.tipo_comprobante) NOT LIKE 'NOTA DE CREDITO%'), 0)
+          - COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago <> 'anulada' AND UPPER(fc.tipo_comprobante) LIKE 'NOTA DE CREDITO%'), 0)
+          AS total_facturado,
+        COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago = 'pagada'), 0) AS total_pagado,
+        COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago = 'pendiente' AND UPPER(fc.tipo_comprobante) NOT LIKE 'NOTA DE CREDITO%'), 0)
+          - COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago <> 'anulada' AND UPPER(fc.tipo_comprobante) LIKE 'NOTA DE CREDITO%'), 0)
+          AS saldo_pendiente,
+        COUNT(*) FILTER (WHERE fc.estado_pago = 'pendiente' AND UPPER(fc.tipo_comprobante) NOT LIKE 'NOTA DE CREDITO%') AS facturas_pendientes
       FROM proveedores p
       LEFT JOIN facturas_compra fc ON fc.proveedor_id = p.id
       WHERE p.activo = true
@@ -2898,6 +2924,12 @@ app.get("/api/contable/libro-ventas", requireAuth, async (req, res) => {
 // Tipo de comprobante recibido (string) → "código - texto" como el Excel de referencia.
 function tipoCompraAFIP(tipo) {
   const t = String(tipo || "").toUpperCase();
+  if (t.includes("NOTA DE CREDITO A")) return "3 - Nota de Crédito A";
+  if (t.includes("NOTA DE CREDITO B")) return "8 - Nota de Crédito B";
+  if (t.includes("NOTA DE CREDITO C")) return "13 - Nota de Crédito C";
+  if (t.includes("NOTA DE DEBITO A")) return "2 - Nota de Débito A";
+  if (t.includes("NOTA DE DEBITO B")) return "7 - Nota de Débito B";
+  if (t.includes("NOTA DE DEBITO C")) return "12 - Nota de Débito C";
   if (t.includes("FACTURA A")) return "1 - Factura A";
   if (t.includes("FACTURA B")) return "6 - Factura B";
   if (t.includes("FACTURA C")) return "11 - Factura C";
@@ -2925,9 +2957,12 @@ app.get("/api/contable/libro-compras", requireAuth, async (req, res) => {
     const filas = [];
     const tot = { neto: 0, percepIva: 0, percepBsas: 0, percepCaba: 0, noGravado: 0, exentas: 0, otros: 0, totalIva: 0, impTotal: 0 };
     for (const f of rows) {
-      const neto = Number(f.neto_gravado) || 0, pIva = Number(f.percep_iva) || 0, pBsas = Number(f.percep_iibb_bsas) || 0,
-        pCaba = Number(f.percep_iibb_caba) || 0, noGrav = Number(f.neto_no_gravado) || 0, ex = Number(f.exentas) || 0,
-        otros = Number(f.otros_tributos) || 0, iva = Number(f.iva) || 0, total = Number(f.total) || 0;
+      // Signo: NC resta (-1), Factura/ND suman (+1). Los montos se guardan en positivo; acá se firman
+      // para que las NC salgan en NEGATIVO (formato AFIP) y el total del período neteé correctamente.
+      const sg = signoComprobante(f.tipo_comprobante);
+      const neto = (Number(f.neto_gravado) || 0) * sg, pIva = (Number(f.percep_iva) || 0) * sg, pBsas = (Number(f.percep_iibb_bsas) || 0) * sg,
+        pCaba = (Number(f.percep_iibb_caba) || 0) * sg, noGrav = (Number(f.neto_no_gravado) || 0) * sg, ex = (Number(f.exentas) || 0) * sg,
+        otros = (Number(f.otros_tributos) || 0) * sg, iva = (Number(f.iva) || 0) * sg, total = (Number(f.total) || 0) * sg;
       tot.neto += neto; tot.percepIva += pIva; tot.percepBsas += pBsas; tot.percepCaba += pCaba;
       tot.noGravado += noGrav; tot.exentas += ex; tot.otros += otros; tot.totalIva += iva; tot.impTotal += total;
       filas.push({

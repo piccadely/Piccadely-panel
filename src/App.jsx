@@ -2817,10 +2817,17 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       anulada:   { label: "Anulada",   bg: "#f3f4f6", color: "#c0392b" },
     };
     const FC_ALICUOTAS = [21, 10.5, 27, 5, 2.5, 0];
-    const FC_TIPOS = ["Factura A", "Factura B", "Factura C"];
+    const FC_CLASES = ["Factura", "Nota de Crédito", "Nota de Débito"];
+    const FC_LETRAS = ["A", "B", "C"];
+    // tipo_comprobante se arma "Clase Letra" (ej "Nota de Crédito A"). Helpers de presentación:
+    const esNC = (tipo) => String(tipo || "").toUpperCase().includes("NOTA DE CREDITO");
+    const esND = (tipo) => String(tipo || "").toUpperCase().includes("NOTA DE DEBITO") || String(tipo || "").toUpperCase().includes("NOTA DE DÉBITO");
+    const claseBadge = (tipo) => esNC(tipo) ? { t: "N. Crédito", bg: "#fdecea", c: "#c0392b" }
+      : esND(tipo) ? { t: "N. Débito", bg: "#dbeafe", c: "#1d4ed8" } : null;
     const FC_FORM_VACIO = {
       proveedor_id: "", categoria_gasto_id: "", orden_compra_id: "",
-      tipo_comprobante: "Factura A", punto_venta: "", numero_comprobante: "", cae: "", fecha: "",
+      clase: "Factura", letra: "A", factura_asociada_id: "",
+      punto_venta: "", numero_comprobante: "", cae: "", fecha: "",
       alicuota_iva: "21", neto_gravado: "", iva: "", percep_iva: "", percep_iibb_bsas: "", percep_iibb_caba: "",
       neto_no_gravado: "", exentas: "", otros_tributos: "", total: "",
     };
@@ -2838,6 +2845,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [modoCarga, setModoCarga] = useState("suelta"); // "orden" | "suelta"
       const [editandoId, setEditandoId] = useState(null);
       const [form, setForm] = useState(FC_FORM_VACIO);
+      const [facturasProv, setFacturasProv] = useState([]);   // facturas del proveedor elegido (para "factura asociada" de NC/ND)
       const [guardando, setGuardando] = useState(false);
       const [mensaje, setMensaje] = useState(null);
       // Pago (Entrega 4)
@@ -2880,6 +2888,16 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       }
       useEffect(() => { cargarCombos(); }, []);
       useEffect(() => { cargar(); }, [filtroEstado, filtroProveedor]);
+      // Facturas del proveedor elegido, solo cuando el modal está abierto y la clase es NC/ND
+      // (para el select "factura asociada"). Se excluyen NC/ND de la lista (se asocia a una FACTURA).
+      useEffect(() => {
+        if (!modal || form.clase === "Factura" || !form.proveedor_id) { setFacturasProv([]); return; }
+        let cancel = false;
+        axios.get(`${API}/api/compras/facturas`, { params: { proveedor: form.proveedor_id } })
+          .then(r => { if (!cancel) setFacturasProv((r.data || []).filter(f => !esNC(f.tipo_comprobante) && !esND(f.tipo_comprobante))); })
+          .catch(() => { if (!cancel) setFacturasProv([]); });
+        return () => { cancel = true; };
+      }, [modal, form.clase, form.proveedor_id]);
 
       function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 3000); }
       const setCampo = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -2895,10 +2913,13 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         setForm(f => ({ ...f, orden_compra_id: ordenId, proveedor_id: o ? String(o.proveedor_id) : "", categoria_gasto_id: o ? String(o.categoria_gasto_id) : "" }));
       }
       function abrirEditar(fac) {
+        const clase = esNC(fac.tipo_comprobante) ? "Nota de Crédito" : esND(fac.tipo_comprobante) ? "Nota de Débito" : "Factura";
+        const letra = (String(fac.tipo_comprobante || "").trim().slice(-1) || "A").toUpperCase();
         setForm({
           proveedor_id: String(fac.proveedor_id || ""), categoria_gasto_id: String(fac.categoria_gasto_id || ""),
           orden_compra_id: fac.orden_compra_id ? String(fac.orden_compra_id) : "",
-          tipo_comprobante: fac.tipo_comprobante || "Factura A", punto_venta: fac.punto_venta || "",
+          clase, letra: FC_LETRAS.includes(letra) ? letra : "A", factura_asociada_id: fac.factura_asociada_id ? String(fac.factura_asociada_id) : "",
+          punto_venta: fac.punto_venta || "",
           numero_comprobante: fac.numero_comprobante || "", cae: fac.cae || "", fecha: fac.fecha || hoyStr,
           alicuota_iva: String(fac.alicuota_iva ?? "21"), neto_gravado: String(fac.neto_gravado ?? ""), iva: String(fac.iva ?? ""),
           percep_iva: String(fac.percep_iva ?? ""), percep_iibb_bsas: String(fac.percep_iibb_bsas ?? ""), percep_iibb_caba: String(fac.percep_iibb_caba ?? ""),
@@ -2917,7 +2938,9 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         const payload = {
           proveedor_id: Number(form.proveedor_id), categoria_gasto_id: Number(form.categoria_gasto_id),
           orden_compra_id: modoCarga === "orden" && form.orden_compra_id ? Number(form.orden_compra_id) : null,
-          tipo_comprobante: form.tipo_comprobante, punto_venta: form.punto_venta, numero_comprobante: form.numero_comprobante,
+          tipo_comprobante: `${form.clase} ${form.letra}`,   // ej "Nota de Crédito A"
+          factura_asociada_id: form.clase !== "Factura" && form.factura_asociada_id ? Number(form.factura_asociada_id) : null,
+          punto_venta: form.punto_venta, numero_comprobante: form.numero_comprobante,
           cae: form.cae, fecha: form.fecha, alicuota_iva: Number(form.alicuota_iva),
           neto_gravado: num(form.neto_gravado), iva: num(form.iva), percep_iva: num(form.percep_iva),
           percep_iibb_bsas: num(form.percep_iibb_bsas), percep_iibb_caba: num(form.percep_iibb_caba),
@@ -3001,12 +3024,15 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               : facturas.length === 0 ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>No hay facturas para el filtro elegido.</div>
               : facturas.map(fac => {
                 const badge = FC_ESTADO_BADGE[fac.estado_pago] || { label: fac.estado_pago, bg: "#eee", color: "#333" };
+                const clB = claseBadge(fac.tipo_comprobante);   // NC/ND (null si es Factura)
+                const nc = esNC(fac.tipo_comprobante);
                 return (
                   <div key={fac.id} style={{ padding: "12px", borderBottom: "1px solid #f5f5f5" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 14, fontWeight: 600, color: "#333", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                           {fac.proveedor_razon_social || "— proveedor —"}
+                          {clB && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: clB.bg, color: clB.c }}>{clB.t}</span>}
                           <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: badge.bg, color: badge.color }}>{badge.label}</span>
                           {fac.orden_compra_id && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 10, background: "#ede9fe", color: "#7c3aed" }}>Orden #{fac.orden_compra_id}</span>}
                         </div>
@@ -3020,11 +3046,11 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                         {fac.estado_pago === "anulada" && fac.motivo_anulacion && <div style={{ fontSize: 11, color: "#c0392b", marginTop: 3 }}>Anulada: {fac.motivo_anulacion}</div>}
                       </div>
                       <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                        <div style={{ fontSize: 15, fontWeight: 700, color: "#333", marginBottom: 6 }}>{money(fac.total)}</div>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: nc ? "#c0392b" : "#333", marginBottom: 6 }}>{nc ? "−" : ""}{money(fac.total)}</div>
                         <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                           {fac.estado_pago === "pendiente" && (
                             <>
-                              <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #2a7a4b", background: "#eafaf1", color: "#2a7a4b", cursor: "pointer", fontWeight: 600 }} onClick={() => abrirPago(fac)}>💵 Registrar pago</button>
+                              {!nc && <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #2a7a4b", background: "#eafaf1", color: "#2a7a4b", cursor: "pointer", fontWeight: 600 }} onClick={() => abrirPago(fac)}>💵 Registrar pago</button>}
                               <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #7c3aed", background: "#fff", color: "#7c3aed", cursor: "pointer" }} onClick={() => abrirEditar(fac)}>✎ Editar</button>
                               <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => anular(fac)}>✕ Anular</button>
                             </>
@@ -3069,12 +3095,27 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                   </select>
                 </label>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                  <label style={lbl}>Tipo *
-                    <select style={inputStyle} value={form.tipo_comprobante} onChange={e => setCampo("tipo_comprobante", e.target.value)}>
-                      {FC_TIPOS.map(t => <option key={t} value={t}>{t}</option>)}
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8 }}>
+                  <label style={lbl}>Clase *
+                    <select style={inputStyle} value={form.clase} onChange={e => setCampo("clase", e.target.value)}>
+                      {FC_CLASES.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </label>
+                  <label style={lbl}>Letra *
+                    <select style={inputStyle} value={form.letra} onChange={e => setCampo("letra", e.target.value)}>
+                      {FC_LETRAS.map(l => <option key={l} value={l}>{l}</option>)}
+                    </select>
+                  </label>
+                </div>
+                {form.clase !== "Factura" && (
+                  <label style={lbl}>Factura asociada (opcional)
+                    <select style={inputStyle} value={form.factura_asociada_id} onChange={e => setCampo("factura_asociada_id", e.target.value)}>
+                      <option value="">— Sin asociar —</option>
+                      {facturasProv.map(f => <option key={f.id} value={f.id}>{f.tipo_comprobante} {f.punto_venta ? `${f.punto_venta}-` : ""}{f.numero_comprobante} · {money(f.total)}</option>)}
+                    </select>
+                  </label>
+                )}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   <label style={lbl}>Punto de venta
                     <input style={inputStyle} value={form.punto_venta} onChange={e => setCampo("punto_venta", e.target.value)} placeholder="0001" />
                   </label>
@@ -3249,13 +3290,16 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                         : detalle[p.id].length === 0 ? <div style={{ fontSize: 12, color: "#aaa" }}>Sin facturas.</div>
                         : detalle[p.id].map(fac => {
                           const b = FC_BADGE[fac.estado_pago] || { t: fac.estado_pago, bg: "#eee", c: "#333" };
+                          const clB = claseBadge(fac.tipo_comprobante);
+                          const nc = esNC(fac.tipo_comprobante);
                           return (
                             <div key={fac.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #f7f7f7", fontSize: 12 }}>
                               <span style={{ color: "#555" }}>{fac.tipo_comprobante} {fac.numero_comprobante} · {fac.fecha}
+                                {clB && <span style={{ marginLeft: 6, fontWeight: 700, padding: "1px 7px", borderRadius: 10, background: clB.bg, color: clB.c }}>{clB.t}</span>}
                                 <span style={{ marginLeft: 8, fontWeight: 700, padding: "1px 7px", borderRadius: 10, background: b.bg, color: b.c }}>{b.t}</span>
                                 {fac.estado_pago === "pagada" && <span style={{ marginLeft: 6, color: "#2a7a4b" }}>{fac.caja_origen ? `desde ${fac.caja_origen}` : "externo"}{fac.fecha_pago ? ` · ${fac.fecha_pago}` : ""}</span>}
                               </span>
-                              <span style={{ fontWeight: 600, color: "#333" }}>{money(fac.total)}</span>
+                              <span style={{ fontWeight: 600, color: nc ? "#c0392b" : "#333" }}>{nc ? "−" : ""}{money(fac.total)}</span>
                             </div>
                           );
                         })}
