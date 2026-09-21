@@ -3590,12 +3590,19 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
     // ─── CLIENTES (CRM simple, agregado de pedidos) ──────────────────────
     // Admin + superadmin. Lee /api/clientes (agregación en SQL). Búsqueda client-side sobre la
-    // lista ya traída (volumen chico); tipo y orden van al backend.
+    // lista ya traída (volumen chico); tipo, orden y temperatura van al backend.
+    const TEMP_INFO = {
+      caliente: { label: "Caliente", emoji: "🔴", color: "#c0392b", bg: "#fdecea" },
+      tibio:    { label: "Tibio",    emoji: "🟡", color: "#b45309", bg: "#fef3c7" },
+      frio:     { label: "Frío",     emoji: "🔵", color: "#1d4ed8", bg: "#dbeafe" },
+      dormido:  { label: "Dormido",  emoji: "⚫", color: "#555",    bg: "#f3f4f6" },
+    };
     function VistaClientes({ onVolver }) {
-      const [data, setData] = useState(null);   // { clientes, totalClientes, corporativos, particulares }
+      const [data, setData] = useState(null);   // { clientes, totalClientes, corporativos, particulares, calientes, ... }
       const [loading, setLoading] = useState(true);
       const [tipo, setTipo] = useState("");       // "" | corporativos | particulares
       const [orden, setOrden] = useState("total"); // total | ultima | cantidad | nombre
+      const [temperatura, setTemperatura] = useState(""); // "" | caliente | tibio | frio | dormido
       const [buscar, setBuscar] = useState("");
       const [error, setError] = useState("");
 
@@ -3604,11 +3611,11 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
       async function cargar() {
         setLoading(true); setError("");
-        try { const res = await axios.get(`${API}/api/clientes`, { params: { tipo, orden } }); setData(res.data); }
+        try { const res = await axios.get(`${API}/api/clientes`, { params: { tipo, orden, temperatura } }); setData(res.data); }
         catch (err) { setError(err.response?.data?.error || err.message); }
         setLoading(false);
       }
-      useEffect(() => { cargar(); }, [tipo, orden]);
+      useEffect(() => { cargar(); }, [tipo, orden, temperatura]);
 
       const lista = (data?.clientes || []).filter(c => {
         const q = buscar.trim().toLowerCase();
@@ -3622,6 +3629,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         const datos = lista.map(c => ({
           "Nombre": c.nombre || "", "Email": c.email || "", "Teléfono": c.telefono || "", "Zona": c.zona || "",
           "Tipo": c.es_corporativo ? "Corporativo" : "Particular",
+          "Temperatura": (TEMP_INFO[c.temperatura] || {}).label || c.temperatura || "",
+          "Días desde última": Number(c.dias_desde_ultima),
           "Compras": Number(c.cantidad_compras), "Total gastado": Number(c.total_gastado),
           "Ticket promedio": Number(c.ticket_promedio), "Primera compra": fmtFecha(c.primera_compra), "Última compra": fmtFecha(c.ultima_compra),
         }));
@@ -3640,11 +3649,41 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           </div>
 
           {data && (
-            <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
-              <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "10px 16px" }}><div style={{ fontSize: 11, color: "#aaa" }}>CLIENTES</div><div style={{ fontSize: 20, fontWeight: 700, color: "#333" }}>{data.totalClientes}</div></div>
-              <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "10px 16px" }}><div style={{ fontSize: 11, color: "#aaa" }}>CORPORATIVOS</div><div style={{ fontSize: 20, fontWeight: 700, color: "#6d28d9" }}>{data.corporativos}</div></div>
-              <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "10px 16px" }}><div style={{ fontSize: 11, color: "#aaa" }}>PARTICULARES</div><div style={{ fontSize: 20, fontWeight: 700, color: "#333" }}>{data.particulares}</div></div>
-            </div>
+            <>
+              <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "10px 16px" }}><div style={{ fontSize: 11, color: "#aaa" }}>CLIENTES</div><div style={{ fontSize: 20, fontWeight: 700, color: "#333" }}>{data.totalClientes}</div></div>
+                <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "10px 16px" }}><div style={{ fontSize: 11, color: "#aaa" }}>CORPORATIVOS</div><div style={{ fontSize: 20, fontWeight: 700, color: "#6d28d9" }}>{data.corporativos}</div></div>
+                <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "10px 16px" }}><div style={{ fontSize: 11, color: "#aaa" }}>PARTICULARES</div><div style={{ fontSize: 20, fontWeight: 700, color: "#333" }}>{data.particulares}</div></div>
+              </div>
+              {/* Contadores por temperatura — clickeables (atajo del filtro; se combinan con tipo). */}
+              <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                {[["caliente", data.calientes], ["tibio", data.tibios], ["frio", data.frios], ["dormido", data.dormidos]].map(([k, n]) => {
+                  const ti = TEMP_INFO[k]; const activo = temperatura === k;
+                  return (
+                    <button key={k} onClick={() => setTemperatura(activo ? "" : k)}
+                      style={{ flex: "1 1 160px", textAlign: "left", cursor: "pointer", background: activo ? ti.bg : "#fff", border: `2px solid ${activo ? ti.color : "#eee"}`, borderRadius: 10, padding: "10px 16px" }}>
+                      <div style={{ fontSize: 11, color: ti.color, fontWeight: 600 }}>{ti.emoji} {ti.label.toUpperCase()}</div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: "#333" }}>{n}</div>
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Distribución por temperatura — barras horizontales (CSS, sin dependencia). */}
+              <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                {[["caliente", data.calientes], ["tibio", data.tibios], ["frio", data.frios], ["dormido", data.dormidos]].map(([k, n]) => {
+                  const ti = TEMP_INFO[k]; const pct = data.totalClientes > 0 ? Math.round((n / data.totalClientes) * 100) : 0;
+                  return (
+                    <div key={k} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                      <div style={{ width: 90, fontSize: 12, color: "#555" }}>{ti.emoji} {ti.label}</div>
+                      <div style={{ flex: 1, background: "#f2f2f2", borderRadius: 4, height: 14, overflow: "hidden" }}>
+                        <div style={{ width: `${pct}%`, height: "100%", background: ti.color, borderRadius: 4 }} />
+                      </div>
+                      <div style={{ width: 70, fontSize: 12, color: "#888", textAlign: "right" }}>{n} · {pct}%</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
 
           <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 12, marginBottom: 16, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -3652,6 +3691,13 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               <option value="">Todos</option>
               <option value="particulares">Particulares</option>
               <option value="corporativos">Corporativos</option>
+            </select>
+            <select style={sel} value={temperatura} onChange={e => setTemperatura(e.target.value)}>
+              <option value="">Temperatura: Todas</option>
+              <option value="caliente">🔴 Calientes</option>
+              <option value="tibio">🟡 Tibios</option>
+              <option value="frio">🔵 Fríos</option>
+              <option value="dormido">⚫ Dormidos</option>
             </select>
             <select style={sel} value={orden} onChange={e => setOrden(e.target.value)}>
               <option value="total">Orden: Total gastado</option>
@@ -3673,7 +3719,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                   <table style={{ borderCollapse: "collapse", width: "100%" }}>
                     <thead>
                       <tr>
-                        <th style={th}>Cliente</th><th style={th}>Email</th><th style={th}>Teléfono</th><th style={th}>Zona</th>
+                        <th style={th}>Cliente</th><th style={th}>Estado</th><th style={th}>Email</th><th style={th}>Teléfono</th><th style={th}>Zona</th>
                         <th style={{ ...th, textAlign: "right" }}>Compras</th><th style={{ ...th, textAlign: "right" }}>Total gastado</th>
                         <th style={{ ...th, textAlign: "right" }}>Ticket prom.</th><th style={th}>Última</th><th style={th}>Primera</th>
                       </tr>
@@ -3682,6 +3728,12 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                       {lista.map(c => (
                         <tr key={c.cliente_key}>
                           <td style={td}>{c.nombre || "—"}{c.es_corporativo && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 10, background: "#ede9fe", color: "#6d28d9" }}>Corporativo</span>}</td>
+                          <td style={td}>
+                            {(() => { const ti = TEMP_INFO[c.temperatura] || {}; return (
+                              <><span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: ti.bg, color: ti.color }}>{ti.emoji} {ti.label}</span>
+                              <span style={{ display: "block", fontSize: 10, color: "#aaa", marginTop: 2 }}>hace {c.dias_desde_ultima} día{Number(c.dias_desde_ultima) === 1 ? "" : "s"}</span></>
+                            ); })()}
+                          </td>
                           <td style={td}>{c.email || "—"}</td>
                           <td style={td}>{c.telefono || "—"}</td>
                           <td style={td}>{c.zona || "—"}</td>

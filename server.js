@@ -2176,7 +2176,7 @@ app.get("/api/compras/cuenta-corriente", requireAdmin, async (req, res) => {
 // normalizado). Métricas sobre ENTREGADOS. Corporativo = pedido manual con es_corporativo=true O
 // alguna Factura A asociada. Todo en SQL (volumen chico); solo LEE.
 app.get("/api/clientes", requireAdmin, async (req, res) => {
-  const { tipo, buscar, orden } = req.query;
+  const { tipo, buscar, orden, temperatura } = req.query;
   // ORDER BY con whitelist (nunca interpolar input crudo).
   const ORDENES = {
     total: "total_gastado DESC NULLS LAST",
@@ -2253,15 +2253,31 @@ app.get("/api/clientes", requireAdmin, async (req, res) => {
       )
       SELECT cliente_key, nombre, email, telefono, direccion, zona,
              cantidad_compras, total_gastado, primera_compra, ultima_compra, es_corporativo,
-             ROUND(total_gastado / NULLIF(cantidad_compras,0), 2) AS ticket_promedio
+             ROUND(total_gastado / NULLIF(cantidad_compras,0), 2) AS ticket_promedio,
+             ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date - ultima_compra::date) AS dias_desde_ultima,
+             CASE
+               WHEN ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date - ultima_compra::date) <= 30  THEN 'caliente'
+               WHEN ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date - ultima_compra::date) <= 180 THEN 'tibio'
+               WHEN ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date - ultima_compra::date) <= 365 THEN 'frio'
+               ELSE 'dormido'
+             END AS temperatura
       FROM agg
       WHERE 1=1 ${filtroTipo} ${filtroBuscar}
       ORDER BY ${orderBy}
     `;
     const { rows } = await pool.query(sql, params);
+    // Resumen sobre TODO el set (tipo/búsqueda aplicados, temperatura NO) para que los contadores
+    // por temperatura se mantengan al filtrar por una. La lista sí se filtra por temperatura.
     const totalClientes = rows.length;
     const corporativos = rows.filter(r => r.es_corporativo).length;
-    res.json({ clientes: rows, totalClientes, corporativos, particulares: totalClientes - corporativos });
+    const cont = (t) => rows.filter(r => r.temperatura === t).length;
+    const resumen = {
+      totalClientes, corporativos, particulares: totalClientes - corporativos,
+      calientes: cont("caliente"), tibios: cont("tibio"), frios: cont("frio"), dormidos: cont("dormido"),
+    };
+    const temp = String(temperatura || "");
+    const clientes = ["caliente", "tibio", "frio", "dormido"].includes(temp) ? rows.filter(r => r.temperatura === temp) : rows;
+    res.json({ clientes, ...resumen });
   } catch (err) {
     console.error("Error /api/clientes:", err.message);
     res.status(500).json({ error: "Error generando la base de clientes" });
