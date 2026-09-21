@@ -2171,6 +2171,103 @@ app.get("/api/compras/cuenta-corriente", requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── CLIENTES (CRM simple, agregado de pedidos) ─────────────────────────
+// Admin + superadmin. Agrupa pedidos TN + manuales por cliente único (email si hay, si no teléfono
+// normalizado). Métricas sobre ENTREGADOS. Corporativo = pedido manual con es_corporativo=true O
+// alguna Factura A asociada. Todo en SQL (volumen chico); solo LEE.
+app.get("/api/clientes", requireAdmin, async (req, res) => {
+  const { tipo, buscar, orden } = req.query;
+  // ORDER BY con whitelist (nunca interpolar input crudo).
+  const ORDENES = {
+    total: "total_gastado DESC NULLS LAST",
+    ultima: "ultima_compra DESC NULLS LAST",
+    cantidad: "cantidad_compras DESC",
+    nombre: "lower(nombre) ASC",
+  };
+  const orderBy = ORDENES[orden] || ORDENES.total;
+  const params = [];
+  let filtroTipo = "";
+  if (tipo === "corporativos") filtroTipo = "AND es_corporativo = true";
+  else if (tipo === "particulares") filtroTipo = "AND es_corporativo = false";
+  let filtroBuscar = "";
+  if (buscar && String(buscar).trim()) {
+    params.push(`%${String(buscar).trim()}%`);
+    filtroBuscar = `AND (nombre ILIKE $${params.length} OR email ILIKE $${params.length} OR telefono ILIKE $${params.length})`;
+  }
+  try {
+    const sql = `
+      WITH base AS (
+        -- Tienda Nube (TN no persiste flag corporativo; solo por Factura A)
+        SELECT
+          COALESCE(NULLIF(lower(trim(COALESCE(e.email_override, t.data->>'contact_email',''))),''),
+                   NULLIF(regexp_replace(COALESCE(e.telefono_override, t.data->>'contact_phone',''),'\\D','','g'),'')) AS cliente_key,
+          COALESCE(e.cliente_override, t.data->>'contact_name','')                                   AS nombre,
+          lower(trim(COALESCE(e.email_override, t.data->>'contact_email','')))                       AS email,
+          regexp_replace(COALESCE(e.telefono_override, t.data->>'contact_phone',''),'\\D','','g')     AS telefono,
+          COALESCE(e.direccion_override, TRIM(CONCAT_WS(' ', t.data->'shipping_address'->>'address', t.data->'shipping_address'->>'number'))) AS direccion,
+          COALESCE(e.zona_override, t.data->'fulfillments'->0->'shipping'->'option'->>'name','')      AS zona,
+          COALESCE(pp.total_num, NULLIF(t.data->>'total','')::numeric, 0)                            AS total,
+          COALESCE(e.estado,'Por empaquetar') = 'Entregado'                                          AS entregado,
+          t.tn_created_at                                                                            AS fecha,
+          EXISTS (SELECT 1 FROM facturas fa WHERE fa.pedido_id = t.id::text AND UPPER(fa.tipo) LIKE 'FACTURA A%') AS es_corp_pedido
+        FROM pedidos_tn t
+        LEFT JOIN pedidos_estados   e  ON e.id = t.id::text
+        LEFT JOIN pedidos_productos pp ON pp.pedido_id = t.id::text
+        WHERE COALESCE(e.estado,'Por empaquetar') <> 'Anulado'
+        UNION ALL
+        -- Manuales
+        SELECT
+          COALESCE(NULLIF(lower(trim(COALESCE(e.email_override, m.email,''))),''),
+                   NULLIF(regexp_replace(COALESCE(e.telefono_override, m.telefono,''),'\\D','','g'),'')) AS cliente_key,
+          COALESCE(e.cliente_override, m.cliente,'')                                                  AS nombre,
+          lower(trim(COALESCE(e.email_override, m.email,'')))                                         AS email,
+          regexp_replace(COALESCE(e.telefono_override, m.telefono,''),'\\D','','g')                   AS telefono,
+          COALESCE(e.direccion_override, m.direccion,'')                                              AS direccion,
+          COALESCE(e.zona_override, m.zona,'')                                                        AS zona,
+          COALESCE(pp.total_num, m.total_num, 0)                                                      AS total,
+          COALESCE(e.estado,'Por empaquetar') = 'Entregado'                                           AS entregado,
+          m.created_at                                                                               AS fecha,
+          (COALESCE(m.es_corporativo,false)
+            OR EXISTS (SELECT 1 FROM facturas fa WHERE fa.pedido_id = m.id AND UPPER(fa.tipo) LIKE 'FACTURA A%')) AS es_corp_pedido
+        FROM pedidos_manuales m
+        LEFT JOIN pedidos_estados   e  ON e.id = m.id
+        LEFT JOIN pedidos_productos pp ON pp.pedido_id = m.id
+        WHERE COALESCE(e.estado,'Por empaquetar') <> 'Anulado'
+      ),
+      agg AS (
+        SELECT cliente_key,
+          (array_agg(nombre ORDER BY fecha DESC))[1]                        AS nombre,
+          max(email)    FILTER (WHERE email <> '')                          AS email,
+          max(telefono) FILTER (WHERE telefono <> '')                       AS telefono,
+          (array_agg(direccion ORDER BY fecha DESC))[1]                     AS direccion,
+          (array_agg(zona ORDER BY fecha DESC))[1]                          AS zona,
+          count(*) FILTER (WHERE entregado)                                 AS cantidad_compras,
+          COALESCE(sum(total) FILTER (WHERE entregado), 0)                  AS total_gastado,
+          min(fecha) FILTER (WHERE entregado)                               AS primera_compra,
+          max(fecha) FILTER (WHERE entregado)                               AS ultima_compra,
+          bool_or(es_corp_pedido)                                           AS es_corporativo
+        FROM base
+        WHERE cliente_key IS NOT NULL
+        GROUP BY cliente_key
+        HAVING count(*) FILTER (WHERE entregado) > 0
+      )
+      SELECT cliente_key, nombre, email, telefono, direccion, zona,
+             cantidad_compras, total_gastado, primera_compra, ultima_compra, es_corporativo,
+             ROUND(total_gastado / NULLIF(cantidad_compras,0), 2) AS ticket_promedio
+      FROM agg
+      WHERE 1=1 ${filtroTipo} ${filtroBuscar}
+      ORDER BY ${orderBy}
+    `;
+    const { rows } = await pool.query(sql, params);
+    const totalClientes = rows.length;
+    const corporativos = rows.filter(r => r.es_corporativo).length;
+    res.json({ clientes: rows, totalClientes, corporativos, particulares: totalClientes - corporativos });
+  } catch (err) {
+    console.error("Error /api/clientes:", err.message);
+    res.status(500).json({ error: "Error generando la base de clientes" });
+  }
+});
+
 // ─── MAPA DE PEDIDOS ───────────────────────────────────────────────────
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || "";
 

@@ -3588,6 +3588,120 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       );
     }
 
+    // ─── CLIENTES (CRM simple, agregado de pedidos) ──────────────────────
+    // Admin + superadmin. Lee /api/clientes (agregación en SQL). Búsqueda client-side sobre la
+    // lista ya traída (volumen chico); tipo y orden van al backend.
+    function VistaClientes({ onVolver }) {
+      const [data, setData] = useState(null);   // { clientes, totalClientes, corporativos, particulares }
+      const [loading, setLoading] = useState(true);
+      const [tipo, setTipo] = useState("");       // "" | corporativos | particulares
+      const [orden, setOrden] = useState("total"); // total | ultima | cantidad | nombre
+      const [buscar, setBuscar] = useState("");
+      const [error, setError] = useState("");
+
+      const money = (n) => "$" + Number(n || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const fmtFecha = (d) => d ? new Date(d).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }) : "—";
+
+      async function cargar() {
+        setLoading(true); setError("");
+        try { const res = await axios.get(`${API}/api/clientes`, { params: { tipo, orden } }); setData(res.data); }
+        catch (err) { setError(err.response?.data?.error || err.message); }
+        setLoading(false);
+      }
+      useEffect(() => { cargar(); }, [tipo, orden]);
+
+      const lista = (data?.clientes || []).filter(c => {
+        const q = buscar.trim().toLowerCase();
+        if (!q) return true;
+        return (c.nombre || "").toLowerCase().includes(q)
+          || (c.email || "").toLowerCase().includes(q)
+          || (c.telefono || "").includes(q.replace(/\D/g, ""));
+      });
+
+      function exportar() {
+        const datos = lista.map(c => ({
+          "Nombre": c.nombre || "", "Email": c.email || "", "Teléfono": c.telefono || "", "Zona": c.zona || "",
+          "Tipo": c.es_corporativo ? "Corporativo" : "Particular",
+          "Compras": Number(c.cantidad_compras), "Total gastado": Number(c.total_gastado),
+          "Ticket promedio": Number(c.ticket_promedio), "Primera compra": fmtFecha(c.primera_compra), "Última compra": fmtFecha(c.ultima_compra),
+        }));
+        exportarExcel(`clientes_${new Date().toISOString().slice(0, 10)}.xlsx`, [{ name: "Clientes", data: datos }]);
+      }
+
+      const th = { padding: "8px 10px", fontSize: 11, fontWeight: 700, color: "#555", textAlign: "left", borderBottom: "2px solid #eee", whiteSpace: "nowrap", background: "#fafaf8", position: "sticky", top: 0 };
+      const td = { padding: "7px 10px", fontSize: 12, color: "#333", borderBottom: "1px solid #f2f2f2", whiteSpace: "nowrap" };
+      const sel = { fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff" };
+
+      return (
+        <div style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>👥 Clientes</div>
+            <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver al panel</button>
+          </div>
+
+          {data && (
+            <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+              <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "10px 16px" }}><div style={{ fontSize: 11, color: "#aaa" }}>CLIENTES</div><div style={{ fontSize: 20, fontWeight: 700, color: "#333" }}>{data.totalClientes}</div></div>
+              <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "10px 16px" }}><div style={{ fontSize: 11, color: "#aaa" }}>CORPORATIVOS</div><div style={{ fontSize: 20, fontWeight: 700, color: "#6d28d9" }}>{data.corporativos}</div></div>
+              <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "10px 16px" }}><div style={{ fontSize: 11, color: "#aaa" }}>PARTICULARES</div><div style={{ fontSize: 20, fontWeight: 700, color: "#333" }}>{data.particulares}</div></div>
+            </div>
+          )}
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 12, marginBottom: 16, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <select style={sel} value={tipo} onChange={e => setTipo(e.target.value)}>
+              <option value="">Todos</option>
+              <option value="particulares">Particulares</option>
+              <option value="corporativos">Corporativos</option>
+            </select>
+            <select style={sel} value={orden} onChange={e => setOrden(e.target.value)}>
+              <option value="total">Orden: Total gastado</option>
+              <option value="ultima">Orden: Última compra</option>
+              <option value="cantidad">Orden: Cantidad de compras</option>
+              <option value="nombre">Orden: Nombre</option>
+            </select>
+            <input style={{ ...sel, flex: 1, minWidth: 200 }} placeholder="Buscar por nombre, email o teléfono…" value={buscar} onChange={e => setBuscar(e.target.value)} />
+            {lista.length > 0 && <button style={{ fontSize: 13, fontWeight: 600, padding: "7px 14px", borderRadius: 8, border: "none", background: "#2a7a4b", color: "#fff", cursor: "pointer" }} onClick={exportar}>📊 Exportar Excel</button>}
+          </div>
+
+          {error && <div style={{ background: "#fdecea", border: "1px solid #f5c6cb", color: "#c0392b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{error}</div>}
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 12 }}>
+            {loading ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>Cargando…</div>
+              : lista.length === 0 ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>No hay clientes para el filtro elegido.</div>
+              : (
+                <div style={{ overflowX: "auto", maxHeight: "65vh", overflowY: "auto" }}>
+                  <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                    <thead>
+                      <tr>
+                        <th style={th}>Cliente</th><th style={th}>Email</th><th style={th}>Teléfono</th><th style={th}>Zona</th>
+                        <th style={{ ...th, textAlign: "right" }}>Compras</th><th style={{ ...th, textAlign: "right" }}>Total gastado</th>
+                        <th style={{ ...th, textAlign: "right" }}>Ticket prom.</th><th style={th}>Última</th><th style={th}>Primera</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lista.map(c => (
+                        <tr key={c.cliente_key}>
+                          <td style={td}>{c.nombre || "—"}{c.es_corporativo && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 10, background: "#ede9fe", color: "#6d28d9" }}>Corporativo</span>}</td>
+                          <td style={td}>{c.email || "—"}</td>
+                          <td style={td}>{c.telefono || "—"}</td>
+                          <td style={td}>{c.zona || "—"}</td>
+                          <td style={{ ...td, textAlign: "right", fontWeight: 600 }}>{c.cantidad_compras}</td>
+                          <td style={{ ...td, textAlign: "right", fontWeight: 700, color: "#2a7a4b" }}>{money(c.total_gastado)}</td>
+                          <td style={{ ...td, textAlign: "right" }}>{money(c.ticket_promedio)}</td>
+                          <td style={td}>{fmtFecha(c.ultima_compra)}</td>
+                          <td style={td}>{fmtFecha(c.primera_compra)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+          </div>
+          <div style={{ fontSize: 11, color: "#aaa", marginTop: 8 }}>Métricas sobre pedidos entregados. Cliente = email (o teléfono si no hay email).</div>
+        </div>
+      );
+    }
+
     // ─── PANEL PRINCIPAL ─────────────────────────────────────────────────
     function PanelApp({ usuario }) {
       const [pedidosRaw, setPedidosRaw] = useState([]);
@@ -5001,6 +5115,7 @@ let numeroAsignado = "";
                       )}
                     </>
                   )}
+                  {esAdmin && <button style={s.dropItem} onClick={() => { setVista("clientes"); setMenuAbierto(false); }}>👥 Clientes</button>}
                   <button style={s.dropItem} onClick={() => { setVista("tandas"); setMenuAbierto(false); }}>🚚 Tandas activas</button>
                   <button style={s.dropItem} onClick={() => { setVista("caja"); setMenuAbierto(false); }}>💰 Caja</button>
                   {esAdmin && <button style={s.dropItem} onClick={() => { setVista("importar"); setMenuAbierto(false); }}>📥 Importar pedidos</button>}
@@ -5031,7 +5146,7 @@ let numeroAsignado = "";
 
       // Guard de acceso: las vistas de plata/administración son SOLO admin. Si un no-admin
       // (encargado/operario) llega igual (deep-link, estado viejo), no se renderiza el contenido.
-      const VISTAS_SOLO_ADMIN = ["dashboard", "reporteVentas", "reporteFusionado", "zonas", "usuarios", "repartidores", "importar"];
+      const VISTAS_SOLO_ADMIN = ["dashboard", "reporteVentas", "reporteFusionado", "zonas", "usuarios", "repartidores", "importar", "clientes"];
       if (VISTAS_SOLO_ADMIN.includes(vista) && !esAdmin) {
         return (
           <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: "system-ui, sans-serif", background: "#f7f7f5", padding: 24, textAlign: "center" }}>
@@ -6107,6 +6222,9 @@ if (vista === "dashboard") {
     }
     if (vista === "libroCompras") {
       return <div style={s.wrap}><Header /><VistaLibroCompras onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "clientes") {
+      return <div style={s.wrap}><Header /><VistaClientes onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "ordenesCompra") {
       return <div style={s.wrap}><Header /><VistaOrdenesCompra usuario={usuario} onVolver={() => setVista("panel")} /></div>;
