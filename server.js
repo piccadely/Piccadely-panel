@@ -299,6 +299,14 @@ async function initDB() {
   await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS usuario_paga TEXT;`);
   // NC/ND de proveedor — vínculo informativo opcional a otra factura del mismo proveedor.
   await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS factura_asociada_id INTEGER REFERENCES facturas_compra(id);`);
+  // Multi-alícuota: neto+IVA por alícuota (10,5 / 21 / 27). neto_gravado/iva/alicuota_iva viejos se
+  // mantienen como espejo agregado (deprecados, no se borran). El 0%/exento va en sus columnas.
+  await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS neto_105 NUMERIC NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS iva_105  NUMERIC NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS neto_21  NUMERIC NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS iva_21   NUMERIC NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS neto_27  NUMERIC NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS iva_27   NUMERIC NOT NULL DEFAULT 0;`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
   await pool.query(`CREATE TABLE IF NOT EXISTS costos_areas (area INTEGER PRIMARY KEY, costo NUMERIC NOT NULL DEFAULT 1);`);
   await pool.query(`INSERT INTO costos_areas (area, costo) SELECT g, 1 FROM generate_series(1,10) g ON CONFLICT (area) DO NOTHING;`);
@@ -1914,10 +1922,20 @@ const ALICUOTAS_IVA = [0, 2.5, 5, 10.5, 21, 27];
 function esNotaCreditoCompra(tipo) { return String(tipo || "").toUpperCase().includes("NOTA DE CREDITO"); }
 function signoComprobante(tipo) { return esNotaCreditoCompra(tipo) ? -1 : 1; }
 
+// Suma de netos e IVA gravados (multi-alícuota). Reusado en cuadre e insert (espejo neto_gravado/iva).
+function netosMultiAlicuota(f) {
+  const n = (x) => Number(x) || 0;
+  return {
+    neto: n(f.neto_105) + n(f.neto_21) + n(f.neto_27),
+    iva: n(f.iva_105) + n(f.iva_21) + n(f.iva_27),
+  };
+}
+
 // Valida el cuadre del comprobante. Devuelve { ok, calculado } (tolerancia ±1 peso por redondeo).
 function chequearCuadreFactura(f) {
   const n = (x) => Number(x) || 0;
-  const calculado = n(f.neto_gravado) + n(f.iva) + n(f.neto_no_gravado) + n(f.exentas) +
+  const { neto, iva } = netosMultiAlicuota(f);
+  const calculado = neto + iva + n(f.neto_no_gravado) + n(f.exentas) +
     n(f.otros_tributos) + n(f.percep_iva) + n(f.percep_iibb_bsas) + n(f.percep_iibb_caba);
   return { ok: Math.abs(calculado - n(f.total)) <= 1, calculado: Math.round(calculado * 100) / 100 };
 }
@@ -1927,7 +1945,6 @@ function validarFacturaCompra(b) {
   if (!b.tipo_comprobante || !String(b.tipo_comprobante).trim()) return "El tipo de comprobante es obligatorio.";
   if (!b.numero_comprobante || !String(b.numero_comprobante).trim()) return "El número de comprobante es obligatorio.";
   if (!esFechaISO(b.fecha)) return "Fecha inválida (formato YYYY-MM-DD).";
-  if (!ALICUOTAS_IVA.includes(Number(b.alicuota_iva))) return "Alícuota de IVA inválida.";
   if (!(Number(b.total) > 0)) return "El total debe ser mayor a 0.";
   const cuadre = chequearCuadreFactura(b);
   if (!cuadre.ok) return `El total no coincide: cargado $${Number(b.total)}, calculado $${cuadre.calculado}.`;
@@ -1986,13 +2003,23 @@ app.post("/api/compras/facturas", requireAdmin, async (req, res) => {
       facturaAsociadaId = Number(b.factura_asociada_id);
     }
 
+    // Multi-alícuota: netos/IVA por alícuota (positivos). Espejo: neto_gravado/iva = suma (compat
+    // con código viejo). alicuota_iva = la de mayor neto (informativo; ya no es la fuente de verdad).
+    const n105 = Number(b.neto_105) || 0, i105 = Number(b.iva_105) || 0,
+      n21 = Number(b.neto_21) || 0, i21 = Number(b.iva_21) || 0,
+      n27 = Number(b.neto_27) || 0, i27 = Number(b.iva_27) || 0;
+    const netoGravado = n105 + n21 + n27, ivaTotal = i105 + i21 + i27;
+    const alicDom = (n21 >= n105 && n21 >= n27) ? 21 : (n105 >= n27 ? 10.5 : 27);
+
     const cols = `(proveedor_id, categoria_gasto_id, orden_compra_id, proveedor_cuit, proveedor_razon_social,
       tipo_comprobante, punto_venta, numero_comprobante, cae, fecha, alicuota_iva, neto_gravado, iva,
+      neto_105, iva_105, neto_21, iva_21, neto_27, iva_27,
       percep_iva, percep_iibb_bsas, percep_iibb_caba, neto_no_gravado, exentas, otros_tributos, total, usuario_crea, factura_asociada_id)`;
     const vals = [
       b.proveedor_id, b.categoria_gasto_id, b.orden_compra_id || null, snapCuit, snapRazon,
       String(b.tipo_comprobante).trim(), b.punto_venta?.trim() || null, String(b.numero_comprobante).trim(),
-      b.cae?.trim() || null, b.fecha, Number(b.alicuota_iva), Number(b.neto_gravado) || 0, Number(b.iva) || 0,
+      b.cae?.trim() || null, b.fecha, alicDom, netoGravado, ivaTotal,
+      n105, i105, n21, i21, n27, i27,
       Number(b.percep_iva) || 0, Number(b.percep_iibb_bsas) || 0, Number(b.percep_iibb_caba) || 0,
       Number(b.neto_no_gravado) || 0, Number(b.exentas) || 0, Number(b.otros_tributos) || 0, Number(b.total),
       b.usuario || null, facturaAsociadaId,
@@ -2039,20 +2066,26 @@ app.patch("/api/compras/facturas/:id", requireAdmin, async (req, res) => {
       const cat = await pool.query("SELECT id FROM categorias_gasto WHERE id = $1 AND activo = true", [b.categoria_gasto_id]);
       if (cat.rows.length === 0) return res.status(400).json({ error: "Categoría de gasto inválida." });
     }
+    const n105 = Number(b.neto_105) || 0, i105 = Number(b.iva_105) || 0,
+      n21 = Number(b.neto_21) || 0, i21 = Number(b.iva_21) || 0,
+      n27 = Number(b.neto_27) || 0, i27 = Number(b.iva_27) || 0;
+    const netoGravado = n105 + n21 + n27, ivaTotal = i105 + i21 + i27;
+    const alicDom = (n21 >= n105 && n21 >= n27) ? 21 : (n105 >= n27 ? 10.5 : 27);
     await pool.query(
       `UPDATE facturas_compra SET
          categoria_gasto_id = COALESCE($1, categoria_gasto_id),
          tipo_comprobante = $2, punto_venta = $3, numero_comprobante = $4, cae = $5, fecha = $6,
          alicuota_iva = $7, neto_gravado = $8, iva = $9,
-         percep_iva = $10, percep_iibb_bsas = $11, percep_iibb_caba = $12,
-         neto_no_gravado = $13, exentas = $14, otros_tributos = $15, total = $16
-       WHERE id = $17`,
+         neto_105 = $10, iva_105 = $11, neto_21 = $12, iva_21 = $13, neto_27 = $14, iva_27 = $15,
+         percep_iva = $16, percep_iibb_bsas = $17, percep_iibb_caba = $18,
+         neto_no_gravado = $19, exentas = $20, otros_tributos = $21, total = $22
+       WHERE id = $23`,
       [
         b.categoria_gasto_id ?? null, String(b.tipo_comprobante).trim(), b.punto_venta?.trim() || null,
-        String(b.numero_comprobante).trim(), b.cae?.trim() || null, b.fecha, Number(b.alicuota_iva),
-        Number(b.neto_gravado) || 0, Number(b.iva) || 0, Number(b.percep_iva) || 0,
-        Number(b.percep_iibb_bsas) || 0, Number(b.percep_iibb_caba) || 0, Number(b.neto_no_gravado) || 0,
-        Number(b.exentas) || 0, Number(b.otros_tributos) || 0, Number(b.total), req.params.id,
+        String(b.numero_comprobante).trim(), b.cae?.trim() || null, b.fecha, alicDom,
+        netoGravado, ivaTotal, n105, i105, n21, i21, n27, i27,
+        Number(b.percep_iva) || 0, Number(b.percep_iibb_bsas) || 0, Number(b.percep_iibb_caba) || 0,
+        Number(b.neto_no_gravado) || 0, Number(b.exentas) || 0, Number(b.otros_tributos) || 0, Number(b.total), req.params.id,
       ]
     );
     res.json({ ok: true });
@@ -3072,10 +3105,13 @@ app.get("/api/contable/libro-compras", requireAuth, async (req, res) => {
     for (const f of rows) {
       // Signo: NC resta (-1), Factura/ND suman (+1). Los montos se guardan en positivo; acá se firman
       // para que las NC salgan en NEGATIVO (formato AFIP) y el total del período neteé correctamente.
+      // NETO y TOTAL IVA = suma de las columnas por alícuota (10,5+21+27). El IVA_COMPRAS es agregado
+      // (una NETO, una TOTAL IVA), no columnas por alícuota.
       const sg = signoComprobante(f.tipo_comprobante);
-      const neto = (Number(f.neto_gravado) || 0) * sg, pIva = (Number(f.percep_iva) || 0) * sg, pBsas = (Number(f.percep_iibb_bsas) || 0) * sg,
+      const { neto: netoRaw, iva: ivaRaw } = netosMultiAlicuota(f);
+      const neto = netoRaw * sg, pIva = (Number(f.percep_iva) || 0) * sg, pBsas = (Number(f.percep_iibb_bsas) || 0) * sg,
         pCaba = (Number(f.percep_iibb_caba) || 0) * sg, noGrav = (Number(f.neto_no_gravado) || 0) * sg, ex = (Number(f.exentas) || 0) * sg,
-        otros = (Number(f.otros_tributos) || 0) * sg, iva = (Number(f.iva) || 0) * sg, total = (Number(f.total) || 0) * sg;
+        otros = (Number(f.otros_tributos) || 0) * sg, iva = ivaRaw * sg, total = (Number(f.total) || 0) * sg;
       tot.neto += neto; tot.percepIva += pIva; tot.percepBsas += pBsas; tot.percepCaba += pCaba;
       tot.noGravado += noGrav; tot.exentas += ex; tot.otros += otros; tot.totalIva += iva; tot.impTotal += total;
       filas.push({

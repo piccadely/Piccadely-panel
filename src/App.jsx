@@ -2828,7 +2828,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       proveedor_id: "", categoria_gasto_id: "", orden_compra_id: "",
       clase: "Factura", letra: "A", factura_asociada_id: "",
       punto_venta: "", numero_comprobante: "", cae: "", fecha: "",
-      alicuota_iva: "21", neto_gravado: "", iva: "", percep_iva: "", percep_iibb_bsas: "", percep_iibb_caba: "",
+      neto_105: "", iva_105: "", neto_21: "", iva_21: "", neto_27: "", iva_27: "",
+      percep_iva: "", percep_iibb_bsas: "", percep_iibb_caba: "",
       neto_no_gravado: "", exentas: "", otros_tributos: "", total: "",
     };
 
@@ -2860,9 +2861,12 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
       const money = (n) => "$" + Number(n || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const num = (x) => Number(x) || 0;
-      // Total calculado en vivo (mismo criterio que el backend).
-      const totalCalc = num(form.neto_gravado) + num(form.iva) + num(form.neto_no_gravado) + num(form.exentas) +
-        num(form.otros_tributos) + num(form.percep_iva) + num(form.percep_iibb_bsas) + num(form.percep_iibb_caba);
+      // Total calculado en vivo (mismo criterio que el backend): todos los netos + todos los IVAs +
+      // percepciones + no gravado + exentas + otros.
+      const totalCalc = num(form.neto_105) + num(form.neto_21) + num(form.neto_27) +
+        num(form.iva_105) + num(form.iva_21) + num(form.iva_27) +
+        num(form.neto_no_gravado) + num(form.exentas) + num(form.otros_tributos) +
+        num(form.percep_iva) + num(form.percep_iibb_bsas) + num(form.percep_iibb_caba);
       const cuadra = Math.abs(totalCalc - num(form.total)) <= 1;
 
       async function cargar() {
@@ -2901,10 +2905,11 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
       function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 3000); }
       const setCampo = (k, v) => setForm(f => ({ ...f, [k]: v }));
-      // IVA precalculado al cambiar neto o alícuota (editable después).
-      const ivaDe = (neto, alic) => Math.round(num(neto) * num(alic) / 100 * 100) / 100;
-      function setNeto(v) { setForm(f => ({ ...f, neto_gravado: v, iva: String(ivaDe(v, f.alicuota_iva)) })); }
-      function setAlicuota(v) { setForm(f => ({ ...f, alicuota_iva: v, iva: String(ivaDe(f.neto_gravado, v)) })); }
+      // Al cambiar el neto de una alícuota, pre-calcula su IVA (neto × alícuota/100), editable después.
+      function setNetoAlic(netoKey, ivaKey, alic, v) {
+        const iva = Math.round(num(v) * alic / 100 * 100) / 100;
+        setForm(f => ({ ...f, [netoKey]: v, [ivaKey]: String(iva) }));
+      }
 
       function abrirSuelta() { setForm({ ...FC_FORM_VACIO, fecha: hoyStr }); setModoCarga("suelta"); setEditandoId(null); setModal("nuevo"); }
       function abrirDesdeOrden() { setForm({ ...FC_FORM_VACIO, fecha: hoyStr }); setModoCarga("orden"); setEditandoId(null); setModal("nuevo"); }
@@ -2921,7 +2926,10 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           clase, letra: FC_LETRAS.includes(letra) ? letra : "A", factura_asociada_id: fac.factura_asociada_id ? String(fac.factura_asociada_id) : "",
           punto_venta: fac.punto_venta || "",
           numero_comprobante: fac.numero_comprobante || "", cae: fac.cae || "", fecha: fac.fecha || hoyStr,
-          alicuota_iva: String(fac.alicuota_iva ?? "21"), neto_gravado: String(fac.neto_gravado ?? ""), iva: String(fac.iva ?? ""),
+          // Multi-alícuota: las viejas migradas traen sus datos en neto_21/iva_21 o neto_105/iva_105.
+          neto_105: fac.neto_105 ? String(fac.neto_105) : "", iva_105: fac.iva_105 ? String(fac.iva_105) : "",
+          neto_21: fac.neto_21 ? String(fac.neto_21) : "", iva_21: fac.iva_21 ? String(fac.iva_21) : "",
+          neto_27: fac.neto_27 ? String(fac.neto_27) : "", iva_27: fac.iva_27 ? String(fac.iva_27) : "",
           percep_iva: String(fac.percep_iva ?? ""), percep_iibb_bsas: String(fac.percep_iibb_bsas ?? ""), percep_iibb_caba: String(fac.percep_iibb_caba ?? ""),
           neto_no_gravado: String(fac.neto_no_gravado ?? ""), exentas: String(fac.exentas ?? ""), otros_tributos: String(fac.otros_tributos ?? ""), total: String(fac.total ?? ""),
         });
@@ -2941,8 +2949,11 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           tipo_comprobante: `${form.clase} ${form.letra}`,   // ej "Nota de Crédito A"
           factura_asociada_id: form.clase !== "Factura" && form.factura_asociada_id ? Number(form.factura_asociada_id) : null,
           punto_venta: form.punto_venta, numero_comprobante: form.numero_comprobante,
-          cae: form.cae, fecha: form.fecha, alicuota_iva: Number(form.alicuota_iva),
-          neto_gravado: num(form.neto_gravado), iva: num(form.iva), percep_iva: num(form.percep_iva),
+          cae: form.cae, fecha: form.fecha,
+          neto_105: num(form.neto_105), iva_105: num(form.iva_105),
+          neto_21: num(form.neto_21), iva_21: num(form.iva_21),
+          neto_27: num(form.neto_27), iva_27: num(form.iva_27),
+          percep_iva: num(form.percep_iva),
           percep_iibb_bsas: num(form.percep_iibb_bsas), percep_iibb_caba: num(form.percep_iibb_caba),
           neto_no_gravado: num(form.neto_no_gravado), exentas: num(form.exentas), otros_tributos: num(form.otros_tributos),
           total: num(form.total), usuario: usuario.nombre_completo,
@@ -3040,7 +3051,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                           {fac.tipo_comprobante} {fac.punto_venta ? `${fac.punto_venta}-` : ""}{fac.numero_comprobante} · {fac.fecha} · {fac.categoria_nombre || "sin categoría"}{fac.proveedor_cuit ? ` · CUIT ${fac.proveedor_cuit}` : ""}
                         </div>
                         <div style={{ fontSize: 12, color: "#444", marginTop: 3 }}>
-                          Neto {money(fac.neto_gravado)} · IVA {fac.alicuota_iva}% {money(fac.iva)}
+                          Neto {money(fac.neto_gravado)} · IVA {money(fac.iva)}
                           {(num(fac.percep_iva) + num(fac.percep_iibb_bsas) + num(fac.percep_iibb_caba)) > 0 ? ` · Percep. ${money(num(fac.percep_iva) + num(fac.percep_iibb_bsas) + num(fac.percep_iibb_caba))}` : ""}
                         </div>
                         {fac.estado_pago === "anulada" && fac.motivo_anulacion && <div style={{ fontSize: 11, color: "#c0392b", marginTop: 3 }}>Anulada: {fac.motivo_anulacion}</div>}
@@ -3132,19 +3143,29 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                   </label>
                 </div>
 
-                <div style={{ borderTop: "1px solid #eee", margin: "6px 0 12px" }} />
+                <div style={{ borderTop: "1px solid #eee", margin: "6px 0 8px" }} />
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>IVA por alícuota (cargá solo las que tenga)</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                  <label style={numLbl}>Neto 10,5%
+                    <input type="number" step="0.01" style={numInput} value={form.neto_105} onChange={e => setNetoAlic("neto_105", "iva_105", 10.5, e.target.value)} placeholder="0.00" />
+                  </label>
+                  <label style={numLbl}>IVA 10,5% (editable)
+                    <input type="number" step="0.01" style={numInput} value={form.iva_105} onChange={e => setCampo("iva_105", e.target.value)} placeholder="0.00" />
+                  </label>
+                  <label style={numLbl}>Neto 21%
+                    <input type="number" step="0.01" style={numInput} value={form.neto_21} onChange={e => setNetoAlic("neto_21", "iva_21", 21, e.target.value)} placeholder="0.00" />
+                  </label>
+                  <label style={numLbl}>IVA 21% (editable)
+                    <input type="number" step="0.01" style={numInput} value={form.iva_21} onChange={e => setCampo("iva_21", e.target.value)} placeholder="0.00" />
+                  </label>
+                  <label style={numLbl}>Neto 27%
+                    <input type="number" step="0.01" style={numInput} value={form.neto_27} onChange={e => setNetoAlic("neto_27", "iva_27", 27, e.target.value)} placeholder="0.00" />
+                  </label>
+                  <label style={numLbl}>IVA 27% (editable)
+                    <input type="number" step="0.01" style={numInput} value={form.iva_27} onChange={e => setCampo("iva_27", e.target.value)} placeholder="0.00" />
+                  </label>
+                </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
-                  <label style={numLbl}>Alícuota IVA
-                    <select style={numInput} value={form.alicuota_iva} onChange={e => setAlicuota(e.target.value)}>
-                      {FC_ALICUOTAS.map(a => <option key={a} value={a}>{a}%</option>)}
-                    </select>
-                  </label>
-                  <label style={numLbl}>Neto gravado
-                    <input type="number" step="0.01" style={numInput} value={form.neto_gravado} onChange={e => setNeto(e.target.value)} placeholder="0.00" />
-                  </label>
-                  <label style={numLbl}>IVA (editable)
-                    <input type="number" step="0.01" style={numInput} value={form.iva} onChange={e => setCampo("iva", e.target.value)} placeholder="0.00" />
-                  </label>
                   <label style={numLbl}>Percep. IVA
                     <input type="number" step="0.01" style={numInput} value={form.percep_iva} onChange={e => setCampo("percep_iva", e.target.value)} placeholder="0" />
                   </label>
