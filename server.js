@@ -2774,6 +2774,34 @@ app.get("/api/caja/administracion", requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Error trayendo la caja Administración" }); }
 });
 
+// Prefijos de conceptos AUTOGENERADOS (transferencias/sobres/pagos/apertura-cierre): NO editables.
+// ⚠️ Mantener en sync con la MISMA lista en el front (App.jsx: CONCEPTOS_AUTO_PREFIJOS).
+const CONCEPTOS_AUTO_PREFIJOS = [
+  "transferencia a", "transferencia desde", "pago factura", "sobre a bandeja",
+  "sobre recibido", "sobre rechazado", "ajuste sobre", "apertura", "reapertura", "cierre",
+];
+function esConceptoAutogenerado(concepto) {
+  const c = String(concepto || "").trim().toLowerCase();
+  return CONCEPTOS_AUTO_PREFIJOS.some(p => c.startsWith(p));
+}
+
+// Editar SOLO el concepto de un movimiento MANUAL (nunca monto/tipo/fecha/local). Los autogenerados
+// (transferencias/sobres/pagos) conservan su rastro. Respeta el permiso de la caja Administración.
+app.patch("/api/caja/movimiento/:id/concepto", requireAuth, async (req, res) => {
+  const { concepto, usuario: usuarioAudit } = req.body;
+  if (!concepto || !String(concepto).trim()) return res.status(400).json({ error: "El concepto no puede estar vacío." });
+  try {
+    const r = await pool.query("SELECT id, local, concepto FROM caja_movimientos WHERE id=$1", [req.params.id]);
+    const m = r.rows[0];
+    if (!m) return res.status(404).json({ error: "Movimiento no encontrado." });
+    if (bloqueaCajaAdmin(req, res, m.local)) return;   // Administración solo superadmin
+    if (esConceptoAutogenerado(m.concepto)) return res.status(403).json({ error: "No se puede editar el concepto de un movimiento automático." });
+    await pool.query("UPDATE caja_movimientos SET concepto=$1 WHERE id=$2", [String(concepto).trim(), req.params.id]);
+    res.json({ ok: true });
+    registrarAuditoria(usuarioAudit, "editar_concepto_movimiento", "caja", m.local, { id: m.id, anterior: m.concepto, nuevo: String(concepto).trim() });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── TRANSFERENCIA ENTRE CAJAS ─────────────────────────────────────────
 // Salida en origen (−monto) + entrada en destino (+monto), mismo monto, ATÓMICO (BEGIN/COMMIT/
 // ROLLBACK). Solo admin/superadmin; si toca "Administración" (origen o destino) exige superadmin.

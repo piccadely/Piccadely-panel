@@ -1741,6 +1741,12 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       const [fondoMov, setFondoMov] = useState({ tipo: "salida", concepto: "", monto: "" });
       const puedeTransferir = ["admin", "superadmin"].includes(usuario.rol);   // solo admin/superadmin transfieren
       const [mostrarTransferir, setMostrarTransferir] = useState(false);
+      // Filtros de movimientos (fecha/palabra) + edición de concepto — compartidos por todas las cajas.
+      const [movDesde, setMovDesde] = useState("");
+      const [movHasta, setMovHasta] = useState("");
+      const [movBuscar, setMovBuscar] = useState("");
+      const [editMovId, setEditMovId] = useState(null);
+      const [editMovTexto, setEditMovTexto] = useState("");
       const [transf, setTransf] = useState({ origen: "", destino: "", monto: "", concepto: "" });
       // Finalizados del rango [min(historial), HOY_CAJA] traídos por /api/reportes/pedidos
       // (NO de la ventana de 7 días). Fuente de ventas del día y del saldo del historial.
@@ -2068,6 +2074,85 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           </div>
         );
       }
+      // Conceptos autogenerados (MISMA lista que el backend) → no editables.
+      const CONCEPTOS_AUTO_PREFIJOS = ["transferencia a", "transferencia desde", "pago factura", "sobre a bandeja", "sobre recibido", "sobre rechazado", "ajuste sobre", "apertura", "reapertura", "cierre"];
+      const esConceptoAuto = (c) => { const s = String(c || "").trim().toLowerCase(); return CONCEPTOS_AUTO_PREFIJOS.some(p => s.startsWith(p)); };
+
+      // Filtra movimientos por rango de fecha + palabra en el concepto (sobre la lista ya traída).
+      function filtrarMovs(movs) {
+        const q = movBuscar.trim().toLowerCase();
+        return (movs || []).filter(m => {
+          if (movDesde && (m.fecha || "") < movDesde) return false;
+          if (movHasta && (m.fecha || "") > movHasta) return false;
+          if (q && !String(m.concepto || "").toLowerCase().includes(q)) return false;
+          return true;
+        });
+      }
+      async function guardarConceptoMov(m, reload) {
+        const nuevo = editMovTexto.trim();
+        if (!nuevo) { alert("El concepto no puede estar vacío"); return; }
+        try {
+          await axios.patch(`${API}/api/caja/movimiento/${m.id}/concepto`, { concepto: nuevo, usuario: usuario.nombre_completo });
+          setEditMovId(null); setEditMovTexto("");
+          await reload();
+        } catch (err) { alert("Error: " + (err.response?.data?.error || err.message)); }
+      }
+      function exportarMovimientos(movs, nombre) {
+        const asc = [...movs].reverse();   // la lista viene DESC (más nuevo primero); acumulamos de viejo a nuevo
+        let acum = 0;
+        const filas = asc.map(m => {
+          acum += Number(m.monto) || 0;
+          return { "Fecha": m.fecha || "", "Concepto": m.concepto || "", "Tipo": m.tipo || "", "Monto": Number(m.monto) || 0, "Saldo acumulado": Math.round(acum * 100) / 100 };
+        });
+        exportarExcel(`movimientos_${nombre}.xlsx`, [{ name: "Movimientos", data: filas }]);
+      }
+      // Bloque compartido por TODAS las cajas: filtros (fecha/palabra) + export + lista con editar (solo manuales).
+      function renderMovimientos(movsRaw, reload) {
+        const movs = filtrarMovs(movsRaw);
+        const inp = { fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", background: "#fff" };
+        return (
+          <>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+              <span style={{ fontSize: 11, color: "#888" }}>Desde</span>
+              <input type="date" style={inp} value={movDesde} onChange={e => setMovDesde(e.target.value)} />
+              <span style={{ fontSize: 11, color: "#888" }}>Hasta</span>
+              <input type="date" style={inp} value={movHasta} onChange={e => setMovHasta(e.target.value)} />
+              <input style={{ ...inp, flex: 1, minWidth: 140 }} placeholder="Buscar en el concepto…" value={movBuscar} onChange={e => setMovBuscar(e.target.value)} />
+              {(movDesde || movHasta || movBuscar) && <button style={{ ...inp, cursor: "pointer", color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setMovDesde(""); setMovHasta(""); setMovBuscar(""); }}>✕ Limpiar</button>}
+              {movs.length > 0 && <button style={{ ...inp, cursor: "pointer", background: "#2a7a4b", color: "#fff", border: "none", fontWeight: 600 }} onClick={() => exportarMovimientos(movs, localSeleccionado.toLowerCase().replace(/[.\s]/g, ""))}>📊 Excel</button>}
+            </div>
+            {movs.length === 0 ? <div style={{ color: "#aaa", fontSize: 13 }}>No hay movimientos para el filtro.</div>
+              : movs.map(m => {
+                const monto = Number(m.monto);
+                const auto = esConceptoAuto(m.concepto);
+                const editando = editMovId === m.id;
+                return (
+                  <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid #f5f5f5", gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {editando ? (
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <input style={{ ...inp, flex: 1 }} value={editMovTexto} onChange={e => setEditMovTexto(e.target.value)} onKeyDown={e => { if (e.key === "Enter") guardarConceptoMov(m, reload); if (e.key === "Escape") setEditMovId(null); }} autoFocus />
+                          <button style={{ ...inp, cursor: "pointer", background: "#2a7a4b", color: "#fff", border: "none" }} onClick={() => guardarConceptoMov(m, reload)}>✓</button>
+                          <button style={{ ...inp, cursor: "pointer" }} onClick={() => setEditMovId(null)}>✕</button>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 13, color: "#333", fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+                          {m.concepto || (monto >= 0 ? "Reposición" : "Gasto")}
+                          {auto
+                            ? <span title="Movimiento automático, no editable" style={{ fontSize: 11, color: "#ccc" }}>🔒</span>
+                            : <span title="Editar concepto" style={{ fontSize: 12, color: "#7c3aed", cursor: "pointer" }} onClick={() => { setEditMovId(m.id); setEditMovTexto(m.concepto || ""); }}>✎</span>}
+                        </div>
+                      )}
+                      <div style={{ fontSize: 11, color: "#aaa" }}>{m.fecha}</div>
+                    </div>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: monto >= 0 ? "#2a7a4b" : "#c0392b", whiteSpace: "nowrap" }}>{monto >= 0 ? "+" : "−"}{fmt(Math.abs(monto))}</span>
+                  </div>
+                );
+              })}
+          </>
+        );
+      }
+
       function renderFondoFijo() {
         const saldo = fondo?.saldo || 0;
         const movs = fondo?.movimientos || [];
@@ -2107,19 +2192,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
             <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: "#333", marginBottom: 14 }}>📒 Movimientos</div>
               {loadingFondo ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando...</div>
-                : movs.length === 0 ? <div style={{ color: "#aaa", fontSize: 13 }}>Todavía no hay movimientos.</div>
-                : movs.map(m => {
-                  const monto = Number(m.monto);
-                  return (
-                    <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid #f5f5f5" }}>
-                      <div>
-                        <div style={{ fontSize: 13, color: "#333", fontWeight: 500 }}>{m.concepto || (monto >= 0 ? "Reposición" : "Gasto")}</div>
-                        <div style={{ fontSize: 11, color: "#aaa" }}>{m.fecha}</div>
-                      </div>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: monto >= 0 ? "#2a7a4b" : "#c0392b" }}>{monto >= 0 ? "+" : "−"}{fmt(Math.abs(monto))}</span>
-                    </div>
-                  );
-                })}
+                : renderMovimientos(movs, cargarFondo)}
             </div>
           </div>
         );
@@ -2280,13 +2353,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                       <button style={{ width: "100%", padding: "7px", borderRadius: 6, border: "none", background: "#333", color: "#fff", fontSize: 12, cursor: "pointer" }} onClick={registrarAjuste} disabled={guardando}>Registrar ajuste</button>
                     </div>
                   )}
-                  {estadoCaja?.movimientos?.length === 0 && <div style={{ fontSize: 12, color: "#aaa" }}>Sin movimientos</div>}
-                  {estadoCaja?.movimientos?.map((m, i) => (
-                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}>
-                      <div><div style={{ fontSize: 12, color: "#333" }}>{m.concepto}</div><div style={{ fontSize: 11, color: "#aaa" }}>{new Date(m.created_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</div></div>
-                      <span style={{ fontSize: 13, fontWeight: 500, color: m.tipo === "salida" ? "#c0392b" : "#F68B32" }}>{m.tipo === "salida" ? "-" : "+"}{fmt(Math.abs(m.monto))}</span>
-                    </div>
-                  ))}
+                  {renderMovimientos(estadoCaja?.movimientos || [], cargarEstado)}
                 </div>
                  {!cerrada && localSeleccionado !== "Administración" && (
                   <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
