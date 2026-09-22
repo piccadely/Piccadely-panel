@@ -617,7 +617,7 @@ async function handlerReportePedidos(req, res) {
     const tnRes = await pool.query(
       `SELECT t.data
        FROM pedidos_tn t
-       WHERE t.tn_created_at BETWEEN ($1::date - INTERVAL '30 days') AND ($2::date + INTERVAL '5 days')
+       WHERE t.tn_created_at BETWEEN ($1::date - INTERVAL '365 days') AND ($2::date + INTERVAL '5 days')
        ORDER BY t.tn_created_at DESC`,
       [desde, hasta]
     );
@@ -892,7 +892,7 @@ app.get("/api/reportes/zonas", requireAdmin, async (req, res) => {
     // TN — ventana amplia por fecha de creación; se filtra por fechaDisplay del rango.
     const tnRes = await pool.query(
       `SELECT t.data FROM pedidos_tn t
-       WHERE t.tn_created_at BETWEEN ($1::date - INTERVAL '30 days') AND ($2::date + INTERVAL '5 days')
+       WHERE t.tn_created_at BETWEEN ($1::date - INTERVAL '365 days') AND ($2::date + INTERVAL '5 days')
        ORDER BY t.tn_created_at DESC`,
       [desde, hasta]
     );
