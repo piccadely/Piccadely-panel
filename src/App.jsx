@@ -50,7 +50,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
     };
 
     const REPARTIDORES_DEFAULT = ["Sin asignar"];
-    const MEDIOS_PAGO = ["Mercado Pago", "Efectivo", "Transferencia", "Rappi", "Pedidos Ya", "Pedidos Ya Efectivo", "Otro"];
+    const MEDIOS_PAGO = ["Mercado Pago", "Efectivo", "Transferencia", "Rappi", "MP Delivery", "Pedidos Ya", "Pedidos Ya Efectivo", "Otro"];
     // Medios que entran FÍSICAMENTE como efectivo a la caja → suman al efectivo/saldo esperado.
     // (El desglose "ventas por medio de pago" sigue mostrando cada uno por separado.)
     const EFECTIVO_CAJA = ["Efectivo", "Pedidos Ya Efectivo"];
@@ -1234,7 +1234,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
             if (f.envioPrecio > 0) items.push(`${f.envioNombre} x1`);
             const productosStr = items.join(", ");
             const esEfectivo = ["Efectivo", "Pedidos Ya Efectivo"].includes(f.medioPago);
-            const pago = ["Efectivo", "Pedidos Ya Efectivo", "Mercado Pago", "Rappi", "Pedidos Ya"].includes(f.medioPago) ? "Pendiente" : "Pagado";
+            const pago = ["Efectivo", "Pedidos Ya Efectivo", "Mercado Pago", "Rappi", "MP Delivery", "Pedidos Ya"].includes(f.medioPago) ? "Pendiente" : "Pagado";
             const nuevoPedido = {
               id, numero: "", cliente: f.cliente, telefono: f.telefono, email: "",
               direccion: f.direccion, barrio: f.barrio, entreCalles: f.entreCalles,
@@ -4471,7 +4471,7 @@ setPedidosDatosOverride(datosInit);
       function cambiarEstado(p, e) {
       e.stopPropagation();
       const id = p.id;
-      const requiereCodigo = ["Mercado Pago", "Rappi", "Pedidos Ya"].includes(p.medioPago);
+      const requiereCodigo = ["Mercado Pago", "Rappi", "MP Delivery", "Pedidos Ya"].includes(p.medioPago);
       const sinCodigo = !p.codigoPago || !String(p.codigoPago).trim();
       if (requiereCodigo && sinCodigo) {
         const seguir = window.confirm(`⚠️ FALTA CÓDIGO\n\nEl pedido ${p.numero} (${p.medioPago}) no tiene código de pago cargado.\nVerificá que el pago esté confirmado antes de continuar.\n\n¿Cambiar el estado igual?`);
@@ -4908,7 +4908,7 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
 
         // Si se carga/borra el código MKP, ajustar el estado de cobro
         if (campo === "codigoPago") {
-          const requiereCodigo = ["Mercado Pago", "Rappi", "Pedidos Ya"].includes(p.medioPago);
+          const requiereCodigo = ["Mercado Pago", "Rappi", "MP Delivery", "Pedidos Ya"].includes(p.medioPago);
           if (valor && valor.trim()) {
             actualizarLocal(p.id, { cobrar: false });
           } else if (requiereCodigo) {
@@ -4970,7 +4970,7 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
           zona: form.zona || "Sin zona", fecha: form.fecha, franja: (form.franjaInicio && form.franjaFin) ? `${form.franjaInicio} – ${form.franjaFin}` : "",
           fechaDisplay: form.fecha, franjaDisplay: (form.franjaInicio && form.franjaFin) ? `${form.franjaInicio} – ${form.franjaFin}` : "Sin franja",
           productos: productosStr, totalNum: totalConDescuento, total: `$${totalConDescuento.toLocaleString("es-AR")}`,
-          pago: ["Efectivo", "Pedidos Ya Efectivo", "Mercado Pago", "Rappi", "Pedidos Ya"].includes(form.medioPago) ? "Pendiente" : "Pagado",
+          pago: ["Efectivo", "Pedidos Ya Efectivo", "Mercado Pago", "Rappi", "MP Delivery", "Pedidos Ya"].includes(form.medioPago) ? "Pendiente" : "Pagado",
           medioPago: form.medioPago, cobrar: form.cobrar, tabActual: form.seccion, local: localLabel(form.seccion),
           nota: form.nota, esManual: true, esCorporativo: form.esCorporativo, estado: "Por empaquetar", repartidor: "Sin asignar",
           areaManual: areaManual ? Number(areaManual) : null,   // override de área del reporte de zonas (o null = sin asignar)
@@ -6634,7 +6634,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                     <div style={s.formBloque}><label style={{ ...s.formLabel, fontSize: 14, fontWeight: 800, color: "#F68B32" }}>Área (opcional)</label><select style={{ ...s.formInput, ...(areaManual ? { background: "#fff3e6", borderColor: "#F68B32", fontWeight: 700 } : {}) }} value={areaManual} onChange={e => setAreaManual(e.target.value)}><option value="">(sin asignar)</option>{[1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={String(n)}>Área {n}</option>)}</select></div>
                     <div style={s.formBloque}><label style={s.formLabel}>Fecha de entrega</label><input type="date" style={s.formInput} value={form.fecha} onChange={e => setForm(f => ({...f, fecha: e.target.value}))} /></div>
     <div style={s.formBloque}><label style={s.formLabel}>Horario</label><div style={{ display: "flex", gap: 6, alignItems: "center" }}><input type="time" style={{ ...s.formInput, flex: 1 }} value={form.franjaInicio} onChange={e => setForm(f => ({...f, franjaInicio: e.target.value}))} /><span style={{ color: "#888", fontSize: 14 }}>–</span><input type="time" style={{ ...s.formInput, flex: 1 }} value={form.franjaFin} onChange={e => setForm(f => ({...f, franjaFin: e.target.value}))} /></div></div>
-                    <div style={s.formBloque}><label style={s.formLabel}>Medio de pago</label><select style={s.formInput} value={form.medioPago} onChange={e => { const m = e.target.value; setForm(f => ({...f, medioPago: m, cobrar: ["Efectivo", "Pedidos Ya Efectivo", "Mercado Pago", "Rappi", "Pedidos Ya"].includes(m)})); }}>{MEDIOS_PAGO.map(m => <option key={m}>{m}</option>)}</select></div>
+                    <div style={s.formBloque}><label style={s.formLabel}>Medio de pago</label><select style={s.formInput} value={form.medioPago} onChange={e => { const m = e.target.value; setForm(f => ({...f, medioPago: m, cobrar: ["Efectivo", "Pedidos Ya Efectivo", "Mercado Pago", "Rappi", "MP Delivery", "Pedidos Ya"].includes(m)})); }}>{MEDIOS_PAGO.map(m => <option key={m}>{m}</option>)}</select></div>
                     <div style={s.formBloque}><label style={{ ...s.formLabel, color: "#F68B32", fontWeight: 700 }}>ELEGIR SUCURSAL</label><select style={s.formInput} value={form.seccion} onChange={e => setForm(f => ({...f, seccion: e.target.value}))}>{TABS.filter(t => t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}</select></div>
                     <div style={{ ...s.formBloque, gridColumn: "span 2" }}><label style={s.formLabel}>Nota</label><textarea style={{ ...s.formInput, height: 60, resize: "vertical" }} value={form.nota} onChange={e => setForm(f => ({...f, nota: e.target.value}))} placeholder="Nota adicional..." /></div>
                     <div style={{ ...s.formBloque, gridColumn: "span 2" }}>
