@@ -305,8 +305,21 @@ async function notificarCotizacion(mailTransporter, cot) {
   }
 }
 
+// Clave de cliente: email (lower+trim) o, si no hay, teléfono (solo dígitos). MISMA fórmula que
+// /api/clientes, para vincular oportunidades con la base de clientes.
+export function clienteKeyDe(email, telefono) {
+  const e = String(email || "").trim().toLowerCase();
+  if (e) return e;
+  const t = String(telefono || "").replace(/\D/g, "");
+  return t || null;
+}
+
+// Etapas del pipeline (reusa la columna `estado`). "pendiente" se muestra como "Nueva" en el front.
+const ETAPAS_OPORTUNIDAD = ["pendiente", "contactado", "cotizado", "ganada", "perdida"];
+
 // ─── Router ──────────────────────────────────────────────────────────
-export function cotizadorRouter(pool, mailTransporter) {
+// requireAdmin protege el panel (GET/PATCH); los POST del cotizador público quedan abiertos.
+export function cotizadorRouter(pool, mailTransporter, requireAdmin) {
   const router = express.Router();
 
   router.post("/cotizador/calcular", async (req, res) => {
@@ -371,18 +384,19 @@ export function cotizadorRouter(pool, mailTransporter) {
     try {
       const b = req.body || {};
       const canal = b.canal === "whatsapp" ? "whatsapp" : "solicitar";
+      const cliente_key = clienteKeyDe(b.email, b.telefono);
       const q = await pool.query(
         `INSERT INTO cotizaciones
           (cliente_nombre, empresa, email, telefono,
            personas, modo, mix, fecha_evento, zona,
-           nivel_elegido, opciones, total_elegido, con_bebidas, canal, estado, notas)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pendiente',$15)
+           nivel_elegido, opciones, total_elegido, con_bebidas, canal, estado, notas, cliente_key, origen)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pendiente',$15,$16,'formulario')
          RETURNING id, creada_en`,
         [
           b.cliente_nombre || null, b.empresa || null, b.email || null, b.telefono || null,
           b.personas || null, b.modo || null, b.mix || null, b.fecha_evento || null, b.zona || null,
           b.nivel_elegido || null, b.opciones ? JSON.stringify(b.opciones) : null,
-          b.total_elegido || null, !!b.con_bebidas, canal, b.notas || null,
+          b.total_elegido || null, !!b.con_bebidas, canal, b.notas || null, cliente_key,
         ]
       );
       const nuevaId = q.rows[0].id;
@@ -394,8 +408,8 @@ export function cotizadorRouter(pool, mailTransporter) {
     }
   });
 
-  // Listar cotizaciones (para el panel)
-  router.get("/cotizaciones", async (req, res) => {
+  // Listar cotizaciones (para el panel) — PROTEGIDO (expone datos de clientes).
+  router.get("/cotizaciones", requireAdmin, async (req, res) => {
     try {
       const q = await pool.query("SELECT * FROM cotizaciones ORDER BY creada_en DESC LIMIT 500");
       res.json(q.rows);
@@ -405,14 +419,30 @@ export function cotizadorRouter(pool, mailTransporter) {
     }
   });
 
-  // Actualizar estado / notas de una cotización (panel)
-  router.patch("/cotizaciones/:id", async (req, res) => {
+  // Actualizar una oportunidad (panel) — PROTEGIDO. Etapa/notas/motivo + datos del evento.
+  router.patch("/cotizaciones/:id", requireAdmin, async (req, res) => {
     try {
-      const { estado, notas } = req.body || {};
+      const b = req.body || {};
+      if (b.estado !== undefined && !ETAPAS_OPORTUNIDAD.includes(b.estado)) return res.status(400).json({ error: "Etapa inválida" });
+      // Al pasar a "perdida" el motivo es obligatorio (en el mismo PATCH).
+      if (b.estado === "perdida" && (b.motivo_perdida === undefined || !String(b.motivo_perdida).trim())) {
+        return res.status(400).json({ error: "Indicá el motivo de la pérdida." });
+      }
       const campos = [], vals = [];
       let i = 1;
-      if (estado !== undefined) { campos.push(`estado = $${i++}`); vals.push(estado); }
-      if (notas !== undefined) { campos.push(`notas = $${i++}`); vals.push(notas); }
+      const set = (col, val) => { campos.push(`${col} = $${i++}`); vals.push(val); };
+      if (b.estado !== undefined) set("estado", b.estado);
+      if (b.notas !== undefined) set("notas", b.notas);
+      if (b.motivo_perdida !== undefined) set("motivo_perdida", b.motivo_perdida || null);
+      if (b.total_elegido !== undefined) set("total_elegido", Number(b.total_elegido) || 0);
+      if (b.fecha_evento !== undefined) set("fecha_evento", b.fecha_evento || null);
+      if (b.zona !== undefined) set("zona", b.zona || null);
+      if (b.personas !== undefined) set("personas", b.personas || null);
+      if (b.empresa !== undefined) set("empresa", b.empresa || null);
+      if (b.cliente_nombre !== undefined) set("cliente_nombre", b.cliente_nombre || null);
+      if (b.email !== undefined) set("email", b.email || null);
+      if (b.telefono !== undefined) set("telefono", b.telefono || null);
+      if (b.email !== undefined || b.telefono !== undefined) set("cliente_key", clienteKeyDe(b.email, b.telefono));
       if (campos.length === 0) return res.status(400).json({ error: "Nada para actualizar" });
       vals.push(req.params.id);
       const q = await pool.query(`UPDATE cotizaciones SET ${campos.join(", ")} WHERE id = $${i} RETURNING id`, vals);

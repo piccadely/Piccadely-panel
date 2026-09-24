@@ -3842,6 +3842,194 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       );
     }
 
+    // ─── VENTAS A REALIZAR (pipeline de oportunidades) — reusa la tabla cotizaciones ─────
+    // Admin + superadmin. Etapas: pendiente (se muestra "Nueva") / contactado / cotizado / ganada / perdida.
+    const OPP_ETAPAS = [
+      { key: "pendiente", label: "Nueva", color: "#e8a33d" },
+      { key: "contactado", label: "Contactado", color: "#3d7de8" },
+      { key: "cotizado", label: "Cotizado", color: "#7c3aed" },
+      { key: "ganada", label: "Ganada", color: "#1ea05a" },
+      { key: "perdida", label: "Perdida", color: "#c0392b" },
+    ];
+    const OPP_FORM_VACIO = { cliente_nombre: "", empresa: "", email: "", telefono: "", personas: "", fecha_evento: "", zona: "", total_elegido: "", notas: "", estado: "pendiente" };
+    function VistaVentasRealizar({ usuario, onVolver }) {
+      const [lista, setLista] = useState([]);
+      const [clientesMap, setClientesMap] = useState({});
+      const [clientesList, setClientesList] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState("");
+      const [etapa, setEtapa] = useState("pendiente");
+      const [modal, setModal] = useState(false);
+      const [form, setForm] = useState(OPP_FORM_VACIO);
+      const [guardando, setGuardando] = useState(false);
+      const [buscaCli, setBuscaCli] = useState("");
+      const [mensaje, setMensaje] = useState(null);
+
+      const money = n => "$" + Number(n || 0).toLocaleString("es-AR");
+      const diasDesde = v => v ? Math.max(0, Math.floor((Date.now() - new Date(v).getTime()) / 86400000)) : 0;
+
+      async function cargar() {
+        setLoading(true); setError("");
+        try {
+          const [rc, rcl] = await Promise.all([
+            axios.get(`${API}/api/cotizaciones`),
+            axios.get(`${API}/api/clientes`).catch(() => ({ data: { clientes: [] } })),
+          ]);
+          setLista(rc.data || []);
+          const cl = rcl.data?.clientes || [];
+          setClientesList(cl);
+          const map = {}; cl.forEach(c => { if (c.cliente_key) map[c.cliente_key] = c; });
+          setClientesMap(map);
+        } catch (e) { setError("No se pudieron cargar las oportunidades."); }
+        setLoading(false);
+      }
+      useEffect(() => { cargar(); }, []);
+
+      function mostrarMensaje(t, tipo = "ok") { setMensaje({ t, tipo }); setTimeout(() => setMensaje(null), 3000); }
+      const setCampo = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+      async function moverEtapa(c, nuevo) {
+        let motivo;
+        if (nuevo === "perdida") {
+          motivo = window.prompt("Motivo de la pérdida:");
+          if (motivo === null) return;
+          if (!motivo.trim()) { mostrarMensaje("El motivo es obligatorio", "error"); return; }
+        }
+        try {
+          await axios.patch(`${API}/api/cotizaciones/${c.id}`, { estado: nuevo, ...(motivo !== undefined ? { motivo_perdida: motivo } : {}) });
+          await cargar();
+        } catch (e) { mostrarMensaje(e.response?.data?.error || "Error al mover de etapa", "error"); }
+      }
+
+      function elegirCliente(cli) {
+        setForm(f => ({ ...f, cliente_nombre: cli.nombre || "", email: cli.email || "", telefono: cli.telefono || "" }));
+        setBuscaCli("");
+      }
+
+      async function guardar() {
+        if (!form.cliente_nombre.trim()) { mostrarMensaje("El nombre del cliente es obligatorio", "error"); return; }
+        setGuardando(true);
+        try {
+          await axios.post(`${API}/api/ventas/oportunidades`, {
+            cliente_nombre: form.cliente_nombre, empresa: form.empresa, email: form.email, telefono: form.telefono,
+            personas: form.personas ? Number(form.personas) : null, fecha_evento: form.fecha_evento || null, zona: form.zona,
+            total_elegido: form.total_elegido ? Number(form.total_elegido) : null, notas: form.notas, estado: form.estado,
+            usuario: usuario.nombre_completo,
+          });
+          setModal(false); setForm(OPP_FORM_VACIO); await cargar(); mostrarMensaje("Oportunidad creada");
+        } catch (e) { mostrarMensaje(e.response?.data?.error || "Error al crear", "error"); }
+        setGuardando(false);
+      }
+
+      const porEtapa = k => lista.filter(c => (c.estado || "pendiente") === k);
+      const totalEtapa = k => porEtapa(k).reduce((a, c) => a + Number(c.total_elegido || 0), 0);
+      const cards = porEtapa(etapa);
+      const cliFiltrados = buscaCli.trim() ? clientesList.filter(c => {
+        const q = buscaCli.toLowerCase();
+        return (c.nombre || "").toLowerCase().includes(q) || (c.email || "").toLowerCase().includes(q) || (c.telefono || "").includes(q.replace(/\D/g, ""));
+      }).slice(0, 6) : [];
+
+      const inp = { fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", marginTop: 4 };
+      const lbl = { fontSize: 12, color: "#555", fontWeight: 600, display: "block", marginBottom: 10 };
+
+      return (
+        <div style={{ padding: 24, maxWidth: 980, margin: "0 auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>💼 Ventas a realizar</div>
+            <button style={{ fontSize: 13, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer" }} onClick={() => { setForm(OPP_FORM_VACIO); setBuscaCli(""); setModal(true); }}>+ Nueva oportunidad</button>
+            <button style={{ marginLeft: "auto", fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver al panel</button>
+          </div>
+
+          {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 12 }}>{mensaje.t}</div>}
+
+          <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+            {OPP_ETAPAS.map(e => {
+              const n = porEtapa(e.key).length, tot = totalEtapa(e.key), activo = etapa === e.key;
+              return (
+                <button key={e.key} onClick={() => setEtapa(e.key)} style={{ flex: "1 1 150px", textAlign: "left", cursor: "pointer", background: activo ? "#fff" : "#fafafa", border: `2px solid ${activo ? e.color : "#eee"}`, borderRadius: 10, padding: "10px 14px" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: e.color }}>{e.label.toUpperCase()}</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>{n}</div>
+                  <div style={{ fontSize: 11, color: "#888" }}>{money(tot)}</div>
+                </button>
+              );
+            })}
+          </div>
+
+          {error && <div style={{ color: "#c0392b", fontSize: 13, marginBottom: 8 }}>{error}</div>}
+          {loading ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando…</div>
+            : cards.length === 0 ? <div style={{ color: "#aaa", fontSize: 13 }}>No hay oportunidades en esta etapa.</div>
+            : cards.map(c => {
+              const cli = c.cliente_key ? clientesMap[c.cliente_key] : null;
+              const ti = cli ? TEMP_INFO[cli.temperatura] : null;
+              return (
+                <div key={c.id} style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 14, marginBottom: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#333", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        {c.cliente_nombre || "Sin nombre"}{c.empresa ? <span style={{ color: "#888", fontWeight: 400 }}>· {c.empresa}</span> : null}
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: c.origen === "manual" ? "#ede9fe" : "#fff4e8", color: c.origen === "manual" ? "#6d28d9" : "#d9701c" }}>{c.origen === "manual" ? "manual" : "formulario"}</span>
+                        {ti && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: ti.bg, color: ti.color }}>{ti.emoji} {ti.label}</span>}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 3 }}>
+                        {c.fecha_evento ? `📅 ${c.fecha_evento}` : "sin fecha"}{c.personas ? ` · 👥 ${c.personas}` : ""}{c.zona ? ` · 📍 ${c.zona}` : ""} · hace {diasDesde(c.creada_en)} día(s){cli ? ` · cliente: ${money(cli.total_gastado)} gastados` : ""}
+                      </div>
+                      {c.estado === "perdida" && c.motivo_perdida && <div style={{ fontSize: 11, color: "#c0392b", marginTop: 3 }}>Perdida: {c.motivo_perdida}</div>}
+                      {c.notas && <div style={{ fontSize: 12, color: "#666", marginTop: 3 }}>{c.notas}</div>}
+                    </div>
+                    <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: "#333" }}>{money(c.total_elegido)}</div>
+                      <select value={c.estado || "pendiente"} onChange={e => moverEtapa(c, e.target.value)} style={{ marginTop: 6, fontSize: 12, padding: "5px 8px", borderRadius: 6, border: "1px solid #ddd" }}>
+                        {OPP_ETAPAS.map(e => <option key={e.key} value={e.key}>{e.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+          {modal && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }} onClick={() => setModal(false)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 480, maxWidth: "100%", maxHeight: "92vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 14 }}>Nueva oportunidad</div>
+                <label style={lbl}>Buscar cliente existente
+                  <input style={inp} value={buscaCli} onChange={e => setBuscaCli(e.target.value)} placeholder="Nombre, email o teléfono…" />
+                </label>
+                {cliFiltrados.length > 0 && (
+                  <div style={{ border: "1px solid #eee", borderRadius: 8, marginBottom: 10, maxHeight: 160, overflowY: "auto" }}>
+                    {cliFiltrados.map(cl => (
+                      <div key={cl.cliente_key} onClick={() => elegirCliente(cl)} style={{ padding: "8px 10px", borderBottom: "1px solid #f5f5f5", cursor: "pointer", fontSize: 12 }}>
+                        <b>{cl.nombre}</b> · {cl.email || cl.telefono || "—"} {TEMP_INFO[cl.temperatura] ? TEMP_INFO[cl.temperatura].emoji : ""}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <label style={lbl}>Cliente *<input style={inp} value={form.cliente_nombre} onChange={e => setCampo("cliente_nombre", e.target.value)} /></label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <label style={lbl}>Empresa<input style={inp} value={form.empresa} onChange={e => setCampo("empresa", e.target.value)} /></label>
+                  <label style={lbl}>Personas<input type="number" style={inp} value={form.personas} onChange={e => setCampo("personas", e.target.value)} /></label>
+                  <label style={lbl}>Email<input style={inp} value={form.email} onChange={e => setCampo("email", e.target.value)} /></label>
+                  <label style={lbl}>Teléfono<input style={inp} value={form.telefono} onChange={e => setCampo("telefono", e.target.value)} /></label>
+                  <label style={lbl}>Fecha del evento<input type="date" style={inp} value={form.fecha_evento} onChange={e => setCampo("fecha_evento", e.target.value)} /></label>
+                  <label style={lbl}>Zona<input style={inp} value={form.zona} onChange={e => setCampo("zona", e.target.value)} /></label>
+                  <label style={lbl}>Monto cotizado<input type="number" style={inp} value={form.total_elegido} onChange={e => setCampo("total_elegido", e.target.value)} /></label>
+                  <label style={lbl}>Etapa
+                    <select style={inp} value={form.estado} onChange={e => setCampo("estado", e.target.value)}>
+                      {OPP_ETAPAS.filter(e => e.key !== "perdida").map(e => <option key={e.key} value={e.key}>{e.label}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <label style={lbl}>Notas<textarea style={{ ...inp, minHeight: 50, resize: "vertical" }} value={form.notas} onChange={e => setCampo("notas", e.target.value)} /></label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button style={{ flex: 1, padding: 10, borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#F68B32", color: "#fff", fontSize: 13, fontWeight: 600, cursor: guardando ? "default" : "pointer" }} disabled={guardando} onClick={guardar}>{guardando ? "Guardando…" : "Crear oportunidad"}</button>
+                  <button style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", fontSize: 13, cursor: "pointer" }} onClick={() => setModal(false)}>Cancelar</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     // ─── PANEL PRINCIPAL ─────────────────────────────────────────────────
     function PanelApp({ usuario }) {
       const [pedidosRaw, setPedidosRaw] = useState([]);
@@ -5256,11 +5444,11 @@ let numeroAsignado = "";
                     </>
                   )}
                   {esAdmin && <button style={s.dropItem} onClick={() => { setVista("clientes"); setMenuAbierto(false); }}>👥 Clientes</button>}
+                  {esAdmin && <button style={s.dropItem} onClick={() => { setVista("ventasRealizar"); setMenuAbierto(false); }}>💼 Ventas a realizar</button>}
                   <button style={s.dropItem} onClick={() => { setVista("tandas"); setMenuAbierto(false); }}>🚚 Tandas activas</button>
                   <button style={s.dropItem} onClick={() => { setVista("caja"); setMenuAbierto(false); }}>💰 Caja</button>
                   {esAdmin && <button style={s.dropItem} onClick={() => { setVista("importar"); setMenuAbierto(false); }}>📥 Importar pedidos</button>}
                   <button style={s.dropItem} onClick={() => { setVista("finalizados"); setMenuAbierto(false); }}>📋 Pedidos finalizados</button>
-                  <button style={s.dropItem} onClick={() => { setVista("cotizaciones"); setMenuAbierto(false); }}>🎉 Cotizaciones</button>
                   <button style={s.dropItem} onClick={() => { setVista("produccion"); setMenuAbierto(false); }}>🔧 Análisis de producción</button>
                   <button style={s.dropItem} onClick={() => { setVista("cocina"); setMenuAbierto(false); }}>🍳 Tablero de cocina</button>
                   <button style={s.dropItem} onClick={() => { setVista("mapa"); setMenuAbierto(false); }}>🗺️ Mapa de pedidos</button>
@@ -5286,7 +5474,7 @@ let numeroAsignado = "";
 
       // Guard de acceso: las vistas de plata/administración son SOLO admin. Si un no-admin
       // (encargado/operario) llega igual (deep-link, estado viejo), no se renderiza el contenido.
-      const VISTAS_SOLO_ADMIN = ["dashboard", "reporteVentas", "reporteFusionado", "zonas", "usuarios", "repartidores", "importar", "clientes"];
+      const VISTAS_SOLO_ADMIN = ["dashboard", "reporteVentas", "reporteFusionado", "zonas", "usuarios", "repartidores", "importar", "clientes", "ventasRealizar"];
       if (VISTAS_SOLO_ADMIN.includes(vista) && !esAdmin) {
         return (
           <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: "system-ui, sans-serif", background: "#f7f7f5", padding: 24, textAlign: "center" }}>
@@ -5372,8 +5560,8 @@ let numeroAsignado = "";
           </div>
         );
       }
-      if (vista === "cotizaciones") {
-        return <div style={s.wrap}><Header /><VistaCotizaciones onVolver={() => setVista("panel")} /></div>;
+      if (vista === "ventasRealizar") {
+        return <div style={s.wrap}><Header /><VistaVentasRealizar usuario={usuario} onVolver={() => setVista("panel")} /></div>;
       }
       if (vista === "usuarios") {
         return <div style={s.wrap}><Header /><Usuarios onVolver={() => setVista("panel")} /></div>;

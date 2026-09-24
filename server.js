@@ -8,7 +8,7 @@ import nodemailer from "nodemailer";
 import { initAuthDB, setupAuth } from "./auth.js";
 import { mpRouter } from "./Routes/mp.js";
 import { botWhatsappRouter } from "./Routes/botWhatsapp.js";
-import { cotizadorRouter } from "./Routes/cotizador.js";
+import { cotizadorRouter, clienteKeyDe } from "./Routes/cotizador.js";
 import { createRequire } from "module";
 import { normalizarProducto, calcularEnvioTN } from "./productos-normalizacion.js"; // clave canónica + costo de envío TN, compartidos con el front
 const requireCJS = createRequire(import.meta.url); // server.js es ESM; require solo para el JSON de polígonos
@@ -307,6 +307,21 @@ async function initDB() {
   await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS iva_21   NUMERIC NOT NULL DEFAULT 0;`);
   await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS neto_27  NUMERIC NOT NULL DEFAULT 0;`);
   await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS iva_27   NUMERIC NOT NULL DEFAULT 0;`);
+  // Cotizaciones / "Ventas a realizar" (pipeline). Antes se creaba a mano; ahora en initDB.
+  await pool.query(`CREATE TABLE IF NOT EXISTS cotizaciones (
+    id SERIAL PRIMARY KEY,
+    cliente_nombre TEXT, empresa TEXT, email TEXT, telefono TEXT,
+    personas INTEGER, modo TEXT, mix TEXT, fecha_evento TEXT, zona TEXT,
+    nivel_elegido TEXT, opciones JSONB, total_elegido NUMERIC, con_bebidas BOOLEAN,
+    canal TEXT, estado TEXT DEFAULT 'pendiente', notas TEXT,
+    cliente_key TEXT, motivo_perdida TEXT, origen TEXT DEFAULT 'formulario',
+    creada_en TIMESTAMP DEFAULT NOW()
+  );`);
+  await pool.query(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS cliente_key TEXT;`);
+  await pool.query(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS motivo_perdida TEXT;`);
+  await pool.query(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS origen TEXT DEFAULT 'formulario';`);
+  // Backfill de cliente_key (idempotente): email lower+trim, o teléfono solo dígitos.
+  await pool.query(`UPDATE cotizaciones SET cliente_key = COALESCE(NULLIF(lower(trim(email)),''), NULLIF(regexp_replace(COALESCE(telefono,''),'\\D','','g'),'')) WHERE cliente_key IS NULL;`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
   await pool.query(`CREATE TABLE IF NOT EXISTS costos_areas (area INTEGER PRIMARY KEY, costo NUMERIC NOT NULL DEFAULT 1);`);
   await pool.query(`INSERT INTO costos_areas (area, costo) SELECT g, 1 FROM generate_series(1,10) g ON CONFLICT (area) DO NOTHING;`);
@@ -543,7 +558,7 @@ async function enviarMailAnulacion(pedido) {
 // ─── MERCADO PAGO ─────────────────────────────────────────────────────
 app.use("/api/mp", mpRouter(pool, mailTransporter));
 app.use("/api/bot", botWhatsappRouter());
-app.use("/api", cotizadorRouter(pool, mailTransporter));
+app.use("/api", cotizadorRouter(pool, mailTransporter, requireAdmin));
 
  // ─── ORDERS ───────────────────────────────────────────────────────────
 app.get("/api/orders", async (req, res) => {
@@ -2314,6 +2329,32 @@ app.get("/api/clientes", requireAdmin, async (req, res) => {
   } catch (err) {
     console.error("Error /api/clientes:", err.message);
     res.status(500).json({ error: "Error generando la base de clientes" });
+  }
+});
+
+// Alta MANUAL de oportunidad (pipeline "Ventas a realizar"). Reusa la tabla cotizaciones con
+// origen='manual'. Admin + superadmin. El cliente puede ser existente (autocompletado) o nuevo.
+app.post("/api/ventas/oportunidades", requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  if (!b.cliente_nombre || !String(b.cliente_nombre).trim()) return res.status(400).json({ error: "El nombre del cliente es obligatorio." });
+  const ETAPAS = ["pendiente", "contactado", "cotizado", "ganada", "perdida"];
+  const estado = ETAPAS.includes(b.estado) ? b.estado : "pendiente";
+  if (estado === "perdida" && !String(b.motivo_perdida || "").trim()) return res.status(400).json({ error: "Indicá el motivo de la pérdida." });
+  try {
+    const cliente_key = clienteKeyDe(b.email, b.telefono);
+    const q = await pool.query(
+      `INSERT INTO cotizaciones (cliente_nombre, empresa, email, telefono, personas, fecha_evento, zona,
+         total_elegido, notas, estado, motivo_perdida, cliente_key, origen, canal)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'manual','manual') RETURNING id, creada_en`,
+      [b.cliente_nombre.trim(), b.empresa || null, b.email || null, b.telefono || null, b.personas || null,
+       b.fecha_evento || null, b.zona || null, Number(b.total_elegido) || null, b.notas || null, estado,
+       b.motivo_perdida || null, cliente_key]
+    );
+    res.json({ ok: true, id: q.rows[0].id });
+    registrarAuditoria(b.usuario, "oportunidad_crear", "cotizacion", q.rows[0].id, { cliente: b.cliente_nombre, total: b.total_elegido, estado });
+  } catch (err) {
+    console.error("Error /api/ventas/oportunidades:", err.message);
+    res.status(500).json({ error: "Error creando la oportunidad" });
   }
 });
 
