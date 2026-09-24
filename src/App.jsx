@@ -2075,7 +2075,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         );
       }
       // Conceptos autogenerados (MISMA lista que el backend) → no editables.
-      const CONCEPTOS_AUTO_PREFIJOS = ["transferencia a", "transferencia desde", "pago factura", "sobre a bandeja", "sobre recibido", "sobre rechazado", "ajuste sobre", "apertura", "reapertura", "cierre", "gasto:", "anulación gasto", "adelanto sueldo:", "anulación adelanto"];
+      const CONCEPTOS_AUTO_PREFIJOS = ["transferencia a", "transferencia desde", "pago factura", "sobre a bandeja", "sobre recibido", "sobre rechazado", "ajuste sobre", "apertura", "reapertura", "cierre", "gasto:", "anulación gasto", "adelanto sueldo:", "anulación adelanto", "pago sueldo:", "anulación pago sueldo"];
       const esConceptoAuto = (c) => { const s = String(c || "").trim().toLowerCase(); return CONCEPTOS_AUTO_PREFIJOS.some(p => s.startsWith(p)); };
 
       // Filtra movimientos por rango de fecha + palabra en el concepto (sobre la lista ya traída).
@@ -3147,14 +3147,25 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
     }
 
     // ── Liquidaciones (grilla mensual: una por empleado y mes) ──
+    const RRHH_ESTADO_PAGO = {
+      pendiente: { label: "Pendiente", bg: "#fef3c7", color: "#b45309" },
+      parcial:   { label: "Pago parcial", bg: "#dbeafe", color: "#1d4ed8" },
+      pagada:    { label: "Pagada", bg: "#eafaf1", color: "#1d8a4e" },
+    };
+    const MEDIOS_PAGO_SUELDO = ["Efectivo", "Transferencia", "Mercado Pago", "Otro"];
     function VistaLiquidaciones({ usuario, onVolver }) {
       const [periodo, setPeriodo] = useState(rrhhMesActual);
       const [empleados, setEmpleados] = useState([]);
-      const [liquid, setLiquid] = useState({});        // empleado_id -> liquidacion existente
+      const [liquid, setLiquid] = useState({});        // empleado_id -> liquidacion existente (con pagos/pagado/saldo/estado_pago)
       const [edits, setEdits] = useState({});          // empleado_id -> {bruto,no_remunerativo,deducciones,neto,contribuciones}
       const [loading, setLoading] = useState(true);
       const [savingId, setSavingId] = useState(null);
       const [mensaje, setMensaje] = useState(null);
+      const [expandedId, setExpandedId] = useState(null);   // empleado_id con historial de pagos abierto
+      // Modal de pago
+      const [pagoLiq, setPagoLiq] = useState(null);        // liquidacion en pago | null
+      const [pagoForm, setPagoForm] = useState({ fecha: rrhhHoy, monto: "", medioPago: "Efectivo", origen: "externo", cajaOrigen: "" });
+      const [pagoGuardando, setPagoGuardando] = useState(false);
 
       function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 4000); }
       const vacio = { bruto: "", no_remunerativo: "", deducciones: "", neto: "", contribuciones: "" };
@@ -3203,11 +3214,46 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         setSavingId(null);
       }
 
+      const CAJAS_PAGO = ["A. Thomas", "French", "Administración", "Fondo Fijo A. Thomas", "Fondo Fijo French"]
+        .filter(c => c !== "Administración" || usuario.rol === "superadmin");
+      function abrirPago(liq) {
+        setPagoForm({ fecha: rrhhHoy, monto: String(Number(liq.saldo).toFixed(2)), medioPago: "Efectivo", origen: "externo", cajaOrigen: "" });
+        setPagoLiq(liq);
+      }
+      async function registrarPago() {
+        if (!(Number(pagoForm.monto) > 0)) { mostrarMensaje("El monto debe ser mayor a 0", "error"); return; }
+        if (pagoForm.origen === "caja" && !pagoForm.cajaOrigen) { mostrarMensaje("Elegí de qué caja sale", "error"); return; }
+        setPagoGuardando(true);
+        try {
+          await axios.post(`${API}/api/rrhh/liquidaciones/${pagoLiq.id}/pagos`, {
+            fecha: pagoForm.fecha, monto: Number(pagoForm.monto), medioPago: pagoForm.medioPago,
+            cajaOrigen: pagoForm.origen === "caja" ? pagoForm.cajaOrigen : "", usuario: usuario.nombre_completo,
+          });
+          setPagoLiq(null); await cargar(); mostrarMensaje("Pago registrado");
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error registrando el pago", "error"); }
+        setPagoGuardando(false);
+      }
+      async function anularPago(p, empNombre) {
+        const motivo = window.prompt(`Anular pago de ${rrhhMoney(p.monto)} (${empNombre}).\nMotivo:`);
+        if (motivo === null) return;
+        if (!motivo.trim()) { mostrarMensaje("El motivo es obligatorio", "error"); return; }
+        try {
+          await axios.post(`${API}/api/rrhh/pagos/${p.id}/anular`, { motivo: motivo.trim(), usuario: usuario.nombre_completo });
+          await cargar(); mostrarMensaje("Pago anulado" + (p.caja_origen ? " (repuesto en caja)" : ""));
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error anulando", "error"); }
+      }
+
       const totalMes = empleados.reduce((a, e) => a + costoRow(getRow(e.id)), 0);
+      // A pagar / pagado / pendiente sobre las liquidaciones ya cargadas del mes.
+      const liqsMes = empleados.map(e => liquid[e.id]).filter(Boolean);
+      const totalAPagar = liqsMes.reduce((a, l) => a + Number(l.neto), 0);
+      const totalPagado = liqsMes.reduce((a, l) => a + Number(l.pagado || 0), 0);
+      const totalPendiente = totalAPagar - totalPagado;
       const inpN = { width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", boxSizing: "border-box", textAlign: "right" };
+      const GRID = "150px repeat(5, 84px) 92px 92px 92px 100px 150px";
 
       return (
-        <div style={{ padding: 24, maxWidth: 1150, margin: "0 auto" }}>
+        <div style={{ padding: 24, maxWidth: 1250, margin: "0 auto" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
             <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>🧾 Liquidaciones</div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -3219,40 +3265,147 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
           <RrhhMensaje mensaje={mensaje} />
 
-          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "12px 18px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-            <div style={{ fontSize: 12, color: "#888" }}>Cargá la liquidación de cada empleado para <b style={{ color: "#333" }}>{periodo}</b>. El costo = bruto + no remunerativo + contribuciones.</div>
-            <div style={{ fontSize: 13, color: "#555" }}>Costo total del mes: <b style={{ fontSize: 18, color: "#c0392b" }}>{rrhhMoney(totalMes)}</b></div>
+          <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 180px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "12px 16px" }}>
+              <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5 }}>Costo total del mes</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: "#c0392b" }}>{rrhhMoney(totalMes)}</div>
+              <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>bruto + no rem. + contrib.</div>
+            </div>
+            <div style={{ flex: "1 1 180px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "12px 16px" }}>
+              <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5 }}>A pagar (neto)</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: "#333" }}>{rrhhMoney(totalAPagar)}</div>
+            </div>
+            <div style={{ flex: "1 1 180px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "12px 16px" }}>
+              <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5 }}>Pagado</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: "#1d8a4e" }}>{rrhhMoney(totalPagado)}</div>
+            </div>
+            <div style={{ flex: "1 1 180px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "12px 16px" }}>
+              <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5 }}>Pendiente</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: "#b45309" }}>{rrhhMoney(totalPendiente)}</div>
+            </div>
           </div>
 
+          <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>Cargá la liquidación de cada empleado para <b style={{ color: "#333" }}>{periodo}</b>. Lo que queda por pagar = neto − pagos (los adelantos no se restan).</div>
+
           <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1.4fr repeat(5, 1fr) 1fr 80px", gap: 8, padding: "10px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>
-              <div>Empleado</div><div style={{ textAlign: "right" }}>Bruto</div><div style={{ textAlign: "right" }}>No rem.</div><div style={{ textAlign: "right" }}>Deduc.</div><div style={{ textAlign: "right" }}>Neto</div><div style={{ textAlign: "right" }}>Contrib.</div><div style={{ textAlign: "right" }}>Costo</div><div></div>
+            <div style={{ overflowX: "auto" }}>
+              <div style={{ minWidth: 1120 }}>
+                <div style={{ display: "grid", gridTemplateColumns: GRID, gap: 8, padding: "10px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 10, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>
+                  <div>Empleado</div><div style={{ textAlign: "right" }}>Bruto</div><div style={{ textAlign: "right" }}>No rem.</div><div style={{ textAlign: "right" }}>Deduc.</div><div style={{ textAlign: "right" }}>Neto</div><div style={{ textAlign: "right" }}>Contrib.</div><div style={{ textAlign: "right" }}>Costo</div><div style={{ textAlign: "right" }}>Pagado</div><div style={{ textAlign: "right" }}>Saldo</div><div>Estado</div><div></div>
+                </div>
+                {loading ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+                  : empleados.length === 0 ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>No hay empleados activos.</div>
+                  : empleados.map(e => {
+                    const r = getRow(e.id);
+                    const cierra = !netoNoCierra(r);
+                    const liq = liquid[e.id];
+                    const est = liq ? RRHH_ESTADO_PAGO[liq.estado_pago] : null;
+                    const abierto = expandedId === e.id;
+                    return (
+                      <div key={e.id}>
+                        <div style={{ display: "grid", gridTemplateColumns: GRID, gap: 8, padding: "8px 16px", borderBottom: abierto ? "none" : "1px solid #f5f5f5", fontSize: 13, alignItems: "center" }}>
+                          <div style={{ color: "#333", fontWeight: 500, fontSize: 12 }}>
+                            {e.nombre}
+                            {!cierra && <div style={{ fontSize: 10, color: "#c0392b" }}>⚠️ neto no cierra</div>}
+                          </div>
+                          <input type="number" step="0.01" style={inpN} value={r.bruto} onChange={ev => setRow(e.id, "bruto", ev.target.value)} />
+                          <input type="number" step="0.01" style={inpN} value={r.no_remunerativo} onChange={ev => setRow(e.id, "no_remunerativo", ev.target.value)} />
+                          <input type="number" step="0.01" style={inpN} value={r.deducciones} onChange={ev => setRow(e.id, "deducciones", ev.target.value)} />
+                          <input type="number" step="0.01" style={{ ...inpN, borderColor: cierra ? "#ddd" : "#e6a23c" }} value={r.neto} onChange={ev => setRow(e.id, "neto", ev.target.value)} />
+                          <input type="number" step="0.01" style={inpN} value={r.contribuciones} onChange={ev => setRow(e.id, "contribuciones", ev.target.value)} />
+                          <div style={{ textAlign: "right", fontWeight: 600, color: "#333", fontSize: 12 }}>{rrhhMoney(costoRow(r))}</div>
+                          <div style={{ textAlign: "right", color: "#1d8a4e", fontSize: 12 }}>{liq ? rrhhMoney(liq.pagado) : "—"}</div>
+                          <div style={{ textAlign: "right", fontWeight: 600, color: liq && liq.saldo > 1 ? "#b45309" : "#333", fontSize: 12 }}>{liq ? rrhhMoney(liq.saldo) : "—"}</div>
+                          <div>
+                            {est
+                              ? <span style={{ fontSize: 9, fontWeight: 600, color: est.color, background: est.bg, borderRadius: 4, padding: "2px 6px" }}>{est.label}</span>
+                              : <span style={{ fontSize: 9, color: "#bbb" }}>sin cargar</span>}
+                          </div>
+                          <div style={{ display: "flex", gap: 4, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                            <button style={{ fontSize: 10, fontWeight: 600, padding: "5px 8px", borderRadius: 6, border: "none", background: savingId === e.id ? "#ccc" : "#F68B32", color: "#fff", cursor: savingId === e.id ? "default" : "pointer" }} disabled={savingId === e.id} onClick={() => guardarRow(e)}>{savingId === e.id ? "…" : "Guardar"}</button>
+                            {liq && liq.saldo > 1 && <button style={{ fontSize: 10, fontWeight: 600, padding: "5px 8px", borderRadius: 6, border: "1px solid #1d8a4e", background: "#eafaf1", color: "#1d8a4e", cursor: "pointer" }} onClick={() => abrirPago(liq)}>💵 Pago</button>}
+                            {liq && (liq.pagos || []).length > 0 && <button style={{ fontSize: 10, padding: "5px 8px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#555", cursor: "pointer" }} onClick={() => setExpandedId(abierto ? null : e.id)}>{abierto ? "▾" : `▸ ${(liq.pagos || []).length}`}</button>}
+                          </div>
+                        </div>
+                        {abierto && liq && (
+                          <div style={{ padding: "8px 16px 12px 24px", borderBottom: "1px solid #f5f5f5", background: "#fcfcfb" }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Pagos de esta liquidación</div>
+                            {(liq.pagos || []).map(p => {
+                              const anulado = p.estado === "anulado";
+                              return (
+                                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, padding: "4px 0", opacity: anulado ? 0.55 : 1 }}>
+                                  <span style={{ color: "#666", width: 90 }}>{p.fecha}</span>
+                                  <span style={{ fontWeight: 600, color: "#333", width: 110, textAlign: "right", textDecoration: anulado ? "line-through" : "none" }}>{rrhhMoney(p.monto)}</span>
+                                  <span style={{ color: "#555", width: 110 }}>{p.medio_pago}</span>
+                                  <span style={{ color: "#666", flex: 1 }}>{p.caja_origen || "Externo"}</span>
+                                  {anulado
+                                    ? <span style={{ fontSize: 10, color: "#c0392b" }}>Anulado{p.motivo_anulacion ? `: ${p.motivo_anulacion}` : ""}</span>
+                                    : <button style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => anularPago(p, e.nombre)}>Anular</button>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
             </div>
-            {loading ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>Cargando…</div>
-              : empleados.length === 0 ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>No hay empleados activos.</div>
-              : empleados.map(e => {
-                const r = getRow(e.id);
-                const cierra = !netoNoCierra(r);
-                return (
-                  <div key={e.id} style={{ display: "grid", gridTemplateColumns: "1.4fr repeat(5, 1fr) 1fr 80px", gap: 8, padding: "8px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, alignItems: "center" }}>
-                    <div style={{ color: "#333", fontWeight: 500 }}>
-                      {e.nombre}
-                      {liquid[e.id] && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 600, color: "#1d8a4e", background: "#eafaf1", borderRadius: 4, padding: "1px 5px" }}>CARGADA</span>}
-                      {!cierra && <div style={{ fontSize: 10, color: "#c0392b" }}>⚠️ el neto no cierra</div>}
+          </div>
+
+          {/* Modal registrar pago */}
+          {pagoLiq && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => !pagoGuardando && setPagoLiq(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 4 }}>Registrar pago</div>
+                <div style={{ fontSize: 12, color: "#888", marginBottom: 16 }}>{pagoLiq.empleado_nombre} · {pagoLiq.periodo} · queda por pagar <b style={{ color: "#b45309" }}>{rrhhMoney(pagoLiq.saldo)}</b></div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Fecha</label>
+                      <input type="date" style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={pagoForm.fecha} onChange={e => setPagoForm(f => ({ ...f, fecha: e.target.value }))} />
                     </div>
-                    <input type="number" step="0.01" style={inpN} value={r.bruto} onChange={ev => setRow(e.id, "bruto", ev.target.value)} />
-                    <input type="number" step="0.01" style={inpN} value={r.no_remunerativo} onChange={ev => setRow(e.id, "no_remunerativo", ev.target.value)} />
-                    <input type="number" step="0.01" style={inpN} value={r.deducciones} onChange={ev => setRow(e.id, "deducciones", ev.target.value)} />
-                    <input type="number" step="0.01" style={{ ...inpN, borderColor: cierra ? "#ddd" : "#e6a23c" }} value={r.neto} onChange={ev => setRow(e.id, "neto", ev.target.value)} />
-                    <input type="number" step="0.01" style={inpN} value={r.contribuciones} onChange={ev => setRow(e.id, "contribuciones", ev.target.value)} />
-                    <div style={{ textAlign: "right", fontWeight: 600, color: "#333" }}>{rrhhMoney(costoRow(r))}</div>
-                    <div style={{ textAlign: "right" }}>
-                      <button style={{ fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 6, border: "none", background: savingId === e.id ? "#ccc" : "#F68B32", color: "#fff", cursor: savingId === e.id ? "default" : "pointer" }} disabled={savingId === e.id} onClick={() => guardarRow(e)}>{savingId === e.id ? "…" : "Guardar"}</button>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Monto</label>
+                      <input type="number" min="0" step="0.01" style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={pagoForm.monto} onChange={e => setPagoForm(f => ({ ...f, monto: e.target.value }))} />
                     </div>
                   </div>
-                );
-              })}
-          </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Medio de pago</label>
+                    <select style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={pagoForm.medioPago} onChange={e => setPagoForm(f => ({ ...f, medioPago: e.target.value }))}>
+                      {MEDIOS_PAGO_SUELDO.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Origen del dinero</label>
+                    <select style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={pagoForm.origen} onChange={e => setPagoForm(f => ({ ...f, origen: e.target.value }))}>
+                      <option value="externo">Externo (no toca caja)</option>
+                      <option value="caja">Sale de caja</option>
+                    </select>
+                  </div>
+                  {pagoForm.origen === "caja" && (
+                    <div>
+                      <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Caja</label>
+                      <select style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={pagoForm.cajaOrigen} onChange={e => setPagoForm(f => ({ ...f, cajaOrigen: e.target.value }))}>
+                        <option value="">Elegir caja…</option>
+                        {CAJAS_PAGO.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <div style={{ fontSize: 11, color: "#999", marginTop: 4 }}>Registra una salida en la caja con fecha de hoy.</div>
+                    </div>
+                  )}
+                  {Number(pagoForm.monto) > 0 && (
+                    <div style={{ background: "#fafaf8", border: "1px solid #eee", borderRadius: 8, padding: "10px 12px", fontSize: 12, color: "#555" }}>
+                      Se registra un pago de <b>{rrhhMoney(pagoForm.monto)}</b> a <b>{pagoLiq.empleado_nombre}</b>{pagoForm.origen === "caja" && pagoForm.cajaOrigen ? <> con salida de <b>{pagoForm.cajaOrigen}</b></> : <> (externo)</>}. Quedaría por pagar <b>{rrhhMoney(Number(pagoLiq.saldo) - Number(pagoForm.monto))}</b>.
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+                  <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} disabled={pagoGuardando} onClick={() => setPagoLiq(null)}>Cancelar</button>
+                  <button style={{ fontSize: 13, fontWeight: 600, padding: "8px 18px", borderRadius: 8, border: "none", background: pagoGuardando ? "#ccc" : "#1d8a4e", color: "#fff", cursor: pagoGuardando ? "default" : "pointer" }} disabled={pagoGuardando} onClick={registrarPago}>{pagoGuardando ? "Guardando…" : "Confirmar pago"}</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
@@ -3453,7 +3606,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [desde, setDesde] = useState(rrhhMesActual);
       const [hasta, setHasta] = useState(rrhhMesActual);
       const [local, setLocal] = useState("");
-      const [data, setData] = useState({ total: 0, totalAdelantos: 0, porMes: {}, porLocal: {}, porEmpleado: [] });
+      const [data, setData] = useState({ total: 0, totalAdelantos: 0, porMes: {}, porLocal: {}, porEmpleado: [], porMesPago: {}, totalNeto: 0, totalPagado: 0, totalPendiente: 0 });
       const [loading, setLoading] = useState(true);
       const [mensaje, setMensaje] = useState(null);
 
@@ -3473,7 +3626,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
       function exportar() {
         const emp = data.porEmpleado.map(e => ({ "Empleado": e.empleado, "Local": e.local || "", "Costo laboral": Number(e.costo), "Adelantos": Number(e.adelantos) }));
-        const mes = Object.entries(data.porMes).sort().map(([m, v]) => ({ "Mes": m, "Costo laboral": Number(v) }));
+        const mes = Object.entries(data.porMes).sort().map(([m, v]) => ({ "Mes": m, "Costo laboral": Number(v), "Neto a pagar": Number(data.porMesPago?.[m]?.neto || 0), "Pagado": Number(data.porMesPago?.[m]?.pagado || 0), "Pendiente": Number(data.porMesPago?.[m]?.pendiente || 0) }));
         const loc = Object.entries(data.porLocal).map(([l, v]) => ({ "Local": l, "Costo laboral": Number(v) }));
         exportarExcel(`costo_personal_${desde}_${hasta}.xlsx`, [
           { name: "Por empleado", data: emp }, { name: "Por mes", data: mes }, { name: "Por local", data: loc },
@@ -3516,13 +3669,34 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5 }}>Adelantos del período</div>
               <div style={{ fontSize: 22, fontWeight: 700, color: "#8e44ad" }}>{rrhhMoney(data.totalAdelantos)}</div>
             </div>
+            <div style={{ flex: "1 1 220px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "14px 18px" }}>
+              <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5 }}>Sueldos pagados</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#1d8a4e" }}>{rrhhMoney(data.totalPagado)}</div>
+              <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>de {rrhhMoney(data.totalNeto)} netos</div>
+            </div>
+            <div style={{ flex: "1 1 220px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "14px 18px" }}>
+              <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5 }}>Pendiente de pago</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#b45309" }}>{rrhhMoney(data.totalPendiente)}</div>
+            </div>
           </div>
 
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
             {meses.length > 0 && (
-              <div style={{ flex: "1 1 260px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "12px 18px" }}>
-                <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Por mes</div>
-                {meses.map(([m, v]) => <div key={m} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}><span style={{ color: "#555" }}>{m}</span><b style={{ color: "#333" }}>{rrhhMoney(v)}</b></div>)}
+              <div style={{ flex: "1 1 340px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "12px 18px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, fontSize: 10, fontWeight: 700, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>
+                  <div>Mes</div><div style={{ textAlign: "right" }}>Costo</div><div style={{ textAlign: "right" }}>Pagado</div><div style={{ textAlign: "right" }}>Pendiente</div>
+                </div>
+                {meses.map(([m, v]) => {
+                  const pm = data.porMesPago?.[m] || { pagado: 0, pendiente: 0 };
+                  return (
+                    <div key={m} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, fontSize: 13, padding: "3px 0" }}>
+                      <span style={{ color: "#555" }}>{m}</span>
+                      <b style={{ color: "#333", textAlign: "right" }}>{rrhhMoney(v)}</b>
+                      <span style={{ color: "#1d8a4e", textAlign: "right" }}>{rrhhMoney(pm.pagado)}</span>
+                      <span style={{ color: pm.pendiente > 1 ? "#b45309" : "#999", textAlign: "right" }}>{rrhhMoney(pm.pendiente)}</span>
+                    </div>
+                  );
+                })}
               </div>
             )}
             {locs.length > 0 && (
