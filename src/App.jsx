@@ -2075,7 +2075,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         );
       }
       // Conceptos autogenerados (MISMA lista que el backend) → no editables.
-      const CONCEPTOS_AUTO_PREFIJOS = ["transferencia a", "transferencia desde", "pago factura", "sobre a bandeja", "sobre recibido", "sobre rechazado", "ajuste sobre", "apertura", "reapertura", "cierre"];
+      const CONCEPTOS_AUTO_PREFIJOS = ["transferencia a", "transferencia desde", "pago factura", "sobre a bandeja", "sobre recibido", "sobre rechazado", "ajuste sobre", "apertura", "reapertura", "cierre", "gasto:", "anulación gasto"];
       const esConceptoAuto = (c) => { const s = String(c || "").trim().toLowerCase(); return CONCEPTOS_AUTO_PREFIJOS.some(p => s.startsWith(p)); };
 
       // Filtra movimientos por rango de fecha + palabra en el concepto (sobre la lista ya traída).
@@ -2666,6 +2666,315 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                 </div>
               ))}
           </div>
+        </div>
+      );
+    }
+
+    // ─── GASTOS COMUNES — CATEGORÍAS (ABM con "Es retiro") ─────────────────
+    // Separado de las categorías de Compras. "Es retiro" = retiro de socios/gerencia (se totaliza aparte).
+    function VistaCategoriasGastoComun({ onVolver }) {
+      const [categorias, setCategorias] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [nombre, setNombre] = useState("");
+      const [esRetiro, setEsRetiro] = useState(false);
+      const [guardando, setGuardando] = useState(false);
+      const [mensaje, setMensaje] = useState(null);
+
+      async function cargar() {
+        setLoading(true);
+        try { const res = await axios.get(`${API}/api/gastos-comunes/categorias`); setCategorias(res.data); }
+        catch (err) { setMensaje({ texto: err.response?.data?.error || "Error cargando categorías", tipo: "error" }); }
+        setLoading(false);
+      }
+      useEffect(() => { cargar(); }, []);
+      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 3000); }
+
+      async function agregar() {
+        if (!nombre.trim()) return;
+        setGuardando(true);
+        try { await axios.post(`${API}/api/gastos-comunes/categorias`, { nombre: nombre.trim(), es_retiro: esRetiro }); setNombre(""); setEsRetiro(false); await cargar(); mostrarMensaje("Categoría creada"); }
+        catch (err) { mostrarMensaje(err.response?.data?.error || "Error creando categoría", "error"); }
+        setGuardando(false);
+      }
+      async function eliminar(c) {
+        if (!window.confirm(`¿Eliminar la categoría "${c.nombre}"?`)) return;
+        try { await axios.delete(`${API}/api/gastos-comunes/categorias/${c.id}`); await cargar(); mostrarMensaje("Categoría eliminada"); }
+        catch (err) { mostrarMensaje(err.response?.data?.error || "Error eliminando", "error"); }
+      }
+
+      return (
+        <div style={{ padding: 24, maxWidth: 560, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>🏷️ Categorías de gastos comunes</div>
+            <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver al panel</button>
+          </div>
+
+          {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>}
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
+              <input style={{ flex: 1, fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd" }} placeholder="Nueva categoría (ej. Librería, Limpieza, Viáticos)" value={nombre}
+                onChange={e => setNombre(e.target.value)} onKeyDown={e => { if (e.key === "Enter") agregar(); }} />
+              <button style={{ fontSize: 12, fontWeight: 600, padding: "7px 14px", borderRadius: 6, border: "none", background: (guardando || !nombre.trim()) ? "#ccc" : "#F68B32", color: "#fff", cursor: (guardando || !nombre.trim()) ? "default" : "pointer" }} disabled={guardando || !nombre.trim()} onClick={agregar}>+ Agregar</button>
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#666", marginBottom: 16, cursor: "pointer" }}>
+              <input type="checkbox" checked={esRetiro} onChange={e => setEsRetiro(e.target.checked)} />
+              Es retiro (retiro de socios/gerencia — se totaliza aparte)
+            </label>
+            {loading ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando…</div>
+              : categorias.length === 0 ? <div style={{ color: "#aaa", fontSize: 13 }}>No hay categorías cargadas.</div>
+              : categorias.map(c => (
+                <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid #f5f5f5" }}>
+                  <span style={{ fontSize: 13, color: "#333", fontWeight: 500 }}>
+                    {c.nombre}
+                    {c.es_retiro && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 600, color: "#8e44ad", background: "#f3e8fb", borderRadius: 4, padding: "2px 6px" }}>RETIRO</span>}
+                  </span>
+                  <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => eliminar(c)}>✕ Eliminar</button>
+                </div>
+              ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── GASTOS COMUNES — REGISTRO Y LISTADO ──────────────────────────────
+    // Gastos sin factura de proveedor. Externo (no toca caja) o "sale de caja" (salida atómica en caja_movimientos).
+    // Administración solo superadmin (mismo criterio que Compras/pago). Anular repone en caja si salió de caja.
+    function VistaGastosComunes({ usuario, onVolver }) {
+      const hoyStr = (() => { const h = new Date(); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`; })();
+      const money = (n) => "$" + Number(n || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const CAJAS_GASTO = ["A. Thomas", "French", "Administración", "Fondo Fijo A. Thomas", "Fondo Fijo French"]
+        .filter(c => c !== "Administración" || usuario.rol === "superadmin");
+
+      const [data, setData] = useState({ gastos: [], totalGastos: 0, totalRetiros: 0, porCategoria: {} });
+      const [categorias, setCategorias] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [mensaje, setMensaje] = useState(null);
+      // Filtros
+      const [fDesde, setFDesde] = useState("");
+      const [fHasta, setFHasta] = useState("");
+      const [fCategoria, setFCategoria] = useState("");
+      const [fOrigen, setFOrigen] = useState("");
+      const [incluirAnulados, setIncluirAnulados] = useState(false);
+      // Alta
+      const [modal, setModal] = useState(false);
+      const [form, setForm] = useState({ fecha: hoyStr, descripcion: "", monto: "", categoria_id: "", origen: "externo", cajaOrigen: "" });
+      const [guardando, setGuardando] = useState(false);
+
+      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 3500); }
+      const setCampo = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+      async function cargar() {
+        setLoading(true);
+        try {
+          const params = {};
+          if (fDesde) params.desde = fDesde;
+          if (fHasta) params.hasta = fHasta;
+          if (fCategoria) params.categoria = fCategoria;
+          if (fOrigen) params.origen = fOrigen;
+          if (incluirAnulados) params.incluirAnulados = "1";
+          const res = await axios.get(`${API}/api/gastos-comunes`, { params });
+          setData(res.data);
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error cargando gastos", "error"); }
+        setLoading(false);
+      }
+      async function cargarCategorias() {
+        try { const res = await axios.get(`${API}/api/gastos-comunes/categorias`); setCategorias(res.data); }
+        catch (err) { /* el form lo avisa */ }
+      }
+      useEffect(() => { cargarCategorias(); }, []);
+      useEffect(() => { cargar(); }, [fDesde, fHasta, fCategoria, fOrigen, incluirAnulados]);
+
+      function abrirNuevo() { setForm({ fecha: hoyStr, descripcion: "", monto: "", categoria_id: "", origen: "externo", cajaOrigen: "" }); setModal(true); }
+
+      async function guardar() {
+        if (!form.descripcion.trim()) { mostrarMensaje("La descripción es obligatoria", "error"); return; }
+        if (!(Number(form.monto) > 0)) { mostrarMensaje("El monto debe ser mayor a 0", "error"); return; }
+        if (!form.categoria_id) { mostrarMensaje("Elegí una categoría", "error"); return; }
+        if (form.origen === "caja" && !form.cajaOrigen) { mostrarMensaje("Elegí de qué caja sale", "error"); return; }
+        setGuardando(true);
+        try {
+          await axios.post(`${API}/api/gastos-comunes`, {
+            fecha: form.fecha,
+            descripcion: form.descripcion.trim(),
+            monto: Number(form.monto),
+            categoria_id: Number(form.categoria_id),
+            cajaOrigen: form.origen === "caja" ? form.cajaOrigen : "",
+            usuario: usuario.nombre_completo,
+          });
+          setModal(false); await cargar(); mostrarMensaje("Gasto registrado");
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error registrando el gasto", "error"); }
+        setGuardando(false);
+      }
+
+      async function anular(g) {
+        const motivo = window.prompt(`Anular gasto "${g.descripcion}" (${money(g.monto)}).\nMotivo de anulación:`);
+        if (motivo === null) return;
+        if (!motivo.trim()) { mostrarMensaje("El motivo es obligatorio", "error"); return; }
+        try {
+          await axios.post(`${API}/api/gastos-comunes/${g.id}/anular`, { motivo: motivo.trim(), usuario: usuario.nombre_completo });
+          await cargar(); mostrarMensaje("Gasto anulado" + (g.caja_origen ? " (repuesto en caja)" : ""));
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error anulando", "error"); }
+      }
+
+      function exportar() {
+        const datos = data.gastos.map(g => ({
+          "Fecha": g.fecha, "Descripción": g.descripcion, "Categoría": g.categoria_nombre,
+          "Tipo": g.es_retiro ? "Retiro" : "Gasto", "Monto": Number(g.monto),
+          "Origen": g.caja_origen || "Externo", "Usuario": g.usuario || "", "Estado": g.estado,
+          "Motivo anulación": g.motivo_anulacion || "",
+        }));
+        const tag = (fDesde || fHasta) ? `${fDesde || "inicio"}_${fHasta || "hoy"}` : "todos";
+        exportarExcel(`gastos_comunes_${tag}.xlsx`, [{ name: "Gastos comunes", data: datos }]);
+      }
+
+      const hayFiltros = fDesde || fHasta || fCategoria || fOrigen || incluirAnulados;
+      const porCat = Object.entries(data.porCategoria || {}).sort((a, b) => b[1] - a[1]);
+
+      return (
+        <div style={{ padding: 24, maxWidth: 1050, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>🧾 Gastos comunes</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 16px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer" }} onClick={abrirNuevo}>+ Nuevo gasto</button>
+              {data.gastos.length > 0 && <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "1px solid #1d8a4e", background: "#eafaf1", color: "#1d8a4e", cursor: "pointer" }} onClick={exportar}>📊 Excel</button>}
+              <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver</button>
+            </div>
+          </div>
+
+          {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>}
+
+          {/* Totales separados */}
+          <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 200px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "14px 18px" }}>
+              <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5 }}>Gastos</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#c0392b" }}>{money(data.totalGastos)}</div>
+            </div>
+            <div style={{ flex: "1 1 200px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "14px 18px" }}>
+              <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5 }}>Retiros</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#8e44ad" }}>{money(data.totalRetiros)}</div>
+            </div>
+            {porCat.length > 0 && (
+              <div style={{ flex: "2 1 320px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "12px 18px" }}>
+                <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Por categoría</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px" }}>
+                  {porCat.map(([cat, monto]) => (
+                    <span key={cat} style={{ fontSize: 12, color: "#555" }}>{cat}: <b style={{ color: "#333" }}>{money(monto)}</b></span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Filtros */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
+            <input type="date" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={fDesde} onChange={e => setFDesde(e.target.value)} />
+            <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
+            <input type="date" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={fHasta} onChange={e => setFHasta(e.target.value)} />
+            <select style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={fCategoria} onChange={e => setFCategoria(e.target.value)}>
+              <option value="">Todas las categorías</option>
+              {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+            <select style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={fOrigen} onChange={e => setFOrigen(e.target.value)}>
+              <option value="">Todos los orígenes</option>
+              <option value="externo">Externo</option>
+              <option value="caja">Sale de caja</option>
+            </select>
+            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#666", cursor: "pointer" }}>
+              <input type="checkbox" checked={incluirAnulados} onChange={e => setIncluirAnulados(e.target.checked)} /> Incluir anulados
+            </label>
+            {hayFiltros && <button style={{ fontSize: 12, padding: "6px 12px", borderRadius: 8, border: "1px solid #c0392b", background: "#fff", color: "#c0392b", cursor: "pointer" }} onClick={() => { setFDesde(""); setFHasta(""); setFCategoria(""); setFOrigen(""); setIncluirAnulados(false); }}>✕ Limpiar</button>}
+          </div>
+
+          {/* Listado */}
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "100px 1fr 140px 120px 150px 130px 90px", gap: 8, padding: "10px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>
+              <div>Fecha</div><div>Descripción</div><div>Categoría</div><div style={{ textAlign: "right" }}>Monto</div><div>Origen</div><div>Usuario</div><div></div>
+            </div>
+            {loading ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+              : data.gastos.length === 0 ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>No hay gastos para los filtros elegidos.</div>
+              : data.gastos.map(g => {
+                const anulado = g.estado === "anulado";
+                return (
+                  <div key={g.id} style={{ display: "grid", gridTemplateColumns: "100px 1fr 140px 120px 150px 130px 90px", gap: 8, padding: "10px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, alignItems: "center", opacity: anulado ? 0.55 : 1 }}>
+                    <div style={{ color: "#666" }}>{g.fecha}</div>
+                    <div style={{ color: "#333", textDecoration: anulado ? "line-through" : "none" }}>
+                      {g.descripcion}
+                      {anulado && g.motivo_anulacion && <div style={{ fontSize: 11, color: "#c0392b", textDecoration: "none" }}>Anulado: {g.motivo_anulacion}</div>}
+                    </div>
+                    <div style={{ color: "#555" }}>
+                      {g.categoria_nombre}
+                      {g.es_retiro && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 600, color: "#8e44ad", background: "#f3e8fb", borderRadius: 4, padding: "1px 5px" }}>RETIRO</span>}
+                    </div>
+                    <div style={{ textAlign: "right", fontWeight: 600, color: g.es_retiro ? "#8e44ad" : "#c0392b" }}>{money(g.monto)}</div>
+                    <div style={{ color: "#666", fontSize: 12 }}>{g.caja_origen || "Externo"}</div>
+                    <div style={{ color: "#999", fontSize: 12 }}>{g.usuario || "—"}</div>
+                    <div style={{ textAlign: "right" }}>
+                      {!anulado && <button style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => anular(g)}>Anular</button>}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+
+          {/* Modal nuevo gasto */}
+          {modal && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => !guardando && setModal(false)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 16 }}>Nuevo gasto</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Fecha</label>
+                    <input type="date" style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={form.fecha} onChange={e => setCampo("fecha", e.target.value)} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Descripción</label>
+                    <input style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} placeholder="Ej. Resma de papel, artículos de limpieza…" value={form.descripcion} onChange={e => setCampo("descripcion", e.target.value)} />
+                  </div>
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Monto</label>
+                      <input type="number" min="0" step="0.01" style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} placeholder="0.00" value={form.monto} onChange={e => setCampo("monto", e.target.value)} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Categoría</label>
+                      <select style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={form.categoria_id} onChange={e => setCampo("categoria_id", e.target.value)}>
+                        <option value="">Elegir…</option>
+                        {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}{c.es_retiro ? " (retiro)" : ""}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Origen del dinero</label>
+                    <select style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={form.origen} onChange={e => setCampo("origen", e.target.value)}>
+                      <option value="externo">Externo (no toca caja)</option>
+                      <option value="caja">Sale de caja</option>
+                    </select>
+                  </div>
+                  {form.origen === "caja" && (
+                    <div>
+                      <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Caja</label>
+                      <select style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={form.cajaOrigen} onChange={e => setCampo("cajaOrigen", e.target.value)}>
+                        <option value="">Elegir caja…</option>
+                        {CAJAS_GASTO.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <div style={{ fontSize: 11, color: "#999", marginTop: 4 }}>Registra una salida en la caja con fecha de hoy.</div>
+                    </div>
+                  )}
+                  {Number(form.monto) > 0 && (
+                    <div style={{ background: "#fafaf8", border: "1px solid #eee", borderRadius: 8, padding: "10px 12px", fontSize: 12, color: "#555" }}>
+                      Se registrará un gasto de <b>{money(form.monto)}</b>{form.origen === "caja" && form.cajaOrigen ? <> con salida de <b>{form.cajaOrigen}</b></> : <> (externo, sin afectar caja)</>}.
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+                  <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} disabled={guardando} onClick={() => setModal(false)}>Cancelar</button>
+                  <button style={{ fontSize: 13, fontWeight: 600, padding: "8px 18px", borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#F68B32", color: "#fff", cursor: guardando ? "default" : "pointer" }} disabled={guardando} onClick={guardar}>{guardando ? "Guardando…" : "Registrar gasto"}</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
@@ -5439,6 +5748,8 @@ let numeroAsignado = "";
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("cuentasPorPagar"); setMenuAbierto(false); }}>💳 Cuentas por pagar</button>
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("proveedores"); setMenuAbierto(false); }}>🏭 Proveedores</button>
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("categoriasGasto"); setMenuAbierto(false); }}>🏷️ Categorías de gasto</button>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("gastosComunes"); setMenuAbierto(false); }}>🧾 Gastos comunes</button>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("categoriasGastoComun"); setMenuAbierto(false); }}>🏷️ Categorías de gastos comunes</button>
                         </>
                       )}
                     </>
@@ -5500,7 +5811,7 @@ let numeroAsignado = "";
       }
 
       // Guard módulo Compras (admin + superadmin).
-      const VISTAS_COMPRAS = ["ordenesCompra", "facturasCompra", "cuentasPorPagar", "proveedores", "categoriasGasto"];
+      const VISTAS_COMPRAS = ["ordenesCompra", "facturasCompra", "cuentasPorPagar", "proveedores", "categoriasGasto", "gastosComunes", "categoriasGastoComun"];
       if (VISTAS_COMPRAS.includes(vista) && !esAdmin) {
         return (
           <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: "system-ui, sans-serif", background: "#f7f7f5", padding: 24, textAlign: "center" }}>
@@ -6568,6 +6879,12 @@ if (vista === "dashboard") {
     }
     if (vista === "categoriasGasto") {
       return <div style={s.wrap}><Header /><VistaCategoriasGasto onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "gastosComunes") {
+      return <div style={s.wrap}><Header /><VistaGastosComunes usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "categoriasGastoComun") {
+      return <div style={s.wrap}><Header /><VistaCategoriasGastoComun onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "mapa") {
         return <div style={s.wrap}><Header /><VistaMapa onVolver={() => setVista("panel")} repartidores={repartidoresLista} onCrearTanda={crearTanda} /></div>;

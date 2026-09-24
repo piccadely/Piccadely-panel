@@ -322,6 +322,30 @@ async function initDB() {
   await pool.query(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS origen TEXT DEFAULT 'formulario';`);
   // Backfill de cliente_key (idempotente): email lower+trim, o teléfono solo dígitos.
   await pool.query(`UPDATE cotizaciones SET cliente_key = COALESCE(NULLIF(lower(trim(email)),''), NULLIF(regexp_replace(COALESCE(telefono,''),'\\D','','g'),'')) WHERE cliente_key IS NULL;`);
+  // Gastos comunes (gastos sin factura de proveedor). Separado de Compras.
+  await pool.query(`CREATE TABLE IF NOT EXISTS categorias_gasto_comun (
+    id SERIAL PRIMARY KEY,
+    nombre TEXT NOT NULL,
+    es_retiro BOOLEAN NOT NULL DEFAULT false,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP DEFAULT NOW()
+  );`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS gastos_comunes (
+    id SERIAL PRIMARY KEY,
+    fecha TEXT NOT NULL,
+    descripcion TEXT NOT NULL,
+    monto NUMERIC NOT NULL CHECK (monto > 0),
+    categoria_id INTEGER NOT NULL REFERENCES categorias_gasto_comun(id),
+    caja_origen TEXT,
+    caja_movimiento_id INTEGER,
+    estado TEXT NOT NULL DEFAULT 'activo' CHECK (estado IN ('activo','anulado')),
+    motivo_anulacion TEXT,
+    usuario TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+  );`);
+  await pool.query(`INSERT INTO categorias_gasto_comun (nombre, es_retiro)
+    SELECT n, r FROM (VALUES ('Librería',false),('Limpieza',false),('Viáticos',false),('Mantenimiento',false),('Varios',false),('Retiros',true)) AS v(n, r)
+    WHERE NOT EXISTS (SELECT 1 FROM categorias_gasto_comun);`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
   await pool.query(`CREATE TABLE IF NOT EXISTS costos_areas (area INTEGER PRIMARY KEY, costo NUMERIC NOT NULL DEFAULT 1);`);
   await pool.query(`INSERT INTO costos_areas (area, costo) SELECT g, 1 FROM generate_series(1,10) g ON CONFLICT (area) DO NOTHING;`);
@@ -2358,6 +2382,131 @@ app.post("/api/ventas/oportunidades", requireAdmin, async (req, res) => {
   }
 });
 
+// ─── GASTOS COMUNES (sin factura de proveedor) — admin + superadmin ─────
+// Reusa el patrón del pago de factura desde caja (salida atómica) + bloqueaCajaAdmin + CAJAS_TRANSFERIBLES.
+app.get("/api/gastos-comunes/categorias", requireAdmin, async (req, res) => {
+  try {
+    const r = await pool.query("SELECT * FROM categorias_gasto_comun WHERE activo = true ORDER BY nombre ASC");
+    res.json(r.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post("/api/gastos-comunes/categorias", requireAdmin, async (req, res) => {
+  const { nombre, es_retiro } = req.body;
+  if (!nombre || !String(nombre).trim()) return res.status(400).json({ error: "El nombre es obligatorio." });
+  try {
+    const r = await pool.query("INSERT INTO categorias_gasto_comun (nombre, es_retiro) VALUES ($1,$2) RETURNING *", [String(nombre).trim(), !!es_retiro]);
+    res.json({ ok: true, categoria: r.rows[0] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.delete("/api/gastos-comunes/categorias/:id", requireAdmin, async (req, res) => {
+  try {
+    await pool.query("UPDATE categorias_gasto_comun SET activo = false WHERE id = $1", [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get("/api/gastos-comunes", requireAdmin, async (req, res) => {
+  const { desde, hasta, categoria, origen, incluirAnulados } = req.query;
+  try {
+    const params = [];
+    let sql = `SELECT g.*, c.nombre AS categoria_nombre, c.es_retiro
+               FROM gastos_comunes g JOIN categorias_gasto_comun c ON c.id = g.categoria_id WHERE 1=1`;
+    if (incluirAnulados !== "1") sql += " AND g.estado <> 'anulado'";
+    if (desde) { params.push(desde); sql += ` AND g.fecha >= $${params.length}`; }
+    if (hasta) { params.push(hasta); sql += ` AND g.fecha <= $${params.length}`; }
+    if (categoria) { params.push(categoria); sql += ` AND g.categoria_id = $${params.length}`; }
+    if (origen === "externo") sql += " AND g.caja_origen IS NULL";
+    else if (origen === "caja") sql += " AND g.caja_origen IS NOT NULL";
+    sql += " ORDER BY g.fecha DESC, g.id DESC";
+    const { rows } = await pool.query(sql, params);
+    const activos = rows.filter(r => r.estado === "activo");
+    const totalGastos = activos.filter(r => !r.es_retiro).reduce((a, r) => a + Number(r.monto), 0);
+    const totalRetiros = activos.filter(r => r.es_retiro).reduce((a, r) => a + Number(r.monto), 0);
+    const porCategoria = {};
+    for (const r of activos) porCategoria[r.categoria_nombre] = (porCategoria[r.categoria_nombre] || 0) + Number(r.monto);
+    res.json({ gastos: rows, totalGastos, totalRetiros, porCategoria });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/gastos-comunes", requireAdmin, async (req, res) => {
+  const { fecha, descripcion, monto, categoria_id, cajaOrigen, usuario } = req.body;
+  if (!descripcion || !String(descripcion).trim()) return res.status(400).json({ error: "La descripción es obligatoria." });
+  const m = Number(monto);
+  if (!Number.isFinite(m) || m <= 0) return res.status(400).json({ error: "El monto debe ser mayor a 0." });
+  if (!esFechaISO(fecha)) return res.status(400).json({ error: "Fecha inválida (formato YYYY-MM-DD)." });
+  const desdeCaja = cajaOrigen && String(cajaOrigen).trim() !== "";
+  try {
+    const cat = await pool.query("SELECT id, nombre FROM categorias_gasto_comun WHERE id = $1 AND activo = true", [categoria_id]);
+    if (cat.rows.length === 0) return res.status(400).json({ error: "Categoría inválida." });
+    const catNombre = cat.rows[0].nombre;
+    const desc = String(descripcion).trim();
+
+    // Externo: solo el gasto, sin tocar caja.
+    if (!desdeCaja) {
+      const r = await pool.query(
+        "INSERT INTO gastos_comunes (fecha, descripcion, monto, categoria_id, caja_origen, usuario) VALUES ($1,$2,$3,$4,NULL,$5) RETURNING id",
+        [fecha, desc, m, categoria_id, usuario || null]
+      );
+      res.json({ ok: true, id: r.rows[0].id });
+      registrarAuditoria(usuario, "gasto_comun_crear", "gasto", r.rows[0].id, { monto: m, categoria: catNombre, externo: true });
+      return;
+    }
+
+    // Sale de caja: validar caja + permiso Administración.
+    if (!CAJAS_TRANSFERIBLES.includes(cajaOrigen)) return res.status(400).json({ error: "Caja de origen inválida." });
+    if (bloqueaCajaAdmin(req, res, cajaOrigen)) return;
+    let client;
+    try {
+      client = await pool.connect();
+      await client.query("BEGIN");
+      const mov = await client.query(
+        "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'salida',$2,$3,$4) RETURNING id",
+        [cajaOrigen, `Gasto: ${catNombre} - ${desc}`, -Math.abs(m), fechaArgentinaISO()]   // HOY: cae en el día abierto
+      );
+      const g = await client.query(
+        "INSERT INTO gastos_comunes (fecha, descripcion, monto, categoria_id, caja_origen, caja_movimiento_id, usuario) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
+        [fecha, desc, m, categoria_id, cajaOrigen, mov.rows[0].id, usuario || null]
+      );
+      await client.query("COMMIT");
+      res.json({ ok: true, id: g.rows[0].id });
+      registrarAuditoria(usuario, "gasto_comun_crear", "gasto", g.rows[0].id, { monto: m, categoria: catNombre, cajaOrigen });
+    } catch (e) {
+      if (client) await client.query("ROLLBACK").catch(() => {});
+      console.error("Error POST /api/gastos-comunes (caja):", e.message);
+      return res.status(500).json({ error: "Error registrando el gasto" });
+    } finally { if (client) client.release(); }
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/gastos-comunes/:id/anular", requireAdmin, async (req, res) => {
+  const { motivo, usuario } = req.body;
+  if (!motivo || !String(motivo).trim()) return res.status(400).json({ error: "El motivo de anulación es obligatorio." });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const sel = await client.query("SELECT id, descripcion, monto, caja_origen, estado FROM gastos_comunes WHERE id = $1 FOR UPDATE", [req.params.id]);
+    const g = sel.rows[0];
+    if (!g) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Gasto no encontrado." }); }
+    if (g.estado !== "activo") { await client.query("ROLLBACK"); return res.status(409).json({ error: "El gasto ya está anulado." }); }
+    if (g.caja_origen) {
+      if (bloqueaCajaAdmin(req, res, g.caja_origen)) { await client.query("ROLLBACK"); return; }
+      await client.query(
+        "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'entrada',$2,$3,$4)",
+        [g.caja_origen, `Anulación gasto #${g.id}: ${g.descripcion}`, Math.abs(Number(g.monto)), fechaArgentinaISO()]
+      );
+    }
+    await client.query("UPDATE gastos_comunes SET estado = 'anulado', motivo_anulacion = $1 WHERE id = $2", [String(motivo).trim(), req.params.id]);
+    await client.query("COMMIT");
+    res.json({ ok: true });
+    registrarAuditoria(usuario, "gasto_comun_anular", "gasto", req.params.id, { motivo: String(motivo).trim() });
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    console.error("Error anular gasto:", e.message);
+    return res.status(500).json({ error: "Error anulando el gasto" });
+  } finally { if (client) client.release(); }
+});
+
 // ─── MAPA DE PEDIDOS ───────────────────────────────────────────────────
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || "";
 
@@ -2820,6 +2969,7 @@ app.get("/api/caja/administracion", requireAuth, async (req, res) => {
 const CONCEPTOS_AUTO_PREFIJOS = [
   "transferencia a", "transferencia desde", "pago factura", "sobre a bandeja",
   "sobre recibido", "sobre rechazado", "ajuste sobre", "apertura", "reapertura", "cierre",
+  "gasto:", "anulación gasto",
 ];
 function esConceptoAutogenerado(concepto) {
   const c = String(concepto || "").trim().toLowerCase();
