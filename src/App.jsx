@@ -2075,7 +2075,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         );
       }
       // Conceptos autogenerados (MISMA lista que el backend) → no editables.
-      const CONCEPTOS_AUTO_PREFIJOS = ["transferencia a", "transferencia desde", "pago factura", "sobre a bandeja", "sobre recibido", "sobre rechazado", "ajuste sobre", "apertura", "reapertura", "cierre", "gasto:", "anulación gasto"];
+      const CONCEPTOS_AUTO_PREFIJOS = ["transferencia a", "transferencia desde", "pago factura", "sobre a bandeja", "sobre recibido", "sobre rechazado", "ajuste sobre", "apertura", "reapertura", "cierre", "gasto:", "anulación gasto", "adelanto sueldo:", "anulación adelanto"];
       const esConceptoAuto = (c) => { const s = String(c || "").trim().toLowerCase(); return CONCEPTOS_AUTO_PREFIJOS.some(p => s.startsWith(p)); };
 
       // Filtra movimientos por rango de fecha + palabra en el concepto (sobre la lista ya traída).
@@ -2975,6 +2975,579 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               </div>
             </div>
           )}
+        </div>
+      );
+    }
+
+    // ─── RRHH — Fase 1 (empleados, liquidaciones, novedades, reporte) ─────
+    // SOLO superadmin (gate en el menú + guard VISTAS_SOLO_SUPERADMIN + backend). No calcula sueldos.
+    const RRHH_LOCALES = ["A. Thomas", "French", "Administración"];
+    const RRHH_TIPO_LABEL = { adelanto: "Adelanto", hora_extra: "Hora extra", bono: "Bono", descuento: "Descuento", otro: "Otro" };
+    const rrhhMoney = (n) => "$" + Number(n || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const rrhhMesActual = (() => { const h = new Date(); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}`; })();
+    const rrhhHoy = (() => { const h = new Date(); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`; })();
+    const EMPLEADO_FORM_VACIO = {
+      nombre: "", dni: "", cuil: "", fecha_nacimiento: "", domicilio: "", telefono: "", email: "",
+      contacto_emergencia: "", local: "", puesto: "", categoria_convenio: "", jornada: "",
+      fecha_ingreso: "", cbu_alias: "",
+    };
+
+    function RrhhMensaje({ mensaje }) {
+      if (!mensaje) return null;
+      return <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>;
+    }
+
+    // ── Empleados (fichas) ──
+    function VistaEmpleados({ usuario, onVolver }) {
+      const [empleados, setEmpleados] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [mensaje, setMensaje] = useState(null);
+      const [incluirInactivos, setIncluirInactivos] = useState(false);
+      const [filtroLocal, setFiltroLocal] = useState("");
+      const [modal, setModal] = useState(null);        // null | "nuevo" | "editar"
+      const [editandoId, setEditandoId] = useState(null);
+      const [form, setForm] = useState(EMPLEADO_FORM_VACIO);
+      const [guardando, setGuardando] = useState(false);
+
+      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 3500); }
+      const setCampo = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+      async function cargar() {
+        setLoading(true);
+        try {
+          const res = await axios.get(`${API}/api/rrhh/empleados`, { params: incluirInactivos ? { incluirInactivos: "1" } : {} });
+          setEmpleados(res.data);
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error cargando empleados", "error"); }
+        setLoading(false);
+      }
+      useEffect(() => { cargar(); }, [incluirInactivos]);
+
+      function abrirNuevo() { setForm(EMPLEADO_FORM_VACIO); setEditandoId(null); setModal("nuevo"); }
+      function abrirEditar(e) {
+        const f = { ...EMPLEADO_FORM_VACIO };
+        for (const k of Object.keys(EMPLEADO_FORM_VACIO)) f[k] = e[k] || "";
+        setForm(f); setEditandoId(e.id); setModal("editar");
+      }
+
+      async function guardar() {
+        if (!form.nombre.trim()) { mostrarMensaje("El nombre es obligatorio", "error"); return; }
+        if (form.cuil && !/^\d{11}$/.test(form.cuil.replace(/\D/g, ""))) { mostrarMensaje("El CUIL debe tener 11 dígitos", "error"); return; }
+        setGuardando(true);
+        const payload = { ...form, usuario: usuario.nombre_completo };
+        try {
+          if (modal === "editar") await axios.patch(`${API}/api/rrhh/empleados/${editandoId}`, payload);
+          else await axios.post(`${API}/api/rrhh/empleados`, payload);
+          setModal(null); await cargar(); mostrarMensaje("Empleado guardado");
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error guardando", "error"); }
+        setGuardando(false);
+      }
+      async function darBaja(e) {
+        const fecha = window.prompt(`Dar de baja a ${e.nombre}.\nFecha de egreso (YYYY-MM-DD, vacío = solo inactivar):`, rrhhHoy);
+        if (fecha === null) return;
+        if (fecha.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(fecha.trim())) { mostrarMensaje("Fecha inválida", "error"); return; }
+        try {
+          await axios.post(`${API}/api/rrhh/empleados/${e.id}/baja`, { fecha_egreso: fecha.trim() || undefined, usuario: usuario.nombre_completo });
+          await cargar(); mostrarMensaje("Empleado dado de baja");
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error dando de baja", "error"); }
+      }
+      async function reactivar(e) {
+        try { await axios.patch(`${API}/api/rrhh/empleados/${e.id}`, { activo: true, usuario: usuario.nombre_completo }); await cargar(); mostrarMensaje("Empleado reactivado"); }
+        catch (err) { mostrarMensaje(err.response?.data?.error || "Error reactivando", "error"); }
+      }
+
+      const lista = empleados.filter(e => !filtroLocal || e.local === filtroLocal);
+      const inp = { width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" };
+      const lbl = { fontSize: 12, color: "#888", display: "block", marginBottom: 4 };
+      const campoF = (k, label, tipo = "text") => (
+        <div><label style={lbl}>{label}</label><input type={tipo} style={inp} value={form[k]} onChange={ev => setCampo(k, ev.target.value)} /></div>
+      );
+
+      return (
+        <div style={{ padding: 24, maxWidth: 1000, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>🧑‍🍳 Empleados</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 16px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer" }} onClick={abrirNuevo}>+ Nuevo empleado</button>
+              <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver</button>
+            </div>
+          </div>
+
+          <RrhhMensaje mensaje={mensaje} />
+
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+            <select style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={filtroLocal} onChange={e => setFiltroLocal(e.target.value)}>
+              <option value="">Todos los locales</option>
+              {RRHH_LOCALES.map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#666", cursor: "pointer" }}>
+              <input type="checkbox" checked={incluirInactivos} onChange={e => setIncluirInactivos(e.target.checked)} /> Incluir inactivos
+            </label>
+          </div>
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 130px 130px 140px 120px", gap: 8, padding: "10px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>
+              <div>Nombre</div><div>Local</div><div>Puesto</div><div>Ingreso</div><div></div>
+            </div>
+            {loading ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+              : lista.length === 0 ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>No hay empleados.</div>
+              : lista.map(e => (
+                <div key={e.id} style={{ display: "grid", gridTemplateColumns: "1fr 130px 130px 140px 120px", gap: 8, padding: "10px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, alignItems: "center", opacity: e.activo ? 1 : 0.55 }}>
+                  <div style={{ color: "#333", fontWeight: 500, cursor: "pointer" }} onClick={() => abrirEditar(e)}>
+                    {e.nombre}
+                    {!e.activo && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 600, color: "#888", background: "#eee", borderRadius: 4, padding: "1px 5px" }}>INACTIVO</span>}
+                  </div>
+                  <div style={{ color: "#666" }}>{e.local || "—"}</div>
+                  <div style={{ color: "#666" }}>{e.puesto || "—"}</div>
+                  <div style={{ color: "#999", fontSize: 12 }}>{e.fecha_ingreso || "—"}</div>
+                  <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                    <button style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#555", cursor: "pointer" }} onClick={() => abrirEditar(e)}>Ver</button>
+                    {e.activo
+                      ? <button style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => darBaja(e)}>Baja</button>
+                      : <button style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #1d8a4e", background: "#eafaf1", color: "#1d8a4e", cursor: "pointer" }} onClick={() => reactivar(e)}>Reactivar</button>}
+                  </div>
+                </div>
+              ))}
+          </div>
+
+          {modal && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16, overflowY: "auto" }} onClick={() => !guardando && setModal(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 620, margin: "auto" }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 16 }}>{modal === "editar" ? "Ficha del empleado" : "Nuevo empleado"}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div style={{ gridColumn: "1 / -1" }}>{campoF("nombre", "Nombre completo *")}</div>
+                  {campoF("dni", "DNI")}
+                  {campoF("cuil", "CUIL (11 dígitos)")}
+                  {campoF("fecha_nacimiento", "Fecha de nacimiento", "date")}
+                  {campoF("telefono", "Teléfono")}
+                  <div style={{ gridColumn: "1 / -1" }}>{campoF("domicilio", "Domicilio")}</div>
+                  {campoF("email", "Email")}
+                  {campoF("contacto_emergencia", "Contacto de emergencia")}
+                  <div>
+                    <label style={lbl}>Local</label>
+                    <select style={inp} value={form.local} onChange={ev => setCampo("local", ev.target.value)}>
+                      <option value="">—</option>
+                      {RRHH_LOCALES.map(l => <option key={l} value={l}>{l}</option>)}
+                    </select>
+                  </div>
+                  {campoF("puesto", "Puesto")}
+                  {campoF("categoria_convenio", "Categoría de convenio")}
+                  {campoF("jornada", "Jornada")}
+                  {campoF("fecha_ingreso", "Fecha de ingreso", "date")}
+                  <div style={{ gridColumn: "1 / -1" }}>{campoF("cbu_alias", "CBU / Alias")}</div>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+                  <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} disabled={guardando} onClick={() => setModal(null)}>Cancelar</button>
+                  <button style={{ fontSize: 13, fontWeight: 600, padding: "8px 18px", borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#F68B32", color: "#fff", cursor: guardando ? "default" : "pointer" }} disabled={guardando} onClick={guardar}>{guardando ? "Guardando…" : "Guardar"}</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Liquidaciones (grilla mensual: una por empleado y mes) ──
+    function VistaLiquidaciones({ usuario, onVolver }) {
+      const [periodo, setPeriodo] = useState(rrhhMesActual);
+      const [empleados, setEmpleados] = useState([]);
+      const [liquid, setLiquid] = useState({});        // empleado_id -> liquidacion existente
+      const [edits, setEdits] = useState({});          // empleado_id -> {bruto,no_remunerativo,deducciones,neto,contribuciones}
+      const [loading, setLoading] = useState(true);
+      const [savingId, setSavingId] = useState(null);
+      const [mensaje, setMensaje] = useState(null);
+
+      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 4000); }
+      const vacio = { bruto: "", no_remunerativo: "", deducciones: "", neto: "", contribuciones: "" };
+
+      async function cargar() {
+        setLoading(true);
+        try {
+          const [re, rl] = await Promise.all([
+            axios.get(`${API}/api/rrhh/empleados`),
+            axios.get(`${API}/api/rrhh/liquidaciones`, { params: { periodo } }),
+          ]);
+          setEmpleados(re.data);
+          const map = {}, ed = {};
+          for (const l of rl.data) {
+            map[l.empleado_id] = l;
+            ed[l.empleado_id] = { bruto: String(l.bruto), no_remunerativo: String(l.no_remunerativo), deducciones: String(l.deducciones), neto: String(l.neto), contribuciones: String(l.contribuciones) };
+          }
+          setLiquid(map); setEdits(ed);
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error cargando liquidaciones", "error"); }
+        setLoading(false);
+      }
+      useEffect(() => { cargar(); }, [periodo]);
+
+      const num = (x) => { const n = Number(x); return Number.isFinite(n) ? n : 0; };
+      const getRow = (id) => edits[id] || vacio;
+      const setRow = (id, k, v) => setEdits(e => ({ ...e, [id]: { ...(e[id] || vacio), [k]: v } }));
+      const costoRow = (r) => num(r.bruto) + num(r.no_remunerativo) + num(r.contribuciones);
+      const netoNoCierra = (r) => Math.abs(num(r.neto) - (num(r.bruto) + num(r.no_remunerativo) - num(r.deducciones))) > 1;
+
+      async function guardarRow(emp) {
+        const r = getRow(emp.id);
+        setSavingId(emp.id);
+        const payload = {
+          empleado_id: emp.id, periodo,
+          bruto: num(r.bruto), no_remunerativo: num(r.no_remunerativo), deducciones: num(r.deducciones),
+          neto: num(r.neto), contribuciones: num(r.contribuciones), usuario: usuario.nombre_completo,
+        };
+        try {
+          const existe = liquid[emp.id];
+          const res = existe
+            ? await axios.patch(`${API}/api/rrhh/liquidaciones/${existe.id}`, payload)
+            : await axios.post(`${API}/api/rrhh/liquidaciones`, payload);
+          await cargar();
+          mostrarMensaje(res.data?.aviso ? `Guardado. ⚠️ ${res.data.aviso}` : "Liquidación guardada", res.data?.aviso ? "error" : "ok");
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error guardando", "error"); }
+        setSavingId(null);
+      }
+
+      const totalMes = empleados.reduce((a, e) => a + costoRow(getRow(e.id)), 0);
+      const inpN = { width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", boxSizing: "border-box", textAlign: "right" };
+
+      return (
+        <div style={{ padding: 24, maxWidth: 1150, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>🧾 Liquidaciones</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 12, color: "#888" }}>Período</span>
+              <input type="month" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={periodo} onChange={e => setPeriodo(e.target.value)} />
+              <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver</button>
+            </div>
+          </div>
+
+          <RrhhMensaje mensaje={mensaje} />
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "12px 18px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 12, color: "#888" }}>Cargá la liquidación de cada empleado para <b style={{ color: "#333" }}>{periodo}</b>. El costo = bruto + no remunerativo + contribuciones.</div>
+            <div style={{ fontSize: 13, color: "#555" }}>Costo total del mes: <b style={{ fontSize: 18, color: "#c0392b" }}>{rrhhMoney(totalMes)}</b></div>
+          </div>
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1.4fr repeat(5, 1fr) 1fr 80px", gap: 8, padding: "10px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>
+              <div>Empleado</div><div style={{ textAlign: "right" }}>Bruto</div><div style={{ textAlign: "right" }}>No rem.</div><div style={{ textAlign: "right" }}>Deduc.</div><div style={{ textAlign: "right" }}>Neto</div><div style={{ textAlign: "right" }}>Contrib.</div><div style={{ textAlign: "right" }}>Costo</div><div></div>
+            </div>
+            {loading ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+              : empleados.length === 0 ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>No hay empleados activos.</div>
+              : empleados.map(e => {
+                const r = getRow(e.id);
+                const cierra = !netoNoCierra(r);
+                return (
+                  <div key={e.id} style={{ display: "grid", gridTemplateColumns: "1.4fr repeat(5, 1fr) 1fr 80px", gap: 8, padding: "8px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, alignItems: "center" }}>
+                    <div style={{ color: "#333", fontWeight: 500 }}>
+                      {e.nombre}
+                      {liquid[e.id] && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 600, color: "#1d8a4e", background: "#eafaf1", borderRadius: 4, padding: "1px 5px" }}>CARGADA</span>}
+                      {!cierra && <div style={{ fontSize: 10, color: "#c0392b" }}>⚠️ el neto no cierra</div>}
+                    </div>
+                    <input type="number" step="0.01" style={inpN} value={r.bruto} onChange={ev => setRow(e.id, "bruto", ev.target.value)} />
+                    <input type="number" step="0.01" style={inpN} value={r.no_remunerativo} onChange={ev => setRow(e.id, "no_remunerativo", ev.target.value)} />
+                    <input type="number" step="0.01" style={inpN} value={r.deducciones} onChange={ev => setRow(e.id, "deducciones", ev.target.value)} />
+                    <input type="number" step="0.01" style={{ ...inpN, borderColor: cierra ? "#ddd" : "#e6a23c" }} value={r.neto} onChange={ev => setRow(e.id, "neto", ev.target.value)} />
+                    <input type="number" step="0.01" style={inpN} value={r.contribuciones} onChange={ev => setRow(e.id, "contribuciones", ev.target.value)} />
+                    <div style={{ textAlign: "right", fontWeight: 600, color: "#333" }}>{rrhhMoney(costoRow(r))}</div>
+                    <div style={{ textAlign: "right" }}>
+                      <button style={{ fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 6, border: "none", background: savingId === e.id ? "#ccc" : "#F68B32", color: "#fff", cursor: savingId === e.id ? "default" : "pointer" }} disabled={savingId === e.id} onClick={() => guardarRow(e)}>{savingId === e.id ? "…" : "Guardar"}</button>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      );
+    }
+
+    // ── Novedades (adelantos/extras/bonos/descuentos) ──
+    function VistaNovedadesRRHH({ usuario, onVolver }) {
+      const [empleados, setEmpleados] = useState([]);
+      const [empleadoSel, setEmpleadoSel] = useState("");
+      const [periodo, setPeriodo] = useState(rrhhMesActual);
+      const [novedades, setNovedades] = useState([]);
+      const [incluirAnulados, setIncluirAnulados] = useState(false);
+      const [loading, setLoading] = useState(true);
+      const [mensaje, setMensaje] = useState(null);
+      const [modal, setModal] = useState(false);
+      const [form, setForm] = useState({ empleado_id: "", tipo: "adelanto", fecha: rrhhHoy, monto: "", concepto: "", origen: "externo", cajaOrigen: "" });
+      const [guardando, setGuardando] = useState(false);
+
+      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 3500); }
+      const setCampo = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+      async function cargarEmpleados() {
+        try { const r = await axios.get(`${API}/api/rrhh/empleados`); setEmpleados(r.data); }
+        catch (err) { /* el form lo avisa */ }
+      }
+      async function cargar() {
+        setLoading(true);
+        try {
+          const params = {};
+          if (empleadoSel) params.empleado = empleadoSel;
+          if (periodo) params.periodo = periodo;
+          if (incluirAnulados) params.incluirAnulados = "1";
+          const r = await axios.get(`${API}/api/rrhh/novedades`, { params });
+          setNovedades(r.data);
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error cargando novedades", "error"); }
+        setLoading(false);
+      }
+      useEffect(() => { cargarEmpleados(); }, []);
+      useEffect(() => { cargar(); }, [empleadoSel, periodo, incluirAnulados]);
+
+      function abrirNueva() { setForm({ empleado_id: empleadoSel || "", tipo: "adelanto", fecha: rrhhHoy, monto: "", concepto: "", origen: "externo", cajaOrigen: "" }); setModal(true); }
+
+      async function guardar() {
+        if (!form.empleado_id) { mostrarMensaje("Elegí un empleado", "error"); return; }
+        if (!(Number(form.monto) > 0)) { mostrarMensaje("El monto debe ser mayor a 0", "error"); return; }
+        if (form.tipo === "adelanto" && form.origen === "caja" && !form.cajaOrigen) { mostrarMensaje("Elegí de qué caja sale", "error"); return; }
+        setGuardando(true);
+        try {
+          await axios.post(`${API}/api/rrhh/novedades`, {
+            empleado_id: Number(form.empleado_id), tipo: form.tipo, fecha: form.fecha,
+            monto: Number(form.monto), concepto: form.concepto.trim() || null,
+            cajaOrigen: (form.tipo === "adelanto" && form.origen === "caja") ? form.cajaOrigen : "",
+            usuario: usuario.nombre_completo,
+          });
+          setModal(false); await cargar(); mostrarMensaje("Novedad registrada");
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error registrando", "error"); }
+        setGuardando(false);
+      }
+      async function anular(n) {
+        const motivo = window.prompt(`Anular ${RRHH_TIPO_LABEL[n.tipo] || n.tipo} de ${n.empleado_nombre} (${rrhhMoney(n.monto)}).\nMotivo:`);
+        if (motivo === null) return;
+        if (!motivo.trim()) { mostrarMensaje("El motivo es obligatorio", "error"); return; }
+        try {
+          await axios.post(`${API}/api/rrhh/novedades/${n.id}/anular`, { motivo: motivo.trim(), usuario: usuario.nombre_completo });
+          await cargar(); mostrarMensaje("Novedad anulada" + (n.caja_origen ? " (repuesta en caja)" : ""));
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error anulando", "error"); }
+      }
+
+      function exportar() {
+        const datos = novedades.map(n => ({
+          "Fecha": n.fecha, "Empleado": n.empleado_nombre, "Tipo": RRHH_TIPO_LABEL[n.tipo] || n.tipo,
+          "Monto": Number(n.monto), "Concepto": n.concepto || "", "Origen": n.caja_origen || (n.tipo === "adelanto" ? "Externo" : "—"),
+          "Estado": n.estado, "Usuario": n.usuario || "", "Motivo anulación": n.motivo_anulacion || "",
+        }));
+        exportarExcel(`novedades_rrhh_${periodo || "todos"}.xlsx`, [{ name: "Novedades", data: datos }]);
+      }
+
+      const CAJAS_ADEL = ["A. Thomas", "French", "Administración", "Fondo Fijo A. Thomas", "Fondo Fijo French"]
+        .filter(c => c !== "Administración" || usuario.rol === "superadmin");
+      const totalActivas = novedades.filter(n => n.estado === "activo").reduce((a, n) => a + Number(n.monto), 0);
+
+      return (
+        <div style={{ padding: 24, maxWidth: 1050, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>➕ Novedades</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 16px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer" }} onClick={abrirNueva}>+ Novedad</button>
+              {novedades.length > 0 && <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "1px solid #1d8a4e", background: "#eafaf1", color: "#1d8a4e", cursor: "pointer" }} onClick={exportar}>📊 Excel</button>}
+              <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver</button>
+            </div>
+          </div>
+
+          <RrhhMensaje mensaje={mensaje} />
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+            <select style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={empleadoSel} onChange={e => setEmpleadoSel(e.target.value)}>
+              <option value="">Todos los empleados</option>
+              {empleados.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+            </select>
+            <span style={{ fontSize: 12, color: "#888" }}>Período</span>
+            <input type="month" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={periodo} onChange={e => setPeriodo(e.target.value)} />
+            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#666", cursor: "pointer" }}>
+              <input type="checkbox" checked={incluirAnulados} onChange={e => setIncluirAnulados(e.target.checked)} /> Incluir anuladas
+            </label>
+            <div style={{ marginLeft: "auto", fontSize: 13, color: "#555" }}>Total activas del período: <b style={{ color: "#333" }}>{rrhhMoney(totalActivas)}</b></div>
+          </div>
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "100px 1fr 120px 120px 1fr 140px 80px", gap: 8, padding: "10px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>
+              <div>Fecha</div><div>Empleado</div><div>Tipo</div><div style={{ textAlign: "right" }}>Monto</div><div>Concepto</div><div>Origen</div><div></div>
+            </div>
+            {loading ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+              : novedades.length === 0 ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>No hay novedades para los filtros elegidos.</div>
+              : novedades.map(n => {
+                const anulado = n.estado === "anulado";
+                return (
+                  <div key={n.id} style={{ display: "grid", gridTemplateColumns: "100px 1fr 120px 120px 1fr 140px 80px", gap: 8, padding: "10px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, alignItems: "center", opacity: anulado ? 0.55 : 1 }}>
+                    <div style={{ color: "#666" }}>{n.fecha}</div>
+                    <div style={{ color: "#333", textDecoration: anulado ? "line-through" : "none" }}>
+                      {n.empleado_nombre}
+                      {anulado && n.motivo_anulacion && <div style={{ fontSize: 11, color: "#c0392b", textDecoration: "none" }}>Anulada: {n.motivo_anulacion}</div>}
+                    </div>
+                    <div style={{ color: "#555" }}>{RRHH_TIPO_LABEL[n.tipo] || n.tipo}</div>
+                    <div style={{ textAlign: "right", fontWeight: 600, color: "#333" }}>{rrhhMoney(n.monto)}</div>
+                    <div style={{ color: "#666", fontSize: 12 }}>{n.concepto || "—"}</div>
+                    <div style={{ color: "#666", fontSize: 12 }}>{n.caja_origen || (n.tipo === "adelanto" ? "Externo" : "—")}</div>
+                    <div style={{ textAlign: "right" }}>
+                      {!anulado && <button style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => anular(n)}>Anular</button>}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+
+          {modal && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => !guardando && setModal(false)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 16 }}>Nueva novedad</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Empleado</label>
+                    <select style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={form.empleado_id} onChange={e => setCampo("empleado_id", e.target.value)}>
+                      <option value="">Elegir…</option>
+                      {empleados.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Tipo</label>
+                      <select style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={form.tipo} onChange={e => setCampo("tipo", e.target.value)}>
+                        {Object.entries(RRHH_TIPO_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                      </select>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Fecha</label>
+                      <input type="date" style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={form.fecha} onChange={e => setCampo("fecha", e.target.value)} />
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Monto</label>
+                    <input type="number" min="0" step="0.01" style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} placeholder="0.00" value={form.monto} onChange={e => setCampo("monto", e.target.value)} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Concepto (opcional)</label>
+                    <input style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={form.concepto} onChange={e => setCampo("concepto", e.target.value)} />
+                  </div>
+                  {form.tipo === "adelanto" && (
+                    <div>
+                      <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Origen del dinero</label>
+                      <select style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={form.origen} onChange={e => setCampo("origen", e.target.value)}>
+                        <option value="externo">Externo (no toca caja)</option>
+                        <option value="caja">Sale de caja</option>
+                      </select>
+                      {form.origen === "caja" && (
+                        <div style={{ marginTop: 8 }}>
+                          <select style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={form.cajaOrigen} onChange={e => setCampo("cajaOrigen", e.target.value)}>
+                            <option value="">Elegir caja…</option>
+                            {CAJAS_ADEL.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                          <div style={{ fontSize: 11, color: "#999", marginTop: 4 }}>Registra una salida en la caja con fecha de hoy.</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+                  <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} disabled={guardando} onClick={() => setModal(false)}>Cancelar</button>
+                  <button style={{ fontSize: 13, fontWeight: 600, padding: "8px 18px", borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#F68B32", color: "#fff", cursor: guardando ? "default" : "pointer" }} disabled={guardando} onClick={guardar}>{guardando ? "Guardando…" : "Registrar"}</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Reporte de costo de personal ──
+    function VistaReporteRRHH({ onVolver }) {
+      const [desde, setDesde] = useState(rrhhMesActual);
+      const [hasta, setHasta] = useState(rrhhMesActual);
+      const [local, setLocal] = useState("");
+      const [data, setData] = useState({ total: 0, totalAdelantos: 0, porMes: {}, porLocal: {}, porEmpleado: [] });
+      const [loading, setLoading] = useState(true);
+      const [mensaje, setMensaje] = useState(null);
+
+      async function cargar() {
+        setLoading(true);
+        try {
+          const params = {};
+          if (desde) params.desde = desde;
+          if (hasta) params.hasta = hasta;
+          if (local) params.local = local;
+          const r = await axios.get(`${API}/api/rrhh/reporte`, { params });
+          setData(r.data);
+        } catch (err) { setMensaje({ texto: err.response?.data?.error || "Error cargando el reporte", tipo: "error" }); setTimeout(() => setMensaje(null), 3500); }
+        setLoading(false);
+      }
+      useEffect(() => { cargar(); }, [desde, hasta, local]);
+
+      function exportar() {
+        const emp = data.porEmpleado.map(e => ({ "Empleado": e.empleado, "Local": e.local || "", "Costo laboral": Number(e.costo), "Adelantos": Number(e.adelantos) }));
+        const mes = Object.entries(data.porMes).sort().map(([m, v]) => ({ "Mes": m, "Costo laboral": Number(v) }));
+        const loc = Object.entries(data.porLocal).map(([l, v]) => ({ "Local": l, "Costo laboral": Number(v) }));
+        exportarExcel(`costo_personal_${desde}_${hasta}.xlsx`, [
+          { name: "Por empleado", data: emp }, { name: "Por mes", data: mes }, { name: "Por local", data: loc },
+        ]);
+      }
+
+      const meses = Object.entries(data.porMes).sort();
+      const locs = Object.entries(data.porLocal).sort((a, b) => b[1] - a[1]);
+
+      return (
+        <div style={{ padding: 24, maxWidth: 1050, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>📊 Costo de personal</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {data.porEmpleado.length > 0 && <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "1px solid #1d8a4e", background: "#eafaf1", color: "#1d8a4e", cursor: "pointer" }} onClick={exportar}>📊 Excel</button>}
+              <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver</button>
+            </div>
+          </div>
+
+          <RrhhMensaje mensaje={mensaje} />
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
+            <input type="month" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={desde} onChange={e => setDesde(e.target.value)} />
+            <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
+            <input type="month" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={hasta} onChange={e => setHasta(e.target.value)} />
+            <select style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={local} onChange={e => setLocal(e.target.value)}>
+              <option value="">Todos los locales</option>
+              {RRHH_LOCALES.map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+          </div>
+
+          <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 220px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "14px 18px" }}>
+              <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5 }}>Costo laboral total</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#c0392b" }}>{rrhhMoney(data.total)}</div>
+              <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>bruto + no remunerativo + contribuciones</div>
+            </div>
+            <div style={{ flex: "1 1 220px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "14px 18px" }}>
+              <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5 }}>Adelantos del período</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#8e44ad" }}>{rrhhMoney(data.totalAdelantos)}</div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+            {meses.length > 0 && (
+              <div style={{ flex: "1 1 260px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "12px 18px" }}>
+                <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Por mes</div>
+                {meses.map(([m, v]) => <div key={m} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}><span style={{ color: "#555" }}>{m}</span><b style={{ color: "#333" }}>{rrhhMoney(v)}</b></div>)}
+              </div>
+            )}
+            {locs.length > 0 && (
+              <div style={{ flex: "1 1 260px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "12px 18px" }}>
+                <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Por local</div>
+                {locs.map(([l, v]) => <div key={l} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}><span style={{ color: "#555" }}>{l}</span><b style={{ color: "#333" }}>{rrhhMoney(v)}</b></div>)}
+              </div>
+            )}
+          </div>
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 140px 160px 160px", gap: 8, padding: "10px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>
+              <div>Empleado</div><div>Local</div><div style={{ textAlign: "right" }}>Costo laboral</div><div style={{ textAlign: "right" }}>Adelantos</div>
+            </div>
+            {loading ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+              : data.porEmpleado.length === 0 ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>No hay datos para el período elegido.</div>
+              : data.porEmpleado.map(e => (
+                <div key={e.empleado_id} style={{ display: "grid", gridTemplateColumns: "1fr 140px 160px 160px", gap: 8, padding: "10px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, alignItems: "center" }}>
+                  <div style={{ color: "#333", fontWeight: 500 }}>{e.empleado}</div>
+                  <div style={{ color: "#666" }}>{e.local || "—"}</div>
+                  <div style={{ textAlign: "right", fontWeight: 600, color: "#333" }}>{rrhhMoney(e.costo)}</div>
+                  <div style={{ textAlign: "right", color: "#8e44ad" }}>{rrhhMoney(e.adelantos)}</div>
+                </div>
+              ))}
+          </div>
         </div>
       );
     }
@@ -5731,6 +6304,20 @@ let numeroAsignado = "";
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("libroCompras"); setMenuAbierto(false); }}>📗 Libro de compras</button>
                         </>
                       )}
+                      <button
+                        style={{ ...s.dropItem, fontWeight: 700, color: "#444", background: "#fafaf8", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                        onClick={() => setMenuGrupo(g => g === "rrhh" ? "" : "rrhh")}>
+                        <span>👥 RRHH</span>
+                        <span style={{ fontSize: 10, color: "#aaa" }}>{menuGrupo === "rrhh" ? "▾" : "▸"}</span>
+                      </button>
+                      {menuGrupo === "rrhh" && (
+                        <>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("empleados"); setMenuAbierto(false); }}>🧑‍🍳 Empleados</button>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("liquidaciones"); setMenuAbierto(false); }}>🧾 Liquidaciones</button>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("novedadesRRHH"); setMenuAbierto(false); }}>➕ Novedades</button>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("reporteRRHH"); setMenuAbierto(false); }}>📊 Costo de personal</button>
+                        </>
+                      )}
                     </>
                   )}
                   {esAdmin && (
@@ -5798,7 +6385,7 @@ let numeroAsignado = "";
       }
 
       // Guard superadmin-only (módulo Contable). Mismo patrón que el admin, pero exige superadmin.
-      const VISTAS_SOLO_SUPERADMIN = ["libroVentas", "libroCompras"];
+      const VISTAS_SOLO_SUPERADMIN = ["libroVentas", "libroCompras", "empleados", "liquidaciones", "novedadesRRHH", "reporteRRHH"];
       if (VISTAS_SOLO_SUPERADMIN.includes(vista) && !esSuperadmin) {
         return (
           <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: "system-ui, sans-serif", background: "#f7f7f5", padding: 24, textAlign: "center" }}>
@@ -6885,6 +7472,18 @@ if (vista === "dashboard") {
     }
     if (vista === "categoriasGastoComun") {
       return <div style={s.wrap}><Header /><VistaCategoriasGastoComun onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "empleados") {
+      return <div style={s.wrap}><Header /><VistaEmpleados usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "liquidaciones") {
+      return <div style={s.wrap}><Header /><VistaLiquidaciones usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "novedadesRRHH") {
+      return <div style={s.wrap}><Header /><VistaNovedadesRRHH usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "reporteRRHH") {
+      return <div style={s.wrap}><Header /><VistaReporteRRHH onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "mapa") {
         return <div style={s.wrap}><Header /><VistaMapa onVolver={() => setVista("panel")} repartidores={repartidoresLista} onCrearTanda={crearTanda} /></div>;

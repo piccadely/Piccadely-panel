@@ -346,6 +346,43 @@ async function initDB() {
   await pool.query(`INSERT INTO categorias_gasto_comun (nombre, es_retiro)
     SELECT n, r FROM (VALUES ('Librería',false),('Limpieza',false),('Viáticos',false),('Mantenimiento',false),('Varios',false),('Retiros',true)) AS v(n, r)
     WHERE NOT EXISTS (SELECT 1 FROM categorias_gasto_comun);`);
+  // RRHH Fase 1 (fichas, liquidaciones, novedades). NO calcula sueldos: registra lo que liquida el estudio.
+  await pool.query(`CREATE TABLE IF NOT EXISTS empleados (
+    id SERIAL PRIMARY KEY,
+    nombre TEXT NOT NULL, dni TEXT, cuil TEXT, fecha_nacimiento TEXT,
+    domicilio TEXT, telefono TEXT, email TEXT, contacto_emergencia TEXT,
+    local TEXT, puesto TEXT, categoria_convenio TEXT, jornada TEXT,
+    fecha_ingreso TEXT, fecha_egreso TEXT,
+    cbu_alias TEXT,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP DEFAULT NOW()
+  );`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS liquidaciones_sueldo (
+    id SERIAL PRIMARY KEY,
+    empleado_id INTEGER NOT NULL REFERENCES empleados(id),
+    periodo TEXT NOT NULL,
+    bruto NUMERIC NOT NULL DEFAULT 0,
+    no_remunerativo NUMERIC NOT NULL DEFAULT 0,
+    deducciones NUMERIC NOT NULL DEFAULT 0,
+    neto NUMERIC NOT NULL DEFAULT 0,
+    contribuciones NUMERIC NOT NULL DEFAULT 0,
+    notas TEXT, usuario TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE (empleado_id, periodo)
+  );`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS novedades_empleado (
+    id SERIAL PRIMARY KEY,
+    empleado_id INTEGER NOT NULL REFERENCES empleados(id),
+    tipo TEXT NOT NULL CHECK (tipo IN ('adelanto','hora_extra','bono','descuento','otro')),
+    fecha TEXT NOT NULL,
+    monto NUMERIC NOT NULL CHECK (monto > 0),
+    concepto TEXT,
+    caja_origen TEXT,
+    caja_movimiento_id INTEGER,
+    estado TEXT NOT NULL DEFAULT 'activo' CHECK (estado IN ('activo','anulado')),
+    motivo_anulacion TEXT, usuario TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+  );`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
   await pool.query(`CREATE TABLE IF NOT EXISTS costos_areas (area INTEGER PRIMARY KEY, costo NUMERIC NOT NULL DEFAULT 1);`);
   await pool.query(`INSERT INTO costos_areas (area, costo) SELECT g, 1 FROM generate_series(1,10) g ON CONFLICT (area) DO NOTHING;`);
@@ -2507,6 +2544,259 @@ app.post("/api/gastos-comunes/:id/anular", requireAdmin, async (req, res) => {
   } finally { if (client) client.release(); }
 });
 
+// ─── RRHH — Fase 1 (fichas, liquidaciones, novedades) — SOLO superadmin ─
+// No calcula sueldos: registra lo que liquida el estudio. El pago del sueldo es Fase 2.
+// Reusa: superadmin (como libro de ventas), salida atómica + anulación con reposición (gastos comunes).
+// PRIVACIDAD: nunca loguear DNI/CUIL/CBU en consola ni auditoría (en auditoría solo id y nombre).
+const soloSuperadmin = [requireAuth, requireRole("superadmin")];
+const esPeriodoYM = (s) => typeof s === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
+const TIPOS_NOVEDAD = ["adelanto", "hora_extra", "bono", "descuento", "otro"];
+
+// --- Empleados (fichas) ---
+app.get("/api/rrhh/empleados", soloSuperadmin, async (req, res) => {
+  try {
+    const sql = req.query.incluirInactivos === "1"
+      ? "SELECT * FROM empleados ORDER BY activo DESC, nombre ASC"
+      : "SELECT * FROM empleados WHERE activo = true ORDER BY nombre ASC";
+    const r = await pool.query(sql);
+    res.json(r.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post("/api/rrhh/empleados", soloSuperadmin, async (req, res) => {
+  const b = req.body || {};
+  if (!b.nombre || !String(b.nombre).trim()) return res.status(400).json({ error: "El nombre es obligatorio." });
+  if (b.cuil && !/^\d{11}$/.test(String(b.cuil).replace(/\D/g, ""))) return res.status(400).json({ error: "El CUIL debe tener 11 dígitos." });
+  try {
+    const r = await pool.query(
+      `INSERT INTO empleados (nombre, dni, cuil, fecha_nacimiento, domicilio, telefono, email, contacto_emergencia, local, puesto, categoria_convenio, jornada, fecha_ingreso, cbu_alias)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+      [String(b.nombre).trim(), b.dni || null, b.cuil || null, b.fecha_nacimiento || null, b.domicilio || null, b.telefono || null, b.email || null, b.contacto_emergencia || null, b.local || null, b.puesto || null, b.categoria_convenio || null, b.jornada || null, b.fecha_ingreso || null, b.cbu_alias || null]
+    );
+    res.json({ ok: true, id: r.rows[0].id });
+    registrarAuditoria(b.usuario, "empleado_crear", "empleado", r.rows[0].id, { nombre: String(b.nombre).trim() });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.patch("/api/rrhh/empleados/:id", soloSuperadmin, async (req, res) => {
+  const b = req.body || {};
+  if (b.nombre !== undefined && !String(b.nombre).trim()) return res.status(400).json({ error: "El nombre no puede quedar vacío." });
+  if (b.cuil && !/^\d{11}$/.test(String(b.cuil).replace(/\D/g, ""))) return res.status(400).json({ error: "El CUIL debe tener 11 dígitos." });
+  const campos = ["nombre", "dni", "cuil", "fecha_nacimiento", "domicilio", "telefono", "email", "contacto_emergencia", "local", "puesto", "categoria_convenio", "jornada", "fecha_ingreso", "fecha_egreso", "cbu_alias", "activo"];
+  const sets = [], vals = [];
+  for (const c of campos) if (b[c] !== undefined) { vals.push(c === "nombre" ? String(b[c]).trim() : b[c]); sets.push(`${c} = $${vals.length}`); }
+  if (sets.length === 0) return res.status(400).json({ error: "Nada para actualizar." });
+  vals.push(req.params.id);
+  try {
+    const r = await pool.query(`UPDATE empleados SET ${sets.join(", ")} WHERE id = $${vals.length} RETURNING nombre`, vals);
+    if (r.rows.length === 0) return res.status(404).json({ error: "Empleado no encontrado." });
+    res.json({ ok: true });
+    registrarAuditoria(b.usuario, "empleado_editar", "empleado", req.params.id, { nombre: r.rows[0].nombre });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post("/api/rrhh/empleados/:id/baja", soloSuperadmin, async (req, res) => {
+  const { fecha_egreso, usuario } = req.body || {};
+  if (fecha_egreso && !esFechaISO(fecha_egreso)) return res.status(400).json({ error: "Fecha de egreso inválida (YYYY-MM-DD)." });
+  try {
+    const r = await pool.query("UPDATE empleados SET activo = false, fecha_egreso = COALESCE($1, fecha_egreso) WHERE id = $2 RETURNING nombre", [fecha_egreso || null, req.params.id]);
+    if (r.rows.length === 0) return res.status(404).json({ error: "Empleado no encontrado." });
+    res.json({ ok: true });
+    registrarAuditoria(usuario, "empleado_baja", "empleado", req.params.id, { nombre: r.rows[0].nombre, fecha_egreso: fecha_egreso || null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- Liquidaciones (una por empleado y mes) ---
+function avisoNetoLiq(bruto, noRem, deduc, neto) {
+  const esperado = bruto + noRem - deduc;
+  return Math.abs(neto - esperado) > 1
+    ? `El neto no cierra: bruto + no remunerativo − deducciones = ${esperado.toFixed(2)}, cargaste ${neto.toFixed(2)}.`
+    : null;
+}
+app.get("/api/rrhh/liquidaciones", soloSuperadmin, async (req, res) => {
+  const { periodo, empleado } = req.query;
+  try {
+    const params = [];
+    let sql = `SELECT l.*, e.nombre AS empleado_nombre, e.local AS empleado_local
+               FROM liquidaciones_sueldo l JOIN empleados e ON e.id = l.empleado_id WHERE 1=1`;
+    if (periodo) { params.push(periodo); sql += ` AND l.periodo = $${params.length}`; }
+    if (empleado) { params.push(empleado); sql += ` AND l.empleado_id = $${params.length}`; }
+    sql += " ORDER BY l.periodo DESC, e.nombre ASC";
+    const { rows } = await pool.query(sql, params);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post("/api/rrhh/liquidaciones", soloSuperadmin, async (req, res) => {
+  const b = req.body || {};
+  if (!esPeriodoYM(b.periodo)) return res.status(400).json({ error: "Período inválido (formato YYYY-MM)." });
+  const empId = Number(b.empleado_id);
+  if (!empId) return res.status(400).json({ error: "Falta el empleado." });
+  const num = (x) => { const n = Number(x); return Number.isFinite(n) ? n : 0; };
+  const bruto = num(b.bruto), noRem = num(b.no_remunerativo), deduc = num(b.deducciones), neto = num(b.neto), contrib = num(b.contribuciones);
+  try {
+    const emp = await pool.query("SELECT nombre FROM empleados WHERE id = $1", [empId]);
+    if (emp.rows.length === 0) return res.status(400).json({ error: "Empleado inválido." });
+    const dup = await pool.query("SELECT id FROM liquidaciones_sueldo WHERE empleado_id = $1 AND periodo = $2", [empId, b.periodo]);
+    if (dup.rows.length > 0) return res.status(409).json({ error: `Ya hay una liquidación de ${emp.rows[0].nombre} para ${b.periodo}.` });
+    const r = await pool.query(
+      `INSERT INTO liquidaciones_sueldo (empleado_id, periodo, bruto, no_remunerativo, deducciones, neto, contribuciones, notas, usuario)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      [empId, b.periodo, bruto, noRem, deduc, neto, contrib, b.notas || null, b.usuario || null]
+    );
+    res.json({ ok: true, id: r.rows[0].id, aviso: avisoNetoLiq(bruto, noRem, deduc, neto) });
+    registrarAuditoria(b.usuario, "liquidacion_crear", "liquidacion", r.rows[0].id, { empleado_id: empId, empleado: emp.rows[0].nombre, periodo: b.periodo });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.patch("/api/rrhh/liquidaciones/:id", soloSuperadmin, async (req, res) => {
+  const b = req.body || {};
+  const num = (x) => { const n = Number(x); return Number.isFinite(n) ? n : 0; };
+  const bruto = num(b.bruto), noRem = num(b.no_remunerativo), deduc = num(b.deducciones), neto = num(b.neto), contrib = num(b.contribuciones);
+  try {
+    const r = await pool.query(
+      `UPDATE liquidaciones_sueldo SET bruto=$1, no_remunerativo=$2, deducciones=$3, neto=$4, contribuciones=$5, notas=$6 WHERE id=$7 RETURNING empleado_id, periodo`,
+      [bruto, noRem, deduc, neto, contrib, b.notas || null, req.params.id]
+    );
+    if (r.rows.length === 0) return res.status(404).json({ error: "Liquidación no encontrada." });
+    res.json({ ok: true, aviso: avisoNetoLiq(bruto, noRem, deduc, neto) });
+    registrarAuditoria(b.usuario, "liquidacion_editar", "liquidacion", req.params.id, { empleado_id: r.rows[0].empleado_id, periodo: r.rows[0].periodo });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- Novedades (adelantos/extras/bonos/descuentos) ---
+app.get("/api/rrhh/novedades", soloSuperadmin, async (req, res) => {
+  const { empleado, periodo, incluirAnulados } = req.query;
+  try {
+    const params = [];
+    let sql = `SELECT n.*, e.nombre AS empleado_nombre FROM novedades_empleado n JOIN empleados e ON e.id = n.empleado_id WHERE 1=1`;
+    if (incluirAnulados !== "1") sql += " AND n.estado <> 'anulado'";
+    if (empleado) { params.push(empleado); sql += ` AND n.empleado_id = $${params.length}`; }
+    if (esPeriodoYM(periodo)) { params.push(periodo + "-01", periodo + "-31"); sql += ` AND n.fecha >= $${params.length - 1} AND n.fecha <= $${params.length}`; }
+    sql += " ORDER BY n.fecha DESC, n.id DESC";
+    const { rows } = await pool.query(sql, params);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post("/api/rrhh/novedades", soloSuperadmin, async (req, res) => {
+  const b = req.body || {};
+  const empId = Number(b.empleado_id);
+  if (!empId) return res.status(400).json({ error: "Falta el empleado." });
+  if (!TIPOS_NOVEDAD.includes(b.tipo)) return res.status(400).json({ error: "Tipo de novedad inválido." });
+  if (!esFechaISO(b.fecha)) return res.status(400).json({ error: "Fecha inválida (YYYY-MM-DD)." });
+  const m = Number(b.monto);
+  if (!Number.isFinite(m) || m <= 0) return res.status(400).json({ error: "El monto debe ser mayor a 0." });
+  // Solo un adelanto puede salir de caja; el resto no toca caja.
+  const desdeCaja = b.tipo === "adelanto" && b.cajaOrigen && String(b.cajaOrigen).trim() !== "";
+  try {
+    const emp = await pool.query("SELECT nombre FROM empleados WHERE id = $1", [empId]);
+    if (emp.rows.length === 0) return res.status(400).json({ error: "Empleado inválido." });
+    const nombre = emp.rows[0].nombre;
+
+    if (!desdeCaja) {
+      const r = await pool.query(
+        "INSERT INTO novedades_empleado (empleado_id, tipo, fecha, monto, concepto, usuario) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
+        [empId, b.tipo, b.fecha, m, b.concepto || null, b.usuario || null]
+      );
+      res.json({ ok: true, id: r.rows[0].id });
+      registrarAuditoria(b.usuario, "novedad_crear", "novedad", r.rows[0].id, { empleado_id: empId, empleado: nombre, tipo: b.tipo, monto: m });
+      return;
+    }
+
+    if (!CAJAS_TRANSFERIBLES.includes(b.cajaOrigen)) return res.status(400).json({ error: "Caja de origen inválida." });
+    if (bloqueaCajaAdmin(req, res, b.cajaOrigen)) return;
+    let client;
+    try {
+      client = await pool.connect();
+      await client.query("BEGIN");
+      const mov = await client.query(
+        "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'salida',$2,$3,$4) RETURNING id",
+        [b.cajaOrigen, `Adelanto sueldo: ${nombre}`, -Math.abs(m), fechaArgentinaISO()]   // HOY: cae en el día abierto
+      );
+      const n = await client.query(
+        "INSERT INTO novedades_empleado (empleado_id, tipo, fecha, monto, concepto, caja_origen, caja_movimiento_id, usuario) VALUES ($1,'adelanto',$2,$3,$4,$5,$6,$7) RETURNING id",
+        [empId, b.fecha, m, b.concepto || null, b.cajaOrigen, mov.rows[0].id, b.usuario || null]
+      );
+      await client.query("COMMIT");
+      res.json({ ok: true, id: n.rows[0].id });
+      registrarAuditoria(b.usuario, "novedad_crear", "novedad", n.rows[0].id, { empleado_id: empId, empleado: nombre, tipo: "adelanto", monto: m, cajaOrigen: b.cajaOrigen });
+    } catch (e) {
+      if (client) await client.query("ROLLBACK").catch(() => {});
+      console.error("Error POST /api/rrhh/novedades (caja):", e.message);
+      return res.status(500).json({ error: "Error registrando la novedad" });
+    } finally { if (client) client.release(); }
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post("/api/rrhh/novedades/:id/anular", soloSuperadmin, async (req, res) => {
+  const { motivo, usuario } = req.body || {};
+  if (!motivo || !String(motivo).trim()) return res.status(400).json({ error: "El motivo de anulación es obligatorio." });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const sel = await client.query(
+      `SELECT n.id, n.monto, n.caja_origen, n.estado, e.nombre AS empleado_nombre
+       FROM novedades_empleado n JOIN empleados e ON e.id = n.empleado_id WHERE n.id = $1 FOR UPDATE`, [req.params.id]);
+    const n = sel.rows[0];
+    if (!n) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Novedad no encontrada." }); }
+    if (n.estado !== "activo") { await client.query("ROLLBACK"); return res.status(409).json({ error: "La novedad ya está anulada." }); }
+    if (n.caja_origen) {
+      if (bloqueaCajaAdmin(req, res, n.caja_origen)) { await client.query("ROLLBACK"); return; }
+      await client.query(
+        "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'entrada',$2,$3,$4)",
+        [n.caja_origen, `Anulación adelanto #${n.id}: ${n.empleado_nombre}`, Math.abs(Number(n.monto)), fechaArgentinaISO()]
+      );
+    }
+    await client.query("UPDATE novedades_empleado SET estado='anulado', motivo_anulacion=$1 WHERE id=$2", [String(motivo).trim(), req.params.id]);
+    await client.query("COMMIT");
+    res.json({ ok: true });
+    registrarAuditoria(usuario, "novedad_anular", "novedad", req.params.id, { motivo: String(motivo).trim() });
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    console.error("Error anular novedad:", e.message);
+    return res.status(500).json({ error: "Error anulando la novedad" });
+  } finally { if (client) client.release(); }
+});
+
+// --- Reporte de costo de personal ---
+app.get("/api/rrhh/reporte", soloSuperadmin, async (req, res) => {
+  const { desde, hasta, local } = req.query;
+  try {
+    const params = [];
+    let sql = `SELECT l.periodo, l.bruto, l.no_remunerativo, l.contribuciones, e.id AS empleado_id, e.nombre AS empleado_nombre, e.local AS empleado_local
+               FROM liquidaciones_sueldo l JOIN empleados e ON e.id = l.empleado_id WHERE 1=1`;
+    if (esPeriodoYM(desde)) { params.push(desde); sql += ` AND l.periodo >= $${params.length}`; }
+    if (esPeriodoYM(hasta)) { params.push(hasta); sql += ` AND l.periodo <= $${params.length}`; }
+    if (local) { params.push(local); sql += ` AND e.local = $${params.length}`; }
+    const { rows } = await pool.query(sql, params);
+    const costoDe = (r) => Number(r.bruto) + Number(r.no_remunerativo) + Number(r.contribuciones);
+    let total = 0;
+    const porMes = {}, porLocal = {}, porEmpleado = {};
+    for (const r of rows) {
+      const c = costoDe(r); total += c;
+      porMes[r.periodo] = (porMes[r.periodo] || 0) + c;
+      const loc = r.empleado_local || "(sin local)";
+      porLocal[loc] = (porLocal[loc] || 0) + c;
+      if (!porEmpleado[r.empleado_id]) porEmpleado[r.empleado_id] = { empleado_id: r.empleado_id, empleado: r.empleado_nombre, local: r.empleado_local, costo: 0, adelantos: 0 };
+      porEmpleado[r.empleado_id].costo += c;
+    }
+    // Adelantos activos del período por empleado.
+    const paramsA = [];
+    let sqlA = `SELECT n.empleado_id, n.monto, e.nombre AS empleado_nombre, e.local AS empleado_local
+                FROM novedades_empleado n JOIN empleados e ON e.id = n.empleado_id
+                WHERE n.tipo='adelanto' AND n.estado='activo'`;
+    if (esPeriodoYM(desde)) { paramsA.push(desde + "-01"); sqlA += ` AND n.fecha >= $${paramsA.length}`; }
+    if (esPeriodoYM(hasta)) { paramsA.push(hasta + "-31"); sqlA += ` AND n.fecha <= $${paramsA.length}`; }
+    if (local) { paramsA.push(local); sqlA += ` AND e.local = $${paramsA.length}`; }
+    const adel = await pool.query(sqlA, paramsA);
+    let totalAdelantos = 0;
+    for (const a of adel.rows) {
+      totalAdelantos += Number(a.monto);
+      if (!porEmpleado[a.empleado_id]) porEmpleado[a.empleado_id] = { empleado_id: a.empleado_id, empleado: a.empleado_nombre, local: a.empleado_local, costo: 0, adelantos: 0 };
+      porEmpleado[a.empleado_id].adelantos += Number(a.monto);
+    }
+    res.json({
+      total, totalAdelantos, porMes, porLocal,
+      porEmpleado: Object.values(porEmpleado).sort((x, y) => y.costo - x.costo),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── MAPA DE PEDIDOS ───────────────────────────────────────────────────
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || "";
 
@@ -2970,6 +3260,7 @@ const CONCEPTOS_AUTO_PREFIJOS = [
   "transferencia a", "transferencia desde", "pago factura", "sobre a bandeja",
   "sobre recibido", "sobre rechazado", "ajuste sobre", "apertura", "reapertura", "cierre",
   "gasto:", "anulación gasto",
+  "adelanto sueldo:", "anulación adelanto",
 ];
 function esConceptoAutogenerado(concepto) {
   const c = String(concepto || "").trim().toLowerCase();
