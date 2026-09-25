@@ -3726,6 +3726,527 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       );
     }
 
+    // ─── STOCK DE INSUMOS — Fase 1 ────────────────────────────────────────
+    // Módulo NUEVO, separado del tablero de cocina. Stock = Σ movimientos por insumo+local (unidad base g/unidad).
+    // El front muestra kg cuando la unidad base es 'g'. Endpoints namespaceados en /api/insumos.
+    const STOCK_LOCALES = ["A. Thomas", "French"];
+    const stockHoy = (() => { const h = new Date(); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`; })();
+    const stockUnidadLabel = (u) => (u === "g" ? "kg" : "u");
+    const stockAMostrar = (cantBase, u) => (u === "g" ? Number(cantBase) / 1000 : Number(cantBase));   // base → unidad mostrada
+    const fmtStock = (cantBase, u) => {
+      const v = stockAMostrar(cantBase, u);
+      const s = v.toLocaleString("es-AR", { maximumFractionDigits: u === "g" ? 3 : 2 });
+      return `${s} ${stockUnidadLabel(u)}`;
+    };
+    const STOCK_TIPO_LABEL = { ingreso: "Ingreso", ajuste: "Ajuste", consumo: "Consumo" };
+
+    // ── Stock actual ──
+    function VistaStockActual({ usuario, onVolver }) {
+      const [filas, setFilas] = useState([]);
+      const [categorias, setCategorias] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [mensaje, setMensaje] = useState(null);
+      const [fLocal, setFLocal] = useState("");
+      const [fCategoria, setFCategoria] = useState("");
+      const [q, setQ] = useState("");
+      const [hist, setHist] = useState(null);        // { insumo, movs, loading } | null
+
+      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 3500); }
+
+      async function cargar() {
+        setLoading(true);
+        try {
+          const params = {};
+          if (fLocal) params.local = fLocal;
+          if (fCategoria) params.categoria = fCategoria;
+          if (q) params.q = q;
+          const r = await axios.get(`${API}/api/insumos/stock`, { params });
+          setFilas(r.data);
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error cargando stock", "error"); }
+        setLoading(false);
+      }
+      async function cargarCategorias() {
+        try { const r = await axios.get(`${API}/api/insumos`); setCategorias([...new Set(r.data.map(i => i.categoria).filter(Boolean))].sort()); }
+        catch (err) { /* opcional */ }
+      }
+      useEffect(() => { cargarCategorias(); }, []);
+      useEffect(() => { cargar(); }, [fLocal, fCategoria, q]);
+
+      async function abrirHistorial(ins) {
+        setHist({ insumo: ins, movs: [], loading: true });
+        try {
+          const params = { insumo_id: ins.id };
+          if (fLocal) params.local = fLocal;
+          const r = await axios.get(`${API}/api/insumos/movimientos`, { params });
+          setHist({ insumo: ins, movs: r.data, loading: false });
+        } catch (err) { setHist({ insumo: ins, movs: [], loading: false }); mostrarMensaje("Error cargando el historial", "error"); }
+      }
+
+      function exportar() {
+        const datos = filas.map(i => ({
+          "Código": i.codigo ?? "", "Insumo": i.nombre, "Categoría": i.categoria || "", "Unidad": stockUnidadLabel(i.unidad),
+          "A. Thomas": stockAMostrar(i.porLocal["A. Thomas"], i.unidad), "French": stockAMostrar(i.porLocal["French"], i.unidad),
+          "Total": stockAMostrar(i.total, i.unidad), "Mínimo": stockAMostrar(i.stock_minimo, i.unidad), "Bajo mínimo": i.bajo_minimo ? "Sí" : "",
+        }));
+        exportarExcel(`stock_insumos_${stockHoy}.xlsx`, [{ name: "Stock", data: datos }]);
+      }
+
+      const bajos = filas.filter(i => i.bajo_minimo);
+      const hayFiltros = fLocal || fCategoria || q;
+      const GRID = "60px 1.6fr 1fr 120px 120px 120px 110px 70px";
+
+      const filaRender = (i) => (
+        <div key={i.id} style={{ display: "grid", gridTemplateColumns: GRID, gap: 8, padding: "8px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, alignItems: "center", background: i.bajo_minimo ? "#fef6f5" : "transparent" }}>
+          <div style={{ color: "#999", fontSize: 12 }}>{i.codigo ?? "—"}</div>
+          <div style={{ color: "#333", fontWeight: 500 }}>{i.nombre}{i.bajo_minimo && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 600, color: "#c0392b", background: "#fdecea", borderRadius: 4, padding: "1px 5px" }}>BAJO MÍN.</span>}</div>
+          <div style={{ color: "#666", fontSize: 12 }}>{i.categoria || "—"}</div>
+          <div style={{ textAlign: "right", color: "#555" }}>{fmtStock(i.porLocal["A. Thomas"], i.unidad)}</div>
+          <div style={{ textAlign: "right", color: "#555" }}>{fmtStock(i.porLocal["French"], i.unidad)}</div>
+          <div style={{ textAlign: "right", fontWeight: 600, color: "#333" }}>{fmtStock(i.total, i.unidad)}</div>
+          <div style={{ textAlign: "right", color: "#999", fontSize: 12 }}>{i.stock_minimo > 0 ? fmtStock(i.stock_minimo, i.unidad) : "—"}</div>
+          <div style={{ textAlign: "right" }}><button style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#555", cursor: "pointer" }} onClick={() => abrirHistorial(i)}>📜</button></div>
+        </div>
+      );
+
+      return (
+        <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>📦 Stock actual</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {filas.length > 0 && <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "1px solid #1d8a4e", background: "#eafaf1", color: "#1d8a4e", cursor: "pointer" }} onClick={exportar}>📊 Excel</button>}
+              <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver</button>
+            </div>
+          </div>
+
+          {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>}
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+            <input style={{ fontSize: 13, padding: "6px 10px", borderRadius: 8, border: "1px solid #ddd", flex: "1 1 220px" }} placeholder="Buscar insumo…" value={q} onChange={e => setQ(e.target.value)} />
+            <select style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={fCategoria} onChange={e => setFCategoria(e.target.value)}>
+              <option value="">Todas las categorías</option>
+              {categorias.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={fLocal} onChange={e => setFLocal(e.target.value)}>
+              <option value="">Mínimo sobre el total</option>
+              {STOCK_LOCALES.map(l => <option key={l} value={l}>Mínimo en {l}</option>)}
+            </select>
+            {hayFiltros && <button style={{ fontSize: 12, padding: "6px 12px", borderRadius: 8, border: "1px solid #c0392b", background: "#fff", color: "#c0392b", cursor: "pointer" }} onClick={() => { setFLocal(""); setFCategoria(""); setQ(""); }}>✕ Limpiar</button>}
+          </div>
+
+          {bajos.length > 0 && (
+            <div style={{ background: "#fff", border: "1px solid #f5c6cb", borderRadius: 10, overflow: "hidden", marginBottom: 16 }}>
+              <div style={{ padding: "8px 16px", background: "#fdecea", color: "#c0392b", fontSize: 12, fontWeight: 700 }}>⚠️ {bajos.length} insumo(s) bajo el mínimo{fLocal ? ` en ${fLocal}` : ""}</div>
+              <div style={{ display: "grid", gridTemplateColumns: GRID, gap: 8, padding: "8px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 10, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>
+                <div>Cód.</div><div>Insumo</div><div>Categoría</div><div style={{ textAlign: "right" }}>A. Thomas</div><div style={{ textAlign: "right" }}>French</div><div style={{ textAlign: "right" }}>Total</div><div style={{ textAlign: "right" }}>Mínimo</div><div></div>
+              </div>
+              {bajos.map(filaRender)}
+            </div>
+          )}
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: GRID, gap: 8, padding: "10px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 10, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>
+              <div>Cód.</div><div>Insumo</div><div>Categoría</div><div style={{ textAlign: "right" }}>A. Thomas</div><div style={{ textAlign: "right" }}>French</div><div style={{ textAlign: "right" }}>Total</div><div style={{ textAlign: "right" }}>Mínimo</div><div></div>
+            </div>
+            {loading ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+              : filas.length === 0 ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>No hay insumos para los filtros elegidos.</div>
+              : filas.map(filaRender)}
+          </div>
+
+          {hist && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => setHist(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 640, maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#333" }}>Historial · {hist.insumo.nombre}{fLocal ? ` · ${fLocal}` : ""}</div>
+                  <button style={{ fontSize: 12, padding: "6px 12px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={() => setHist(null)}>Cerrar</button>
+                </div>
+                {hist.loading ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando…</div>
+                  : hist.movs.length === 0 ? <div style={{ color: "#aaa", fontSize: 13 }}>Sin movimientos.</div>
+                  : hist.movs.map(m => (
+                    <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, padding: "5px 0", borderBottom: "1px solid #f5f5f5" }}>
+                      <span style={{ color: "#666", width: 90 }}>{m.fecha}</span>
+                      <span style={{ width: 80, color: "#555" }}>{STOCK_TIPO_LABEL[m.tipo] || m.tipo}</span>
+                      <span style={{ width: 70, color: "#888" }}>{m.local}</span>
+                      <span style={{ width: 110, textAlign: "right", fontWeight: 600, color: Number(m.cantidad) < 0 ? "#c0392b" : "#1d8a4e" }}>{Number(m.cantidad) > 0 ? "+" : ""}{fmtStock(m.cantidad, m.unidad)}</span>
+                      <span style={{ flex: 1, color: "#999" }}>{m.nota || ""}</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Ingreso de mercadería ──
+    function VistaStockIngreso({ usuario, onVolver }) {
+      const [insumos, setInsumos] = useState([]);
+      const [busqueda, setBusqueda] = useState("");
+      const [insumoId, setInsumoId] = useState("");
+      const [local, setLocal] = useState("A. Thomas");
+      const [cantidad, setCantidad] = useState("");
+      const [unidadIngreso, setUnidadIngreso] = useState("kg");
+      const [fecha, setFecha] = useState(stockHoy);
+      const [nota, setNota] = useState("");
+      const [guardando, setGuardando] = useState(false);
+      const [mensaje, setMensaje] = useState(null);
+
+      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 3500); }
+      async function cargar() {
+        try { const r = await axios.get(`${API}/api/insumos`); setInsumos(r.data); }
+        catch (err) { mostrarMensaje(err.response?.data?.error || "Error cargando insumos", "error"); }
+      }
+      useEffect(() => { cargar(); }, []);
+
+      const insumoSel = insumos.find(i => String(i.id) === String(insumoId)) || null;
+      useEffect(() => {   // al cambiar de insumo, ajusto la unidad de ingreso por defecto
+        if (!insumoSel) return;
+        setUnidadIngreso(insumoSel.unidad === "g" ? "kg" : "unidad");
+      }, [insumoId]);   // eslint-disable-line
+
+      const filtrados = insumos.filter(i => {
+        if (!busqueda) return true;
+        const s = busqueda.toLowerCase();
+        return i.nombre.toLowerCase().includes(s) || String(i.codigo ?? "").includes(s);
+      });
+
+      async function guardar() {
+        if (!insumoId) { mostrarMensaje("Elegí un insumo", "error"); return; }
+        if (!(Number(cantidad) > 0)) { mostrarMensaje("La cantidad debe ser mayor a 0", "error"); return; }
+        setGuardando(true);
+        try {
+          await axios.post(`${API}/api/insumos/ingreso`, {
+            insumo_id: Number(insumoId), local, cantidad: Number(cantidad),
+            unidad_ingreso: unidadIngreso, fecha, nota: nota.trim() || null, usuario: usuario.nombre_completo,
+          });
+          setCantidad(""); setNota(""); mostrarMensaje("Ingreso registrado");
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error registrando el ingreso", "error"); }
+        setGuardando(false);
+      }
+
+      const inp = { width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" };
+      const lbl = { fontSize: 12, color: "#888", display: "block", marginBottom: 4 };
+
+      return (
+        <div style={{ padding: 24, maxWidth: 560, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>📥 Ingreso de mercadería</div>
+            <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver</button>
+          </div>
+
+          {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>}
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <label style={lbl}>Insumo</label>
+              <input style={{ ...inp, marginBottom: 6 }} placeholder="Buscar por nombre o código…" value={busqueda} onChange={e => setBusqueda(e.target.value)} />
+              <select style={inp} value={insumoId} onChange={e => setInsumoId(e.target.value)} size={busqueda ? Math.min(6, Math.max(2, filtrados.length)) : 1}>
+                {!busqueda && <option value="">Elegir insumo…</option>}
+                {filtrados.map(i => <option key={i.id} value={i.id}>{i.codigo ? `${i.codigo} · ` : ""}{i.nombre} ({stockUnidadLabel(i.unidad)})</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={lbl}>Local</label>
+              <select style={inp} value={local} onChange={e => setLocal(e.target.value)}>
+                {STOCK_LOCALES.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </div>
+            <div style={{ display: "flex", gap: 12 }}>
+              <div style={{ flex: 2 }}>
+                <label style={lbl}>Cantidad</label>
+                <input type="number" min="0" step="0.001" style={inp} placeholder="0" value={cantidad} onChange={e => setCantidad(e.target.value)} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={lbl}>Unidad</label>
+                {insumoSel && insumoSel.unidad === "g"
+                  ? <select style={inp} value={unidadIngreso} onChange={e => setUnidadIngreso(e.target.value)}><option value="kg">kg</option><option value="g">g</option></select>
+                  : <input style={{ ...inp, background: "#f7f7f5", color: "#888" }} value={insumoSel ? "unidad" : "—"} disabled />}
+              </div>
+            </div>
+            <div>
+              <label style={lbl}>Fecha</label>
+              <input type="date" style={inp} value={fecha} onChange={e => setFecha(e.target.value)} />
+            </div>
+            <div>
+              <label style={lbl}>Nota (opcional)</label>
+              <input style={inp} value={nota} onChange={e => setNota(e.target.value)} placeholder="Proveedor, remito, etc." />
+            </div>
+            <button style={{ fontSize: 14, fontWeight: 600, padding: "10px 18px", borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#F68B32", color: "#fff", cursor: guardando ? "default" : "pointer", marginTop: 4 }} disabled={guardando} onClick={guardar}>{guardando ? "Guardando…" : "Registrar ingreso"}</button>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Recuento (ajuste por diferencia) ──
+    function VistaStockRecuento({ usuario, onVolver }) {
+      const [local, setLocal] = useState("A. Thomas");
+      const [categoria, setCategoria] = useState("");
+      const [categorias, setCategorias] = useState([]);
+      const [fecha, setFecha] = useState(stockHoy);
+      const [filas, setFilas] = useState([]);
+      const [contados, setContados] = useState({});   // insumo_id -> string (en unidad mostrada)
+      const [loading, setLoading] = useState(true);
+      const [mensaje, setMensaje] = useState(null);
+      const [preview, setPreview] = useState(null);    // [{ins, sistema, contado, diff}] | null
+      const [guardando, setGuardando] = useState(false);
+
+      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 4000); }
+      async function cargar() {
+        setLoading(true);
+        try {
+          const params = { local };
+          if (categoria) params.categoria = categoria;
+          const r = await axios.get(`${API}/api/insumos/stock`, { params });
+          setFilas(r.data); setContados({});
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error cargando stock", "error"); }
+        setLoading(false);
+      }
+      async function cargarCategorias() {
+        try { const r = await axios.get(`${API}/api/insumos`); setCategorias([...new Set(r.data.map(i => i.categoria).filter(Boolean))].sort()); }
+        catch (err) { /* opcional */ }
+      }
+      useEffect(() => { cargarCategorias(); }, []);
+      useEffect(() => { cargar(); }, [local, categoria]);
+
+      const sistemaDe = (i) => stockAMostrar(i.porLocal[local] || 0, i.unidad);   // en unidad mostrada
+      function revisar() {
+        const difs = [];
+        for (const i of filas) {
+          const raw = contados[i.id];
+          if (raw === undefined || raw === "" || !Number.isFinite(Number(raw))) continue;
+          const contado = Number(raw);
+          const sistema = sistemaDe(i);
+          const diff = contado - sistema;
+          if (Math.abs(diff) < (i.unidad === "g" ? 0.0005 : 0.001)) continue;
+          difs.push({ ins: i, sistema, contado, diff });
+        }
+        if (difs.length === 0) { mostrarMensaje("No hay diferencias para ajustar", "error"); return; }
+        setPreview(difs);
+      }
+      async function confirmar() {
+        setGuardando(true);
+        try {
+          const items = filas
+            .filter(i => contados[i.id] !== undefined && contados[i.id] !== "" && Number.isFinite(Number(contados[i.id])))
+            .map(i => ({ insumo_id: i.id, contado: Number(contados[i.id]) }));
+          const r = await axios.post(`${API}/api/insumos/recuento`, { local, fecha, items, usuario: usuario.nombre_completo });
+          setPreview(null); await cargar(); mostrarMensaje(`Recuento guardado: ${r.data.ajustes} ajuste(s)`);
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error guardando el recuento", "error"); }
+        setGuardando(false);
+      }
+
+      const inpN = { width: 120, fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", boxSizing: "border-box", textAlign: "right" };
+      const GRID = "1.6fr 1fr 140px 140px";
+
+      return (
+        <div style={{ padding: 24, maxWidth: 820, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>📋 Recuento de stock</div>
+            <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver</button>
+          </div>
+
+          {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>}
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+            <select style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={local} onChange={e => setLocal(e.target.value)}>
+              {STOCK_LOCALES.map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+            <select style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={categoria} onChange={e => setCategoria(e.target.value)}>
+              <option value="">Todas las categorías</option>
+              {categorias.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <span style={{ fontSize: 12, color: "#888" }}>Fecha</span>
+            <input type="date" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={fecha} onChange={e => setFecha(e.target.value)} />
+            <button style={{ marginLeft: "auto", fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer" }} onClick={revisar}>Revisar diferencias</button>
+          </div>
+
+          <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>Dejá vacío lo que no contaste. Cargá el contado en <b>{local}</b> (kg para insumos por peso).</div>
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: GRID, gap: 8, padding: "10px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 10, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>
+              <div>Insumo</div><div>Categoría</div><div style={{ textAlign: "right" }}>Sistema</div><div style={{ textAlign: "right" }}>Contado</div>
+            </div>
+            {loading ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+              : filas.length === 0 ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>No hay insumos.</div>
+              : filas.map(i => (
+                <div key={i.id} style={{ display: "grid", gridTemplateColumns: GRID, gap: 8, padding: "8px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, alignItems: "center" }}>
+                  <div style={{ color: "#333", fontWeight: 500 }}>{i.nombre}</div>
+                  <div style={{ color: "#666", fontSize: 12 }}>{i.categoria || "—"}</div>
+                  <div style={{ textAlign: "right", color: "#555" }}>{fmtStock(i.porLocal[local] || 0, i.unidad)}</div>
+                  <div style={{ textAlign: "right", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4 }}>
+                    <input type="number" min="0" step="0.001" style={inpN} placeholder="—" value={contados[i.id] ?? ""} onChange={e => setContados(c => ({ ...c, [i.id]: e.target.value }))} />
+                    <span style={{ fontSize: 11, color: "#999", width: 18 }}>{stockUnidadLabel(i.unidad)}</span>
+                  </div>
+                </div>
+              ))}
+          </div>
+
+          {preview && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => !guardando && setPreview(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 560, maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 4 }}>Confirmar recuento · {local}</div>
+                <div style={{ fontSize: 12, color: "#888", marginBottom: 16 }}>Se van a registrar {preview.length} ajuste(s) con fecha {fecha}.</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr", gap: 8, fontSize: 10, fontWeight: 700, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>
+                  <div>Insumo</div><div style={{ textAlign: "right" }}>Sistema</div><div style={{ textAlign: "right" }}>Contado</div><div style={{ textAlign: "right" }}>Ajuste</div>
+                </div>
+                {preview.map(d => (
+                  <div key={d.ins.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr", gap: 8, fontSize: 13, padding: "4px 0", borderBottom: "1px solid #f5f5f5" }}>
+                    <span style={{ color: "#333" }}>{d.ins.nombre}</span>
+                    <span style={{ textAlign: "right", color: "#555" }}>{fmtStock(d.ins.unidad === "g" ? d.sistema * 1000 : d.sistema, d.ins.unidad)}</span>
+                    <span style={{ textAlign: "right", color: "#555" }}>{fmtStock(d.ins.unidad === "g" ? d.contado * 1000 : d.contado, d.ins.unidad)}</span>
+                    <span style={{ textAlign: "right", fontWeight: 600, color: d.diff < 0 ? "#c0392b" : "#1d8a4e" }}>{d.diff > 0 ? "+" : ""}{fmtStock(d.ins.unidad === "g" ? d.diff * 1000 : d.diff, d.ins.unidad)}</span>
+                  </div>
+                ))}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+                  <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} disabled={guardando} onClick={() => setPreview(null)}>Volver a editar</button>
+                  <button style={{ fontSize: 13, fontWeight: 600, padding: "8px 18px", borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#1d8a4e", color: "#fff", cursor: guardando ? "default" : "pointer" }} disabled={guardando} onClick={confirmar}>{guardando ? "Guardando…" : "Confirmar ajustes"}</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Insumos (maestro ABM, solo admin/superadmin) ──
+    const INSUMO_FORM_VACIO = { codigo: "", nombre: "", categoria: "", unidad: "g", peso_unidad_g: "", precio_sin_iva: "", precio_con_iva: "", stock_minimo: "" };
+    function VistaInsumos({ usuario, onVolver }) {
+      const [insumos, setInsumos] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [mensaje, setMensaje] = useState(null);
+      const [q, setQ] = useState("");
+      const [incluirInactivos, setIncluirInactivos] = useState(false);
+      const [modal, setModal] = useState(null);       // null | "nuevo" | "editar"
+      const [editandoId, setEditandoId] = useState(null);
+      const [form, setForm] = useState(INSUMO_FORM_VACIO);
+      const [guardando, setGuardando] = useState(false);
+
+      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 3500); }
+      const setCampo = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+      async function cargar() {
+        setLoading(true);
+        try {
+          const params = {};
+          if (incluirInactivos) params.incluirInactivos = "1";
+          if (q) params.q = q;
+          const r = await axios.get(`${API}/api/insumos`, { params });
+          setInsumos(r.data);
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error cargando insumos", "error"); }
+        setLoading(false);
+      }
+      useEffect(() => { cargar(); }, [incluirInactivos, q]);
+
+      function abrirNuevo() { setForm(INSUMO_FORM_VACIO); setEditandoId(null); setModal("nuevo"); }
+      function abrirEditar(i) {
+        // stock_minimo se guarda en base (g); en el form se edita en kg para insumos por peso.
+        const minInput = i.stock_minimo == null ? "" : (i.unidad === "g" ? Number(i.stock_minimo) / 1000 : Number(i.stock_minimo));
+        setForm({
+          codigo: i.codigo ?? "", nombre: i.nombre || "", categoria: i.categoria || "", unidad: i.unidad || "g",
+          peso_unidad_g: i.peso_unidad_g ?? "", precio_sin_iva: i.precio_sin_iva ?? "", precio_con_iva: i.precio_con_iva ?? "", stock_minimo: minInput,
+        });
+        setEditandoId(i.id); setModal("editar");
+      }
+      async function guardar() {
+        if (!form.nombre.trim()) { mostrarMensaje("El nombre es obligatorio", "error"); return; }
+        setGuardando(true);
+        // El mínimo se ingresa en la unidad mostrada (kg para 'g') → convierto a base.
+        const minBase = form.stock_minimo === "" || form.stock_minimo === null ? "" : (form.unidad === "g" ? Number(form.stock_minimo) * 1000 : Number(form.stock_minimo));
+        const payload = { ...form, stock_minimo: minBase, usuario: usuario.nombre_completo };
+        try {
+          if (modal === "editar") await axios.patch(`${API}/api/insumos/${editandoId}`, payload);
+          else await axios.post(`${API}/api/insumos`, payload);
+          setModal(null); await cargar(); mostrarMensaje("Insumo guardado");
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error guardando", "error"); }
+        setGuardando(false);
+      }
+      async function darBaja(i) {
+        if (!window.confirm(`¿Dar de baja el insumo "${i.nombre}"?`)) return;
+        try { await axios.post(`${API}/api/insumos/${i.id}/baja`, { usuario: usuario.nombre_completo }); await cargar(); mostrarMensaje("Insumo dado de baja"); }
+        catch (err) { mostrarMensaje(err.response?.data?.error || "Error dando de baja", "error"); }
+      }
+      async function reactivar(i) {
+        try { await axios.patch(`${API}/api/insumos/${i.id}`, { activo: true, usuario: usuario.nombre_completo }); await cargar(); mostrarMensaje("Insumo reactivado"); }
+        catch (err) { mostrarMensaje(err.response?.data?.error || "Error reactivando", "error"); }
+      }
+
+      const inp = { width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" };
+      const lbl = { fontSize: 12, color: "#888", display: "block", marginBottom: 4 };
+      const GRID = "60px 1.6fr 1fr 70px 120px 110px 120px";
+
+      return (
+        <div style={{ padding: 24, maxWidth: 1050, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>🧾 Insumos</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 16px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer" }} onClick={abrirNuevo}>+ Nuevo insumo</button>
+              <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver</button>
+            </div>
+          </div>
+
+          {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>}
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+            <input style={{ fontSize: 13, padding: "6px 10px", borderRadius: 8, border: "1px solid #ddd", flex: "1 1 220px" }} placeholder="Buscar por nombre o código…" value={q} onChange={e => setQ(e.target.value)} />
+            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#666", cursor: "pointer" }}>
+              <input type="checkbox" checked={incluirInactivos} onChange={e => setIncluirInactivos(e.target.checked)} /> Incluir inactivos
+            </label>
+          </div>
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: GRID, gap: 8, padding: "10px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 10, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>
+              <div>Cód.</div><div>Nombre</div><div>Categoría</div><div>Unidad</div><div style={{ textAlign: "right" }}>Precio c/IVA</div><div style={{ textAlign: "right" }}>Mínimo</div><div></div>
+            </div>
+            {loading ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+              : insumos.length === 0 ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>No hay insumos.</div>
+              : insumos.map(i => (
+                <div key={i.id} style={{ display: "grid", gridTemplateColumns: GRID, gap: 8, padding: "9px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, alignItems: "center", opacity: i.activo ? 1 : 0.55 }}>
+                  <div style={{ color: "#999", fontSize: 12 }}>{i.codigo ?? "—"}</div>
+                  <div style={{ color: "#333", fontWeight: 500, cursor: "pointer" }} onClick={() => abrirEditar(i)}>{i.nombre}{!i.activo && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 600, color: "#888", background: "#eee", borderRadius: 4, padding: "1px 5px" }}>INACTIVO</span>}</div>
+                  <div style={{ color: "#666", fontSize: 12 }}>{i.categoria || "—"}</div>
+                  <div style={{ color: "#666", fontSize: 12 }}>{stockUnidadLabel(i.unidad)}</div>
+                  <div style={{ textAlign: "right", color: "#555" }}>{i.precio_con_iva != null ? "$" + Number(i.precio_con_iva).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</div>
+                  <div style={{ textAlign: "right", color: "#999", fontSize: 12 }}>{i.stock_minimo > 0 ? fmtStock(i.stock_minimo, i.unidad) : "—"}</div>
+                  <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                    <button style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#555", cursor: "pointer" }} onClick={() => abrirEditar(i)}>Editar</button>
+                    {i.activo
+                      ? <button style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => darBaja(i)}>Baja</button>
+                      : <button style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #1d8a4e", background: "#eafaf1", color: "#1d8a4e", cursor: "pointer" }} onClick={() => reactivar(i)}>Reactivar</button>}
+                  </div>
+                </div>
+              ))}
+          </div>
+
+          {modal && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16, overflowY: "auto" }} onClick={() => !guardando && setModal(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 560, margin: "auto" }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 16 }}>{modal === "editar" ? "Editar insumo" : "Nuevo insumo"}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div><label style={lbl}>Código</label><input type="number" style={inp} value={form.codigo} onChange={e => setCampo("codigo", e.target.value)} /></div>
+                  <div><label style={lbl}>Unidad de control</label>
+                    <select style={inp} value={form.unidad} onChange={e => setCampo("unidad", e.target.value)}>
+                      <option value="g">Peso (gramos / kg)</option>
+                      <option value="unidad">Unidad</option>
+                    </select>
+                  </div>
+                  <div style={{ gridColumn: "1 / -1" }}><label style={lbl}>Nombre *</label><input style={inp} value={form.nombre} onChange={e => setCampo("nombre", e.target.value)} /></div>
+                  <div><label style={lbl}>Categoría</label><input style={inp} value={form.categoria} onChange={e => setCampo("categoria", e.target.value)} placeholder="Fiambres, Quesos, Panadería…" /></div>
+                  <div><label style={lbl}>Peso por feta/porción (g)</label><input type="number" step="0.01" style={inp} value={form.peso_unidad_g} onChange={e => setCampo("peso_unidad_g", e.target.value)} /></div>
+                  <div><label style={lbl}>Precio sin IVA {form.unidad === "g" ? "(por kg)" : "(por unidad)"}</label><input type="number" step="0.01" style={inp} value={form.precio_sin_iva} onChange={e => setCampo("precio_sin_iva", e.target.value)} /></div>
+                  <div><label style={lbl}>Precio con IVA {form.unidad === "g" ? "(por kg)" : "(por unidad)"}</label><input type="number" step="0.01" style={inp} value={form.precio_con_iva} onChange={e => setCampo("precio_con_iva", e.target.value)} /></div>
+                  <div style={{ gridColumn: "1 / -1" }}><label style={lbl}>Stock mínimo ({stockUnidadLabel(form.unidad)})</label><input type="number" step="0.001" style={inp} value={form.stock_minimo} onChange={e => setCampo("stock_minimo", e.target.value)} /></div>
+                </div>
+                <div style={{ fontSize: 11, color: "#999", marginTop: 8 }}>El stock mínimo se guarda en la unidad base ({form.unidad === "g" ? "se convierte de kg a g" : "unidades"}).</div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+                  <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} disabled={guardando} onClick={() => setModal(null)}>Cancelar</button>
+                  <button style={{ fontSize: 13, fontWeight: 600, padding: "8px 18px", borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#F68B32", color: "#fff", cursor: guardando ? "default" : "pointer" }} disabled={guardando} onClick={guardar}>{guardando ? "Guardando…" : "Guardar"}</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     // ─── COMPRAS — ÓRDENES DE COMPRA (Entrega 2) ──────────────────────────
     // Admin + superadmin. Flujo pendiente → aprobada → (recibida = Entrega 3); anulable.
     const OC_ESTADO_BADGE = {
@@ -6515,6 +7036,24 @@ let numeroAsignado = "";
                       )}
                     </>
                   )}
+                  {esGestion && (
+                    <>
+                      <button
+                        style={{ ...s.dropItem, fontWeight: 700, color: "#444", background: "#fafaf8", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                        onClick={() => setMenuGrupo(g => g === "stock" ? "" : "stock")}>
+                        <span>📦 Stock</span>
+                        <span style={{ fontSize: 10, color: "#aaa" }}>{menuGrupo === "stock" ? "▾" : "▸"}</span>
+                      </button>
+                      {menuGrupo === "stock" && (
+                        <>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("stockActual"); setMenuAbierto(false); }}>📦 Stock actual</button>
+                          {(esAdmin || usuario.rol === "encargado") && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("stockIngreso"); setMenuAbierto(false); }}>📥 Ingreso de mercadería</button>}
+                          {(esAdmin || usuario.rol === "encargado") && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("stockRecuento"); setMenuAbierto(false); }}>📋 Recuento</button>}
+                          {esAdmin && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("insumos"); setMenuAbierto(false); }}>🧾 Insumos</button>}
+                        </>
+                      )}
+                    </>
+                  )}
                   {esAdmin && <button style={s.dropItem} onClick={() => { setVista("clientes"); setMenuAbierto(false); }}>👥 Clientes</button>}
                   {esAdmin && <button style={s.dropItem} onClick={() => { setVista("ventasRealizar"); setMenuAbierto(false); }}>💼 Ventas a realizar</button>}
                   <button style={s.dropItem} onClick={() => { setVista("tandas"); setMenuAbierto(false); }}>🚚 Tandas activas</button>
@@ -6583,6 +7122,20 @@ let numeroAsignado = "";
           </div>
         );
       }
+
+      // Guard módulo Stock. Ver = gestión; ingreso/recuento = admin/superadmin/encargado; maestro insumos = admin/superadmin.
+      const VISTAS_STOCK = ["stockActual", "stockIngreso", "stockRecuento", "insumos"];
+      const sinAccesoStock = (texto) => (
+        <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: "system-ui, sans-serif", background: "#f7f7f5", padding: 24, textAlign: "center" }}>
+          <div style={{ fontSize: 40 }}>🔒</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#333" }}>Sin acceso</div>
+          <div style={{ fontSize: 13, color: "#888" }}>{texto}</div>
+          <button onClick={() => setVista("panel")} style={{ marginTop: 8, fontSize: 13, padding: "9px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }}>← Volver al panel</button>
+        </div>
+      );
+      if (VISTAS_STOCK.includes(vista) && !esGestion) return sinAccesoStock("No tenés permiso para ver el stock.");
+      if (["stockIngreso", "stockRecuento"].includes(vista) && !(esAdmin || usuario.rol === "encargado")) return sinAccesoStock("Solo admin, superadmin y encargados pueden cargar stock.");
+      if (vista === "insumos" && !esAdmin) return sinAccesoStock("El maestro de insumos es solo para administradores.");
 
     if (vista === "repartidores") {
         return (
@@ -7658,6 +8211,18 @@ if (vista === "dashboard") {
     }
     if (vista === "reporteRRHH") {
       return <div style={s.wrap}><Header /><VistaReporteRRHH onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "stockActual") {
+      return <div style={s.wrap}><Header /><VistaStockActual usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "stockIngreso") {
+      return <div style={s.wrap}><Header /><VistaStockIngreso usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "stockRecuento") {
+      return <div style={s.wrap}><Header /><VistaStockRecuento usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "insumos") {
+      return <div style={s.wrap}><Header /><VistaInsumos usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "mapa") {
         return <div style={s.wrap}><Header /><VistaMapa onVolver={() => setVista("panel")} repartidores={repartidoresLista} onCrearTanda={crearTanda} /></div>;

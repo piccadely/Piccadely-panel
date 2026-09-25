@@ -396,6 +396,32 @@ async function initDB() {
     motivo_anulacion TEXT, usuario TEXT,
     created_at TIMESTAMP DEFAULT NOW()
   );`);
+  // STOCK DE INSUMOS Fase 1 (NUEVO, separado del tablero de cocina/stock_lotes). Stock = Σ movimientos por insumo+local.
+  await pool.query(`CREATE TABLE IF NOT EXISTS insumos (
+    id SERIAL PRIMARY KEY,
+    codigo INTEGER UNIQUE,
+    nombre TEXT NOT NULL,
+    categoria TEXT,
+    unidad TEXT NOT NULL CHECK (unidad IN ('g','unidad')),
+    peso_unidad_g NUMERIC,
+    precio_sin_iva NUMERIC,
+    precio_con_iva NUMERIC,
+    stock_minimo NUMERIC NOT NULL DEFAULT 0,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP DEFAULT NOW()
+  );`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS insumos_movimientos (
+    id SERIAL PRIMARY KEY,
+    insumo_id INTEGER NOT NULL REFERENCES insumos(id),
+    local TEXT NOT NULL,
+    tipo TEXT NOT NULL CHECK (tipo IN ('ingreso','ajuste','consumo')),
+    cantidad NUMERIC NOT NULL,
+    fecha TEXT NOT NULL,
+    nota TEXT,
+    referencia TEXT,
+    usuario TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+  );`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
   await pool.query(`CREATE TABLE IF NOT EXISTS costos_areas (area INTEGER PRIMARY KEY, costo NUMERIC NOT NULL DEFAULT 1);`);
   await pool.query(`INSERT INTO costos_areas (area, costo) SELECT g, 1 FROM generate_series(1,10) g ON CONFLICT (area) DO NOTHING;`);
@@ -2928,6 +2954,194 @@ app.get("/api/rrhh/reporte", soloSuperadmin, async (req, res) => {
       porEmpleado: Object.values(porEmpleado).sort((x, y) => y.costo - x.costo),
       porMesPago, totalNeto, totalPagado, totalPendiente: totalNeto - totalPagado,
     });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── STOCK DE INSUMOS — Fase 1 ─────────────────────────────────────────
+// Módulo NUEVO, separado del tablero de cocina (stock_lotes / /api/stock). Namespaceado en /api/insumos
+// para no colisionar con el GET /api/stock existente. Stock actual = Σ movimientos (con signo) por insumo+local.
+// Permisos: ver = gestión (admin/superadmin/encargado/solo_lectura); cargar = admin/superadmin/encargado;
+// maestro (ABM) = admin/superadmin (requireAdmin).
+const INSUMO_LOCALES = ["A. Thomas", "French"];
+const stockVer = [requireAuth, requireRole("admin", "superadmin", "encargado", "solo_lectura")];
+const stockCarga = [requireAuth, requireRole("admin", "superadmin", "encargado")];
+const numOrNull = (x) => { if (x === "" || x === null || x === undefined) return null; const n = Number(x); return Number.isFinite(n) ? n : null; };
+
+// --- Maestro de insumos ---
+app.get("/api/insumos", stockVer, async (req, res) => {
+  const { categoria, q, incluirInactivos } = req.query;
+  try {
+    const params = [];
+    let sql = "SELECT * FROM insumos WHERE 1=1";
+    if (incluirInactivos !== "1") sql += " AND activo = true";
+    if (categoria) { params.push(categoria); sql += ` AND categoria = $${params.length}`; }
+    if (q) { params.push(`%${String(q).toLowerCase()}%`); sql += ` AND (lower(nombre) LIKE $${params.length} OR CAST(codigo AS TEXT) LIKE $${params.length})`; }
+    sql += " ORDER BY categoria NULLS LAST, nombre ASC";
+    const { rows } = await pool.query(sql, params);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post("/api/insumos", requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  if (!b.nombre || !String(b.nombre).trim()) return res.status(400).json({ error: "El nombre es obligatorio." });
+  if (!["g", "unidad"].includes(b.unidad)) return res.status(400).json({ error: "Unidad inválida (g o unidad)." });
+  try {
+    const r = await pool.query(
+      `INSERT INTO insumos (codigo, nombre, categoria, unidad, peso_unidad_g, precio_sin_iva, precio_con_iva, stock_minimo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [numOrNull(b.codigo), String(b.nombre).trim(), b.categoria || null, b.unidad, numOrNull(b.peso_unidad_g), numOrNull(b.precio_sin_iva), numOrNull(b.precio_con_iva), numOrNull(b.stock_minimo) || 0]
+    );
+    res.json({ ok: true, id: r.rows[0].id });
+    registrarAuditoria(b.usuario, "insumo_crear", "insumo", r.rows[0].id, { nombre: String(b.nombre).trim() });
+  } catch (err) {
+    if (err.code === "23505") return res.status(409).json({ error: `Ya existe un insumo con el código ${b.codigo}.` });
+    res.status(500).json({ error: err.message });
+  }
+});
+app.patch("/api/insumos/:id", requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  if (b.nombre !== undefined && !String(b.nombre).trim()) return res.status(400).json({ error: "El nombre no puede quedar vacío." });
+  if (b.unidad !== undefined && !["g", "unidad"].includes(b.unidad)) return res.status(400).json({ error: "Unidad inválida (g o unidad)." });
+  const numFields = ["codigo", "peso_unidad_g", "precio_sin_iva", "precio_con_iva", "stock_minimo"];
+  const campos = ["codigo", "nombre", "categoria", "unidad", "peso_unidad_g", "precio_sin_iva", "precio_con_iva", "stock_minimo", "activo"];
+  const sets = [], vals = [];
+  for (const c of campos) if (b[c] !== undefined) {
+    let v = b[c];
+    if (c === "nombre") v = String(b[c]).trim();
+    else if (numFields.includes(c)) v = numOrNull(b[c]);
+    vals.push(v); sets.push(`${c} = $${vals.length}`);
+  }
+  if (sets.length === 0) return res.status(400).json({ error: "Nada para actualizar." });
+  vals.push(req.params.id);
+  try {
+    const r = await pool.query(`UPDATE insumos SET ${sets.join(", ")} WHERE id = $${vals.length} RETURNING nombre`, vals);
+    if (r.rows.length === 0) return res.status(404).json({ error: "Insumo no encontrado." });
+    res.json({ ok: true });
+    registrarAuditoria(b.usuario, "insumo_editar", "insumo", req.params.id, { nombre: r.rows[0].nombre });
+  } catch (err) {
+    if (err.code === "23505") return res.status(409).json({ error: `Ya existe un insumo con el código ${b.codigo}.` });
+    res.status(500).json({ error: err.message });
+  }
+});
+app.post("/api/insumos/:id/baja", requireAdmin, async (req, res) => {
+  try {
+    const r = await pool.query("UPDATE insumos SET activo = false WHERE id = $1 RETURNING nombre", [req.params.id]);
+    if (r.rows.length === 0) return res.status(404).json({ error: "Insumo no encontrado." });
+    res.json({ ok: true });
+    registrarAuditoria(req.body?.usuario, "insumo_baja", "insumo", req.params.id, { nombre: r.rows[0].nombre });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- Stock actual (Σ movimientos por insumo + local) ---
+app.get("/api/insumos/stock", stockVer, async (req, res) => {
+  const { local, categoria, q } = req.query;
+  try {
+    const params = [];
+    let sql = "SELECT * FROM insumos i WHERE i.activo = true";
+    if (categoria) { params.push(categoria); sql += ` AND i.categoria = $${params.length}`; }
+    if (q) { params.push(`%${String(q).toLowerCase()}%`); sql += ` AND lower(i.nombre) LIKE $${params.length}`; }
+    sql += " ORDER BY i.categoria NULLS LAST, i.nombre ASC";
+    const ins = await pool.query(sql, params);
+    const mov = await pool.query("SELECT insumo_id, local, COALESCE(SUM(cantidad),0) AS total FROM insumos_movimientos GROUP BY insumo_id, local");
+    const byKey = {};
+    for (const m of mov.rows) byKey[`${m.insumo_id}|${m.local}`] = Number(m.total);
+    const filas = ins.rows.map(i => {
+      const porLocal = {}; let total = 0;
+      for (const L of INSUMO_LOCALES) { const v = byKey[`${i.id}|${L}`] || 0; porLocal[L] = v; total += v; }
+      const relevante = local ? (porLocal[local] || 0) : total;   // el mínimo se evalúa sobre el local filtrado, o el total
+      return { ...i, porLocal, total, bajo_minimo: Number(relevante) < Number(i.stock_minimo) };
+    });
+    res.json(filas);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- Ingreso de mercadería (positivo) ---
+app.post("/api/insumos/ingreso", stockCarga, async (req, res) => {
+  const b = req.body || {};
+  const insId = Number(b.insumo_id);
+  if (!insId) return res.status(400).json({ error: "Falta el insumo." });
+  if (!INSUMO_LOCALES.includes(b.local)) return res.status(400).json({ error: "Local inválido." });
+  const cant = Number(b.cantidad);
+  if (!Number.isFinite(cant) || cant <= 0) return res.status(400).json({ error: "La cantidad debe ser mayor a 0." });
+  if (!esFechaISO(b.fecha)) return res.status(400).json({ error: "Fecha inválida (YYYY-MM-DD)." });
+  if (!["kg", "g", "unidad"].includes(b.unidad_ingreso)) return res.status(400).json({ error: "Unidad de ingreso inválida." });
+  try {
+    const ins = await pool.query("SELECT unidad FROM insumos WHERE id = $1 AND activo = true", [insId]);
+    if (ins.rows.length === 0) return res.status(400).json({ error: "Insumo inválido." });
+    const base = ins.rows[0].unidad;   // 'g' | 'unidad'
+    let cantBase;
+    if (base === "g") {
+      if (b.unidad_ingreso === "kg") cantBase = cant * 1000;
+      else if (b.unidad_ingreso === "g") cantBase = cant;
+      else return res.status(400).json({ error: "Ese insumo se controla en gramos: ingresá kg o g." });
+    } else {
+      if (b.unidad_ingreso === "unidad") cantBase = cant;
+      else return res.status(400).json({ error: "Ese insumo se controla por unidad." });
+    }
+    const r = await pool.query(
+      "INSERT INTO insumos_movimientos (insumo_id, local, tipo, cantidad, fecha, nota, usuario) VALUES ($1,$2,'ingreso',$3,$4,$5,$6) RETURNING id",
+      [insId, b.local, cantBase, b.fecha, b.nota || null, b.usuario || null]
+    );
+    res.json({ ok: true, id: r.rows[0].id });
+    registrarAuditoria(b.usuario, "insumo_ingreso", "insumo", insId, { local: b.local, cantidadBase: cantBase });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- Recuento (ajuste por diferencia contra el stock del sistema) ---
+app.post("/api/insumos/recuento", stockCarga, async (req, res) => {
+  const b = req.body || {};
+  if (!INSUMO_LOCALES.includes(b.local)) return res.status(400).json({ error: "Local inválido." });
+  if (!esFechaISO(b.fecha)) return res.status(400).json({ error: "Fecha inválida (YYYY-MM-DD)." });
+  if (!Array.isArray(b.items) || b.items.length === 0) return res.status(400).json({ error: "No hay ítems para el recuento." });
+  const ids = b.items.map(it => Number(it.insumo_id)).filter(Boolean);
+  if (ids.length === 0) return res.status(400).json({ error: "No hay ítems válidos." });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const insR = await client.query("SELECT id, unidad FROM insumos WHERE id = ANY($1)", [ids]);
+    const uni = {}; for (const r of insR.rows) uni[r.id] = r.unidad;
+    const stR = await client.query("SELECT insumo_id, COALESCE(SUM(cantidad),0) AS total FROM insumos_movimientos WHERE local = $1 AND insumo_id = ANY($2) GROUP BY insumo_id", [b.local, ids]);
+    const cur = {}; for (const r of stR.rows) cur[r.insumo_id] = Number(r.total);
+    const resumen = [];
+    for (const it of b.items) {
+      const id = Number(it.insumo_id);
+      if (!id || !uni[id]) continue;
+      const contadoRaw = Number(it.contado);
+      if (!Number.isFinite(contadoRaw) || contadoRaw < 0) continue;
+      const contadoBase = uni[id] === "g" ? contadoRaw * 1000 : contadoRaw;   // el front manda kg para 'g'
+      const actual = cur[id] || 0;
+      const diff = contadoBase - actual;
+      if (Math.abs(diff) < 0.0001) continue;   // sin cambio → no genera movimiento
+      await client.query(
+        "INSERT INTO insumos_movimientos (insumo_id, local, tipo, cantidad, fecha, nota, usuario) VALUES ($1,$2,'ajuste',$3,$4,$5,$6)",
+        [id, b.local, diff, b.fecha, `Recuento ${b.fecha}`, b.usuario || null]
+      );
+      resumen.push({ insumo_id: id, actual, contado: contadoBase, diferencia: diff });
+    }
+    await client.query("COMMIT");
+    res.json({ ok: true, ajustes: resumen.length, resumen });
+    registrarAuditoria(b.usuario, "insumo_recuento", "local", b.local, { fecha: b.fecha, ajustes: resumen.length });
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    console.error("Error POST /api/insumos/recuento:", e.message);
+    return res.status(500).json({ error: "Error registrando el recuento" });
+  } finally { if (client) client.release(); }
+});
+
+// --- Historial de movimientos ---
+app.get("/api/insumos/movimientos", stockVer, async (req, res) => {
+  const { insumo_id, local, desde, hasta } = req.query;
+  try {
+    const params = [];
+    let sql = "SELECT m.*, i.nombre AS insumo_nombre, i.unidad FROM insumos_movimientos m JOIN insumos i ON i.id = m.insumo_id WHERE 1=1";
+    if (insumo_id) { params.push(insumo_id); sql += ` AND m.insumo_id = $${params.length}`; }
+    if (local) { params.push(local); sql += ` AND m.local = $${params.length}`; }
+    if (desde) { params.push(desde); sql += ` AND m.fecha >= $${params.length}`; }
+    if (hasta) { params.push(hasta); sql += ` AND m.fecha <= $${params.length}`; }
+    sql += " ORDER BY m.fecha DESC, m.id DESC";
+    const { rows } = await pool.query(sql, params);
+    res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
