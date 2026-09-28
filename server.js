@@ -307,6 +307,9 @@ async function initDB() {
   await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS iva_21   NUMERIC NOT NULL DEFAULT 0;`);
   await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS neto_27  NUMERIC NOT NULL DEFAULT 0;`);
   await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS iva_27   NUMERIC NOT NULL DEFAULT 0;`);
+  // Fecha de contabilización (imputación al libro IVA). El libro filtra por esta; la cuenta corriente/pagos usan `fecha`.
+  await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS fecha_contable TEXT;`);
+  await pool.query(`UPDATE facturas_compra SET fecha_contable = fecha WHERE fecha_contable IS NULL;`);
   // Cotizaciones / "Ventas a realizar" (pipeline). Antes se creaba a mano; ahora en initDB.
   await pool.query(`CREATE TABLE IF NOT EXISTS cotizaciones (
     id SERIAL PRIMARY KEY,
@@ -1870,20 +1873,45 @@ app.delete("/api/repartidores/:id", requireAdmin, async (req, res) => {
 // Cimiento del módulo de compras (admin + superadmin). Después: órdenes, facturas, pagos, libro.
 const CONDICIONES_IVA = ["RI", "Monotributo", "Exento", "CF"];
 
+// Fecha de contabilización (imputación al libro IVA). Default: si la factura es de un mes anterior al
+// actual (zona AR) → HOY; si es del mes actual (o futuro) → igual a la fecha. Nunca anterior a la fecha.
+function calcularFechaContable(fecha, provista) {
+  const hoy = fechaArgentinaISO();
+  let fc = (provista && String(provista).trim()) ? String(provista).trim() : null;
+  if (!fc) fc = (String(fecha).slice(0, 7) < hoy.slice(0, 7)) ? hoy : fecha;
+  if (!esFechaISO(fc)) return { error: "Fecha de contabilización inválida (YYYY-MM-DD)." };
+  if (fc < fecha) return { error: "La fecha de contabilización no puede ser anterior a la fecha de la factura." };
+  return { fechaContable: fc };
+}
+// Razón social normalizada para detectar duplicados (minúsculas + espacios colapsados).
+const razonNorm = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+
 app.get("/api/compras/proveedores", requireAdmin, async (req, res) => {
   try {
-    const result = await pool.query("SELECT * FROM proveedores WHERE activo = true ORDER BY razon_social ASC");
+    // Por defecto solo activos (compat). incluirInactivos=1 → todos (la vista Proveedores filtra en el front).
+    const sql = req.query.incluirInactivos === "1"
+      ? "SELECT * FROM proveedores ORDER BY razon_social ASC"
+      : "SELECT * FROM proveedores WHERE activo = true ORDER BY razon_social ASC";
+    const result = await pool.query(sql);
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post("/api/compras/proveedores", requireAdmin, async (req, res) => {
-  const { razon_social, cuit, condicion_iva, email, telefono } = req.body;
+  const { razon_social, cuit, condicion_iva, email, telefono, confirmar } = req.body;
   if (!razon_social || !razon_social.trim()) return res.status(400).json({ error: "La razón social es obligatoria." });
   const cuitLimpio = cuit ? String(cuit).replace(/\D/g, "") : "";
   if (cuitLimpio && cuitLimpio.length !== 11) return res.status(400).json({ error: "El CUIT debe tener 11 dígitos." });
   if (condicion_iva && !CONDICIONES_IVA.includes(condicion_iva)) return res.status(400).json({ error: "Condición de IVA inválida." });
   try {
+    // Duplicado por CUIT → bloquea. Sin CUIT, misma razón social → avisa (requiere confirmación).
+    if (cuitLimpio) {
+      const dup = await pool.query("SELECT razon_social FROM proveedores WHERE regexp_replace(coalesce(cuit,''),'\\D','','g') = $1 LIMIT 1", [cuitLimpio]);
+      if (dup.rows.length > 0) return res.status(409).json({ error: `Ya existe ${dup.rows[0].razon_social} con ese CUIT.` });
+    } else if (!confirmar) {
+      const dupN = await pool.query("SELECT razon_social FROM proveedores WHERE lower(trim(regexp_replace(razon_social,'\\s+',' ','g'))) = $1 LIMIT 1", [razonNorm(razon_social)]);
+      if (dupN.rows.length > 0) return res.status(409).json({ requiereConfirmacion: true, error: `Ya existe un proveedor "${dupN.rows[0].razon_social}" con esa razón social. ¿Crearlo igual?` });
+    }
     const result = await pool.query(
       "INSERT INTO proveedores (razon_social, cuit, condicion_iva, email, telefono) VALUES ($1,$2,$3,$4,$5) RETURNING *",
       [razon_social.trim(), cuitLimpio || null, condicion_iva || null, email?.trim() || null, telefono?.trim() || null]
@@ -1893,7 +1921,7 @@ app.post("/api/compras/proveedores", requireAdmin, async (req, res) => {
 });
 
 app.patch("/api/compras/proveedores/:id", requireAdmin, async (req, res) => {
-  const { razon_social, cuit, condicion_iva, email, telefono } = req.body;
+  const { razon_social, cuit, condicion_iva, email, telefono, confirmar } = req.body;
   let cuitLimpio;
   if (cuit !== undefined) {
     cuitLimpio = cuit ? String(cuit).replace(/\D/g, "") : null;
@@ -1901,6 +1929,14 @@ app.patch("/api/compras/proveedores/:id", requireAdmin, async (req, res) => {
   }
   if (condicion_iva && !CONDICIONES_IVA.includes(condicion_iva)) return res.status(400).json({ error: "Condición de IVA inválida." });
   try {
+    // Mismos chequeos de duplicado que en alta, excluyendo el propio id.
+    if (cuitLimpio) {
+      const dup = await pool.query("SELECT razon_social FROM proveedores WHERE regexp_replace(coalesce(cuit,''),'\\D','','g') = $1 AND id <> $2 LIMIT 1", [cuitLimpio, req.params.id]);
+      if (dup.rows.length > 0) return res.status(409).json({ error: `Ya existe ${dup.rows[0].razon_social} con ese CUIT.` });
+    } else if (razon_social && !confirmar) {
+      const dupN = await pool.query("SELECT razon_social FROM proveedores WHERE lower(trim(regexp_replace(razon_social,'\\s+',' ','g'))) = $1 AND id <> $2 LIMIT 1", [razonNorm(razon_social), req.params.id]);
+      if (dupN.rows.length > 0) return res.status(409).json({ requiereConfirmacion: true, error: `Ya existe otro proveedor "${dupN.rows[0].razon_social}" con esa razón social. ¿Guardar igual?` });
+    }
     await pool.query(
       `UPDATE proveedores SET
          razon_social = COALESCE($1, razon_social),
@@ -2097,7 +2133,7 @@ function validarFacturaCompra(b) {
 }
 
 app.get("/api/compras/facturas", requireAdmin, async (req, res) => {
-  const { estado_pago, proveedor } = req.query;
+  const { estado_pago, proveedor, q } = req.query;
   try {
     const params = [];
     let sql = `SELECT fc.*, c.nombre AS categoria_nombre, oc.descripcion AS orden_descripcion
@@ -2107,6 +2143,22 @@ app.get("/api/compras/facturas", requireAdmin, async (req, res) => {
                WHERE 1=1`;
     if (estado_pago) { params.push(estado_pago); sql += ` AND fc.estado_pago = $${params.length}`; }
     if (proveedor) { params.push(proveedor); sql += ` AND fc.proveedor_id = $${params.length}`; }
+    // Búsqueda abierta: nº de comprobante (con/sin punto de venta ni guiones), razón social o CUIT.
+    if (q && q.trim()) {
+      const qLower = `%${q.trim().toLowerCase()}%`;
+      const qDigits = q.replace(/\D/g, "");
+      const ors = [];
+      params.push(qLower); ors.push(`lower(fc.proveedor_razon_social) LIKE $${params.length}`);
+      if (qDigits) {
+        params.push(`%${qDigits}%`); const pd = params.length;
+        ors.push(`fc.proveedor_cuit LIKE $${pd}`);
+        ors.push(`regexp_replace(coalesce(fc.punto_venta,'') || coalesce(fc.numero_comprobante,''), '\\D', '', 'g') LIKE $${pd}`);
+        ors.push(`regexp_replace(coalesce(fc.numero_comprobante,''), '\\D', '', 'g') LIKE $${pd}`);
+      } else {
+        params.push(qLower); ors.push(`lower(coalesce(fc.numero_comprobante,'')) LIKE $${params.length}`);
+      }
+      sql += ` AND (${ors.join(" OR ")})`;
+    }
     sql += " ORDER BY fc.fecha DESC, fc.created_at DESC";
     const result = await pool.query(sql, params);
     res.json(result.rows);
@@ -2156,14 +2208,17 @@ app.post("/api/compras/facturas", requireAdmin, async (req, res) => {
     const netoGravado = n105 + n21 + n27, ivaTotal = i105 + i21 + i27;
     const alicDom = (n21 >= n105 && n21 >= n27) ? 21 : (n105 >= n27 ? 10.5 : 27);
 
+    const fcCalc = calcularFechaContable(b.fecha, b.fecha_contable);
+    if (fcCalc.error) return res.status(400).json({ error: fcCalc.error });
+
     const cols = `(proveedor_id, categoria_gasto_id, orden_compra_id, proveedor_cuit, proveedor_razon_social,
-      tipo_comprobante, punto_venta, numero_comprobante, cae, fecha, alicuota_iva, neto_gravado, iva,
+      tipo_comprobante, punto_venta, numero_comprobante, cae, fecha, fecha_contable, alicuota_iva, neto_gravado, iva,
       neto_105, iva_105, neto_21, iva_21, neto_27, iva_27,
       percep_iva, percep_iibb_bsas, percep_iibb_caba, neto_no_gravado, exentas, otros_tributos, total, usuario_crea, factura_asociada_id)`;
     const vals = [
       b.proveedor_id, b.categoria_gasto_id, b.orden_compra_id || null, snapCuit, snapRazon,
       String(b.tipo_comprobante).trim(), b.punto_venta?.trim() || null, String(b.numero_comprobante).trim(),
-      b.cae?.trim() || null, b.fecha, alicDom, netoGravado, ivaTotal,
+      b.cae?.trim() || null, b.fecha, fcCalc.fechaContable, alicDom, netoGravado, ivaTotal,
       n105, i105, n21, i21, n27, i27,
       Number(b.percep_iva) || 0, Number(b.percep_iibb_bsas) || 0, Number(b.percep_iibb_caba) || 0,
       Number(b.neto_no_gravado) || 0, Number(b.exentas) || 0, Number(b.otros_tributos) || 0, Number(b.total),
@@ -2216,6 +2271,8 @@ app.patch("/api/compras/facturas/:id", requireAdmin, async (req, res) => {
       n27 = Number(b.neto_27) || 0, i27 = Number(b.iva_27) || 0;
     const netoGravado = n105 + n21 + n27, ivaTotal = i105 + i21 + i27;
     const alicDom = (n21 >= n105 && n21 >= n27) ? 21 : (n105 >= n27 ? 10.5 : 27);
+    const fcCalc = calcularFechaContable(b.fecha, b.fecha_contable);
+    if (fcCalc.error) return res.status(400).json({ error: fcCalc.error });
     await pool.query(
       `UPDATE facturas_compra SET
          categoria_gasto_id = COALESCE($1, categoria_gasto_id),
@@ -2223,14 +2280,14 @@ app.patch("/api/compras/facturas/:id", requireAdmin, async (req, res) => {
          alicuota_iva = $7, neto_gravado = $8, iva = $9,
          neto_105 = $10, iva_105 = $11, neto_21 = $12, iva_21 = $13, neto_27 = $14, iva_27 = $15,
          percep_iva = $16, percep_iibb_bsas = $17, percep_iibb_caba = $18,
-         neto_no_gravado = $19, exentas = $20, otros_tributos = $21, total = $22
-       WHERE id = $23`,
+         neto_no_gravado = $19, exentas = $20, otros_tributos = $21, total = $22, fecha_contable = $23
+       WHERE id = $24`,
       [
         b.categoria_gasto_id ?? null, String(b.tipo_comprobante).trim(), b.punto_venta?.trim() || null,
         String(b.numero_comprobante).trim(), b.cae?.trim() || null, b.fecha, alicDom,
         netoGravado, ivaTotal, n105, i105, n21, i21, n27, i27,
         Number(b.percep_iva) || 0, Number(b.percep_iibb_bsas) || 0, Number(b.percep_iibb_caba) || 0,
-        Number(b.neto_no_gravado) || 0, Number(b.exentas) || 0, Number(b.otros_tributos) || 0, Number(b.total), req.params.id,
+        Number(b.neto_no_gravado) || 0, Number(b.exentas) || 0, Number(b.otros_tributos) || 0, Number(b.total), fcCalc.fechaContable, req.params.id,
       ]
     );
     res.json({ ok: true });
@@ -4419,10 +4476,11 @@ app.get("/api/contable/libro-compras", requireAuth, async (req, res) => {
   const { desde, hasta, proveedor } = req.query;
   if (!desde || !hasta) return res.status(400).json({ error: "Faltan las fechas desde/hasta." });
   try {
+    // El libro se imputa por fecha_contable (no por la fecha de la factura). Fallback a fecha por compat.
     const params = [desde, hasta];
-    let sql = "SELECT * FROM facturas_compra WHERE estado_pago <> 'anulada' AND fecha >= $1 AND fecha <= $2";
+    let sql = "SELECT * FROM facturas_compra WHERE estado_pago <> 'anulada' AND COALESCE(fecha_contable, fecha) >= $1 AND COALESCE(fecha_contable, fecha) <= $2";
     if (proveedor) { params.push(proveedor); sql += ` AND proveedor_id = $${params.length}`; }
-    sql += " ORDER BY fecha ASC, id ASC";
+    sql += " ORDER BY COALESCE(fecha_contable, fecha) ASC, id ASC";
     const { rows } = await pool.query(sql, params);
     const filas = [];
     const tot = { neto: 0, percepIva: 0, percepBsas: 0, percepCaba: 0, noGravado: 0, exentas: 0, otros: 0, totalIva: 0, impTotal: 0 };

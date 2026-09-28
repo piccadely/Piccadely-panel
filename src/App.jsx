@@ -2507,10 +2507,13 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [form, setForm] = useState(PROVEEDOR_FORM_VACIO);
       const [guardando, setGuardando] = useState(false);
       const [mensaje, setMensaje] = useState(null);
+      const [q, setQ] = useState("");
+      const [filtroCondicion, setFiltroCondicion] = useState("");   // "" | valor | "__sin__"
+      const [filtroEstado, setFiltroEstado] = useState("activos");  // activos | inactivos | todos
 
       async function cargar() {
         setLoading(true);
-        try { const res = await axios.get(`${API}/api/compras/proveedores`); setProveedores(res.data); }
+        try { const res = await axios.get(`${API}/api/compras/proveedores`, { params: { incluirInactivos: "1" } }); setProveedores(res.data); }
         catch (err) { setMensaje({ texto: err.response?.data?.error || "Error cargando proveedores", tipo: "error" }); }
         setLoading(false);
       }
@@ -2527,9 +2530,20 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       async function guardar() {
         if (!form.razon_social.trim()) { mostrarMensaje("La razón social es obligatoria", "error"); return; }
         setGuardando(true);
+        const enviar = async (confirmar) => {
+          const body = { ...form, ...(confirmar ? { confirmar: true } : {}) };
+          if (modal === "editar") await axios.patch(`${API}/api/compras/proveedores/${editandoId}`, body);
+          else await axios.post(`${API}/api/compras/proveedores`, body);
+        };
         try {
-          if (modal === "editar") await axios.patch(`${API}/api/compras/proveedores/${editandoId}`, form);
-          else await axios.post(`${API}/api/compras/proveedores`, form);
+          try {
+            await enviar(false);
+          } catch (err) {
+            // Aviso de razón social duplicada (sin CUIT): confirmar y reintentar. El CUIT duplicado NO se puede confirmar (bloqueo).
+            if (err.response?.status === 409 && err.response?.data?.requiereConfirmacion && window.confirm(err.response.data.error)) {
+              await enviar(true);
+            } else { throw err; }
+          }
           await cargar();
           setModal(null); setForm(PROVEEDOR_FORM_VACIO); setEditandoId(null);
           mostrarMensaje(modal === "editar" ? "Proveedor actualizado" : "Proveedor creado");
@@ -2546,11 +2560,32 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const inputStyle = { width: "100%", boxSizing: "border-box", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", marginTop: 4 };
       const lbl = { fontSize: 12, color: "#555", fontWeight: 600, display: "block", marginBottom: 10 };
 
+      // Filtros en el front. Búsqueda abierta en razón social / CUIT / email / teléfono.
+      const qs = q.trim().toLowerCase();
+      const qDigits = q.replace(/\D/g, "");
+      const filtrados = proveedores.filter(p => {
+        if (filtroEstado === "activos" && !p.activo) return false;
+        if (filtroEstado === "inactivos" && p.activo) return false;
+        if (filtroCondicion === "__sin__") { if (p.condicion_iva) return false; }
+        else if (filtroCondicion && p.condicion_iva !== filtroCondicion) return false;
+        if (qs) {
+          const enTexto = [p.razon_social, p.email, p.telefono].some(v => String(v || "").toLowerCase().includes(qs));
+          const enCuit = qDigits && String(p.cuit || "").replace(/\D/g, "").includes(qDigits);
+          if (!enTexto && !enCuit) return false;
+        }
+        return true;
+      });
+      function exportar() {
+        const datos = filtrados.map(p => ({ "Razón social": p.razon_social, "CUIT": p.cuit || "", "Condición IVA": labelCondicionIva(p.condicion_iva), "Email": p.email || "", "Teléfono": p.telefono || "", "Estado": p.activo ? "Activo" : "Inactivo" }));
+        exportarExcel(`proveedores_${new Date().toISOString().slice(0, 10)}.xlsx`, [{ name: "Proveedores", data: datos }]);
+      }
+
       return (
         <div style={{ padding: 24, maxWidth: 820, margin: "0 auto" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>🏭 Proveedores</div>
             <div style={{ display: "flex", gap: 8 }}>
+              {filtrados.length > 0 && <button style={{ fontSize: 13, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "1px solid #1d8a4e", background: "#eafaf1", color: "#1d8a4e", cursor: "pointer" }} onClick={exportar}>📊 Excel</button>}
               <button style={{ fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer" }} onClick={abrirNuevo}>+ Nuevo proveedor</button>
               <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver al panel</button>
             </div>
@@ -2558,13 +2593,29 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
           {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>}
 
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+            <input style={{ fontSize: 13, padding: "7px 10px", borderRadius: 8, border: "1px solid #ddd", flex: "1 1 240px" }} placeholder="Buscar por razón social, CUIT, email o teléfono…" value={q} onChange={e => setQ(e.target.value)} />
+            <select style={{ fontSize: 13, padding: "7px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={filtroCondicion} onChange={e => setFiltroCondicion(e.target.value)}>
+              <option value="">Toda condición IVA</option>
+              {CONDICIONES_IVA_OPCIONES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              <option value="__sin__">Sin condición IVA</option>
+            </select>
+            <select style={{ fontSize: 13, padding: "7px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)}>
+              <option value="activos">Activos</option>
+              <option value="inactivos">Inactivos</option>
+              <option value="todos">Todos</option>
+            </select>
+            {(q || filtroCondicion || filtroEstado !== "activos") && <button style={{ fontSize: 12, padding: "6px 12px", borderRadius: 8, border: "1px solid #c0392b", background: "#fff", color: "#c0392b", cursor: "pointer" }} onClick={() => { setQ(""); setFiltroCondicion(""); setFiltroEstado("activos"); }}>✕ Limpiar</button>}
+          </div>
+          <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>{filtrados.length} proveedor{filtrados.length === 1 ? "" : "es"}</div>
+
           <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 8 }}>
             {loading ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>Cargando…</div>
-              : proveedores.length === 0 ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>No hay proveedores cargados.</div>
-              : proveedores.map(p => (
-                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 12px", borderBottom: "1px solid #f5f5f5", gap: 12 }}>
+              : filtrados.length === 0 ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>No hay proveedores para los filtros elegidos.</div>
+              : filtrados.map(p => (
+                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 12px", borderBottom: "1px solid #f5f5f5", gap: 12, opacity: p.activo ? 1 : 0.55 }}>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>{p.razon_social}</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>{p.razon_social}{!p.activo && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 600, color: "#888", background: "#eee", borderRadius: 4, padding: "1px 5px" }}>INACTIVO</span>}</div>
                     <div style={{ fontSize: 12, color: "#888" }}>
                       {p.cuit ? `CUIT ${p.cuit}` : "Sin CUIT"} · {labelCondicionIva(p.condicion_iva)}
                       {p.email ? ` · ${p.email}` : ""}{p.telefono ? ` · ${p.telefono}` : ""}
@@ -2572,7 +2623,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                   </div>
                   <div style={{ display: "flex", gap: 6, whiteSpace: "nowrap" }}>
                     <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #7c3aed", background: "#fff", color: "#7c3aed", cursor: "pointer" }} onClick={() => abrirEditar(p)}>✎ Editar</button>
-                    <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => eliminar(p)}>✕ Eliminar</button>
+                    {p.activo && <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => eliminar(p)}>✕ Eliminar</button>}
                   </div>
                 </div>
               ))}
@@ -4978,7 +5029,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
     const FC_FORM_VACIO = {
       proveedor_id: "", categoria_gasto_id: "", orden_compra_id: "",
       clase: "Factura", letra: "A", factura_asociada_id: "",
-      punto_venta: "", numero_comprobante: "", cae: "", fecha: "",
+      punto_venta: "", numero_comprobante: "", cae: "", fecha: "", fecha_contable: "",
       neto_105: "", iva_105: "", neto_21: "", iva_21: "", neto_27: "", iva_27: "",
       percep_iva: "", percep_iibb_bsas: "", percep_iibb_caba: "",
       neto_no_gravado: "", exentas: "", otros_tributos: "", total: "",
@@ -4993,6 +5044,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [loading, setLoading] = useState(true);
       const [filtroEstado, setFiltroEstado] = useState("");
       const [filtroProveedor, setFiltroProveedor] = useState("");
+      const [busqueda, setBusqueda] = useState("");
       const [modal, setModal] = useState(null);          // null | "nuevo" | "editar"
       const [modoCarga, setModoCarga] = useState("suelta"); // "orden" | "suelta"
       const [editandoId, setEditandoId] = useState(null);
@@ -5026,6 +5078,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           const params = {};
           if (filtroEstado) params.estado_pago = filtroEstado;
           if (filtroProveedor) params.proveedor = filtroProveedor;
+          if (busqueda.trim()) params.q = busqueda.trim();
           const res = await axios.get(`${API}/api/compras/facturas`, { params });
           setFacturas(res.data);
         } catch (err) { setMensaje({ texto: err.response?.data?.error || "Error cargando facturas", tipo: "error" }); }
@@ -5042,7 +5095,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         } catch (err) { /* combos vacíos → el form lo avisa */ }
       }
       useEffect(() => { cargarCombos(); }, []);
-      useEffect(() => { cargar(); }, [filtroEstado, filtroProveedor]);
+      useEffect(() => { const t = setTimeout(cargar, busqueda ? 300 : 0); return () => clearTimeout(t); }, [filtroEstado, filtroProveedor, busqueda]);
       // Facturas del proveedor elegido, solo cuando el modal está abierto y la clase es NC/ND
       // (para el select "factura asociada"). Se excluyen NC/ND de la lista (se asocia a una FACTURA).
       useEffect(() => {
@@ -5056,14 +5109,18 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
       function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 3000); }
       const setCampo = (k, v) => setForm(f => ({ ...f, [k]: v }));
+      // Fecha de contabilización: se sugiere sola al cambiar la fecha (editable). Regla: si la factura es de un
+      // mes anterior al actual → HOY; si es del mes actual (o futuro) → igual a la fecha.
+      const sugerirFC = (fecha) => (fecha && fecha.slice(0, 7) < hoyStr.slice(0, 7)) ? hoyStr : fecha;
+      const setFecha = (v) => setForm(f => ({ ...f, fecha: v, fecha_contable: sugerirFC(v) }));
       // Al cambiar el neto de una alícuota, pre-calcula su IVA (neto × alícuota/100), editable después.
       function setNetoAlic(netoKey, ivaKey, alic, v) {
         const iva = Math.round(num(v) * alic / 100 * 100) / 100;
         setForm(f => ({ ...f, [netoKey]: v, [ivaKey]: String(iva) }));
       }
 
-      function abrirSuelta() { setForm({ ...FC_FORM_VACIO, fecha: hoyStr }); setModoCarga("suelta"); setEditandoId(null); setModal("nuevo"); }
-      function abrirDesdeOrden() { setForm({ ...FC_FORM_VACIO, fecha: hoyStr }); setModoCarga("orden"); setEditandoId(null); setModal("nuevo"); }
+      function abrirSuelta() { setForm({ ...FC_FORM_VACIO, fecha: hoyStr, fecha_contable: hoyStr }); setModoCarga("suelta"); setEditandoId(null); setModal("nuevo"); }
+      function abrirDesdeOrden() { setForm({ ...FC_FORM_VACIO, fecha: hoyStr, fecha_contable: hoyStr }); setModoCarga("orden"); setEditandoId(null); setModal("nuevo"); }
       function elegirOrden(ordenId) {
         const o = ordenesAprob.find(x => String(x.id) === String(ordenId));
         setForm(f => ({ ...f, orden_compra_id: ordenId, proveedor_id: o ? String(o.proveedor_id) : "", categoria_gasto_id: o ? String(o.categoria_gasto_id) : "" }));
@@ -5076,7 +5133,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           orden_compra_id: fac.orden_compra_id ? String(fac.orden_compra_id) : "",
           clase, letra: FC_LETRAS.includes(letra) ? letra : "A", factura_asociada_id: fac.factura_asociada_id ? String(fac.factura_asociada_id) : "",
           punto_venta: fac.punto_venta || "",
-          numero_comprobante: fac.numero_comprobante || "", cae: fac.cae || "", fecha: fac.fecha || hoyStr,
+          numero_comprobante: fac.numero_comprobante || "", cae: fac.cae || "", fecha: fac.fecha || hoyStr, fecha_contable: fac.fecha_contable || fac.fecha || hoyStr,
           // Multi-alícuota: las viejas migradas traen sus datos en neto_21/iva_21 o neto_105/iva_105.
           neto_105: fac.neto_105 ? String(fac.neto_105) : "", iva_105: fac.iva_105 ? String(fac.iva_105) : "",
           neto_21: fac.neto_21 ? String(fac.neto_21) : "", iva_21: fac.iva_21 ? String(fac.iva_21) : "",
@@ -5100,7 +5157,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           tipo_comprobante: `${form.clase} ${form.letra}`,   // ej "Nota de Crédito A"
           factura_asociada_id: form.clase !== "Factura" && form.factura_asociada_id ? Number(form.factura_asociada_id) : null,
           punto_venta: form.punto_venta, numero_comprobante: form.numero_comprobante,
-          cae: form.cae, fecha: form.fecha,
+          cae: form.cae, fecha: form.fecha, fecha_contable: form.fecha_contable || form.fecha,
           neto_105: num(form.neto_105), iva_105: num(form.iva_105),
           neto_21: num(form.neto_21), iva_21: num(form.iva_21),
           neto_27: num(form.neto_27), iva_27: num(form.iva_27),
@@ -5165,6 +5222,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           </div>
 
           <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 12, marginBottom: 16, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <input style={{ fontSize: 13, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", flex: "1 1 240px", minWidth: 200 }} placeholder="Buscar por nº de comprobante, razón social o CUIT…" value={busqueda} onChange={e => setBusqueda(e.target.value)} />
             <span style={{ fontSize: 12, fontWeight: 600, color: "#555" }}>Estado:</span>
             <select style={filtroSel} value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)}>
               <option value="">Todas</option>
@@ -5177,6 +5235,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               <option value="">Todos</option>
               {proveedores.map(p => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
             </select>
+            {busqueda && <button style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #c0392b", background: "#fff", color: "#c0392b", cursor: "pointer" }} onClick={() => setBusqueda("")}>✕</button>}
           </div>
 
           {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>}
@@ -5199,7 +5258,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                           {fac.orden_compra_id && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 10, background: "#ede9fe", color: "#7c3aed" }}>Orden #{fac.orden_compra_id}</span>}
                         </div>
                         <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
-                          {fac.tipo_comprobante} {fac.punto_venta ? `${fac.punto_venta}-` : ""}{fac.numero_comprobante} · {fac.fecha} · {fac.categoria_nombre || "sin categoría"}{fac.proveedor_cuit ? ` · CUIT ${fac.proveedor_cuit}` : ""}
+                          {fac.tipo_comprobante} {fac.punto_venta ? `${fac.punto_venta}-` : ""}{fac.numero_comprobante} · {fac.fecha}{fac.fecha_contable && fac.fecha_contable !== fac.fecha ? ` · contab. ${fac.fecha_contable}` : ""} · {fac.categoria_nombre || "sin categoría"}{fac.proveedor_cuit ? ` · CUIT ${fac.proveedor_cuit}` : ""}
                         </div>
                         <div style={{ fontSize: 12, color: "#444", marginTop: 3 }}>
                           Neto {money(fac.neto_gravado)} · IVA {money(fac.iva)}
@@ -5287,12 +5346,18 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   <label style={lbl}>Fecha *
-                    <input type="date" style={inputStyle} value={form.fecha} onChange={e => setCampo("fecha", e.target.value)} />
+                    <input type="date" style={inputStyle} value={form.fecha} onChange={e => setFecha(e.target.value)} />
                   </label>
                   <label style={lbl}>CAE
                     <input style={inputStyle} value={form.cae} onChange={e => setCampo("cae", e.target.value)} placeholder="Opcional" />
                   </label>
                 </div>
+                <label style={lbl}>Fecha de contabilización
+                  <input type="date" style={inputStyle} value={form.fecha_contable} onChange={e => setCampo("fecha_contable", e.target.value)} min={form.fecha || undefined} />
+                  {form.fecha_contable && form.fecha && form.fecha_contable.slice(0, 7) !== form.fecha.slice(0, 7) && (
+                    <span style={{ display: "block", marginTop: 4, fontSize: 11, color: "#b45309", fontWeight: 400 }}>Se imputa a {form.fecha_contable.slice(5, 7)}/{form.fecha_contable.slice(0, 4)} (distinto del mes de la factura).</span>
+                  )}
+                </label>
 
                 <div style={{ borderTop: "1px solid #eee", margin: "6px 0 8px" }} />
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>IVA por alícuota (cargá solo las que tenga)</div>
@@ -5402,6 +5467,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [expandido, setExpandido] = useState(null); // proveedor_id abierto
       const [detalle, setDetalle] = useState({});        // proveedor_id → facturas[]
       const [mensaje, setMensaje] = useState(null);
+      const [q, setQ] = useState("");
+      const [soloConSaldo, setSoloConSaldo] = useState(false);
 
       const money = (n) => "$" + Number(n || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const FC_BADGE = { pendiente: { t: "Pendiente", bg: "#fef3c7", c: "#b45309" }, pagada: { t: "Pagada", bg: "#eafaf1", c: "#2a7a4b" }, anulada: { t: "Anulada", bg: "#f3f4f6", c: "#c0392b" } };
@@ -5425,6 +5492,18 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         }
       }
 
+      const qs = q.trim().toLowerCase();
+      const qDigits = q.replace(/\D/g, "");
+      const provFiltrados = (data?.proveedores || []).filter(p => {
+        if (soloConSaldo && !(Number(p.saldo_pendiente) > 0)) return false;
+        if (qs) {
+          const enNombre = String(p.razon_social || "").toLowerCase().includes(qs);
+          const enCuit = qDigits && String(p.cuit || "").replace(/\D/g, "").includes(qDigits);
+          if (!enNombre && !enCuit) return false;
+        }
+        return true;
+      });
+
       return (
         <div style={{ padding: 24, maxWidth: 960, margin: "0 auto" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -5441,10 +5520,19 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
           {mensaje && <div style={{ background: "#fdecea", border: "1px solid #f5c6cb", color: "#c0392b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje}</div>}
 
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+            <input style={{ fontSize: 13, padding: "7px 10px", borderRadius: 8, border: "1px solid #ddd", flex: "1 1 240px" }} placeholder="Buscar proveedor por razón social o CUIT…" value={q} onChange={e => setQ(e.target.value)} />
+            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#666", cursor: "pointer" }}>
+              <input type="checkbox" checked={soloConSaldo} onChange={e => setSoloConSaldo(e.target.checked)} /> Solo con saldo
+            </label>
+            {(q || soloConSaldo) && <button style={{ fontSize: 12, padding: "6px 12px", borderRadius: 8, border: "1px solid #c0392b", background: "#fff", color: "#c0392b", cursor: "pointer" }} onClick={() => { setQ(""); setSoloConSaldo(false); }}>✕ Limpiar</button>}
+          </div>
+
           <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 8 }}>
             {loading ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>Cargando…</div>
               : !data || data.proveedores.length === 0 ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>No hay proveedores.</div>
-              : data.proveedores.map(p => (
+              : provFiltrados.length === 0 ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>Ningún proveedor coincide con el filtro.</div>
+              : provFiltrados.map(p => (
                 <div key={p.id} style={{ borderBottom: "1px solid #f5f5f5" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px", cursor: "pointer", gap: 12 }} onClick={() => toggle(p.id)}>
                     <div style={{ minWidth: 0 }}>
