@@ -4579,16 +4579,25 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         } catch (err) { mostrarMensaje(err.response?.data?.error || "Error creando receta", "error"); }
       }
 
-      function exportar() {
-        const datos = data.items.map(i => ({ "Categoría": i.categoria || "", "Insumo": i.nombre, "Necesario": stockAMostrar(i.necesario, i.unidad), "Stock": stockAMostrar(i.stock, i.unidad), "Faltante": stockAMostrar(i.faltante, i.unidad), "Unidad": stockUnidadLabel(i.unidad) }));
-        exportarExcel(`necesidades_${desde}_${hasta}.xlsx`, [{ name: "Necesidades", data: datos }]);
-      }
-
       // agrupar por categoría
       const porCategoria = {};
       for (const i of data.items) (porCategoria[i.categoria || "(sin categoría)"] = porCategoria[i.categoria || "(sin categoría)"] || []).push(i);
       const categoriasOrd = Object.keys(porCategoria).sort();
       const recetasFiltradas = recetas.filter(r => !busqReceta || r.nombre.toLowerCase().includes(busqReceta.toLowerCase()));
+
+      // Subtotales por categoría: sumar por unidad base (no mezclar kg con unidades).
+      const sumaCat = (items, campo) => { const acc = {}; for (const i of items) acc[i.unidad] = (acc[i.unidad] || 0) + Number(i[campo] || 0); return acc; };
+      const fmtMulti = (acc) => { const partes = ["g", "unidad"].filter(u => Math.abs(acc[u] || 0) > 0.0001).map(u => fmtStock(acc[u], u)); return partes.length ? partes.join(" + ") : "—"; };
+
+      function exportar() {
+        const datos = [];
+        for (const cat of categoriasOrd) {
+          const items = porCategoria[cat];
+          for (const i of items) datos.push({ "Categoría": cat, "Insumo": i.nombre, "Necesario": stockAMostrar(i.necesario, i.unidad), "Stock": stockAMostrar(i.stock, i.unidad), "Faltante": stockAMostrar(i.faltante, i.unidad), "Unidad": stockUnidadLabel(i.unidad) });
+          datos.push({ "Categoría": cat, "Insumo": `TOTAL ${cat}`, "Necesario": fmtMulti(sumaCat(items, "necesario")), "Stock": fmtMulti(sumaCat(items, "stock")), "Faltante": fmtMulti(sumaCat(items, "faltante")), "Unidad": "" });
+        }
+        exportarExcel(`necesidades_${desde}_${hasta}.xlsx`, [{ name: "Necesidades", data: datos }]);
+      }
 
       return (
         <div style={{ padding: 24, maxWidth: 1000, margin: "0 auto" }}>
@@ -4651,6 +4660,12 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                       <div style={{ textAlign: "right", fontWeight: 600, color: i.faltante > 0 ? "#c0392b" : "#1d8a4e" }}>{i.faltante > 0 ? fmtStock(i.faltante, i.unidad) : "—"}</div>
                     </div>
                   ))}
+                  <div style={{ display: "grid", gridTemplateColumns: "1.8fr 140px 140px 140px", gap: 8, padding: "8px 16px", borderBottom: "2px solid #eee", fontSize: 13, alignItems: "center", background: "#f4f4ef", fontWeight: 700 }}>
+                    <div style={{ color: "#555" }}>Total {cat}</div>
+                    <div style={{ textAlign: "right", color: "#333" }}>{fmtMulti(sumaCat(porCategoria[cat], "necesario"))}</div>
+                    <div style={{ textAlign: "right", color: "#333" }}>{fmtMulti(sumaCat(porCategoria[cat], "stock"))}</div>
+                    <div style={{ textAlign: "right", color: "#c0392b" }}>{fmtMulti(sumaCat(porCategoria[cat], "faltante"))}</div>
+                  </div>
                 </div>
               ))}
           </div>
