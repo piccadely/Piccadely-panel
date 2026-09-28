@@ -1,0 +1,471 @@
+{
+ "combos": [
+  {
+   "nombre": "Comilona Juntadely Piccan 12",
+   "notas": "",
+   "componentes": [
+    {
+     "texto": "48 mini sándwich",
+     "receta": "Juntadely 48 sandwich",
+     "cantidad": 1.0
+    }
+   ]
+  },
+  {
+   "nombre": "Comilona Juntadely Piccan 24",
+   "notas": "",
+   "componentes": [
+    {
+     "texto": "96 mini sándwich",
+     "receta": "Juntadely 48 sandwich",
+     "cantidad": 2.0
+    }
+   ]
+  },
+  {
+   "nombre": "Comilona Juntadely Combinada Piccan 24",
+   "notas": "",
+   "componentes": [
+    {
+     "texto": "48 mini sándwich",
+     "receta": "Juntadely 48 sandwich",
+     "cantidad": 1.0
+    },
+    {
+     "texto": "FAUSTA CHICA | FAUSTA CHICA",
+     "receta": "La Fausta Chica",
+     "cantidad": 2
+    },
+    {
+     "texto": "VEGGIE",
+     "receta": "Veggie Chica",
+     "cantidad": 1
+    },
+    {
+     "texto": "GOURMET CHICA",
+     "receta": "La Gourmet Chica",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "PROMO PICCAINVITADOS COMEN 6",
+   "notas": "(en una Caja Pickapacket -papel Manteca-Servilletas) Son 6 Sándwich de cada sabor",
+   "componentes": [
+    {
+     "texto": "24 mini sándwich",
+     "receta": "Juntadely 48 sandwich",
+     "cantidad": 0.5
+    },
+    {
+     "texto": "COMI CHICA",
+     "receta": "Comilona Chica",
+     "cantidad": 1
+    },
+    {
+     "texto": "PROMO DIVERTIDA CHICA",
+     "receta_faltante": "Megapromo Divertida Chica",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "PROMO PICCAINVITADOS COMEN 10",
+   "notas": "(en una Caja Juntadely -papel Manteca-Servilletas)",
+   "componentes": [
+    {
+     "texto": "48 mini sándwich",
+     "receta": "Juntadely 48 sandwich",
+     "cantidad": 1.0
+    },
+    {
+     "texto": "COMI CHICA",
+     "receta": "Comilona Chica",
+     "cantidad": 1
+    },
+    {
+     "texto": "PROMO DIVERTIDA CHICA",
+     "receta_faltante": "Megapromo Divertida Chica",
+     "cantidad": 1
+    },
+    {
+     "texto": "ESQUESITOS CHICA",
+     "receta": "Esquesitos Chica",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "PROMO PICCAINVITADOS COMEN 15",
+   "notas": "(en una Caja Juntadely -papel Manteca-Servilletas)",
+   "componentes": [
+    {
+     "texto": "48 mini sándwich",
+     "receta": "Juntadely 48 sandwich",
+     "cantidad": 1.0
+    },
+    {
+     "texto": "COMI MEDIANA",
+     "receta": "Comilona Mediana",
+     "cantidad": 1
+    },
+    {
+     "texto": "PROMO DIVERTIDA MEDIANA",
+     "receta_faltante": "Megapromo Divertida Mediana",
+     "cantidad": 1
+    },
+    {
+     "texto": "ESQUESITOS MEDIANA",
+     "receta": "Esquesitos Mediana",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "PROMO PICCAINVITADOS COMEN 24",
+   "notas": "(en dos Cajas Juntadely -papel Manteca-Servilletas)",
+   "componentes": [
+    {
+     "texto": "96 mini sándwich",
+     "receta": "Juntadely 48 sandwich",
+     "cantidad": 2.0
+    },
+    {
+     "texto": "COMI GRANDE",
+     "receta": "Comilona Grande",
+     "cantidad": 1
+    },
+    {
+     "texto": "GOURMET GRANDE",
+     "receta": "La Gourmet Grande",
+     "cantidad": 1
+    },
+    {
+     "texto": "MEGADIVERTIDA MEDIANA",
+     "receta_faltante": "Megapromo Divertida Mediana",
+     "cantidad": 1
+    },
+    {
+     "texto": "ESQUESITOS MEDIANA",
+     "receta": "Esquesitos Mediana",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "COMBO PICCAN 15",
+   "notas": "",
+   "componentes": [
+    {
+     "texto": "1 Incontro chic",
+     "receta": "Incontro Chica",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 fausta chica",
+     "receta": "La Fausta Chica",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 comilona chica",
+     "receta": "Comilona Chica",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 Anita chica",
+     "receta": "Anita Chica",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 Esquesitos chica",
+     "receta": "Esquesitos Chica",
+     "cantidad": 1
+    },
+    {
+     "texto": "Bolson",
+     "codigo": 436,
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Comilona Cósmica + PICCAN 24",
+   "notas": "",
+   "componentes": [
+    {
+     "texto": "2 comilona grande",
+     "receta": "Comilona Grande",
+     "cantidad": 2
+    },
+    {
+     "texto": "1 comilona mediana",
+     "receta": "Comilona Mediana",
+     "cantidad": 1
+    },
+    {
+     "texto": "Bolson",
+     "codigo": 436,
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "PiccaDT (4/4/2)",
+   "notas": "COMEN 10 - PICCAN 24",
+   "componentes": [
+    {
+     "texto": "1 Esquesitos mediana",
+     "receta": "Esquesitos Mediana",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 Anita grande",
+     "receta": "Anita Grande",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 comilona grande",
+     "receta": "Comilona Grande",
+     "cantidad": 1
+    },
+    {
+     "texto": "Bolson",
+     "codigo": 436,
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Quedo Re bien",
+   "notas": "COMEN 9 - PICCAN 20",
+   "componentes": [
+    {
+     "texto": "1 Anita grande",
+     "receta": "Anita Grande",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 Esquesitos chica",
+     "receta": "Esquesitos Chica",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 Fausta mediana",
+     "receta": "La Fausta Mediana",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 Incontro chica",
+     "receta": "Incontro Chica",
+     "cantidad": 1
+    },
+    {
+     "texto": "Bolson",
+     "codigo": 436,
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Variete 2 1/2",
+   "notas": "COMEN 4 - PICCAN 11",
+   "componentes": [
+    {
+     "texto": "1 Fausta chica",
+     "receta": "La Fausta Chica",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 Esquesitos chica",
+     "receta": "Esquesitos Chica",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 Incontro mediana",
+     "receta": "Incontro Mediana",
+     "cantidad": 1
+    },
+    {
+     "texto": "Bolson",
+     "codigo": 436,
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Gourmet Break",
+   "notas": "Piccan 15",
+   "componentes": [
+    {
+     "texto": "1 Magnolia Mediana",
+     "receta": "Magnolia Mediana",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 Amistad Mediana",
+     "receta": "Amistad Mediana",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 Quesos del Gourmet Mediana",
+     "cantidad": 1,
+     "receta": "Quesos del Gourmet Mediana"
+    },
+    {
+     "texto": "Bolson",
+     "codigo": 436,
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "MegaCombo Feliz comen 6",
+   "notas": "TODO EN UN BOLSON",
+   "componentes": [
+    {
+     "texto": "1 comi medina",
+     "receta": "Comilona Mediana",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 MegaPromo Divertida mediana",
+     "receta_faltante": "Megapromo Divertida Mediana",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 Primavera mediana",
+     "receta": "Primavera Mediana 2026",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 mix de salsas : ciboulette - roque - jamón",
+     "codigo": 607,
+     "cantidad": 1
+    },
+    {
+     "texto": "1 bolsa tostadas",
+     "codigo": 346,
+     "cantidad": 1
+    },
+    {
+     "texto": "Bolsón",
+     "codigo": 436,
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "MegaCombo Feliz comen 10",
+   "notas": "TODO EN UN BOLSON",
+   "componentes": [
+    {
+     "texto": "1 comi grande",
+     "receta": "Comilona Grande",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 primavera garnde",
+     "receta": "Primavera grande 2026",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 megadivertida mediana",
+     "receta_faltante": "Megapromo Divertida Mediana",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 mix de salsas : ciboulette - roque - jamón | 1 mix de salsas : ciboulette - roque - jamón",
+     "codigo": 607,
+     "cantidad": 2
+    },
+    {
+     "texto": "1 bolsa de tostadas | 1 bolsa de tostadas",
+     "codigo": 346,
+     "cantidad": 2
+    },
+    {
+     "texto": "Bolson",
+     "codigo": 436,
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "MegaCombo Feliz comen 15",
+   "notas": "TODO EN UN BOLSON",
+   "componentes": [
+    {
+     "texto": "1 comi grande",
+     "receta": "Comilona Grande",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 primavera garnde",
+     "receta": "Primavera grande 2026",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 megadivertida Grande",
+     "receta_faltante": "Megapromo Divertida Grande",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 megadivertida mediana",
+     "receta_faltante": "Megapromo Divertida Mediana",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 mix de salsas : ciboulette - roque - jamón | 1 mix de salsas : ciboulette - roque - jamón | 1 mix de salsas : ciboulette - roque - jamón",
+     "codigo": 607,
+     "cantidad": 3
+    },
+    {
+     "texto": "1 bolsa de tostadas | 1 bolsa de tostadas | 1 bolsa de tostadas",
+     "codigo": 346,
+     "cantidad": 3
+    },
+    {
+     "texto": "Bolson",
+     "codigo": 436,
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "MegaCombo Feliz comen 24",
+   "notas": "TODO EN DOS BOLSONES",
+   "componentes": [
+    {
+     "texto": "1 comi grande | 1 comi grande",
+     "receta": "Comilona Grande",
+     "cantidad": 2
+    },
+    {
+     "texto": "1 primavera garnde | 1 primavera garnde",
+     "receta": "Primavera grande 2026",
+     "cantidad": 2
+    },
+    {
+     "texto": "1 megadivertida Grande | 1 megadivertida grande",
+     "receta_faltante": "Megapromo Divertida Grande",
+     "cantidad": 2
+    },
+    {
+     "texto": "1 mix de salsas : ciboulette - roque - jamón | 1 mix de salsas : ciboulette - roque - jamón | 1 mix de salsas : ciboulette - roque - jamón | 1 mix de salsas : ciboulette - roque - jamón",
+     "codigo": 607,
+     "cantidad": 4
+    },
+    {
+     "texto": "1 bolsa de tostadas | 1 bolsa de tostadas | 1 bolsa de tostadas | 1 bolsa de tostadas",
+     "codigo": 346,
+     "cantidad": 4
+    },
+    {
+     "texto": "Bolson | Bolson",
+     "codigo": 436,
+     "cantidad": 2
+    }
+   ]
+  }
+ ]
+}

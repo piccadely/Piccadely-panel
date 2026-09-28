@@ -422,15 +422,18 @@ async function initDB() {
     usuario TEXT,
     created_at TIMESTAMP DEFAULT NOW()
   );`);
-  // STOCK Fase 2a: recetas con módulos anidados (SIN descuento automático; eso es Fase 2b).
+  // STOCK Fase 2a/3a: recetas con módulos anidados y combos (SIN descuento automático; eso es Fase 2b).
   await pool.query(`CREATE TABLE IF NOT EXISTS recetas (
     id SERIAL PRIMARY KEY,
     nombre TEXT NOT NULL UNIQUE,
-    tipo TEXT NOT NULL CHECK (tipo IN ('producto','modulo')),
+    tipo TEXT NOT NULL CHECK (tipo IN ('producto','modulo','combo')),
     activo BOOLEAN NOT NULL DEFAULT true,
     notas TEXT,
     created_at TIMESTAMP DEFAULT NOW()
   );`);
+  // Fase 3a: sumar 'combo' al CHECK en bases ya creadas (idempotente).
+  await pool.query(`ALTER TABLE recetas DROP CONSTRAINT IF EXISTS recetas_tipo_check;`);
+  await pool.query(`ALTER TABLE recetas ADD CONSTRAINT recetas_tipo_check CHECK (tipo IN ('producto','modulo','combo'));`);
   await pool.query(`CREATE TABLE IF NOT EXISTS receta_productos (
     id SERIAL PRIMARY KEY,
     receta_id INTEGER NOT NULL REFERENCES recetas(id),
@@ -3312,6 +3315,67 @@ app.post("/api/recetas/importar-inicial", requireAdmin, async (req, res) => {
     if (client) await client.query("ROLLBACK").catch(() => {});
     console.error("Error importar recetas:", e.message);
     res.status(500).json({ error: "Error importando recetas: " + e.message });
+  } finally { if (client) client.release(); }
+});
+
+// Importación de combos (recetas hechas de otras recetas) desde combos_seed.json (idempotente por nombre).
+app.post("/api/recetas/importar-combos", requireAdmin, async (req, res) => {
+  let seed;
+  try { seed = requireCJS("./combos_seed.json"); }
+  catch (e) { return res.status(500).json({ error: "No se pudo leer combos_seed.json" }); }
+  const resumen = { creados: 0, salteados: 0, pendientes: [] };
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const insR = await client.query("SELECT id, codigo FROM insumos WHERE codigo IS NOT NULL");
+    const insByCodigo = {}; for (const i of insR.rows) insByCodigo[i.codigo] = i.id;
+    const recR = await client.query("SELECT id, nombre FROM recetas");
+    const recByNombre = {}; for (const r of recR.rows) recByNombre[r.nombre.toLowerCase()] = r.id;
+
+    for (const combo of (seed.combos || [])) {
+      if (recByNombre[combo.nombre.toLowerCase()]) { resumen.salteados++; continue; }
+      // Resolver componentes; si falta alguno → pendiente, no se crea.
+      const resueltos = [];
+      const falta = [];
+      for (const comp of (combo.componentes || [])) {
+        if (comp.receta_faltante) { falta.push(comp.receta_faltante); continue; }
+        if (comp.receta) {
+          const rid = recByNombre[String(comp.receta).toLowerCase()];
+          if (!rid) { falta.push(comp.receta); continue; }
+          resueltos.push({ subreceta_id: rid, cantidad: comp.cantidad });
+          continue;
+        }
+        if (comp.codigo != null) {
+          const iid = insByCodigo[comp.codigo];
+          if (!iid) { falta.push(`insumo código ${comp.codigo}`); continue; }
+          resueltos.push({ insumo_id: iid, cantidad: comp.cantidad });
+          continue;
+        }
+        falta.push("componente inválido");
+      }
+      if (falta.length > 0) { resumen.pendientes.push({ combo: combo.nombre, falta }); continue; }
+      // Crear el combo.
+      const r = await client.query("INSERT INTO recetas (nombre, tipo, notas) VALUES ($1,'combo',$2) RETURNING id", [combo.nombre, combo.notas || null]);
+      const id = r.rows[0].id;
+      recByNombre[combo.nombre.toLowerCase()] = id;
+      let orden = 0;
+      for (const c of resueltos) {
+        if (c.subreceta_id) await client.query("INSERT INTO receta_lineas (receta_id, orden, subreceta_id, modo, cantidad, desperdicio_pct) VALUES ($1,$2,$3,'unidades',$4,0)", [id, orden++, c.subreceta_id, c.cantidad]);
+        else await client.query("INSERT INTO receta_lineas (receta_id, orden, insumo_id, modo, cantidad, desperdicio_pct) VALUES ($1,$2,$3,'unidades',$4,0)", [id, orden++, c.insumo_id, c.cantidad]);
+      }
+      const clave = claveProducto(normalizarProducto(combo.nombre));
+      const dup = await client.query("SELECT id FROM receta_productos WHERE producto_clave = $1", [clave]);
+      if (dup.rows.length === 0) await client.query("INSERT INTO receta_productos (receta_id, producto_nombre, producto_clave) VALUES ($1,$2,$3)", [id, combo.nombre, clave]);
+      resumen.creados++;
+    }
+    await client.query("COMMIT");
+    res.json({ ok: true, resumen });
+    registrarAuditoria(req.body?.usuario, "combos_importar", "recetas", 0, { creados: resumen.creados, salteados: resumen.salteados, pendientes: resumen.pendientes.length });
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    console.error("Error importar combos:", e.message);
+    res.status(500).json({ error: "Error importando combos: " + e.message });
   } finally { if (client) client.release(); }
 });
 

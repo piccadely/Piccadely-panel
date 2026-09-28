@@ -4262,6 +4262,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [guardando, setGuardando] = useState(false);
       const [importando, setImportando] = useState(false);
       const [importResumen, setImportResumen] = useState(null);
+      const [importandoCombos, setImportandoCombos] = useState(false);
+      const [combosResumen, setCombosResumen] = useState(null);
       const [nuevoProducto, setNuevoProducto] = useState("");
 
       function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 4000); }
@@ -4366,6 +4368,13 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         catch (err) { mostrarMensaje(err.response?.data?.error || "Error importando", "error"); }
         setImportando(false);
       }
+      async function importarCombos() {
+        if (!window.confirm("Importar los combos desde el archivo semilla. Los combos con recetas faltantes quedan pendientes; los que ya existan se saltean. ¿Continuar?")) return;
+        setImportandoCombos(true);
+        try { const r = await axios.post(`${API}/api/recetas/importar-combos`, { usuario: usuario.nombre_completo }); setCombosResumen(r.data.resumen); await cargar(); }
+        catch (err) { mostrarMensaje(err.response?.data?.error || "Error importando combos", "error"); }
+        setImportandoCombos(false);
+      }
 
       const lista = recetas.filter(r => (!filtroTipo || r.tipo === filtroTipo) && (!q || r.nombre.toLowerCase().includes(q.toLowerCase())));
       const inp = { width: "100%", fontSize: 13, padding: "7px 9px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" };
@@ -4386,11 +4395,11 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                 <div style={{ flex: "2 1 300px" }}><label style={{ fontSize: 12, color: "#888" }}>Nombre</label><input style={inp} value={editando.nombre} onChange={e => setEd("nombre", e.target.value)} disabled={!puedeEditar} /></div>
                 <div style={{ flex: "1 1 140px" }}><label style={{ fontSize: 12, color: "#888" }}>Tipo</label>
-                  <select style={inp} value={editando.tipo} onChange={e => setEd("tipo", e.target.value)} disabled={!puedeEditar}><option value="producto">Producto</option><option value="modulo">Módulo</option></select>
+                  <select style={inp} value={editando.tipo} onChange={e => setEd("tipo", e.target.value)} disabled={!puedeEditar}><option value="producto">Producto</option><option value="modulo">Módulo</option><option value="combo">Combo</option></select>
                 </div>
               </div>
 
-              {editando.tipo === "producto" && (
+              {editando.tipo !== "modulo" && (
                 <div style={{ marginTop: 14 }}>
                   <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Productos de venta vinculados</label>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
@@ -4415,7 +4424,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#333" }}>Composición</div>
                 {puedeEditar && <div style={{ display: "flex", gap: 6 }}>
                   <button style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={agregarLineaInsumo}>+ Insumo</button>
-                  <button style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={agregarLineaModulo}>+ Módulo</button>
+                  <button style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={agregarLineaModulo}>+ Componente</button>
                 </div>}
               </div>
               {editando.lineas.length === 0 && <div style={{ fontSize: 13, color: "#aaa" }}>Sin líneas todavía.</div>}
@@ -4425,10 +4434,18 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                   <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: "1px solid #f5f5f5", flexWrap: "wrap" }}>
                     {l.tipoLinea === "modulo" ? (
                       <>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: "#1d4ed8", background: "#dbeafe", borderRadius: 4, padding: "2px 6px" }}>MÓDULO</span>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: "#1d4ed8", background: "#dbeafe", borderRadius: 4, padding: "2px 6px" }}>RECETA</span>
                         <select style={{ ...inp, flex: "2 1 220px", width: "auto" }} value={l.subreceta_id} onChange={e => setLinea(i, "subreceta_id", e.target.value)} disabled={!puedeEditar}>
-                          <option value="">Elegir módulo…</option>
-                          {modulos.filter(m => m.id !== editando.id).map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+                          <option value="">Elegir componente…</option>
+                          <optgroup label="Módulos">
+                            {recetas.filter(r => r.tipo === "modulo" && r.id !== editando.id).map(r => <option key={r.id} value={r.id}>{r.nombre}</option>)}
+                          </optgroup>
+                          <optgroup label="Productos">
+                            {recetas.filter(r => r.tipo === "producto" && r.id !== editando.id).map(r => <option key={r.id} value={r.id}>{r.nombre}</option>)}
+                          </optgroup>
+                          <optgroup label="Combos">
+                            {recetas.filter(r => r.tipo === "combo" && r.id !== editando.id).map(r => <option key={r.id} value={r.id}>{r.nombre}</option>)}
+                          </optgroup>
                         </select>
                         <input type="number" min="0" step="1" style={{ ...inp, width: 90 }} placeholder="cant." value={l.cantidad} onChange={e => setLinea(i, "cantidad", e.target.value)} disabled={!puedeEditar} />
                       </>
@@ -4476,6 +4493,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               {puedeEditar && <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer" }} onClick={() => abrirNuevo("producto")}>+ Nueva receta</button>}
               {puedeEditar && <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", color: "#555", cursor: "pointer" }} onClick={() => abrirNuevo("modulo")}>+ Módulo</button>}
               {puedeEditar && <button style={{ fontSize: 12, padding: "8px 14px", borderRadius: 8, border: "1px solid #1d4ed8", background: "#dbeafe", color: "#1d4ed8", cursor: importando ? "default" : "pointer" }} disabled={importando} onClick={importar}>{importando ? "Importando…" : "Importar recetas iniciales"}</button>}
+              {puedeEditar && <button style={{ fontSize: 12, padding: "8px 14px", borderRadius: 8, border: "1px solid #8e44ad", background: "#f3e8fb", color: "#8e44ad", cursor: importandoCombos ? "default" : "pointer" }} disabled={importandoCombos} onClick={importarCombos}>{importandoCombos ? "Importando…" : "Importar combos"}</button>}
               <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver</button>
             </div>
           </div>
@@ -4485,7 +4503,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
             <input style={{ fontSize: 13, padding: "6px 10px", borderRadius: 8, border: "1px solid #ddd", flex: "1 1 220px" }} placeholder="Buscar receta…" value={q} onChange={e => setQ(e.target.value)} />
             <select style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}>
-              <option value="">Todas</option><option value="producto">Productos</option><option value="modulo">Módulos</option>
+              <option value="">Todas</option><option value="producto">Productos</option><option value="modulo">Módulos</option><option value="combo">Combos</option>
             </select>
           </div>
 
@@ -4501,7 +4519,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                     {r.nombre}
                     {(r.avisos || []).length > 0 && <span title={r.avisos.map(a => a.detalle).join("\n")} style={{ marginLeft: 6, fontSize: 11, color: "#e6a23c" }}>⚠️</span>}
                   </div>
-                  <div><span style={{ fontSize: 9, fontWeight: 600, color: r.tipo === "modulo" ? "#1d4ed8" : "#1d8a4e", background: r.tipo === "modulo" ? "#dbeafe" : "#eafaf1", borderRadius: 4, padding: "2px 6px" }}>{r.tipo === "modulo" ? "MÓDULO" : "PRODUCTO"}</span></div>
+                  <div>{(() => { const bt = r.tipo === "modulo" ? { l: "MÓDULO", c: "#1d4ed8", b: "#dbeafe" } : r.tipo === "combo" ? { l: "COMBO", c: "#8e44ad", b: "#f3e8fb" } : { l: "PRODUCTO", c: "#1d8a4e", b: "#eafaf1" }; return <span style={{ fontSize: 9, fontWeight: 600, color: bt.c, background: bt.b, borderRadius: 4, padding: "2px 6px" }}>{bt.l}</span>; })()}</div>
                   <div style={{ color: "#888", fontSize: 12 }}>{(r.productos || []).map(p => p.producto_nombre).join(", ") || "—"}</div>
                   <div style={{ textAlign: "right", color: "#555" }}>${Number(r.costo_estimado || 0).toLocaleString("es-AR", { maximumFractionDigits: 2 })}</div>
                   <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
@@ -4531,6 +4549,30 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                 )}
                 <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
                   <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer" }} onClick={() => setImportResumen(null)}>Listo</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {combosResumen && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => setCombosResumen(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 520, maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 12 }}>Importación de combos</div>
+                <div style={{ fontSize: 13, color: "#555", lineHeight: 1.8 }}>
+                  Combos creados: <b>{combosResumen.creados}</b><br />
+                  Salteados (ya existían): <b>{combosResumen.salteados}</b><br />
+                  Pendientes (falta alguna receta): <b>{combosResumen.pendientes?.length || 0}</b>
+                </div>
+                {combosResumen.pendientes?.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#b45309", marginBottom: 4 }}>Pendientes</div>
+                    <div style={{ maxHeight: 240, overflowY: "auto", fontSize: 12, color: "#8a6d3b" }}>
+                      {combosResumen.pendientes.map((p, i) => <div key={i} style={{ padding: "3px 0" }}>· <b>{p.combo}</b> — falta: {p.falta.join(", ")}</div>)}
+                    </div>
+                  </div>
+                )}
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+                  <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer" }} onClick={() => setCombosResumen(null)}>Listo</button>
                 </div>
               </div>
             </div>
