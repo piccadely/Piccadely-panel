@@ -10,7 +10,7 @@ import { mpRouter } from "./Routes/mp.js";
 import { botWhatsappRouter } from "./Routes/botWhatsapp.js";
 import { cotizadorRouter, clienteKeyDe } from "./Routes/cotizador.js";
 import { createRequire } from "module";
-import { normalizarProducto, calcularEnvioTN } from "./productos-normalizacion.js"; // clave canónica + costo de envío TN, compartidos con el front
+import { normalizarProducto, calcularEnvioTN, esExcluidoProduccion, claveProducto } from "./productos-normalizacion.js"; // clave canónica + costo de envío TN + filtros de producción, compartidos con el front
 const requireCJS = createRequire(import.meta.url); // server.js es ESM; require solo para el JSON de polígonos
 const { Pool } = pg;
 
@@ -421,6 +421,33 @@ async function initDB() {
     referencia TEXT,
     usuario TEXT,
     created_at TIMESTAMP DEFAULT NOW()
+  );`);
+  // STOCK Fase 2a: recetas con módulos anidados (SIN descuento automático; eso es Fase 2b).
+  await pool.query(`CREATE TABLE IF NOT EXISTS recetas (
+    id SERIAL PRIMARY KEY,
+    nombre TEXT NOT NULL UNIQUE,
+    tipo TEXT NOT NULL CHECK (tipo IN ('producto','modulo')),
+    activo BOOLEAN NOT NULL DEFAULT true,
+    notas TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+  );`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS receta_productos (
+    id SERIAL PRIMARY KEY,
+    receta_id INTEGER NOT NULL REFERENCES recetas(id),
+    producto_nombre TEXT NOT NULL,
+    producto_clave TEXT NOT NULL UNIQUE
+  );`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS receta_lineas (
+    id SERIAL PRIMARY KEY,
+    receta_id INTEGER NOT NULL REFERENCES recetas(id),
+    orden INTEGER NOT NULL DEFAULT 0,
+    insumo_id INTEGER REFERENCES insumos(id),
+    subreceta_id INTEGER REFERENCES recetas(id),
+    modo TEXT NOT NULL DEFAULT 'unidades' CHECK (modo IN ('unidades','gramos')),
+    cantidad NUMERIC NOT NULL CHECK (cantidad > 0),
+    peso_g NUMERIC,
+    desperdicio_pct NUMERIC NOT NULL DEFAULT 8,
+    CHECK ((insumo_id IS NULL) <> (subreceta_id IS NULL))
   );`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
   await pool.query(`CREATE TABLE IF NOT EXISTS costos_areas (area INTEGER PRIMARY KEY, costo NUMERIC NOT NULL DEFAULT 1);`);
@@ -3143,6 +3170,380 @@ app.get("/api/insumos/movimientos", stockVer, async (req, res) => {
     const { rows } = await pool.query(sql, params);
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── RECETAS (Fase 2a) — módulos anidados, editor, importación, necesidades ─
+// SIN descuento automático de stock (Fase 2b). Ver = gestión; escribir = admin/superadmin.
+async function cargarRecetasIndex(exec = pool) {
+  const recs = await exec.query("SELECT * FROM recetas");
+  const lineas = await exec.query("SELECT * FROM receta_lineas ORDER BY receta_id, orden, id");
+  const prods = await exec.query("SELECT * FROM receta_productos ORDER BY id");
+  const byId = {};
+  for (const r of recs.rows) byId[r.id] = { ...r, lineas: [], productos: [] };
+  for (const l of lineas.rows) if (byId[l.receta_id]) byId[l.receta_id].lineas.push(l);
+  for (const p of prods.rows) if (byId[p.receta_id]) byId[p.receta_id].productos.push(p);
+  return byId;
+}
+async function cargarInsumosIndex(exec = pool) {
+  const r = await exec.query("SELECT * FROM insumos");
+  const byId = {}; for (const i of r.rows) byId[i.id] = i;
+  return byId;
+}
+// Explosión recursiva de una receta (por 1 unidad). Devuelve base por insumo (g o unidades), costo y avisos.
+function explotarReceta(recetaId, recetasById, insumosById, depth = 0, seen = new Set()) {
+  const out = { insumos: {}, costo: 0, avisos: [] };
+  const receta = recetasById[recetaId];
+  if (!receta) { out.avisos.push({ tipo: "receta_faltante", detalle: `Receta #${recetaId} no encontrada` }); return out; }
+  if (depth > 5 || seen.has(recetaId)) { out.avisos.push({ tipo: "ciclo", detalle: `Ciclo o profundidad máxima en "${receta.nombre}"` }); return out; }
+  const seen2 = new Set(seen); seen2.add(recetaId);
+  for (const l of receta.lineas) {
+    const cant = Number(l.cantidad) || 0;
+    if (l.subreceta_id) {
+      const sub = explotarReceta(l.subreceta_id, recetasById, insumosById, depth + 1, seen2);
+      for (const [iid, g] of Object.entries(sub.insumos)) out.insumos[iid] = (out.insumos[iid] || 0) + g * cant;
+      out.costo += sub.costo * cant;
+      for (const a of sub.avisos) out.avisos.push(a);
+      continue;
+    }
+    const ins = insumosById[l.insumo_id];
+    if (!ins) { out.avisos.push({ tipo: "insumo_faltante", detalle: `Insumo #${l.insumo_id} en "${receta.nombre}"` }); continue; }
+    const desp = 1 + (Number(l.desperdicio_pct) || 0) / 100;
+    if (ins.unidad === "g") {
+      let gramos;
+      if (l.modo === "unidades") {
+        const peso = l.peso_g != null ? Number(l.peso_g) : (ins.peso_unidad_g != null ? Number(ins.peso_unidad_g) : null);
+        if (peso == null) { out.avisos.push({ tipo: "falta_peso", insumo: ins.nombre, detalle: `Falta peso por unidad de "${ins.nombre}" (en "${receta.nombre}")` }); continue; }
+        gramos = cant * peso * desp;
+      } else {
+        gramos = cant * desp;
+      }
+      out.insumos[l.insumo_id] = (out.insumos[l.insumo_id] || 0) + gramos;
+      if (ins.precio_sin_iva == null) out.avisos.push({ tipo: "sin_precio", insumo: ins.nombre, detalle: `Sin precio: "${ins.nombre}"` });
+      else out.costo += (gramos / 1000) * Number(ins.precio_sin_iva);
+    } else {
+      const unidades = cant * desp;
+      out.insumos[l.insumo_id] = (out.insumos[l.insumo_id] || 0) + unidades;
+      if (ins.precio_sin_iva == null) out.avisos.push({ tipo: "sin_precio", insumo: ins.nombre, detalle: `Sin precio: "${ins.nombre}"` });
+      else out.costo += unidades * Number(ins.precio_sin_iva);
+    }
+  }
+  return out;
+}
+async function insertarLineasReceta(client, recetaId, lineas) {
+  let orden = 0;
+  for (const l of (lineas || [])) {
+    const tieneIns = l.insumo_id != null && l.insumo_id !== "";
+    const tieneSub = l.subreceta_id != null && l.subreceta_id !== "";
+    if (tieneIns === tieneSub) throw { _http: 400, msg: "Cada línea debe tener un insumo O un módulo (no ambos)." };
+    const cant = Number(l.cantidad);
+    if (!(cant > 0)) throw { _http: 400, msg: "La cantidad de cada línea debe ser mayor a 0." };
+    await client.query(
+      "INSERT INTO receta_lineas (receta_id, orden, insumo_id, subreceta_id, modo, cantidad, peso_g, desperdicio_pct) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+      [recetaId, orden++, tieneIns ? Number(l.insumo_id) : null, tieneSub ? Number(l.subreceta_id) : null,
+       l.modo === "gramos" ? "gramos" : "unidades", cant,
+       (l.peso_g === "" || l.peso_g == null) ? null : Number(l.peso_g),
+       (l.desperdicio_pct == null || l.desperdicio_pct === "") ? 8 : Number(l.desperdicio_pct)]
+    );
+  }
+}
+
+// Importación inicial desde recetas_seed.json (idempotente por nombre).
+app.post("/api/recetas/importar-inicial", requireAdmin, async (req, res) => {
+  let seed;
+  try { seed = requireCJS("./recetas_seed.json"); }
+  catch (e) { return res.status(500).json({ error: "No se pudo leer recetas_seed.json" }); }
+  const resumen = { modulos_creados: 0, recetas_creadas: 0, salteadas: 0, vinculadas: 0, errores: [] };
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const insR = await client.query("SELECT id, codigo FROM insumos WHERE codigo IS NOT NULL");
+    const insByCodigo = {}; for (const i of insR.rows) insByCodigo[i.codigo] = i.id;
+    const exR = await client.query("SELECT id, nombre FROM recetas");
+    const recByNombre = {}; for (const r of exR.rows) recByNombre[r.nombre.toLowerCase()] = r.id;
+
+    const crearReceta = async (nombre, tipo) => {
+      const r = await client.query("INSERT INTO recetas (nombre, tipo) VALUES ($1,$2) RETURNING id", [nombre, tipo]);
+      recByNombre[nombre.toLowerCase()] = r.rows[0].id; return r.rows[0].id;
+    };
+    const insertarLineasSeed = async (recetaId, lineas, nombreReceta, ordenInicial = 0) => {
+      let orden = ordenInicial;
+      for (const ln of (lineas || [])) {
+        const iid = insByCodigo[ln.codigo];
+        if (!iid) { resumen.errores.push(`Código ${ln.codigo} (en "${nombreReceta}") no existe en insumos`); continue; }
+        await client.query(
+          "INSERT INTO receta_lineas (receta_id, orden, insumo_id, modo, cantidad, peso_g, desperdicio_pct) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+          [recetaId, orden++, iid, ln.modo === "gramos" ? "gramos" : "unidades", ln.cantidad, ln.peso_g ?? null, ln.desperdicio_pct ?? 8]
+        );
+      }
+      return orden;
+    };
+
+    for (const m of (seed.modulos || [])) {
+      if (recByNombre[m.nombre.toLowerCase()]) { resumen.salteadas++; continue; }
+      const id = await crearReceta(m.nombre, "modulo");
+      await insertarLineasSeed(id, m.lineas, m.nombre);
+      resumen.modulos_creados++;
+    }
+    for (const rc of (seed.recetas || [])) {
+      if (recByNombre[rc.nombre.toLowerCase()]) { resumen.salteadas++; continue; }
+      const id = await crearReceta(rc.nombre, "producto");
+      let orden = await insertarLineasSeed(id, rc.lineas, rc.nombre);
+      for (const mod of (rc.modulos || [])) {
+        const subId = recByNombre[mod.modulo.toLowerCase()];
+        if (!subId) { resumen.errores.push(`Módulo "${mod.modulo}" (en "${rc.nombre}") no existe`); continue; }
+        await client.query(
+          "INSERT INTO receta_lineas (receta_id, orden, subreceta_id, modo, cantidad, desperdicio_pct) VALUES ($1,$2,$3,'unidades',$4,0)",
+          [id, orden++, subId, mod.cantidad]
+        );
+      }
+      resumen.recetas_creadas++;
+      const clave = claveProducto(normalizarProducto(rc.nombre));
+      const dup = await client.query("SELECT id FROM receta_productos WHERE producto_clave = $1", [clave]);
+      if (dup.rows.length === 0) {
+        await client.query("INSERT INTO receta_productos (receta_id, producto_nombre, producto_clave) VALUES ($1,$2,$3)", [id, rc.nombre, clave]);
+        resumen.vinculadas++;
+      }
+    }
+    await client.query("COMMIT");
+    res.json({ ok: true, resumen });
+    registrarAuditoria(req.body?.usuario, "recetas_importar", "recetas", 0, { modulos: resumen.modulos_creados, recetas: resumen.recetas_creadas, salteadas: resumen.salteadas });
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    console.error("Error importar recetas:", e.message);
+    res.status(500).json({ error: "Error importando recetas: " + e.message });
+  } finally { if (client) client.release(); }
+});
+
+// Listado con líneas, módulos, productos vinculados y costo estimado.
+app.get("/api/recetas", stockVer, async (req, res) => {
+  const { q, tipo, incluirInactivas } = req.query;
+  try {
+    const idx = await cargarRecetasIndex();
+    const insIdx = await cargarInsumosIndex();
+    let lista = Object.values(idx);
+    if (incluirInactivas !== "1") lista = lista.filter(r => r.activo);
+    if (tipo) lista = lista.filter(r => r.tipo === tipo);
+    if (q) { const s = String(q).toLowerCase(); lista = lista.filter(r => r.nombre.toLowerCase().includes(s)); }
+    lista.sort((a, b) => a.tipo.localeCompare(b.tipo) || a.nombre.localeCompare(b.nombre));
+    const out = lista.map(r => {
+      const exp = explotarReceta(r.id, idx, insIdx);
+      const lineas = r.lineas.map(l => l.subreceta_id
+        ? { ...l, es_modulo: true, ref_nombre: idx[l.subreceta_id]?.nombre || `#${l.subreceta_id}` }
+        : { ...l, es_modulo: false, ref_nombre: insIdx[l.insumo_id]?.nombre || `#${l.insumo_id}`, unidad: insIdx[l.insumo_id]?.unidad, categoria: insIdx[l.insumo_id]?.categoria });
+      return { ...r, lineas, costo_estimado: exp.costo, avisos: exp.avisos };
+    });
+    res.json(out);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/recetas", requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  if (!b.nombre || !String(b.nombre).trim()) return res.status(400).json({ error: "El nombre es obligatorio." });
+  if (!["producto", "modulo"].includes(b.tipo)) return res.status(400).json({ error: "Tipo inválido (producto o modulo)." });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const r = await client.query("INSERT INTO recetas (nombre, tipo, notas) VALUES ($1,$2,$3) RETURNING id", [String(b.nombre).trim(), b.tipo, b.notas || null]);
+    const id = r.rows[0].id;
+    await insertarLineasReceta(client, id, b.lineas);
+    for (const prod of (b.productos || [])) {
+      const nombre = String(prod.nombre || prod).trim();
+      if (!nombre) continue;
+      const clave = claveProducto(normalizarProducto(nombre));
+      await client.query("INSERT INTO receta_productos (receta_id, producto_nombre, producto_clave) VALUES ($1,$2,$3)", [id, nombre, clave]);
+    }
+    // Guard de ciclo con el grafo ya insertado.
+    const idx = await cargarRecetasIndex(client);
+    const exp = explotarReceta(id, idx, await cargarInsumosIndex(client));
+    if (exp.avisos.some(a => a.tipo === "ciclo")) throw { _http: 400, msg: "La receta genera un ciclo de módulos." };
+    await client.query("COMMIT");
+    res.json({ ok: true, id });
+    registrarAuditoria(b.usuario, "receta_crear", "receta", id, { nombre: String(b.nombre).trim(), tipo: b.tipo });
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    if (e && e._http) return res.status(e._http).json({ error: e.msg });
+    if (e && e.code === "23505") return res.status(409).json({ error: "Ya existe una receta o producto vinculado con ese nombre/clave." });
+    console.error("Error POST /api/recetas:", e.message);
+    res.status(500).json({ error: e.message });
+  } finally { if (client) client.release(); }
+});
+
+app.patch("/api/recetas/:id", requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  const id = Number(req.params.id);
+  if (b.tipo !== undefined && !["producto", "modulo"].includes(b.tipo)) return res.status(400).json({ error: "Tipo inválido." });
+  if (Array.isArray(b.lineas) && b.lineas.some(l => Number(l.subreceta_id) === id)) return res.status(400).json({ error: "Un módulo no puede incluirse a sí mismo." });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const sets = [], vals = [];
+    if (b.nombre !== undefined) { if (!String(b.nombre).trim()) throw { _http: 400, msg: "El nombre no puede quedar vacío." }; vals.push(String(b.nombre).trim()); sets.push(`nombre = $${vals.length}`); }
+    if (b.tipo !== undefined) { vals.push(b.tipo); sets.push(`tipo = $${vals.length}`); }
+    if (b.notas !== undefined) { vals.push(b.notas || null); sets.push(`notas = $${vals.length}`); }
+    if (sets.length > 0) { vals.push(id); const up = await client.query(`UPDATE recetas SET ${sets.join(", ")} WHERE id = $${vals.length} RETURNING id`, vals); if (up.rows.length === 0) throw { _http: 404, msg: "Receta no encontrada." }; }
+    if (Array.isArray(b.lineas)) {
+      await client.query("DELETE FROM receta_lineas WHERE receta_id = $1", [id]);
+      await insertarLineasReceta(client, id, b.lineas);
+      const idx = await cargarRecetasIndex(client);
+      const exp = explotarReceta(id, idx, await cargarInsumosIndex(client));
+      if (exp.avisos.some(a => a.tipo === "ciclo")) throw { _http: 400, msg: "La receta genera un ciclo de módulos." };
+    }
+    await client.query("COMMIT");
+    res.json({ ok: true });
+    registrarAuditoria(b.usuario, "receta_editar", "receta", id, { nombre: b.nombre });
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    if (e && e._http) return res.status(e._http).json({ error: e.msg });
+    if (e && e.code === "23505") return res.status(409).json({ error: "Ya existe una receta con ese nombre." });
+    console.error("Error PATCH /api/recetas:", e.message);
+    res.status(500).json({ error: e.message });
+  } finally { if (client) client.release(); }
+});
+
+app.post("/api/recetas/:id/duplicar", requireAdmin, async (req, res) => {
+  const { nombre, usuario } = req.body || {};
+  if (!nombre || !String(nombre).trim()) return res.status(400).json({ error: "Falta el nombre de la copia." });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const orig = await client.query("SELECT * FROM recetas WHERE id = $1", [req.params.id]);
+    if (orig.rows.length === 0) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Receta no encontrada." }); }
+    const nueva = await client.query("INSERT INTO recetas (nombre, tipo, notas) VALUES ($1,$2,$3) RETURNING id", [String(nombre).trim(), orig.rows[0].tipo, orig.rows[0].notas]);
+    const nid = nueva.rows[0].id;
+    await client.query(
+      `INSERT INTO receta_lineas (receta_id, orden, insumo_id, subreceta_id, modo, cantidad, peso_g, desperdicio_pct)
+       SELECT $1, orden, insumo_id, subreceta_id, modo, cantidad, peso_g, desperdicio_pct FROM receta_lineas WHERE receta_id = $2`,
+      [nid, req.params.id]
+    );
+    await client.query("COMMIT");
+    res.json({ ok: true, id: nid });
+    registrarAuditoria(usuario, "receta_duplicar", "receta", nid, { desde: Number(req.params.id), nombre: String(nombre).trim() });
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    if (e && e.code === "23505") return res.status(409).json({ error: "Ya existe una receta con ese nombre." });
+    console.error("Error duplicar receta:", e.message);
+    res.status(500).json({ error: e.message });
+  } finally { if (client) client.release(); }
+});
+
+app.post("/api/recetas/:id/baja", requireAdmin, async (req, res) => {
+  try {
+    const r = await pool.query("UPDATE recetas SET activo = false WHERE id = $1 RETURNING nombre", [req.params.id]);
+    if (r.rows.length === 0) return res.status(404).json({ error: "Receta no encontrada." });
+    res.json({ ok: true });
+    registrarAuditoria(req.body?.usuario, "receta_baja", "receta", req.params.id, { nombre: r.rows[0].nombre });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Productos vinculados a una receta.
+app.post("/api/recetas/:id/productos", requireAdmin, async (req, res) => {
+  const { nombre, usuario } = req.body || {};
+  if (!nombre || !String(nombre).trim()) return res.status(400).json({ error: "Falta el nombre del producto." });
+  const clave = claveProducto(normalizarProducto(String(nombre).trim()));
+  try {
+    const dup = await pool.query("SELECT rp.id, r.nombre AS receta FROM receta_productos rp JOIN recetas r ON r.id = rp.receta_id WHERE rp.producto_clave = $1", [clave]);
+    if (dup.rows.length > 0) return res.status(409).json({ error: `Ese producto ya está vinculado a la receta "${dup.rows[0].receta}".` });
+    const r = await pool.query("INSERT INTO receta_productos (receta_id, producto_nombre, producto_clave) VALUES ($1,$2,$3) RETURNING id", [req.params.id, String(nombre).trim(), clave]);
+    res.json({ ok: true, id: r.rows[0].id });
+    registrarAuditoria(usuario, "receta_vincular", "receta", req.params.id, { producto: String(nombre).trim() });
+  } catch (err) {
+    if (err.code === "23505") return res.status(409).json({ error: "Ese producto ya está vinculado a otra receta." });
+    res.status(500).json({ error: err.message });
+  }
+});
+app.delete("/api/recetas/:id/productos/:pid", requireAdmin, async (req, res) => {
+  try {
+    await pool.query("DELETE FROM receta_productos WHERE id = $1 AND receta_id = $2", [req.params.pid, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Productos necesarios: demanda de cocina (Por empaquetar/Listo) × recetas → insumos, vs stock.
+app.get("/api/insumos/necesidades", stockVer, async (req, res) => {
+  const { desde, hasta, local } = req.query;
+  const re = /^\d{4}-\d{2}-\d{2}$/;
+  if (!desde || !hasta || !re.test(desde) || !re.test(hasta)) return res.status(400).json({ error: "Parámetros 'desde' y 'hasta' requeridos (YYYY-MM-DD)." });
+  if (desde > hasta) return res.status(400).json({ error: "'desde' no puede ser posterior a 'hasta'." });
+  const localFiltro = (local === "A. Thomas" || local === "French") ? local : null;   // null = ambos
+  try {
+    const estadosRes = await pool.query("SELECT id, estado, tab_manual, fecha_manual FROM pedidos_estados");
+    const estadosMap = {}; estadosRes.rows.forEach(r => estadosMap[r.id] = { estado: r.estado, tabManual: r.tab_manual, fechaManual: r.fecha_manual });
+    const ovRes = await pool.query("SELECT pedido_id, productos FROM pedidos_productos");
+    const ovMap = {}; ovRes.rows.forEach(r => ovMap[r.pedido_id] = r.productos);
+
+    const demanda = {};   // clave-nombre (normalizarProducto) -> qty
+    const addProductos = (productosStr) => {
+      for (const item of String(productosStr || "").split(", ")) {
+        const m = item.match(/^(.+) x(\d+)$/);
+        if (!m) continue;
+        const raw = m[1].trim();
+        if (esExcluidoProduccion(raw)) continue;
+        const nombre = normalizarProducto(raw);
+        demanda[nombre] = (demanda[nombre] || 0) + Number(m[2]);
+      }
+    };
+    const tnRes = await pool.query(`SELECT t.data FROM pedidos_tn t WHERE t.tn_created_at BETWEEN ($1::date - INTERVAL '365 days') AND ($2::date + INTERVAL '5 days')`, [desde, hasta]);
+    for (const row of tnRes.rows) {
+      const p = row.data; const est = estadosMap[String(p.id)] || {};
+      const estado = est.estado || "Por empaquetar";
+      if (estado !== "Por empaquetar" && estado !== "Listo") continue;
+      const { fecha } = parsearFranjaBackend(p.owner_note);
+      const fd = est.fechaManual || fecha;
+      if (!fd || fd < desde || fd > hasta) continue;
+      const loc = localLabelBackend(est.tabManual || clasificarPedidoBackend(p));
+      if (localFiltro && loc !== localFiltro) continue;
+      const ov = ovMap[String(p.id)];
+      addProductos(ov || (p.products || []).map(pr => `${pr.name} x${pr.quantity}`).join(", "));
+    }
+    const manRes = await pool.query("SELECT * FROM pedidos_manuales");
+    for (const r of manRes.rows) {
+      const est = estadosMap[r.id] || {};
+      const estado = est.estado || "Por empaquetar";
+      if (estado !== "Por empaquetar" && estado !== "Listo") continue;
+      const fd = est.fechaManual || r.fecha;
+      if (!fd || fd < desde || fd > hasta) continue;
+      const loc = localLabelBackend(est.tabManual || r.tab_actual);
+      if (localFiltro && loc !== localFiltro) continue;
+      addProductos(ovMap[r.id] || r.productos);
+    }
+
+    const idx = await cargarRecetasIndex();
+    const insIdx = await cargarInsumosIndex();
+    const recetaPorClave = {};
+    const rp = await pool.query("SELECT rp.producto_clave, rp.receta_id FROM receta_productos rp JOIN recetas r ON r.id = rp.receta_id WHERE r.activo = true");
+    for (const x of rp.rows) recetaPorClave[x.producto_clave] = x.receta_id;
+
+    const necesarioBase = {};   // insumo_id -> base
+    const sinReceta = [];
+    const avisosSet = {};
+    for (const [nombre, qty] of Object.entries(demanda)) {
+      const recetaId = recetaPorClave[claveProducto(nombre)];
+      if (!recetaId) { sinReceta.push({ producto: nombre, cantidad: qty }); continue; }
+      const exp = explotarReceta(recetaId, idx, insIdx);
+      for (const [iid, base] of Object.entries(exp.insumos)) necesarioBase[iid] = (necesarioBase[iid] || 0) + base * qty;
+      for (const a of exp.avisos) avisosSet[a.detalle] = a;
+    }
+
+    const stR = await pool.query("SELECT insumo_id, local, COALESCE(SUM(cantidad),0) AS total FROM insumos_movimientos GROUP BY insumo_id, local");
+    const stockByInsumo = {};
+    for (const s of stR.rows) {
+      if (localFiltro && s.local !== localFiltro) continue;
+      stockByInsumo[s.insumo_id] = (stockByInsumo[s.insumo_id] || 0) + Number(s.total);
+    }
+
+    const items = Object.entries(necesarioBase).map(([iid, necesario]) => {
+      const ins = insIdx[iid] || {};
+      const stock = stockByInsumo[iid] || 0;
+      return { insumo_id: Number(iid), nombre: ins.nombre || `#${iid}`, categoria: ins.categoria || null, unidad: ins.unidad || "g", necesario, stock, faltante: Math.max(0, necesario - stock) };
+    }).sort((a, b) => (a.categoria || "").localeCompare(b.categoria || "") || a.nombre.localeCompare(b.nombre));
+
+    sinReceta.sort((a, b) => b.cantidad - a.cantidad);
+    res.json({ items, sin_receta: sinReceta, avisos: Object.values(avisosSet) });
+  } catch (err) { console.error("Error /api/insumos/necesidades:", err.message); res.status(500).json({ error: err.message }); }
 });
 
 // ─── MAPA DE PEDIDOS ───────────────────────────────────────────────────

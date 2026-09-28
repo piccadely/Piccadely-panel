@@ -1,0 +1,6442 @@
+{
+ "modulos": [
+  {
+   "nombre": "Packaging Tabla XS",
+   "lineas": [
+    {
+     "codigo": 402,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 421,
+     "modo": "unidades",
+     "cantidad": 2,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 420,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    }
+   ]
+  },
+  {
+   "nombre": "Packaging Tabla Chica",
+   "lineas": [
+    {
+     "codigo": 404,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 401,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 411,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 421,
+     "modo": "unidades",
+     "cantidad": 3,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 420,
+     "modo": "unidades",
+     "cantidad": 3,
+     "desperdicio_pct": 0
+    }
+   ]
+  },
+  {
+   "nombre": "Packaging Tabla Mediana",
+   "lineas": [
+    {
+     "codigo": 405,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 408,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 412,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 421,
+     "modo": "unidades",
+     "cantidad": 5,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 420,
+     "modo": "unidades",
+     "cantidad": 5,
+     "desperdicio_pct": 0
+    }
+   ]
+  },
+  {
+   "nombre": "Packaging Tabla Grande",
+   "lineas": [
+    {
+     "codigo": 406,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 409,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 413,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 421,
+     "modo": "unidades",
+     "cantidad": 9,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 420,
+     "modo": "unidades",
+     "cantidad": 9,
+     "desperdicio_pct": 0
+    }
+   ]
+  },
+  {
+   "nombre": "Packaging Tabla XL",
+   "lineas": [
+    {
+     "codigo": 407,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 410,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 414,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 421,
+     "modo": "unidades",
+     "cantidad": 15,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 420,
+     "modo": "unidades",
+     "cantidad": 15,
+     "desperdicio_pct": 0
+    }
+   ]
+  },
+  {
+   "nombre": "Pan Mediano",
+   "lineas": [
+    {
+     "codigo": 403,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 419,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 501,
+     "modo": "gramos",
+     "cantidad": 160,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 503,
+     "modo": "gramos",
+     "cantidad": 80,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 502,
+     "modo": "gramos",
+     "cantidad": 80,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 504,
+     "modo": "gramos",
+     "cantidad": 80,
+     "desperdicio_pct": 8
+    }
+   ]
+  },
+  {
+   "nombre": "Pan XS",
+   "lineas": [
+    {
+     "codigo": 403,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 501,
+     "modo": "gramos",
+     "cantidad": 80,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 503,
+     "modo": "gramos",
+     "cantidad": 40,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 502,
+     "modo": "gramos",
+     "cantidad": 40,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 504,
+     "modo": "gramos",
+     "cantidad": 40,
+     "desperdicio_pct": 8
+    }
+   ]
+  },
+  {
+   "nombre": "Dips",
+   "lineas": [
+    {
+     "codigo": 418,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 417,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 209,
+     "modo": "gramos",
+     "cantidad": 120,
+     "desperdicio_pct": 8
+    }
+   ]
+  },
+  {
+   "nombre": "Dips XS",
+   "lineas": [
+    {
+     "codigo": 447,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 445,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 209,
+     "modo": "gramos",
+     "cantidad": 50,
+     "desperdicio_pct": 8
+    }
+   ]
+  },
+  {
+   "nombre": "Pote Dips",
+   "lineas": [
+    {
+     "codigo": 417,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 418,
+     "modo": "unidades",
+     "cantidad": 1,
+     "desperdicio_pct": 0
+    }
+   ]
+  },
+  {
+   "nombre": "Complementos XS",
+   "lineas": [
+    {
+     "codigo": 313,
+     "modo": "gramos",
+     "cantidad": 30,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 310,
+     "modo": "gramos",
+     "cantidad": 20,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 311,
+     "modo": "gramos",
+     "cantidad": 20,
+     "desperdicio_pct": 8
+    }
+   ]
+  },
+  {
+   "nombre": "Complementos Chica",
+   "lineas": [
+    {
+     "codigo": 313,
+     "modo": "gramos",
+     "cantidad": 40,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 310,
+     "modo": "gramos",
+     "cantidad": 30,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 311,
+     "modo": "gramos",
+     "cantidad": 30,
+     "desperdicio_pct": 8
+    }
+   ]
+  },
+  {
+   "nombre": "Complementos Mediana",
+   "lineas": [
+    {
+     "codigo": 313,
+     "modo": "gramos",
+     "cantidad": 70,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 310,
+     "modo": "gramos",
+     "cantidad": 50,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 311,
+     "modo": "gramos",
+     "cantidad": 50,
+     "desperdicio_pct": 8
+    }
+   ]
+  },
+  {
+   "nombre": "Complementos Grande",
+   "lineas": [
+    {
+     "codigo": 313,
+     "modo": "gramos",
+     "cantidad": 110,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 310,
+     "modo": "gramos",
+     "cantidad": 90,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 311,
+     "modo": "gramos",
+     "cantidad": 90,
+     "desperdicio_pct": 8
+    }
+   ]
+  },
+  {
+   "nombre": "Complementos XL",
+   "lineas": [
+    {
+     "codigo": 313,
+     "modo": "gramos",
+     "cantidad": 150,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 310,
+     "modo": "gramos",
+     "cantidad": 120,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 311,
+     "modo": "gramos",
+     "cantidad": 120,
+     "desperdicio_pct": 8
+    }
+   ]
+  }
+ ],
+ "recetas": [
+  {
+   "nombre": "Comilona Chica",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 106,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 16.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Chica",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Chica",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Comilona Mediana",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 106,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 10,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 90.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 16.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Mediana",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Mediana",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Comilona Grande",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 106,
+     "modo": "unidades",
+     "cantidad": 7,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 7,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 14,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 130.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 16.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Grande",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Complementos Grande",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Comilona XL",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 106,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 170.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 16.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla XL",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Complementos XL",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Suttile Chica",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 110,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 115,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 106,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Chica",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Chica",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Suttile Mediana",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 110,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 115,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 106,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 90.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Mediana",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Mediana",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Suttile Grande",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 110,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 115,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 106,
+     "modo": "unidades",
+     "cantidad": 7,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 130.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 130.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Grande",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Complementos Grande",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Suttile XL",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 110,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 115,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 106,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 160.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 160.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla XL",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Complementos XL",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Giovane Chica",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 115,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 113,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 26.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Chica",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Chica",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Giovane Mediana",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 115,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 113,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 26.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Mediana",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Mediana",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Giovane Grande",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 115,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 113,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 26.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 120.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 120.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Grande",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Complementos Grande",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Giovane XL",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 115,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 113,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 26.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 160.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 160.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla XL",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Complementos XL",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Incontro Chica",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 101,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 16.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Chica",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Chica",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Incontro Mediana",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 101,
+     "modo": "unidades",
+     "cantidad": 10,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 10,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 16.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Mediana",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Mediana",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Incontro Grande",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 101,
+     "modo": "unidades",
+     "cantidad": 14,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 7,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 14,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 16.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Grande",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Complementos Grande",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Incontro XL",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 101,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 16.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla XL",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Complementos XL",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Esquesitos Chica",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Chica",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Chica",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Esquesitos Mediana",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 10,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 10,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Mediana",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Mediana",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Esquesitos Grande",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 14,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 14,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 120.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 14,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 120.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 120.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 14,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Grande",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Complementos Grande",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Esquesitos XL",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 160.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 160.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 160.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla XL",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Complementos XL",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "La Fausta Chica",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 110,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Chica",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Chica",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "La Fausta Mediana",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 10,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 110,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Mediana",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Mediana",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "La Fausta Grande",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 7,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 14,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 110,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Grande",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Complementos Grande",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "La Fausta XL",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 110,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla XL",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Complementos XL",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "La Gourmet Chica",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 101,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 206,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Chica",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Chica",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "La Gourmet Mediana",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 10,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 101,
+     "modo": "unidades",
+     "cantidad": 10,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 206,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Mediana",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Mediana",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "La Gourmet Grande",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 7,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 14,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 101,
+     "modo": "unidades",
+     "cantidad": 14,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 206,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Grande",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Complementos Grande",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "La Gourmet XL",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 101,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 206,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla XL",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Complementos XL",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Amistad Chica",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 101,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 106,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 107,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 112,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 4.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 114,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 35.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 115,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 206,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 211,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Chica",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Chica",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Amistad Mediana",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 101,
+     "modo": "unidades",
+     "cantidad": 10,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 106,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 107,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 112,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 4.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 114,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 35.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 115,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 206,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 211,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Mediana",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Mediana",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Amistad Grande",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 101,
+     "modo": "unidades",
+     "cantidad": 14,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 106,
+     "modo": "unidades",
+     "cantidad": 7,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 107,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 112,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 4.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 114,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 35.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 115,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 206,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 211,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 120.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Grande",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Complementos Grande",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Amistad XL",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 106,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 107,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 112,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 4.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 114,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 35.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 115,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 206,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 211,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 160.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla XL",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Complementos XL",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Anita Chica",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 105,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 110,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 112,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 4.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 114,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 35.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 16.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 206,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 210,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 211,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Chica",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Chica",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Anita Mediana",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 105,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 110,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 112,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 4.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 114,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 35.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 16.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 206,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 210,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Mediana",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Mediana",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Anita Grande",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 7,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 14,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 105,
+     "modo": "unidades",
+     "cantidad": 7,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 110,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 112,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 4.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 114,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 35.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 16.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 206,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 210,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 120.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Grande",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Complementos Grande",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Anita XL",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 105,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 110,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 112,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 4.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 114,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 35.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 16.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 206,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 210,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 160.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla XL",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Complementos XL",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Quesos del Gourmet Chica",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 16.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 206,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 210,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 211,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Chica",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Chica",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Quesos del Gourmet Mediana",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 16.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 206,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 210,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 211,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Mediana",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Mediana",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Quesos del Gourmet Grande",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 16.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 120.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 120.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 206,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 120.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 210,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 211,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 120.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Grande",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Complementos Grande",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Quesos del Gourmet XL",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 16.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 160.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 160.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 206,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 160.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 210,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 211,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 160.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla XL",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Complementos XL",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "HD Chica",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 105,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 107,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 108,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 114,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 35.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 210,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 211,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 303,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 304,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Chica",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Chica",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "HD Mediana",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 105,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 107,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 108,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 114,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 35.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 210,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 211,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 303,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 304,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Mediana",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Mediana",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "HD Grande",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 7,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 14,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 105,
+     "modo": "unidades",
+     "cantidad": 7,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 107,
+     "modo": "unidades",
+     "cantidad": 7,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 108,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 114,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 35.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 210,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 211,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 120.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 303,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 120.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 304,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 120.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Grande",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Complementos Grande",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "HD XL",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 105,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 107,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 108,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 114,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 35.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 210,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 211,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 160.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 303,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 160.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 304,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 160.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla XL",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Complementos XL",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Magnolia Chica",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 101,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 115,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 106,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 113,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 26.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 210,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Chica",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Chica",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Magnolia Mediana",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 101,
+     "modo": "unidades",
+     "cantidad": 10,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 115,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 106,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 113,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 26.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 210,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Mediana",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Mediana",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Magnolia Grande",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 101,
+     "modo": "unidades",
+     "cantidad": 14,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 115,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 7,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 106,
+     "modo": "unidades",
+     "cantidad": 7,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 113,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 26.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 120.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 210,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Grande",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Complementos Grande",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Magnolia XL",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 101,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 115,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 106,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 113,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 26.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 160.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 210,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla XL",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Complementos XL",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Veggie Chica",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 206,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 302,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 303,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 20.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 304,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 307,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 308,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 4.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Chica",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Chica",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Veggie Mediana",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 206,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 302,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 303,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 304,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 307,
+     "modo": "unidades",
+     "cantidad": 14,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 308,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 4.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Chica",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Mediana",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Supreme",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 106,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 30.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 110,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 113,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 26.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 115,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 14,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 16.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 16.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 14,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla XL",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 3
+    },
+    {
+     "modulo": "Complementos XS",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Just Salmón",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 111,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 200.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 206,
+     "modo": "unidades",
+     "cantidad": 10,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 313,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 318,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Chica",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Promo Agosto chica",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 110,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 108,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Chica",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Chica",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Promo Agosto mediana",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 110,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 108,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Mediana",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Mediana",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Promo Agosto grande",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 110,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 108,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 7,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 120.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 130.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Grande",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Complementos Grande",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pote Dips",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Tablita picca tu festejo",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 108,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla XS",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan XS",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips XS",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos XS",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pote Dips",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Tablita picca tu encuentro",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 112,
+     "modo": "unidades",
+     "cantidad": 7,
+     "peso_g": 4.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 211,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 80.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Chica",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan XS",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips XS",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos XS",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pote Dips",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Tablita picca tu pausa",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 113,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 26.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 207,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 40.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla XS",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan XS",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips XS",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos XS",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pote Dips",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Primavera Chica 2026",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 101,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 2,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 112,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 4.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 108,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 4,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 3,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Chica",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Chica",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Primavera Mediana 2026",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 101,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 112,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 4.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 108,
+     "modo": "unidades",
+     "cantidad": 10,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 10,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 8,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 10,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Mediana",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Complementos Mediana",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Primavera grande 2026",
+   "origen": "Productos",
+   "lineas": [
+    {
+     "codigo": 101,
+     "modo": "unidades",
+     "cantidad": 7,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 7,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 112,
+     "modo": "unidades",
+     "cantidad": 16,
+     "peso_g": 4.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 108,
+     "modo": "unidades",
+     "cantidad": 15,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 14,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 208,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 205,
+     "modo": "unidades",
+     "cantidad": 11,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 18,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 9,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8.0
+    }
+   ],
+   "modulos": [
+    {
+     "modulo": "Packaging Tabla Grande",
+     "cantidad": 1
+    },
+    {
+     "modulo": "Pan Mediano",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Dips",
+     "cantidad": 2
+    },
+    {
+     "modulo": "Complementos Grande",
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "Sandwich #1",
+   "origen": "Sandwich",
+   "lineas": [
+    {
+     "codigo": 104,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 9.0,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 209,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 518,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": null,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 421,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": null,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 402,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": null,
+     "desperdicio_pct": 0
+    }
+   ],
+   "modulos": []
+  },
+  {
+   "nombre": "Sandwich #2",
+   "origen": "Sandwich",
+   "lineas": [
+    {
+     "codigo": 105,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 209,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 518,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": null,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 421,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": null,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 402,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": null,
+     "desperdicio_pct": 0
+    }
+   ],
+   "modulos": []
+  },
+  {
+   "nombre": "superclásico",
+   "origen": "Sandwich",
+   "lineas": [
+    {
+     "codigo": 108,
+     "modo": "unidades",
+     "cantidad": 10,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 212,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 209,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": 60.0,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 518,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": null,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 421,
+     "modo": "unidades",
+     "cantidad": 5,
+     "peso_g": null,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 402,
+     "modo": "unidades",
+     "cantidad": 1,
+     "peso_g": null,
+     "desperdicio_pct": 0
+    }
+   ],
+   "modulos": []
+  },
+  {
+   "nombre": "Juntadely 48 sandwich",
+   "origen": "Sandwich",
+   "lineas": [
+    {
+     "codigo": 312,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 103,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 17.0,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 109,
+     "modo": "unidades",
+     "cantidad": 24,
+     "peso_g": 6.0,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 102,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 28.0,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 301,
+     "modo": "unidades",
+     "cantidad": 24,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 204,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 8.0,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 202,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 201,
+     "modo": "unidades",
+     "cantidad": 12,
+     "peso_g": 10.0,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 203,
+     "modo": "unidades",
+     "cantidad": 6,
+     "peso_g": 16.0,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 501,
+     "modo": "unidades",
+     "cantidad": 48,
+     "peso_g": 40.0,
+     "desperdicio_pct": 8
+    },
+    {
+     "codigo": 421,
+     "modo": "unidades",
+     "cantidad": 24,
+     "peso_g": null,
+     "desperdicio_pct": 0
+    },
+    {
+     "codigo": 209,
+     "modo": "unidades",
+     "cantidad": 200,
+     "peso_g": null,
+     "desperdicio_pct": 0
+    }
+   ],
+   "modulos": []
+  }
+ ]
+}

@@ -4247,6 +4247,456 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       );
     }
 
+    // ── Recetas (Fase 2a): editor con módulos anidados + costo estimado. Ver=gestión, escribir=admin. ──
+    const RECETA_LINEA_VACIA = { tipoLinea: "insumo", insumo_id: "", subreceta_id: "", modo: "unidades", cantidad: "", peso_g: "", desperdicio_pct: "8" };
+    const esPackaging = (cat) => /packaging|packing|pack\b/i.test(String(cat || ""));
+    function VistaRecetas({ usuario, onVolver }) {
+      const puedeEditar = usuario.rol === "admin" || usuario.rol === "superadmin";
+      const [recetas, setRecetas] = useState([]);
+      const [insumos, setInsumos] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [mensaje, setMensaje] = useState(null);
+      const [q, setQ] = useState("");
+      const [filtroTipo, setFiltroTipo] = useState("");
+      const [editando, setEditando] = useState(null);   // { id?, nombre, tipo, notas, lineas:[], productos:[] } | null
+      const [guardando, setGuardando] = useState(false);
+      const [importando, setImportando] = useState(false);
+      const [importResumen, setImportResumen] = useState(null);
+      const [nuevoProducto, setNuevoProducto] = useState("");
+
+      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 4000); }
+
+      async function cargar() {
+        setLoading(true);
+        try {
+          const [rr, ri] = await Promise.all([
+            axios.get(`${API}/api/recetas`, { params: { incluirInactivas: "0" } }),
+            axios.get(`${API}/api/insumos`),
+          ]);
+          setRecetas(rr.data); setInsumos(ri.data);
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error cargando recetas", "error"); }
+        setLoading(false);
+      }
+      useEffect(() => { cargar(); }, []);
+
+      const modulos = recetas.filter(r => r.tipo === "modulo");
+      const insumoById = (id) => insumos.find(i => String(i.id) === String(id));
+      const modById = (id) => recetas.find(r => String(r.id) === String(id));
+
+      function costoLinea(l) {
+        const cant = Number(l.cantidad) || 0;
+        if (l.tipoLinea === "modulo") { const m = modById(l.subreceta_id); return (m?.costo_estimado || 0) * cant; }
+        const ins = insumoById(l.insumo_id); if (!ins || ins.precio_sin_iva == null) return 0;
+        const desp = 1 + (Number(l.desperdicio_pct) || 0) / 100;
+        if (ins.unidad === "g") {
+          if (l.modo === "unidades") { const peso = l.peso_g ? Number(l.peso_g) : (ins.peso_unidad_g != null ? Number(ins.peso_unidad_g) : null); if (peso == null) return 0; return (cant * peso * desp / 1000) * Number(ins.precio_sin_iva); }
+          return (cant * desp / 1000) * Number(ins.precio_sin_iva);
+        }
+        return cant * desp * Number(ins.precio_sin_iva);
+      }
+      const costoTotal = (lineas) => (lineas || []).reduce((a, l) => a + costoLinea(l), 0);
+
+      function abrirNuevo(tipo = "producto") { setEditando({ nombre: "", tipo, notas: "", lineas: [], productos: [] }); }
+      function abrirEditar(r) {
+        setEditando({
+          id: r.id, nombre: r.nombre, tipo: r.tipo, notas: r.notas || "",
+          productos: (r.productos || []).map(p => ({ id: p.id, nombre: p.producto_nombre })),
+          lineas: (r.lineas || []).map(l => l.es_modulo
+            ? { tipoLinea: "modulo", insumo_id: "", subreceta_id: String(l.subreceta_id), modo: "unidades", cantidad: String(l.cantidad), peso_g: "", desperdicio_pct: String(l.desperdicio_pct) }
+            : { tipoLinea: "insumo", insumo_id: String(l.insumo_id), subreceta_id: "", modo: l.modo, cantidad: String(l.cantidad), peso_g: l.peso_g ?? "", desperdicio_pct: String(l.desperdicio_pct) }),
+        });
+      }
+      const setEd = (k, v) => setEditando(e => ({ ...e, [k]: v }));
+      const setLinea = (i, k, v) => setEditando(e => { const ls = [...e.lineas]; ls[i] = { ...ls[i], [k]: v }; return { ...e, lineas: ls }; });
+      function agregarLineaInsumo() { setEditando(e => ({ ...e, lineas: [...e.lineas, { ...RECETA_LINEA_VACIA }] })); }
+      function agregarLineaModulo() { setEditando(e => ({ ...e, lineas: [...e.lineas, { ...RECETA_LINEA_VACIA, tipoLinea: "modulo" }] })); }
+      function quitarLinea(i) { setEditando(e => ({ ...e, lineas: e.lineas.filter((_, j) => j !== i) })); }
+      // al elegir insumo, sugerir 0% si es packaging
+      function elegirInsumo(i, insumoId) {
+        const ins = insumoById(insumoId);
+        setEditando(e => { const ls = [...e.lineas]; ls[i] = { ...ls[i], insumo_id: insumoId, desperdicio_pct: esPackaging(ins?.categoria) ? "0" : ls[i].desperdicio_pct, modo: ins?.unidad === "unidad" ? "unidades" : ls[i].modo }; return { ...e, lineas: ls }; });
+      }
+
+      function lineasPayload(ls) {
+        return (ls || []).filter(l => (l.tipoLinea === "insumo" ? l.insumo_id : l.subreceta_id) && Number(l.cantidad) > 0)
+          .map(l => l.tipoLinea === "modulo"
+            ? { subreceta_id: Number(l.subreceta_id), modo: "unidades", cantidad: Number(l.cantidad), desperdicio_pct: 0 }
+            : { insumo_id: Number(l.insumo_id), modo: l.modo, cantidad: Number(l.cantidad), peso_g: l.peso_g === "" ? null : Number(l.peso_g), desperdicio_pct: l.desperdicio_pct === "" ? 8 : Number(l.desperdicio_pct) });
+      }
+
+      async function guardar() {
+        if (!editando.nombre.trim()) { mostrarMensaje("El nombre es obligatorio", "error"); return; }
+        setGuardando(true);
+        try {
+          if (editando.id) {
+            await axios.patch(`${API}/api/recetas/${editando.id}`, { nombre: editando.nombre.trim(), tipo: editando.tipo, notas: editando.notas, lineas: lineasPayload(editando.lineas), usuario: usuario.nombre_completo });
+          } else {
+            await axios.post(`${API}/api/recetas`, { nombre: editando.nombre.trim(), tipo: editando.tipo, notas: editando.notas, lineas: lineasPayload(editando.lineas), productos: editando.productos.map(p => ({ nombre: p.nombre })), usuario: usuario.nombre_completo });
+          }
+          setEditando(null); await cargar(); mostrarMensaje("Receta guardada");
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error guardando", "error"); }
+        setGuardando(false);
+      }
+      async function agregarProducto() {
+        const nombre = nuevoProducto.trim(); if (!nombre) return;
+        if (editando.id) {
+          try { const r = await axios.post(`${API}/api/recetas/${editando.id}/productos`, { nombre, usuario: usuario.nombre_completo }); setEditando(e => ({ ...e, productos: [...e.productos, { id: r.data.id, nombre }] })); setNuevoProducto(""); }
+          catch (err) { mostrarMensaje(err.response?.data?.error || "Error vinculando", "error"); }
+        } else { setEditando(e => ({ ...e, productos: [...e.productos, { nombre }] })); setNuevoProducto(""); }
+      }
+      async function quitarProducto(p, i) {
+        if (editando.id && p.id) { try { await axios.delete(`${API}/api/recetas/${editando.id}/productos/${p.id}`); } catch (err) { mostrarMensaje("Error quitando", "error"); return; } }
+        setEditando(e => ({ ...e, productos: e.productos.filter((_, j) => j !== i) }));
+      }
+      async function duplicar(r) {
+        const nombre = window.prompt(`Duplicar "${r.nombre}" como:`, `${r.nombre} (copia)`);
+        if (!nombre || !nombre.trim()) return;
+        try { await axios.post(`${API}/api/recetas/${r.id}/duplicar`, { nombre: nombre.trim(), usuario: usuario.nombre_completo }); await cargar(); mostrarMensaje("Receta duplicada"); }
+        catch (err) { mostrarMensaje(err.response?.data?.error || "Error duplicando", "error"); }
+      }
+      async function darBaja(r) {
+        if (!window.confirm(`¿Dar de baja la receta "${r.nombre}"?`)) return;
+        try { await axios.post(`${API}/api/recetas/${r.id}/baja`, { usuario: usuario.nombre_completo }); await cargar(); mostrarMensaje("Receta dada de baja"); }
+        catch (err) { mostrarMensaje(err.response?.data?.error || "Error", "error"); }
+      }
+      async function importar() {
+        if (!window.confirm("Importar las recetas iniciales desde el archivo semilla. Las que ya existan (por nombre) se saltean. ¿Continuar?")) return;
+        setImportando(true);
+        try { const r = await axios.post(`${API}/api/recetas/importar-inicial`, { usuario: usuario.nombre_completo }); setImportResumen(r.data.resumen); await cargar(); }
+        catch (err) { mostrarMensaje(err.response?.data?.error || "Error importando", "error"); }
+        setImportando(false);
+      }
+
+      const lista = recetas.filter(r => (!filtroTipo || r.tipo === filtroTipo) && (!q || r.nombre.toLowerCase().includes(q.toLowerCase())));
+      const inp = { width: "100%", fontSize: 13, padding: "7px 9px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" };
+
+      // ---- Editor ----
+      if (editando) {
+        const costoDetalle = editando.lineas.map((l, i) => ({ i, l, costo: costoLinea(l) }));
+        const total = costoTotal(editando.lineas);
+        return (
+          <div style={{ padding: 24, maxWidth: 920, margin: "0 auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>{editando.id ? "Editar receta" : "Nueva receta"}</div>
+              <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={() => setEditando(null)}>← Volver a la lista</button>
+            </div>
+            {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>}
+
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20, marginBottom: 16 }}>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ flex: "2 1 300px" }}><label style={{ fontSize: 12, color: "#888" }}>Nombre</label><input style={inp} value={editando.nombre} onChange={e => setEd("nombre", e.target.value)} disabled={!puedeEditar} /></div>
+                <div style={{ flex: "1 1 140px" }}><label style={{ fontSize: 12, color: "#888" }}>Tipo</label>
+                  <select style={inp} value={editando.tipo} onChange={e => setEd("tipo", e.target.value)} disabled={!puedeEditar}><option value="producto">Producto</option><option value="modulo">Módulo</option></select>
+                </div>
+              </div>
+
+              {editando.tipo === "producto" && (
+                <div style={{ marginTop: 14 }}>
+                  <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Productos de venta vinculados</label>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+                    {editando.productos.map((p, i) => (
+                      <span key={p.id || i} style={{ fontSize: 12, background: "#f0f0e8", borderRadius: 6, padding: "3px 8px", display: "flex", alignItems: "center", gap: 6 }}>
+                        {p.nombre}{puedeEditar && <button style={{ border: "none", background: "none", color: "#c0392b", cursor: "pointer", fontSize: 13 }} onClick={() => quitarProducto(p, i)}>✕</button>}
+                      </span>
+                    ))}
+                    {editando.productos.length === 0 && <span style={{ fontSize: 12, color: "#aaa" }}>Sin productos vinculados.</span>}
+                  </div>
+                  {puedeEditar && <div style={{ display: "flex", gap: 6 }}>
+                    <input style={{ ...inp, flex: 1 }} placeholder="Nombre exacto del producto de venta…" value={nuevoProducto} onChange={e => setNuevoProducto(e.target.value)} onKeyDown={e => { if (e.key === "Enter") agregarProducto(); }} />
+                    <button style={{ fontSize: 12, padding: "7px 12px", borderRadius: 6, border: "1px solid #1d8a4e", background: "#eafaf1", color: "#1d8a4e", cursor: "pointer" }} onClick={agregarProducto}>+ Vincular</button>
+                  </div>}
+                </div>
+              )}
+            </div>
+
+            {/* Líneas */}
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 20, marginBottom: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#333" }}>Composición</div>
+                {puedeEditar && <div style={{ display: "flex", gap: 6 }}>
+                  <button style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={agregarLineaInsumo}>+ Insumo</button>
+                  <button style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={agregarLineaModulo}>+ Módulo</button>
+                </div>}
+              </div>
+              {editando.lineas.length === 0 && <div style={{ fontSize: 13, color: "#aaa" }}>Sin líneas todavía.</div>}
+              {editando.lineas.map((l, i) => {
+                const ins = insumoById(l.insumo_id);
+                return (
+                  <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: "1px solid #f5f5f5", flexWrap: "wrap" }}>
+                    {l.tipoLinea === "modulo" ? (
+                      <>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: "#1d4ed8", background: "#dbeafe", borderRadius: 4, padding: "2px 6px" }}>MÓDULO</span>
+                        <select style={{ ...inp, flex: "2 1 220px", width: "auto" }} value={l.subreceta_id} onChange={e => setLinea(i, "subreceta_id", e.target.value)} disabled={!puedeEditar}>
+                          <option value="">Elegir módulo…</option>
+                          {modulos.filter(m => m.id !== editando.id).map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+                        </select>
+                        <input type="number" min="0" step="1" style={{ ...inp, width: 90 }} placeholder="cant." value={l.cantidad} onChange={e => setLinea(i, "cantidad", e.target.value)} disabled={!puedeEditar} />
+                      </>
+                    ) : (
+                      <>
+                        <select style={{ ...inp, flex: "2 1 220px", width: "auto" }} value={l.insumo_id} onChange={e => elegirInsumo(i, e.target.value)} disabled={!puedeEditar}>
+                          <option value="">Elegir insumo…</option>
+                          {insumos.map(ins2 => <option key={ins2.id} value={ins2.id}>{ins2.codigo ? `${ins2.codigo} · ` : ""}{ins2.nombre} ({stockUnidadLabel(ins2.unidad)})</option>)}
+                        </select>
+                        <select style={{ ...inp, width: 110 }} value={l.modo} onChange={e => setLinea(i, "modo", e.target.value)} disabled={!puedeEditar || ins?.unidad === "unidad"}>
+                          <option value="unidades">unidades</option>
+                          <option value="gramos">gramos</option>
+                        </select>
+                        <input type="number" min="0" step="0.01" style={{ ...inp, width: 80 }} placeholder="cant." value={l.cantidad} onChange={e => setLinea(i, "cantidad", e.target.value)} disabled={!puedeEditar} />
+                        {ins?.unidad === "g" && l.modo === "unidades" && <input type="number" min="0" step="0.01" style={{ ...inp, width: 90 }} placeholder={`peso g${ins?.peso_unidad_g != null ? ` (${ins.peso_unidad_g})` : ""}`} value={l.peso_g} onChange={e => setLinea(i, "peso_g", e.target.value)} disabled={!puedeEditar} />}
+                        <input type="number" min="0" step="1" style={{ ...inp, width: 70 }} placeholder="% desp" value={l.desperdicio_pct} onChange={e => setLinea(i, "desperdicio_pct", e.target.value)} disabled={!puedeEditar} title="% desperdicio" />
+                      </>
+                    )}
+                    <span style={{ fontSize: 12, color: "#888", minWidth: 90, textAlign: "right" }}>{costoLinea(l) > 0 ? "$" + costoLinea(l).toLocaleString("es-AR", { maximumFractionDigits: 2 }) : "—"}</span>
+                    {puedeEditar && <button style={{ border: "none", background: "none", color: "#c0392b", cursor: "pointer", fontSize: 14 }} onClick={() => quitarLinea(i)}>✕</button>}
+                  </div>
+                );
+              })}
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12, fontSize: 14 }}>
+                <span style={{ color: "#555" }}>Costo estimado (sin IVA):&nbsp;</span><b style={{ color: "#333" }}>${total.toLocaleString("es-AR", { maximumFractionDigits: 2 })}</b>
+              </div>
+            </div>
+
+            {puedeEditar && (
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button style={{ fontSize: 13, padding: "9px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} disabled={guardando} onClick={() => setEditando(null)}>Cancelar</button>
+                <button style={{ fontSize: 13, fontWeight: 600, padding: "9px 20px", borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#F68B32", color: "#fff", cursor: guardando ? "default" : "pointer" }} disabled={guardando} onClick={guardar}>{guardando ? "Guardando…" : "Guardar receta"}</button>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // ---- Lista ----
+      return (
+        <div style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>📖 Recetas</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {puedeEditar && <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer" }} onClick={() => abrirNuevo("producto")}>+ Nueva receta</button>}
+              {puedeEditar && <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", color: "#555", cursor: "pointer" }} onClick={() => abrirNuevo("modulo")}>+ Módulo</button>}
+              {puedeEditar && <button style={{ fontSize: 12, padding: "8px 14px", borderRadius: 8, border: "1px solid #1d4ed8", background: "#dbeafe", color: "#1d4ed8", cursor: importando ? "default" : "pointer" }} disabled={importando} onClick={importar}>{importando ? "Importando…" : "Importar recetas iniciales"}</button>}
+              <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver</button>
+            </div>
+          </div>
+
+          {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>}
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+            <input style={{ fontSize: 13, padding: "6px 10px", borderRadius: 8, border: "1px solid #ddd", flex: "1 1 220px" }} placeholder="Buscar receta…" value={q} onChange={e => setQ(e.target.value)} />
+            <select style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}>
+              <option value="">Todas</option><option value="producto">Productos</option><option value="modulo">Módulos</option>
+            </select>
+          </div>
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1.8fr 90px 1.4fr 120px 150px", gap: 8, padding: "10px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 10, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>
+              <div>Nombre</div><div>Tipo</div><div>Productos</div><div style={{ textAlign: "right" }}>Costo est.</div><div></div>
+            </div>
+            {loading ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+              : lista.length === 0 ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>No hay recetas. {puedeEditar && "Podés importar las iniciales."}</div>
+              : lista.map(r => (
+                <div key={r.id} style={{ display: "grid", gridTemplateColumns: "1.8fr 90px 1.4fr 120px 150px", gap: 8, padding: "9px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, alignItems: "center" }}>
+                  <div style={{ color: "#333", fontWeight: 500, cursor: "pointer" }} onClick={() => abrirEditar(r)}>
+                    {r.nombre}
+                    {(r.avisos || []).length > 0 && <span title={r.avisos.map(a => a.detalle).join("\n")} style={{ marginLeft: 6, fontSize: 11, color: "#e6a23c" }}>⚠️</span>}
+                  </div>
+                  <div><span style={{ fontSize: 9, fontWeight: 600, color: r.tipo === "modulo" ? "#1d4ed8" : "#1d8a4e", background: r.tipo === "modulo" ? "#dbeafe" : "#eafaf1", borderRadius: 4, padding: "2px 6px" }}>{r.tipo === "modulo" ? "MÓDULO" : "PRODUCTO"}</span></div>
+                  <div style={{ color: "#888", fontSize: 12 }}>{(r.productos || []).map(p => p.producto_nombre).join(", ") || "—"}</div>
+                  <div style={{ textAlign: "right", color: "#555" }}>${Number(r.costo_estimado || 0).toLocaleString("es-AR", { maximumFractionDigits: 2 })}</div>
+                  <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                    <button style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#555", cursor: "pointer" }} onClick={() => abrirEditar(r)}>{puedeEditar ? "Editar" : "Ver"}</button>
+                    {puedeEditar && <button style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#555", cursor: "pointer" }} onClick={() => duplicar(r)}>Duplicar</button>}
+                    {puedeEditar && <button style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => darBaja(r)}>Baja</button>}
+                  </div>
+                </div>
+              ))}
+          </div>
+
+          {importResumen && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => setImportResumen(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 480, maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 12 }}>Importación de recetas</div>
+                <div style={{ fontSize: 13, color: "#555", lineHeight: 1.8 }}>
+                  Módulos creados: <b>{importResumen.modulos_creados}</b><br />
+                  Recetas creadas: <b>{importResumen.recetas_creadas}</b><br />
+                  Salteadas (ya existían): <b>{importResumen.salteadas}</b><br />
+                  Productos vinculados: <b>{importResumen.vinculadas}</b>
+                </div>
+                {importResumen.errores?.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#c0392b", marginBottom: 4 }}>Errores ({importResumen.errores.length})</div>
+                    <div style={{ maxHeight: 200, overflowY: "auto", fontSize: 12, color: "#b45309" }}>{importResumen.errores.map((e, i) => <div key={i}>· {e}</div>)}</div>
+                  </div>
+                )}
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+                  <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer" }} onClick={() => setImportResumen(null)}>Listo</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Productos necesarios (demanda × recetas → insumos vs stock) ──
+    function VistaNecesidades({ usuario, onVolver }) {
+      const manana = (() => { const h = new Date(); h.setDate(h.getDate() + 1); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`; })();
+      const [desde, setDesde] = useState(manana);
+      const [hasta, setHasta] = useState(manana);
+      const [local, setLocal] = useState("Ambos");
+      const [data, setData] = useState({ items: [], sin_receta: [], avisos: [] });
+      const [loading, setLoading] = useState(true);
+      const [mensaje, setMensaje] = useState(null);
+      const [vincular, setVincular] = useState(null);    // { producto } | null
+      const [recetas, setRecetas] = useState([]);
+      const [busqReceta, setBusqReceta] = useState("");
+      const [crear, setCrear] = useState(null);          // { producto, nombre } | null
+
+      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 4000); }
+      async function cargar() {
+        setLoading(true);
+        try {
+          const params = { desde, hasta };
+          if (local === "A. Thomas" || local === "French") params.local = local;
+          const r = await axios.get(`${API}/api/insumos/necesidades`, { params });
+          setData(r.data);
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error cargando necesidades", "error"); }
+        setLoading(false);
+      }
+      useEffect(() => { cargar(); }, [desde, hasta, local]);
+      async function cargarRecetas() { try { const r = await axios.get(`${API}/api/recetas`, { params: { tipo: "producto" } }); setRecetas(r.data); } catch (e) { /* */ } }
+
+      async function vincularA(recetaId) {
+        try { await axios.post(`${API}/api/recetas/${recetaId}/productos`, { nombre: vincular.producto, usuario: usuario.nombre_completo }); setVincular(null); await cargar(); mostrarMensaje("Producto vinculado"); }
+        catch (err) { mostrarMensaje(err.response?.data?.error || "Error vinculando", "error"); }
+      }
+      async function crearReceta() {
+        if (!crear.nombre.trim()) { mostrarMensaje("Falta el nombre", "error"); return; }
+        try {
+          await axios.post(`${API}/api/recetas`, { nombre: crear.nombre.trim(), tipo: "producto", lineas: [], productos: [{ nombre: crear.producto }], usuario: usuario.nombre_completo });
+          setCrear(null); await cargar(); mostrarMensaje("Receta creada y vinculada. Cargale las líneas en «Recetas».");
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error creando receta", "error"); }
+      }
+
+      function exportar() {
+        const datos = data.items.map(i => ({ "Categoría": i.categoria || "", "Insumo": i.nombre, "Necesario": stockAMostrar(i.necesario, i.unidad), "Stock": stockAMostrar(i.stock, i.unidad), "Faltante": stockAMostrar(i.faltante, i.unidad), "Unidad": stockUnidadLabel(i.unidad) }));
+        exportarExcel(`necesidades_${desde}_${hasta}.xlsx`, [{ name: "Necesidades", data: datos }]);
+      }
+
+      // agrupar por categoría
+      const porCategoria = {};
+      for (const i of data.items) (porCategoria[i.categoria || "(sin categoría)"] = porCategoria[i.categoria || "(sin categoría)"] || []).push(i);
+      const categoriasOrd = Object.keys(porCategoria).sort();
+      const recetasFiltradas = recetas.filter(r => !busqReceta || r.nombre.toLowerCase().includes(busqReceta.toLowerCase()));
+
+      return (
+        <div style={{ padding: 24, maxWidth: 1000, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>🧮 Productos necesarios</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {data.items.length > 0 && <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "1px solid #1d8a4e", background: "#eafaf1", color: "#1d8a4e", cursor: "pointer" }} onClick={exportar}>📊 Excel</button>}
+              <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver</button>
+            </div>
+          </div>
+
+          {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>}
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
+            <input type="date" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={desde} onChange={e => setDesde(e.target.value)} />
+            <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
+            <input type="date" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={hasta} onChange={e => setHasta(e.target.value)} />
+            <select style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={local} onChange={e => setLocal(e.target.value)}>
+              <option value="Ambos">Ambos locales</option><option value="A. Thomas">A. Thomas</option><option value="French">French</option>
+            </select>
+          </div>
+
+          {/* Sin receta */}
+          {data.sin_receta.length > 0 && (
+            <div style={{ background: "#fff", border: "1px solid #f5c6cb", borderRadius: 10, overflow: "hidden", marginBottom: 16 }}>
+              <div style={{ padding: "8px 16px", background: "#fdecea", color: "#c0392b", fontSize: 12, fontWeight: 700 }}>⚠️ {data.sin_receta.length} producto(s) sin receta (no se explotan a insumos)</div>
+              {data.sin_receta.map((s, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, flexWrap: "wrap" }}>
+                  <span style={{ flex: 1, color: "#333", minWidth: 180 }}>{s.producto} <span style={{ color: "#999" }}>× {s.cantidad}</span></span>
+                  <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #1d4ed8", background: "#dbeafe", color: "#1d4ed8", cursor: "pointer" }} onClick={() => { setVincular({ producto: s.producto }); setBusqReceta(""); cargarRecetas(); }}>Vincular a receta existente</button>
+                  <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #1d8a4e", background: "#eafaf1", color: "#1d8a4e", cursor: "pointer" }} onClick={() => setCrear({ producto: s.producto, nombre: s.producto })}>Crear receta</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Avisos */}
+          {data.avisos.length > 0 && (
+            <div style={{ background: "#fffbe6", border: "1px solid #ffe58f", borderRadius: 10, padding: "10px 16px", marginBottom: 16, fontSize: 12, color: "#8a6d3b" }}>
+              {data.avisos.map((a, i) => <div key={i}>⚠️ {a.detalle}</div>)}
+            </div>
+          )}
+
+          {/* Tabla por categoría */}
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1.8fr 140px 140px 140px", gap: 8, padding: "10px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 10, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>
+              <div>Insumo</div><div style={{ textAlign: "right" }}>Necesario</div><div style={{ textAlign: "right" }}>Stock</div><div style={{ textAlign: "right" }}>Faltante</div>
+            </div>
+            {loading ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+              : data.items.length === 0 ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>No hay necesidades para el rango elegido (¿pedidos por producir con receta?).</div>
+              : categoriasOrd.map(cat => (
+                <div key={cat}>
+                  <div style={{ padding: "6px 16px", background: "#fcfcfb", fontSize: 11, fontWeight: 700, color: "#666", borderBottom: "1px solid #f0f0f0" }}>{cat}</div>
+                  {porCategoria[cat].map(i => (
+                    <div key={i.insumo_id} style={{ display: "grid", gridTemplateColumns: "1.8fr 140px 140px 140px", gap: 8, padding: "8px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, alignItems: "center", background: i.faltante > 0 ? "#fef6f5" : "transparent" }}>
+                      <div style={{ color: "#333" }}>{i.nombre}</div>
+                      <div style={{ textAlign: "right", color: "#555" }}>{fmtStock(i.necesario, i.unidad)}</div>
+                      <div style={{ textAlign: "right", color: "#888" }}>{fmtStock(i.stock, i.unidad)}</div>
+                      <div style={{ textAlign: "right", fontWeight: 600, color: i.faltante > 0 ? "#c0392b" : "#1d8a4e" }}>{i.faltante > 0 ? fmtStock(i.faltante, i.unidad) : "—"}</div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+          </div>
+
+          {/* Modal vincular a receta existente */}
+          {vincular && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => setVincular(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 480, maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#333", marginBottom: 4 }}>Vincular producto a receta</div>
+                <div style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>«{vincular.producto}»</div>
+                <input style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box", marginBottom: 10 }} placeholder="Buscar receta…" value={busqReceta} onChange={e => setBusqReceta(e.target.value)} />
+                <div style={{ maxHeight: 300, overflowY: "auto" }}>
+                  {recetasFiltradas.map(r => (
+                    <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #f5f5f5", fontSize: 13 }}>
+                      <span style={{ color: "#333" }}>{r.nombre}</span>
+                      <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #1d4ed8", background: "#dbeafe", color: "#1d4ed8", cursor: "pointer" }} onClick={() => vincularA(r.id)}>Vincular</button>
+                    </div>
+                  ))}
+                  {recetasFiltradas.length === 0 && <div style={{ fontSize: 12, color: "#aaa", padding: 8 }}>Sin recetas.</div>}
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+                  <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={() => setVincular(null)}>Cerrar</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal crear receta */}
+          {crear && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => setCrear(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#333", marginBottom: 12 }}>Crear receta para «{crear.producto}»</div>
+                <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Nombre de la receta</label>
+                <input style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={crear.nombre} onChange={e => setCrear(c => ({ ...c, nombre: e.target.value }))} />
+                <div style={{ fontSize: 11, color: "#999", marginTop: 6 }}>Se crea vacía y con este producto vinculado. Después cargale las líneas en «Recetas».</div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+                  <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={() => setCrear(null)}>Cancelar</button>
+                  <button style={{ fontSize: 13, fontWeight: 600, padding: "8px 18px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer" }} onClick={crearReceta}>Crear</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     // ─── COMPRAS — ÓRDENES DE COMPRA (Entrega 2) ──────────────────────────
     // Admin + superadmin. Flujo pendiente → aprobada → (recibida = Entrega 3); anulable.
     const OC_ESTADO_BADGE = {
@@ -7049,6 +7499,8 @@ let numeroAsignado = "";
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("stockActual"); setMenuAbierto(false); }}>📦 Stock actual</button>
                           {(esAdmin || usuario.rol === "encargado") && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("stockIngreso"); setMenuAbierto(false); }}>📥 Ingreso de mercadería</button>}
                           {(esAdmin || usuario.rol === "encargado") && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("stockRecuento"); setMenuAbierto(false); }}>📋 Recuento</button>}
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("recetas"); setMenuAbierto(false); }}>📖 Recetas</button>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("necesidades"); setMenuAbierto(false); }}>🧮 Productos necesarios</button>
                           {esAdmin && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("insumos"); setMenuAbierto(false); }}>🧾 Insumos</button>}
                         </>
                       )}
@@ -7124,7 +7576,7 @@ let numeroAsignado = "";
       }
 
       // Guard módulo Stock. Ver = gestión; ingreso/recuento = admin/superadmin/encargado; maestro insumos = admin/superadmin.
-      const VISTAS_STOCK = ["stockActual", "stockIngreso", "stockRecuento", "insumos"];
+      const VISTAS_STOCK = ["stockActual", "stockIngreso", "stockRecuento", "insumos", "recetas", "necesidades"];
       const sinAccesoStock = (texto) => (
         <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: "system-ui, sans-serif", background: "#f7f7f5", padding: 24, textAlign: "center" }}>
           <div style={{ fontSize: 40 }}>🔒</div>
@@ -8223,6 +8675,12 @@ if (vista === "dashboard") {
     }
     if (vista === "insumos") {
       return <div style={s.wrap}><Header /><VistaInsumos usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "recetas") {
+      return <div style={s.wrap}><Header /><VistaRecetas usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "necesidades") {
+      return <div style={s.wrap}><Header /><VistaNecesidades usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "mapa") {
         return <div style={s.wrap}><Header /><VistaMapa onVolver={() => setVista("panel")} repartidores={repartidoresLista} onCrearTanda={crearTanda} /></div>;
