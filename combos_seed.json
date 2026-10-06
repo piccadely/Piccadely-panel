@@ -49,110 +49,6 @@
    ]
   },
   {
-   "nombre": "PROMO PICCAINVITADOS COMEN 6",
-   "notas": "(en una Caja Pickapacket -papel Manteca-Servilletas) Son 6 Sándwich de cada sabor",
-   "componentes": [
-    {
-     "texto": "24 mini sándwich",
-     "receta": "Juntadely 48 sandwich",
-     "cantidad": 0.5
-    },
-    {
-     "texto": "COMI CHICA",
-     "receta": "Comilona Chica",
-     "cantidad": 1
-    },
-    {
-     "texto": "PROMO DIVERTIDA CHICA",
-     "receta_faltante": "Megapromo Divertida Chica",
-     "cantidad": 1
-    }
-   ]
-  },
-  {
-   "nombre": "PROMO PICCAINVITADOS COMEN 10",
-   "notas": "(en una Caja Juntadely -papel Manteca-Servilletas)",
-   "componentes": [
-    {
-     "texto": "48 mini sándwich",
-     "receta": "Juntadely 48 sandwich",
-     "cantidad": 1.0
-    },
-    {
-     "texto": "COMI CHICA",
-     "receta": "Comilona Chica",
-     "cantidad": 1
-    },
-    {
-     "texto": "PROMO DIVERTIDA CHICA",
-     "receta_faltante": "Megapromo Divertida Chica",
-     "cantidad": 1
-    },
-    {
-     "texto": "ESQUESITOS CHICA",
-     "receta": "Esquesitos Chica",
-     "cantidad": 1
-    }
-   ]
-  },
-  {
-   "nombre": "PROMO PICCAINVITADOS COMEN 15",
-   "notas": "(en una Caja Juntadely -papel Manteca-Servilletas)",
-   "componentes": [
-    {
-     "texto": "48 mini sándwich",
-     "receta": "Juntadely 48 sandwich",
-     "cantidad": 1.0
-    },
-    {
-     "texto": "COMI MEDIANA",
-     "receta": "Comilona Mediana",
-     "cantidad": 1
-    },
-    {
-     "texto": "PROMO DIVERTIDA MEDIANA",
-     "receta_faltante": "Megapromo Divertida Mediana",
-     "cantidad": 1
-    },
-    {
-     "texto": "ESQUESITOS MEDIANA",
-     "receta": "Esquesitos Mediana",
-     "cantidad": 1
-    }
-   ]
-  },
-  {
-   "nombre": "PROMO PICCAINVITADOS COMEN 24",
-   "notas": "(en dos Cajas Juntadely -papel Manteca-Servilletas)",
-   "componentes": [
-    {
-     "texto": "96 mini sándwich",
-     "receta": "Juntadely 48 sandwich",
-     "cantidad": 2.0
-    },
-    {
-     "texto": "COMI GRANDE",
-     "receta": "Comilona Grande",
-     "cantidad": 1
-    },
-    {
-     "texto": "GOURMET GRANDE",
-     "receta": "La Gourmet Grande",
-     "cantidad": 1
-    },
-    {
-     "texto": "MEGADIVERTIDA MEDIANA",
-     "receta_faltante": "Megapromo Divertida Mediana",
-     "cantidad": 1
-    },
-    {
-     "texto": "ESQUESITOS MEDIANA",
-     "receta": "Esquesitos Mediana",
-     "cantidad": 1
-    }
-   ]
-  },
-  {
    "nombre": "COMBO PICCAN 15",
    "notas": "",
    "componentes": [
@@ -308,8 +204,8 @@
     },
     {
      "texto": "1 Quesos del Gourmet Mediana",
-     "cantidad": 1,
-     "receta": "Quesos del Gourmet Mediana"
+     "receta": "Quesos del Gourmet Mediana",
+     "cantidad": 1
     },
     {
      "texto": "Bolson",
@@ -319,26 +215,150 @@
    ]
   },
   {
-   "nombre": "MegaCombo Feliz comen 6",
-   "notas": "TODO EN UN BOLSON",
+   "nombre": "JUNTADELY FELIZ COMEN 6",
+   "notas": "(en una Caja Pickapacket -papel Manteca-Servilletas) Son 6 Sándwich de cada sabor",
    "componentes": [
     {
-     "texto": "1 comi medina",
+     "texto": "24 mini sándwich",
+     "receta": "Juntadely 48 sandwich",
+     "cantidad": 0.5
+    },
+    {
+     "texto": "COMI CHICA",
+     "receta": "Comilona Chica",
+     "cantidad": 1
+    },
+    {
+     "texto": "PROMO DIVERTIDA CHICA",
+     "receta_faltante": "Megapromo Divertida Chica",
+     "cantidad": 1
+    },
+    {
+     "texto": "(nota) caja Piccapacket",
+     "codigo": 425,
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "JUNTADELY FELIZ COMEN 10",
+   "notas": "(en una Caja Juntadely -papel Manteca-Servilletas)",
+   "componentes": [
+    {
+     "texto": "48 mini sándwich",
+     "receta": "Juntadely 48 sandwich",
+     "cantidad": 1.0
+    },
+    {
+     "texto": "COMI CHICA",
+     "receta": "Comilona Chica",
+     "cantidad": 1
+    },
+    {
+     "texto": "PROMO DIVERTIDA CHICA",
+     "receta_faltante": "Megapromo Divertida Chica",
+     "cantidad": 1
+    },
+    {
+     "texto": "ESQUESITOS CHICA",
+     "receta": "Esquesitos Chica",
+     "cantidad": 1
+    },
+    {
+     "texto": "(nota) caja Juntadely",
+     "codigo": 415,
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "JUNTADELY FELIZ COMEN 15",
+   "notas": "(en una Caja Juntadely -papel Manteca-Servilletas)",
+   "componentes": [
+    {
+     "texto": "48 mini sándwich",
+     "receta": "Juntadely 48 sandwich",
+     "cantidad": 1.0
+    },
+    {
+     "texto": "COMI MEDIANA",
      "receta": "Comilona Mediana",
      "cantidad": 1
     },
     {
-     "texto": "1 MegaPromo Divertida mediana",
+     "texto": "PROMO DIVERTIDA MEDIANA",
      "receta_faltante": "Megapromo Divertida Mediana",
      "cantidad": 1
     },
     {
-     "texto": "1 Primavera mediana",
-     "receta": "Primavera Mediana 2026",
+     "texto": "ESQUESITOS MEDIANA",
+     "receta": "Esquesitos Mediana",
      "cantidad": 1
     },
     {
-     "texto": "1 mix de salsas : ciboulette - roque - jamón",
+     "texto": "(nota) caja Juntadely",
+     "codigo": 415,
+     "cantidad": 1
+    }
+   ]
+  },
+  {
+   "nombre": "JUNTADELY FELIZ COMEN 24",
+   "notas": "(en dos Cajas Juntadely -papel Manteca-Servilletas)",
+   "componentes": [
+    {
+     "texto": "96 mini sándwich",
+     "receta": "Juntadely 48 sandwich",
+     "cantidad": 2.0
+    },
+    {
+     "texto": "COMI GRANDE",
+     "receta": "Comilona Grande",
+     "cantidad": 1
+    },
+    {
+     "texto": "GOURMET GRANDE",
+     "receta": "La Gourmet Grande",
+     "cantidad": 1
+    },
+    {
+     "texto": "MEGADIVERTIDA MEDIANA",
+     "receta_faltante": "Megapromo Divertida Mediana",
+     "cantidad": 1
+    },
+    {
+     "texto": "ESQUESITOS MEDIANA",
+     "receta": "Esquesitos Mediana",
+     "cantidad": 1
+    },
+    {
+     "texto": "(nota) dos cajas Juntadely",
+     "codigo": 415,
+     "cantidad": 2
+    }
+   ]
+  },
+  {
+   "nombre": "PICCA COMBO FELIZ COMEN 6",
+   "notas": "(Todo en un bolsón) DE DIPS SOLO LLEVA LOS DE LOS MIX",
+   "componentes": [
+    {
+     "texto": "1 Spring Break",
+     "receta_faltante": "Spring Break Mediana",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 comi mediana",
+     "receta": "Comilona Mediana",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 megadivertida mediana",
+     "receta_faltante": "Megapromo Divertida Mediana",
+     "cantidad": 1
+    },
+    {
+     "texto": "1 mix de salsas : ciboulette - roque - Jamón",
      "codigo": 607,
      "cantidad": 1
     },
@@ -348,120 +368,120 @@
      "cantidad": 1
     },
     {
-     "texto": "Bolsón",
+     "texto": "(nota) todo en un bolsón",
      "codigo": 436,
      "cantidad": 1
     }
    ]
   },
   {
-   "nombre": "MegaCombo Feliz comen 10",
-   "notas": "TODO EN UN BOLSON",
+   "nombre": "PICCA COMBO FELIZ COMEN 10",
+   "notas": "TODO EN UN BOLSON DE DIPS SOLO LLEVA LOS DE LOS MIX",
    "componentes": [
+    {
+     "texto": "1 Spring Break grande",
+     "receta_faltante": "Spring Break Grande",
+     "cantidad": 1
+    },
     {
      "texto": "1 comi grande",
      "receta": "Comilona Grande",
      "cantidad": 1
     },
     {
-     "texto": "1 primavera garnde",
-     "receta": "Primavera grande 2026",
-     "cantidad": 1
-    },
-    {
-     "texto": "1 megadivertida mediana",
+     "texto": "1megadivertida mediana",
      "receta_faltante": "Megapromo Divertida Mediana",
      "cantidad": 1
     },
     {
-     "texto": "1 mix de salsas : ciboulette - roque - jamón | 1 mix de salsas : ciboulette - roque - jamón",
+     "texto": "1 mix de salsas : ciboulette - roque - Jamón | 2 mix de salsas: ciboulette - roque -albahaca",
      "codigo": 607,
-     "cantidad": 2
+     "cantidad": 3
     },
     {
-     "texto": "1 bolsa de tostadas | 1 bolsa de tostadas",
+     "texto": "2 bolsas de tostadas",
      "codigo": 346,
      "cantidad": 2
     },
     {
-     "texto": "Bolson",
+     "texto": "(nota) todo en un bolsón",
      "codigo": 436,
      "cantidad": 1
     }
    ]
   },
   {
-   "nombre": "MegaCombo Feliz comen 15",
-   "notas": "TODO EN UN BOLSON",
+   "nombre": "PICCA COMBO FELIZ COMEN 15",
+   "notas": "TODO EN UN BOLSON DE DIPS SOLO LLEVA LOS DE LOS MIX",
    "componentes": [
+    {
+     "texto": "1 Spring Break grande",
+     "receta_faltante": "Spring Break Grande",
+     "cantidad": 1
+    },
     {
      "texto": "1 comi grande",
      "receta": "Comilona Grande",
      "cantidad": 1
     },
     {
-     "texto": "1 primavera garnde",
-     "receta": "Primavera grande 2026",
-     "cantidad": 1
-    },
-    {
-     "texto": "1 megadivertida Grande",
+     "texto": "1megadivertida Grande",
      "receta_faltante": "Megapromo Divertida Grande",
      "cantidad": 1
     },
     {
-     "texto": "1 megadivertida mediana",
+     "texto": "1megadivertida mediana",
      "receta_faltante": "Megapromo Divertida Mediana",
      "cantidad": 1
     },
     {
-     "texto": "1 mix de salsas : ciboulette - roque - jamón | 1 mix de salsas : ciboulette - roque - jamón | 1 mix de salsas : ciboulette - roque - jamón",
+     "texto": "3 mix de salsas : ciboulette - roque - jamón",
      "codigo": 607,
      "cantidad": 3
     },
     {
-     "texto": "1 bolsa de tostadas | 1 bolsa de tostadas | 1 bolsa de tostadas",
+     "texto": "3 bolsas de tostadas",
      "codigo": 346,
      "cantidad": 3
     },
     {
-     "texto": "Bolson",
+     "texto": "(nota) todo en un bolsón",
      "codigo": 436,
      "cantidad": 1
     }
    ]
   },
   {
-   "nombre": "MegaCombo Feliz comen 24",
-   "notas": "TODO EN DOS BOLSONES",
+   "nombre": "PICCA COMBO FELIZ COMEN 24",
+   "notas": "TODO EN DOS BOLSON DE DIPS SOLO LLEVA LOS DE LOS MIX",
    "componentes": [
     {
-     "texto": "1 comi grande | 1 comi grande",
+     "texto": "2 Spring Break grandes",
+     "receta_faltante": "Spring Break Grande",
+     "cantidad": 2
+    },
+    {
+     "texto": "2 comi grandes",
      "receta": "Comilona Grande",
      "cantidad": 2
     },
     {
-     "texto": "1 primavera garnde | 1 primavera garnde",
-     "receta": "Primavera grande 2026",
-     "cantidad": 2
-    },
-    {
-     "texto": "1 megadivertida Grande | 1 megadivertida grande",
+     "texto": "2 megadivertida grandes",
      "receta_faltante": "Megapromo Divertida Grande",
      "cantidad": 2
     },
     {
-     "texto": "1 mix de salsas : ciboulette - roque - jamón | 1 mix de salsas : ciboulette - roque - jamón | 1 mix de salsas : ciboulette - roque - jamón | 1 mix de salsas : ciboulette - roque - jamón",
+     "texto": "4 mix de salsas : ciboulette - roque - Jamón",
      "codigo": 607,
      "cantidad": 4
     },
     {
-     "texto": "1 bolsa de tostadas | 1 bolsa de tostadas | 1 bolsa de tostadas | 1 bolsa de tostadas",
+     "texto": "4 bolsas de tostadas",
      "codigo": 346,
      "cantidad": 4
     },
     {
-     "texto": "Bolson | Bolson",
+     "texto": "(nota) todo en dos bolsones",
      "codigo": 436,
      "cantidad": 2
     }
