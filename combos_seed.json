@@ -230,8 +230,8 @@
     },
     {
      "texto": "PROMO DIVERTIDA CHICA",
-     "receta_faltante": "Megapromo Divertida Chica",
-     "cantidad": 1
+     "cantidad": 1,
+     "receta": "Promo Agosto chica"
     },
     {
      "texto": "(nota) caja Piccapacket",
@@ -256,8 +256,8 @@
     },
     {
      "texto": "PROMO DIVERTIDA CHICA",
-     "receta_faltante": "Megapromo Divertida Chica",
-     "cantidad": 1
+     "cantidad": 1,
+     "receta": "Promo Agosto chica"
     },
     {
      "texto": "ESQUESITOS CHICA",
@@ -287,8 +287,8 @@
     },
     {
      "texto": "PROMO DIVERTIDA MEDIANA",
-     "receta_faltante": "Megapromo Divertida Mediana",
-     "cantidad": 1
+     "cantidad": 1,
+     "receta": "Promo Agosto mediana"
     },
     {
      "texto": "ESQUESITOS MEDIANA",
@@ -323,8 +323,8 @@
     },
     {
      "texto": "MEGADIVERTIDA MEDIANA",
-     "receta_faltante": "Megapromo Divertida Mediana",
-     "cantidad": 1
+     "cantidad": 1,
+     "receta": "Promo Agosto mediana"
     },
     {
      "texto": "ESQUESITOS MEDIANA",
@@ -344,8 +344,8 @@
    "componentes": [
     {
      "texto": "1 Spring Break",
-     "receta_faltante": "Spring Break Mediana",
-     "cantidad": 1
+     "cantidad": 1,
+     "receta": "Primavera Mediana 2026"
     },
     {
      "texto": "1 comi mediana",
@@ -354,8 +354,8 @@
     },
     {
      "texto": "1 megadivertida mediana",
-     "receta_faltante": "Megapromo Divertida Mediana",
-     "cantidad": 1
+     "cantidad": 1,
+     "receta": "Promo Agosto mediana"
     },
     {
      "texto": "1 mix de salsas : ciboulette - roque - Jamón",
@@ -380,8 +380,8 @@
    "componentes": [
     {
      "texto": "1 Spring Break grande",
-     "receta_faltante": "Spring Break Grande",
-     "cantidad": 1
+     "cantidad": 1,
+     "receta": "Primavera grande 2026"
     },
     {
      "texto": "1 comi grande",
@@ -390,8 +390,8 @@
     },
     {
      "texto": "1megadivertida mediana",
-     "receta_faltante": "Megapromo Divertida Mediana",
-     "cantidad": 1
+     "cantidad": 1,
+     "receta": "Promo Agosto mediana"
     },
     {
      "texto": "1 mix de salsas : ciboulette - roque - Jamón | 2 mix de salsas: ciboulette - roque -albahaca",
@@ -416,8 +416,8 @@
    "componentes": [
     {
      "texto": "1 Spring Break grande",
-     "receta_faltante": "Spring Break Grande",
-     "cantidad": 1
+     "cantidad": 1,
+     "receta": "Primavera grande 2026"
     },
     {
      "texto": "1 comi grande",
@@ -426,13 +426,13 @@
     },
     {
      "texto": "1megadivertida Grande",
-     "receta_faltante": "Megapromo Divertida Grande",
-     "cantidad": 1
+     "cantidad": 1,
+     "receta": "Promo Agosto grande"
     },
     {
      "texto": "1megadivertida mediana",
-     "receta_faltante": "Megapromo Divertida Mediana",
-     "cantidad": 1
+     "cantidad": 1,
+     "receta": "Promo Agosto mediana"
     },
     {
      "texto": "3 mix de salsas : ciboulette - roque - jamón",
@@ -457,8 +457,8 @@
    "componentes": [
     {
      "texto": "2 Spring Break grandes",
-     "receta_faltante": "Spring Break Grande",
-     "cantidad": 2
+     "cantidad": 2,
+     "receta": "Primavera grande 2026"
     },
     {
      "texto": "2 comi grandes",
@@ -467,8 +467,8 @@
     },
     {
      "texto": "2 megadivertida grandes",
-     "receta_faltante": "Megapromo Divertida Grande",
-     "cantidad": 2
+     "cantidad": 2,
+     "receta": "Promo Agosto grande"
     },
     {
      "texto": "4 mix de salsas : ciboulette - roque - Jamón",
