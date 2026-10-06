@@ -5022,8 +5022,10 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
     const FC_CLASES = ["Factura", "Nota de Crédito", "Nota de Débito"];
     const FC_LETRAS = ["A", "B", "C"];
     // tipo_comprobante se arma "Clase Letra" (ej "Nota de Crédito A"). Helpers de presentación:
-    const esNC = (tipo) => String(tipo || "").toUpperCase().includes("NOTA DE CREDITO");
-    const esND = (tipo) => String(tipo || "").toUpperCase().includes("NOTA DE DEBITO") || String(tipo || "").toUpperCase().includes("NOTA DE DÉBITO");
+    // El tipo se guarda CON tilde ("Nota de Crédito A"): comparar siempre sin tildes (misma regla que el backend).
+    const tipoNorm = (tipo) => String(tipo || "").normalize("NFD").replace(/\p{M}/gu, "").toUpperCase();
+    const esNC = (tipo) => tipoNorm(tipo).includes("NOTA DE CREDITO");
+    const esND = (tipo) => tipoNorm(tipo).includes("NOTA DE DEBITO");
     const claseBadge = (tipo) => esNC(tipo) ? { t: "N. Crédito", bg: "#fdecea", c: "#c0392b" }
       : esND(tipo) ? { t: "N. Débito", bg: "#dbeafe", c: "#1d4ed8" } : null;
     const FC_FORM_VACIO = {
@@ -5102,10 +5104,16 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         if (!modal || form.clase === "Factura" || !form.proveedor_id) { setFacturasProv([]); return; }
         let cancel = false;
         axios.get(`${API}/api/compras/facturas`, { params: { proveedor: form.proveedor_id } })
-          .then(r => { if (!cancel) setFacturasProv((r.data || []).filter(f => !esNC(f.tipo_comprobante) && !esND(f.tipo_comprobante))); })
+          // Solo FACTURAS no anuladas, y nunca el propio comprobante que se está editando.
+          .then(r => { if (!cancel) setFacturasProv((r.data || []).filter(f => !esNC(f.tipo_comprobante) && !esND(f.tipo_comprobante) && f.estado_pago !== "anulada" && f.id !== editandoId)); })
           .catch(() => { if (!cancel) setFacturasProv([]); });
         return () => { cancel = true; };
-      }, [modal, form.clase, form.proveedor_id]);
+      }, [modal, form.clase, form.proveedor_id, editandoId]);
+      // Cambiar el proveedor invalida la factura asociada (es del proveedor anterior): se limpia con aviso.
+      function cambiarProveedor(v) {
+        if (form.factura_asociada_id) mostrarMensaje("Cambiaste el proveedor: la factura asociada se quitó (era del proveedor anterior).", "error");
+        setForm(f => ({ ...f, proveedor_id: v, factura_asociada_id: "" }));
+      }
 
       function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 3000); }
       const setCampo = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -5167,11 +5175,16 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           total: num(form.total), usuario: usuario.nombre_completo,
         };
         try {
-          if (modal === "editar") await axios.patch(`${API}/api/compras/facturas/${editandoId}`, payload);
+          let avisos = [];
+          if (modal === "editar") { const r = await axios.patch(`${API}/api/compras/facturas/${editandoId}`, payload); avisos = r.data?.avisos || []; }
           else await axios.post(`${API}/api/compras/facturas`, payload);
-          await cargar(); await cargarCombos();   // recargar órdenes (una pasó a recibida)
+          // Refresco sin recargar la página: lista (y sus totales/signos) + órdenes. Cuenta corriente y libro
+          // leen siempre de facturas_compra, así que al abrirlos ya muestran lo editado.
+          await cargar(); await cargarCombos();
           setModal(null); setForm(FC_FORM_VACIO); setEditandoId(null);
-          mostrarMensaje(modal === "editar" ? "Factura actualizada" : "Factura cargada");
+          const ok = modal === "editar" ? `${form.clase} actualizada` : `${form.clase} cargada`;
+          if (avisos.length) { setMensaje({ texto: `${ok}. ${avisos.join(" ")}`, tipo: "ok" }); setTimeout(() => setMensaje(null), 7000); }
+          else mostrarMensaje(ok);
         } catch (err) { mostrarMensaje(err.response?.data?.error || "Error guardando", "error"); }
         setGuardando(false);
       }
@@ -5291,8 +5304,10 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
             <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }} onClick={() => setModal(null)}>
               <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 560, maxWidth: "100%", maxHeight: "92vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
                 <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 16 }}>
-                  {modal === "editar" ? "Editar factura" : modoCarga === "orden" ? "Cargar factura desde orden" : "Nueva factura suelta"}
+                  {modal === "editar" ? `Editar ${form.clase === "Factura" ? "factura" : form.clase.toLowerCase()}` : modoCarga === "orden" ? "Cargar factura desde orden" : "Nueva factura suelta"}
                 </div>
+                {/* Mensajes visibles DENTRO del modal (antes quedaban detrás del overlay: errores de guardado, 409, avisos). */}
+                {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 10, fontSize: 12, marginBottom: 12 }}>{mensaje.texto}</div>}
 
                 {modoCarga === "orden" && modal === "nuevo" && (
                   <label style={lbl}>Orden aprobada *
@@ -5304,10 +5319,11 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                 )}
 
                 <label style={lbl}>Proveedor *
-                  <select style={inputStyle} value={form.proveedor_id} disabled={modal === "editar" || (modoCarga === "orden" && !!form.orden_compra_id)} onChange={e => setCampo("proveedor_id", e.target.value)}>
+                  <select style={inputStyle} value={form.proveedor_id} disabled={!!form.orden_compra_id} onChange={e => cambiarProveedor(e.target.value)}>
                     <option value="">— Elegí proveedor —</option>
                     {proveedores.map(p => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
                   </select>
+                  {modal === "editar" && form.orden_compra_id && <span style={{ display: "block", marginTop: 4, fontSize: 11, color: "#888", fontWeight: 400 }}>Viene de la orden #{form.orden_compra_id}: el proveedor no se puede cambiar.</span>}
                 </label>
                 <label style={lbl}>Categoría de gasto *
                   <select style={inputStyle} value={form.categoria_gasto_id} onChange={e => setCampo("categoria_gasto_id", e.target.value)}>
@@ -5413,7 +5429,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                 </div>
 
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button style={{ flex: 1, padding: 10, borderRadius: 8, border: "none", background: (guardando || !cuadra) ? "#ccc" : "#F68B32", color: "#fff", fontSize: 13, fontWeight: 600, cursor: (guardando || !cuadra) ? "default" : "pointer" }} disabled={guardando || !cuadra} onClick={guardar}>{guardando ? "Guardando…" : "Guardar factura"}</button>
+                  <button style={{ flex: 1, padding: 10, borderRadius: 8, border: "none", background: (guardando || !cuadra) ? "#ccc" : "#F68B32", color: "#fff", fontSize: 13, fontWeight: 600, cursor: (guardando || !cuadra) ? "default" : "pointer" }} disabled={guardando || !cuadra} onClick={guardar}>{guardando ? "Guardando…" : modal === "editar" ? "Guardar cambios" : "Guardar factura"}</button>
                   <button style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", fontSize: 13, cursor: "pointer" }} onClick={() => setModal(null)}>Cancelar</button>
                 </div>
               </div>

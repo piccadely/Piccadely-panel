@@ -2100,8 +2100,13 @@ const ALICUOTAS_IVA = [0, 2.5, 5, 10.5, 21, 27];
 // ── Signo por tipo (regla central, reusada en libro de compras y cuenta corriente) ──
 // Nota de Crédito RESTA (-1). Factura y Nota de Débito SUMAN (+1). Los montos SIEMPRE se guardan
 // en positivo; el signo se aplica al calcular/mostrar.
-function esNotaCreditoCompra(tipo) { return String(tipo || "").toUpperCase().includes("NOTA DE CREDITO"); }
+// El form guarda el tipo CON tilde ("Nota de Crédito A"): se compara siempre sin tildes y en mayúsculas.
+function tipoCompraNorm(tipo) { return String(tipo || "").normalize("NFD").replace(/\p{M}/gu, "").toUpperCase(); }
+function esNotaCreditoCompra(tipo) { return tipoCompraNorm(tipo).includes("NOTA DE CREDITO"); }
+function esNotaDebitoCompra(tipo) { return tipoCompraNorm(tipo).includes("NOTA DE DEBITO"); }
 function signoComprobante(tipo) { return esNotaCreditoCompra(tipo) ? -1 : 1; }
+// Mismo criterio en SQL (translate en vez de upper sobre acentos: upper() no toca no-ASCII en collation C).
+const SQL_FC_ES_NC = "translate(upper(fc.tipo_comprobante), 'ÁÉÍÓÚáéíóú', 'AEIOUAEIOU') LIKE 'NOTA DE CREDITO%'";
 
 // Suma de netos e IVA gravados (multi-alícuota). Reusado en cuadre e insert (espejo neto_gravado/iva).
 function netosMultiAlicuota(f) {
@@ -2127,6 +2132,12 @@ function validarFacturaCompra(b) {
   if (!b.numero_comprobante || !String(b.numero_comprobante).trim()) return "El número de comprobante es obligatorio.";
   if (!esFechaISO(b.fecha)) return "Fecha inválida (formato YYYY-MM-DD).";
   if (!(Number(b.total) > 0)) return "El total debe ser mayor a 0.";
+  // Montos siempre positivos (el signo NC/ND se aplica al leer). IVA por alícuota sin su neto = error de carga.
+  const camposMonto = ["neto_105", "iva_105", "neto_21", "iva_21", "neto_27", "iva_27", "percep_iva", "percep_iibb_bsas", "percep_iibb_caba", "neto_no_gravado", "exentas", "otros_tributos"];
+  for (const c of camposMonto) if ((Number(b[c]) || 0) < 0) return "Los importes no pueden ser negativos (el signo de la nota de crédito se aplica solo).";
+  for (const [n, i, a] of [["neto_105", "iva_105", "10,5"], ["neto_21", "iva_21", "21"], ["neto_27", "iva_27", "27"]]) {
+    if ((Number(b[i]) || 0) > 0 && !((Number(b[n]) || 0) > 0)) return `Hay IVA ${a}% sin neto gravado al ${a}%.`;
+  }
   const cuadre = chequearCuadreFactura(b);
   if (!cuadre.ok) return `El total no coincide: cargado $${Number(b.total)}, calculado $${cuadre.calculado}.`;
   return null;
@@ -2254,46 +2265,103 @@ app.post("/api/compras/facturas", requireAdmin, async (req, res) => {
   }
 });
 
+// Edición completa de facturas / NC / ND (mismo form que la carga). Solo comprobantes 'pendiente':
+// pagada o anulada no se editan. Como el pago es único (no hay parciales), 'pendiente' = sin pagos, así
+// que la clase (Factura/NC/ND) también se puede corregir acá. Todo en una transacción; audita antes→después.
 app.patch("/api/compras/facturas/:id", requireAdmin, async (req, res) => {
   const b = req.body;
+  const id = Number(req.params.id);
+  const errValidacion = validarFacturaCompra(b);
+  if (errValidacion) return res.status(400).json({ error: errValidacion });
+  const fcCalc = calcularFechaContable(b.fecha, b.fecha_contable);
+  if (fcCalc.error) return res.status(400).json({ error: fcCalc.error });
+  const tipoNuevo = String(b.tipo_comprobante).trim();
+  const esFacturaNueva = !esNotaCreditoCompra(tipoNuevo) && !esNotaDebitoCompra(tipoNuevo);
+  const avisos = [];
+  let client;
   try {
-    const actual = await pool.query("SELECT estado_pago FROM facturas_compra WHERE id = $1", [req.params.id]);
-    if (actual.rows.length === 0) return res.status(404).json({ error: "Factura no encontrada." });
-    if (actual.rows[0].estado_pago !== "pendiente") return res.status(403).json({ error: `No se puede editar una factura ${actual.rows[0].estado_pago}.` });
-    const errValidacion = validarFacturaCompra(b);
-    if (errValidacion) return res.status(400).json({ error: errValidacion });
-    if (b.categoria_gasto_id !== undefined) {
-      const cat = await pool.query("SELECT id FROM categorias_gasto WHERE id = $1 AND activo = true", [b.categoria_gasto_id]);
-      if (cat.rows.length === 0) return res.status(400).json({ error: "Categoría de gasto inválida." });
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const act = await client.query("SELECT * FROM facturas_compra WHERE id = $1 FOR UPDATE", [id]);
+    if (act.rows.length === 0) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Comprobante no encontrado." }); }
+    const antes = act.rows[0];
+    if (antes.estado_pago !== "pendiente") { await client.query("ROLLBACK"); return res.status(403).json({ error: `No se puede editar un comprobante ${antes.estado_pago}.` }); }
+
+    // Categoría (obligatoria, activa).
+    const catId = b.categoria_gasto_id ? Number(b.categoria_gasto_id) : antes.categoria_gasto_id;
+    const cat = await client.query("SELECT id FROM categorias_gasto WHERE id = $1 AND activo = true", [catId]);
+    if (cat.rows.length === 0) throw { _http: 400, msg: "Categoría de gasto inválida." };
+
+    // Proveedor: si cambia, se valida activo y se actualiza el snapshot. Un comprobante de una orden no cambia de proveedor.
+    const provId = b.proveedor_id ? Number(b.proveedor_id) : antes.proveedor_id;
+    const cambiaProveedor = provId !== antes.proveedor_id;
+    let snapCuit = antes.proveedor_cuit, snapRazon = antes.proveedor_razon_social;
+    if (cambiaProveedor) {
+      if (antes.orden_compra_id) throw { _http: 400, msg: `Este comprobante viene de la orden #${antes.orden_compra_id}: no se le puede cambiar el proveedor.` };
+      const prov = await client.query("SELECT cuit, razon_social FROM proveedores WHERE id = $1 AND activo = true", [provId]);
+      if (prov.rows.length === 0) throw { _http: 400, msg: "Proveedor inválido." };
+      snapCuit = prov.rows[0].cuit || null; snapRazon = prov.rows[0].razon_social || null;
     }
+
+    // Factura asociada (solo NC/ND): del MISMO proveedor y nunca él mismo. Si cambió el proveedor y la
+    // asociada quedó de otro, se limpia con aviso (no bloquea).
+    let asociadaId = null;
+    if (!esFacturaNueva && b.factura_asociada_id) {
+      const faId = Number(b.factura_asociada_id);
+      if (faId === id) throw { _http: 400, msg: "Un comprobante no puede asociarse a sí mismo." };
+      const fa = await client.query("SELECT id FROM facturas_compra WHERE id = $1 AND proveedor_id = $2", [faId, provId]);
+      if (fa.rows.length > 0) asociadaId = faId;
+      else if (cambiaProveedor) avisos.push("La factura asociada era de otro proveedor: quedó sin asociar.");
+      else throw { _http: 400, msg: "La factura asociada no existe o no es del mismo proveedor." };
+    } else if (esFacturaNueva && antes.factura_asociada_id) {
+      avisos.push("Al pasar a Factura se quitó la factura asociada.");
+    }
+
+    // Espejo neto_gravado / iva / alicuota_iva recalculado desde las columnas por alícuota.
     const n105 = Number(b.neto_105) || 0, i105 = Number(b.iva_105) || 0,
       n21 = Number(b.neto_21) || 0, i21 = Number(b.iva_21) || 0,
       n27 = Number(b.neto_27) || 0, i27 = Number(b.iva_27) || 0;
     const netoGravado = n105 + n21 + n27, ivaTotal = i105 + i21 + i27;
     const alicDom = (n21 >= n105 && n21 >= n27) ? 21 : (n105 >= n27 ? 10.5 : 27);
-    const fcCalc = calcularFechaContable(b.fecha, b.fecha_contable);
-    if (fcCalc.error) return res.status(400).json({ error: fcCalc.error });
-    await pool.query(
-      `UPDATE facturas_compra SET
-         categoria_gasto_id = COALESCE($1, categoria_gasto_id),
-         tipo_comprobante = $2, punto_venta = $3, numero_comprobante = $4, cae = $5, fecha = $6,
-         alicuota_iva = $7, neto_gravado = $8, iva = $9,
-         neto_105 = $10, iva_105 = $11, neto_21 = $12, iva_21 = $13, neto_27 = $14, iva_27 = $15,
-         percep_iva = $16, percep_iibb_bsas = $17, percep_iibb_caba = $18,
-         neto_no_gravado = $19, exentas = $20, otros_tributos = $21, total = $22, fecha_contable = $23
-       WHERE id = $24`,
-      [
-        b.categoria_gasto_id ?? null, String(b.tipo_comprobante).trim(), b.punto_venta?.trim() || null,
-        String(b.numero_comprobante).trim(), b.cae?.trim() || null, b.fecha, alicDom,
-        netoGravado, ivaTotal, n105, i105, n21, i21, n27, i27,
-        Number(b.percep_iva) || 0, Number(b.percep_iibb_bsas) || 0, Number(b.percep_iibb_caba) || 0,
-        Number(b.neto_no_gravado) || 0, Number(b.exentas) || 0, Number(b.otros_tributos) || 0, Number(b.total), fcCalc.fechaContable, req.params.id,
-      ]
+
+    const despues = {
+      proveedor_id: provId, proveedor_cuit: snapCuit, proveedor_razon_social: snapRazon, categoria_gasto_id: catId,
+      tipo_comprobante: tipoNuevo, punto_venta: b.punto_venta?.trim() || null, numero_comprobante: String(b.numero_comprobante).trim(),
+      cae: b.cae?.trim() || null, fecha: b.fecha, fecha_contable: fcCalc.fechaContable, factura_asociada_id: asociadaId,
+      alicuota_iva: alicDom, neto_gravado: netoGravado, iva: ivaTotal,
+      neto_105: n105, iva_105: i105, neto_21: n21, iva_21: i21, neto_27: n27, iva_27: i27,
+      percep_iva: Number(b.percep_iva) || 0, percep_iibb_bsas: Number(b.percep_iibb_bsas) || 0, percep_iibb_caba: Number(b.percep_iibb_caba) || 0,
+      neto_no_gravado: Number(b.neto_no_gravado) || 0, exentas: Number(b.exentas) || 0, otros_tributos: Number(b.otros_tributos) || 0,
+      total: Number(b.total),
+    };
+    const cols = Object.keys(despues);
+    await client.query(
+      `UPDATE facturas_compra SET ${cols.map((c, i) => `${c} = $${i + 1}`).join(", ")} WHERE id = $${cols.length + 1}`,
+      [...cols.map(c => despues[c]), id]
     );
-    res.json({ ok: true });
+
+    // NC/ND que apuntaban a ESTE comprobante: si dejó de ser Factura o cambió de proveedor, quedan sin asociar.
+    if (!esFacturaNueva || cambiaProveedor) {
+      const desv = await client.query("UPDATE facturas_compra SET factura_asociada_id = NULL WHERE factura_asociada_id = $1 RETURNING id", [id]);
+      if (desv.rowCount > 0) avisos.push(`${desv.rowCount} nota(s) de crédito/débito asociadas a este comprobante quedaron sin asociar.`);
+    }
+    await client.query("COMMIT");
+
+    // Auditoría: solo los campos que cambiaron (antes → después). Números y textos normalizados para no marcar falsos cambios.
+    const textos = new Set(["proveedor_cuit", "proveedor_razon_social", "tipo_comprobante", "punto_venta", "numero_comprobante", "cae", "fecha", "fecha_contable"]);
+    const norm = (c, v) => (v === null || v === undefined || v === "") ? null : (textos.has(c) ? String(v) : Number(v));
+    const cambios = {};
+    for (const c of cols) if (norm(c, antes[c]) !== norm(c, despues[c])) cambios[c] = { antes: antes[c] ?? null, despues: despues[c] ?? null };
+    res.json({ ok: true, avisos });
+    registrarAuditoria(b.usuario || req.user?.nombre_completo, "factura_compra_editar", "factura_compra", id, { tipo: tipoNuevo, cambios });
   } catch (err) {
-    if (err.code === "23505") return res.status(409).json({ error: "Ya existe una factura con ese número para este proveedor." });
-    res.status(500).json({ error: err.message });
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    if (err && err._http) return res.status(err._http).json({ error: err.msg });
+    if (err.code === "23505") return res.status(409).json({ error: `Ya existe un/a ${String(b.tipo_comprobante).trim()} número ${String(b.numero_comprobante).trim()} cargado/a para este proveedor.` });
+    console.error("Error PATCH /api/compras/facturas:", err.message);
+    res.status(500).json({ error: "Error guardando el comprobante" });
+  } finally {
+    if (client) client.release();
   }
 });
 
@@ -2387,14 +2455,14 @@ app.get("/api/compras/cuenta-corriente", requireAdmin, async (req, res) => {
     // resta por existir). total_facturado/total_pagado también netean las NC para que cierre.
     const result = await pool.query(`
       SELECT p.id, p.razon_social, p.cuit,
-        COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago <> 'anulada' AND UPPER(fc.tipo_comprobante) NOT LIKE 'NOTA DE CREDITO%'), 0)
-          - COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago <> 'anulada' AND UPPER(fc.tipo_comprobante) LIKE 'NOTA DE CREDITO%'), 0)
+        COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago <> 'anulada' AND NOT (${SQL_FC_ES_NC})), 0)
+          - COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago <> 'anulada' AND ${SQL_FC_ES_NC}), 0)
           AS total_facturado,
         COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago = 'pagada'), 0) AS total_pagado,
-        COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago = 'pendiente' AND UPPER(fc.tipo_comprobante) NOT LIKE 'NOTA DE CREDITO%'), 0)
-          - COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago <> 'anulada' AND UPPER(fc.tipo_comprobante) LIKE 'NOTA DE CREDITO%'), 0)
+        COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago = 'pendiente' AND NOT (${SQL_FC_ES_NC})), 0)
+          - COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago <> 'anulada' AND ${SQL_FC_ES_NC}), 0)
           AS saldo_pendiente,
-        COUNT(*) FILTER (WHERE fc.estado_pago = 'pendiente' AND UPPER(fc.tipo_comprobante) NOT LIKE 'NOTA DE CREDITO%') AS facturas_pendientes
+        COUNT(*) FILTER (WHERE fc.estado_pago = 'pendiente' AND NOT (${SQL_FC_ES_NC})) AS facturas_pendientes
       FROM proveedores p
       LEFT JOIN facturas_compra fc ON fc.proveedor_id = p.id
       WHERE p.activo = true
@@ -4450,7 +4518,7 @@ app.get("/api/contable/libro-ventas", requireAuth, async (req, res) => {
 // SOLO superadmin. Lee de facturas_compra (NO la modifica). Excluye anuladas.
 // Tipo de comprobante recibido (string) → "código - texto" como el Excel de referencia.
 function tipoCompraAFIP(tipo) {
-  const t = String(tipo || "").toUpperCase();
+  const t = tipoCompraNorm(tipo);
   if (t.includes("NOTA DE CREDITO A")) return "3 - Nota de Crédito A";
   if (t.includes("NOTA DE CREDITO B")) return "8 - Nota de Crédito B";
   if (t.includes("NOTA DE CREDITO C")) return "13 - Nota de Crédito C";
