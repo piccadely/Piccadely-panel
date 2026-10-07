@@ -15,7 +15,7 @@
 import express from "express";
 import { enviarTexto, sincronizarEstado, numeroParaEnviar, normalizarWaId } from "./whatsappWebhook.js";
 import {
-  waConfig, errorMeta, enviarMensajeMeta, subirMediaMeta, claveArchivo, MAX_ARCHIVO_SALIENTE, MIMES_SALIENTES,
+  waConfig, errorMeta, detalleErrorMeta, enviarMensajeMeta, subirMediaMeta, claveArchivo, MAX_ARCHIVO_SALIENTE, MIMES_SALIENTES,
   armarNuevaPlantilla, crearPlantillaMeta, listarPlantillasMeta, soportadaParaEnvio, renderPlantilla,
   componentesEnvio, validarVariables, variablesDe, partesPlantilla,
 } from "./whatsappMeta.js";
@@ -369,12 +369,18 @@ export function whatsappBandejaRouter(pool, { requireAuth }) {
     });
   }));
 
+  // Códigos de Meta para el mensaje en pantalla (sirven para buscar el caso en el log o reportarlo a Meta).
+  const trazaMeta = (e) => { const d = detalleErrorMeta(e); const p = [d.error_subcode && `subcode ${d.error_subcode}`, d.fbtrace_id && `fbtrace_id ${d.fbtrace_id}`].filter(Boolean); return p.length ? ` (${p.join(", ")})` : ""; };
+
   // ── POST /plantillas/sincronizar ── trae todas las de Meta y actualiza la copia local.
   router.post("/plantillas/sincronizar", operar, manejar(async (req, res) => {
     if (!waConfig().wabaId) throw { _http: 503, msg: "Falta configurar WA_WABA_ID en el servidor." };
     let lista;
     try { lista = await listarPlantillasMeta(); }
-    catch (e) { throw { _http: 502, msg: `No se pudieron traer las plantillas de Meta: ${errorMeta(e)}` }; }
+    catch (e) {
+      console.error("WhatsApp plantillas: Meta rechazó la sincronización:", JSON.stringify(detalleErrorMeta(e)));
+      throw { _http: 502, msg: `No se pudieron traer las plantillas de Meta: ${errorMeta(e)}${trazaMeta(e)}` };
+    }
     for (const t of lista) {
       await pool.query(
         `INSERT INTO wa_plantillas (meta_id, nombre, idioma, categoria, estado, motivo, componentes, updated_at)
@@ -397,7 +403,11 @@ export function whatsappBandejaRouter(pool, { requireAuth }) {
     if (error) throw { _http: 400, msg: error };
     let r;
     try { r = await crearPlantillaMeta(def); }
-    catch (e) { throw { _http: 400, msg: `Meta rechazó la plantilla: ${errorMeta(e)}` }; }
+    catch (e) {
+      // Respuesta completa de Meta al log (sin token: solo el body del error) para diagnosticar.
+      console.error("WhatsApp plantillas: Meta rechazó crear", JSON.stringify({ plantilla: def.name, categoria: def.category, idioma: def.language, ...detalleErrorMeta(e) }));
+      throw { _http: 400, msg: `Meta rechazó la plantilla: ${errorMeta(e)}${trazaMeta(e)}. Mientras tanto podés crearla desde WhatsApp Manager (business.facebook.com > WhatsApp Manager > Plantillas de mensajes) y después tocar «Sincronizar» acá para traerla.` };
+    }
     const ins = await pool.query(
       `INSERT INTO wa_plantillas (meta_id, nombre, idioma, categoria, estado, componentes, creada_por, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())

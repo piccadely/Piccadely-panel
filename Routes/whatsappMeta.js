@@ -29,6 +29,25 @@ export function errorMeta(e) {
   return [er.code, er.error_user_title, er.error_user_msg || er.message].filter(Boolean).join(" · ").slice(0, 500);
 }
 
+// Respuesta de error completa de Meta para el log (solo el body del error, nunca headers ni config:
+// ahí viaja el token). Incluye fbtrace_id para reportarlo a Meta.
+export function detalleErrorMeta(e) {
+  const er = e?.response?.data?.error;
+  if (!er) return { http: e?.response?.status || null, message: String(e?.message || e || "error desconocido").slice(0, 300) };
+  return {
+    http: e.response.status,
+    code: er.code ?? null,
+    error_subcode: er.error_subcode ?? null,
+    type: er.type ?? null,
+    message: er.message ?? null,
+    error_user_title: er.error_user_title ?? null,
+    error_user_msg: er.error_user_msg ?? null,
+    is_transient: er.is_transient ?? null,
+    error_data: er.error_data ?? null,
+    fbtrace_id: er.fbtrace_id ?? null,
+  };
+}
+
 export async function graph(method, ruta, { data, params, headers, responseType } = {}) {
   const { token, version } = waConfig();
   if (!token) throw new Error("Falta WA_TOKEN");
