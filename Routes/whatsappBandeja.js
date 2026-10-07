@@ -2,9 +2,11 @@
 //  Routes/whatsappBandeja.js  ·  Bandeja multiagente de WhatsApp (API del panel)
 //  Montar en server.js (después de setupAuth):
 //     import { whatsappBandejaRouter } from "./Routes/whatsappBandeja.js";
-//     app.use("/api/whatsapp", whatsappBandejaRouter(pool, { requireAuth, requireRole }));
+//     app.use("/api/whatsapp", whatsappBandejaRouter(pool, { requireAuth }));
 //
-//  Permisos: ver = admin / superadmin / encargado / solo_lectura · operar = admin / superadmin / encargado.
+//  Permisos: CUALQUIER usuario logueado del panel ve y opera (sin lista de roles: alcanza con requireAuth;
+//  un rol nuevo entra solo). Excepción: la sesión de emergencia (modoLectura) no opera; además el gate
+//  global de auth.js ya la limita a los GET del panel de pedidos.
 //  Una conversación en estado 'agente' es de UNA persona (agente_id): solo esa persona responde.
 //  Liberar / devolver al bot / cerrar: la dueña, cualquiera si no tiene dueña, o un admin/superadmin.
 //  Estados: bot → (handoff) pendiente_agente → (tomar) agente → liberar / devolver-bot / cerrar.
@@ -33,12 +35,16 @@ const SELECT_CONV = `
 
 const COLS_MENSAJE = "id, direccion, autor, tipo, texto, estado, error, usuario_id, usuario_nombre, wa_timestamp, created_at";
 
-export function whatsappBandejaRouter(pool, { requireAuth, requireRole }) {
+export function whatsappBandejaRouter(pool, { requireAuth }) {
   const router = express.Router();
-  const ver = [requireAuth, requireRole("admin", "superadmin", "encargado", "solo_lectura")];
-  const operar = [requireAuth, requireRole("admin", "superadmin", "encargado")];
+  // Logueado = puede ver y operar. La sesión de emergencia (modoLectura) queda afuera de las escrituras.
+  const soloSesionNormal = (req, res, next) => req.user?.modoLectura
+    ? res.status(403).json({ error: "Modo solo lectura: acción no permitida." })
+    : next();
+  const ver = [requireAuth];
+  const operar = [requireAuth, soloSesionNormal];
   const esAdmin = (u) => u?.rol === "admin" || u?.rol === "superadmin";
-  const puedeOperar = (u) => ["admin", "superadmin", "encargado"].includes(u?.rol);
+  const puedeOperar = (u) => !!u && !u.modoLectura;
   const idValido = (v) => Number.isInteger(Number(v)) && Number(v) > 0;
 
   // Agrega puede_gestionar (liberar / devolver / cerrar) según quién consulta.

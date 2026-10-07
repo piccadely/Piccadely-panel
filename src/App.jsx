@@ -4992,7 +4992,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
       // Por qué no se puede escribir (null = se puede).
       const motivoBloqueo = !conv ? null
-        : !puedeOperar ? "Tu usuario es de solo lectura: podés ver las conversaciones pero no responder."
+        : !puedeOperar ? "Estás en una sesión de solo lectura: podés ver las conversaciones pero no responder."
         : conv.estado === "agente" && !conv.es_mia ? `La está atendiendo ${conv.agente_nombre || "otro agente"}. Solo esa persona puede responder.`
         : !(conv.estado === "agente" && conv.es_mia) ? "Tomá la conversación para responder (el bot queda pausado)."
         : !conv.ventana_abierta ? "Pasaron más de 24 h desde el último mensaje del cliente. Para escribirle hace falta una plantilla (disponible en la Fase 3)."
@@ -8021,7 +8021,7 @@ let numeroAsignado = "";
                       )}
                     </>
                   )}
-                  {esGestion && <button style={s.dropItem} onClick={() => { setVista("whatsapp"); setMenuAbierto(false); }}>💬 WhatsApp</button>}
+                  <button style={s.dropItem} onClick={() => { setVista("whatsapp"); setMenuAbierto(false); }}>💬 WhatsApp</button>{/* todos los roles */}
                   {esAdmin && <button style={s.dropItem} onClick={() => { setVista("clientes"); setMenuAbierto(false); }}>👥 Clientes</button>}
                   {esAdmin && <button style={s.dropItem} onClick={() => { setVista("ventasRealizar"); setMenuAbierto(false); }}>💼 Ventas a realizar</button>}
                   <button style={s.dropItem} onClick={() => { setVista("tandas"); setMenuAbierto(false); }}>🚚 Tandas activas</button>
@@ -8104,7 +8104,8 @@ let numeroAsignado = "";
       if (VISTAS_STOCK.includes(vista) && !esGestion) return sinAccesoStock("No tenés permiso para ver el stock.");
       if (["stockIngreso", "stockRecuento"].includes(vista) && !(esAdmin || usuario.rol === "encargado")) return sinAccesoStock("Solo admin, superadmin y encargados pueden cargar stock.");
       if (vista === "insumos" && !esAdmin) return sinAccesoStock("El maestro de insumos es solo para administradores.");
-      if (vista === "whatsapp" && !esGestion) return sinAccesoStock("No tenés permiso para ver la bandeja de WhatsApp.");
+      // Bandeja de WhatsApp: cualquier usuario logueado. Solo queda afuera la sesión de emergencia (sin 2FA).
+      if (vista === "whatsapp" && emergencia) return sinAccesoStock("La bandeja de WhatsApp no está disponible en el modo de emergencia.");
 
     if (vista === "repartidores") {
         return (

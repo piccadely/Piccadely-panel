@@ -746,7 +746,7 @@ async function enviarMailAnulacion(pedido) {
 app.use("/api/mp", mpRouter(pool, mailTransporter));
 app.use("/api/bot", botWhatsappRouter());
 app.use("/api/whatsapp", whatsappWebhookRouter(pool));   // Cloud API de Meta: GET verificación + POST eventos (guarda, bot, envío)
-app.use("/api/whatsapp", whatsappBandejaRouter(pool, { requireAuth, requireRole }));   // bandeja multiagente (requiere login)
+app.use("/api/whatsapp", whatsappBandejaRouter(pool, { requireAuth }));   // bandeja multiagente (requiere login)
 app.use("/api", cotizadorRouter(pool, mailTransporter, requireAdmin));
 
  // ─── ORDERS ───────────────────────────────────────────────────────────
