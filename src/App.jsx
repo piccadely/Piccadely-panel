@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "react";
     import axios from "axios";
     import * as XLSX from "xlsx";
     import jsPDF from "jspdf";
@@ -4852,14 +4852,14 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       } catch { /* sin audio */ }
     }
 
-    function VistaWhatsApp({ usuario, onVolver }) {
+    function VistaWhatsApp({ usuario, onVolver, modo = "pantalla", ancho = 0, onCargarPedido }) {
       const [tab, setTab] = useState("pendientes");
       const [q, setQ] = useState("");
       const [lista, setLista] = useState([]);
       const [contadores, setContadores] = useState({});
       const [puedeOperar, setPuedeOperar] = useState(false);
       const [cargandoLista, setCargandoLista] = useState(true);
-      const [selId, setSelId] = useState(null);
+      const [selId, setSelId] = useState(() => { try { const v = Number(localStorage.getItem("wa_sel_id")); return v > 0 ? v : null; } catch { return null; } });
       const [conv, setConv] = useState(null);
       const [mensajes, setMensajes] = useState([]);
       const [hayMas, setHayMas] = useState(false);
@@ -4875,6 +4875,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const finRef = useRef(null);
       const scrollRef = useRef(null);
       const tituloOriginal = useRef(document.title);
+      const angosto = esMovil || (modo === "drawer" && ancho < 760);   // una columna: celular o drawer angosto
+      useEffect(() => { try { selId ? localStorage.setItem("wa_sel_id", String(selId)) : localStorage.removeItem("wa_sel_id"); } catch { /* sin storage */ } }, [selId]);
 
       useEffect(() => {
         const mq = window.matchMedia("(max-width: 768px)");
@@ -4898,7 +4900,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           const f = r.data.pendientes_firma;
           const prev = firmaRef.current;
           if (prev && f && (f.cantidad > prev.cantidad || (f.cantidad > 0 && f.ultimo_entrante && f.ultimo_entrante !== prev.ultimo_entrante))) {
-            setAlerta(true); waBeep();
+            setAlerta(true);   // el sonido lo dispara el WhatsAppDock (global)
             document.title = `🔔 (${f.cantidad}) Pendientes — WhatsApp`;
           }
           firmaRef.current = f;
@@ -4999,14 +5001,14 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         : null;
 
       const btn = (bg, c, b) => ({ fontSize: 12, fontWeight: 600, padding: "7px 12px", borderRadius: 8, border: `1px solid ${b || bg}`, background: bg, color: c, cursor: "pointer", whiteSpace: "nowrap" });
-      const verLista = !esMovil || !selId;
-      const verChat = !esMovil || !!selId;
+      const verLista = !angosto || !selId;
+      const verChat = !angosto || !!selId;
 
       return (
-        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: esMovil ? 0 : 16, gap: 12, boxSizing: "border-box" }}>
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: angosto ? 0 : 16, gap: 12, boxSizing: "border-box" }}>
           {/* Barra superior */}
-          {(!esMovil || !selId) && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: esMovil ? "12px 12px 0" : 0 }}>
+          {(!angosto || !selId) && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: angosto ? "12px 12px 0" : 0 }}>
               <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>💬 WhatsApp</div>
               {alerta && (
                 <button style={{ ...btn("#fef3c7", "#b45309", "#f59e0b"), animation: "none" }} onClick={() => { setAlerta(false); setTab("pendientes"); document.title = tituloOriginal.current; }}>
@@ -5015,16 +5017,16 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               )}
               <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
                 <button style={{ ...btn("#f3f4f6", "#9ca3af", "#e5e7eb"), cursor: "not-allowed" }} disabled title="Disponible con plantillas (Fase 3)">+ Nueva conversación</button>
-                <button style={btn("#fff", "#333", "#ddd")} onClick={onVolver}>← Volver</button>
+                <button style={btn("#fff", "#333", "#ddd")} onClick={onVolver}>{modo === "drawer" ? "✕ Cerrar" : "← Volver"}</button>
               </div>
             </div>
           )}
-          {aviso && <div style={{ margin: esMovil ? "0 12px" : 0, background: aviso.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${aviso.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: aviso.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>{aviso.texto}</div>}
+          {aviso && <div style={{ margin: angosto ? "0 12px" : 0, background: aviso.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${aviso.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: aviso.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>{aviso.texto}</div>}
 
-          <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: esMovil ? "1fr" : "minmax(280px, 360px) 1fr", gap: esMovil ? 0 : 12 }}>
+          <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: angosto ? "1fr" : "minmax(280px, 360px) 1fr", gap: angosto ? 0 : 12 }}>
             {/* ── Lista ── */}
             {verLista && (
-              <div style={{ minHeight: 0, display: "flex", flexDirection: "column", background: "#fff", border: esMovil ? "none" : "1px solid #eee", borderRadius: esMovil ? 0 : 10, overflow: "hidden" }}>
+              <div style={{ minHeight: 0, display: "flex", flexDirection: "column", background: "#fff", border: angosto ? "none" : "1px solid #eee", borderRadius: angosto ? 0 : 10, overflow: "hidden" }}>
                 <div style={{ display: "flex", overflowX: "auto", borderBottom: "1px solid #eee" }}>
                   {WA_TABS.map(t => {
                     const activa = t.k === tab, n = contadores[t.cont];
@@ -5074,7 +5076,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
             {/* ── Chat ── */}
             {verChat && (
-              <div style={{ minHeight: 0, display: "flex", flexDirection: "column", background: "#efeae2", border: esMovil ? "none" : "1px solid #eee", borderRadius: esMovil ? 0 : 10, overflow: "hidden" }}>
+              <div style={{ minHeight: 0, display: "flex", flexDirection: "column", background: "#efeae2", border: angosto ? "none" : "1px solid #eee", borderRadius: angosto ? 0 : 10, overflow: "hidden" }}>
                 {!conv ? (
                   <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#999", fontSize: 14, padding: 24, textAlign: "center" }}>
                     {cargandoChat ? "Cargando…" : "Elegí una conversación de la lista."}
@@ -5083,7 +5085,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                   <>
                     {/* Encabezado + acciones */}
                     <div style={{ background: "#fff", borderBottom: "1px solid #eee", padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                      {esMovil && <button style={btn("#fff", "#333", "#ddd")} onClick={() => setSelId(null)}>←</button>}
+                      {angosto && <button style={btn("#fff", "#333", "#ddd")} onClick={() => setSelId(null)}>←</button>}
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{conv.nombre || waNumero(conv.wa_id)}</div>
                         <div style={{ fontSize: 11, color: "#888", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
@@ -5093,6 +5095,10 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                           {!conv.ventana_abierta && <span style={{ color: "#b45309" }}>· fuera de las 24 h</span>}
                         </div>
                       </div>
+                      {onCargarPedido && usuario.rol !== "solo_lectura" && (
+                        <button style={btn("#fff", "#F68B32", "#F68B32")} title="Abre Nuevo pedido con el nombre y el teléfono del cliente"
+                          onClick={() => onCargarPedido({ nombre: conv.nombre || "", telefono: waTelefonoNacional(conv.wa_id) })}>🧾 Cargar pedido</button>
+                      )}
                       {puedeOperar && (
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           {!(conv.estado === "agente" && conv.es_mia) && (
@@ -5122,7 +5128,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                         const tick = sale ? waTick(m) : null;
                         const estilo = !sale ? { bg: "#fff", align: "flex-start" } : m.autor === "bot" ? { bg: "#e0e7ff", align: "flex-end" } : { bg: "#d9fdd3", align: "flex-end" };
                         return (
-                          <div key={m.id} style={{ alignSelf: estilo.align, maxWidth: esMovil ? "86%" : "72%", background: estilo.bg, borderRadius: 10, padding: "6px 10px 4px", boxShadow: "0 1px 1px rgba(0,0,0,0.06)" }}>
+                          <div key={m.id} style={{ alignSelf: estilo.align, maxWidth: angosto ? "86%" : "72%", background: estilo.bg, borderRadius: 10, padding: "6px 10px 4px", boxShadow: "0 1px 1px rgba(0,0,0,0.06)" }}>
                             {sale && <div style={{ fontSize: 11, fontWeight: 700, color: m.autor === "bot" ? "#4338ca" : "#1d8a4e", marginBottom: 2 }}>{m.autor === "bot" ? "🤖 Bot" : `👤 ${m.usuario_nombre || "Agente"}`}</div>}
                             <div style={{ fontSize: 14, color: "#222", whiteSpace: "pre-wrap", wordBreak: "break-word", fontStyle: m.texto ? "normal" : "italic" }}>{waTextoMensaje(m)}</div>
                             <div style={{ fontSize: 10, color: "#999", textAlign: "right", marginTop: 2, display: "flex", justifyContent: "flex-end", gap: 4, alignItems: "center" }}>
@@ -5155,6 +5161,124 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               </div>
             )}
           </div>
+        </div>
+      );
+    }
+
+    // ─── WHATSAPP — WIDGET DEL HEADER + DRAWER GLOBAL ─────────────────────
+    // WhatsAppDock vive en App (al lado de PanelApp), así el drawer sobrevive a los cambios de pantalla.
+    // Hace el polling liviano de /contadores cada 5 s y los publica en un store; el widget del header
+    // solo lee ese store (el Header se re-crea en cada render de PanelApp, por eso no guarda estado propio).
+    // Widget → drawer y chat → "Nuevo pedido" se comunican con eventos de window.
+    const waStore = { cont: null, subs: new Set() };
+    const waSetContadores = (c) => { waStore.cont = c; waStore.subs.forEach(f => f()); };
+    const waSuscribir = (f) => { waStore.subs.add(f); return () => waStore.subs.delete(f); };
+    function useWaContadores() { return useSyncExternalStore(waSuscribir, () => waStore.cont); }
+    const waEmitir = (nombre, detalle) => window.dispatchEvent(new CustomEvent(nombre, { detail: detalle }));
+    // 549XXXXXXXXXX → XXXXXXXXXX (formato local para el alta de pedido).
+    const waTelefonoNacional = (waId) => { const d = String(waId || ""); return d.startsWith("549") && d.length === 13 ? d.slice(3) : (d.startsWith("54") ? d.slice(2) : d); };
+    const waLeer = (k, def) => { try { const v = localStorage.getItem(k); return v === null ? def : v; } catch { return def; } };
+    const waGuardar = (k, v) => { try { localStorage.setItem(k, String(v)); } catch { /* sin storage */ } };
+    const WA_CSS = `
+      @keyframes waLatido { 0%, 100% { box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.45); } 50% { box-shadow: 0 0 0 8px rgba(234, 88, 12, 0); } }
+      .wa-widget { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+      .wa-widget.wa-alerta { animation: waLatido 1.8s ease-in-out infinite; }
+      @media (max-width: 900px) { .wa-widget { position: static; transform: none; } .wa-widget-txt { display: none; } }
+      @media (max-width: 480px) { .wa-widget-lbl { display: none; } }
+    `;
+
+    function WidgetWhatsApp() {
+      const c = useWaContadores();
+      if (!c) return null;
+      const urgente = c.por_responder > 0;
+      const num = (n, label, color) => (
+        <span style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.05 }}>
+          <b style={{ fontSize: 17, color }}>{n}</b>
+          <span className="wa-widget-lbl" style={{ fontSize: 9, fontWeight: 600, color: "#777", textTransform: "uppercase", letterSpacing: 0.3 }}>{label}</span>
+        </span>
+      );
+      return (
+        <button type="button" className={"wa-widget" + (urgente ? " wa-alerta" : "")} onClick={() => waEmitir("wa:abrir")}
+          title={urgente ? `${c.por_responder} conversación(es) esperando respuesta` : "Abrir la bandeja de WhatsApp"}
+          style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
+            border: `2px solid ${urgente ? "#ea580c" : "#86efac"}`, background: urgente ? "#fff7ed" : "#f0fdf4" }}>
+          <span style={{ fontSize: 18 }}>💬</span>
+          <span className="wa-widget-txt" style={{ fontSize: 13, fontWeight: 700, color: "#333" }}>WhatsApp</span>
+          {num(c.activas, "Activas", "#333")}
+          {num(c.por_responder, "Por responder", urgente ? "#c2410c" : "#166534")}
+          {c.mias_nuevos > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: "#1d8a4e", borderRadius: 10, padding: "2px 8px", whiteSpace: "nowrap" }}>Mías: {c.mias_nuevos}</span>}
+        </button>
+      );
+    }
+
+    function WhatsAppDock({ usuario }) {
+      const habilitado = !!usuario && !usuario.modoLectura;   // la sesión de emergencia no usa la bandeja
+      const [abierto, setAbierto] = useState(() => waLeer("wa_drawer_abierto", "0") === "1");
+      const [ancho, setAncho] = useState(() => Math.max(340, Number(waLeer("wa_drawer_ancho", "420")) || 420));
+      const [esMovil, setEsMovil] = useState(() => window.matchMedia("(max-width: 768px)").matches);
+      const prevPorResponder = useRef(null);
+
+      useEffect(() => {   // estilos del widget (latido + posición), una sola vez
+        if (document.getElementById("wa-css")) return;
+        const st = document.createElement("style"); st.id = "wa-css"; st.textContent = WA_CSS; document.head.appendChild(st);
+      }, []);
+      useEffect(() => {   // polling liviano de contadores + beep cuando sube "Por responder"
+        if (!habilitado) { waSetContadores(null); return; }
+        let vivo = true;
+        const tick = async () => {
+          try {
+            const r = await axios.get(`${API}/api/whatsapp/contadores`);
+            if (!vivo) return;
+            const c = r.data;
+            if (prevPorResponder.current !== null && c.por_responder > prevPorResponder.current) waBeep();
+            prevPorResponder.current = c.por_responder;
+            waSetContadores(c);
+          } catch { /* reintenta en el próximo ciclo */ }
+        };
+        tick();
+        const t = setInterval(tick, 5000);
+        return () => { vivo = false; clearInterval(t); };
+      }, [habilitado]);
+      useEffect(() => {
+        const h = () => setAbierto(true);
+        window.addEventListener("wa:abrir", h);
+        const mq = window.matchMedia("(max-width: 768px)");
+        const hm = (e) => setEsMovil(e.matches);
+        mq.addEventListener ? mq.addEventListener("change", hm) : mq.addListener(hm);
+        return () => { window.removeEventListener("wa:abrir", h); mq.removeEventListener ? mq.removeEventListener("change", hm) : mq.removeListener(hm); };
+      }, []);
+      useEffect(() => { waGuardar("wa_drawer_abierto", abierto ? "1" : "0"); }, [abierto]);
+
+      // Redimensionar arrastrando el borde izquierdo (el ancho se guarda al soltar).
+      function empezarResize(e) {
+        e.preventDefault();
+        let ultimo = ancho;
+        const mover = (ev) => {
+          const x = ev.touches ? ev.touches[0].clientX : ev.clientX;
+          ultimo = Math.min(Math.max(window.innerWidth - x, 340), Math.round(window.innerWidth * 0.95));
+          setAncho(ultimo);
+        };
+        const soltar = () => {
+          window.removeEventListener("mousemove", mover); window.removeEventListener("mouseup", soltar);
+          window.removeEventListener("touchmove", mover); window.removeEventListener("touchend", soltar);
+          document.body.style.userSelect = ""; waGuardar("wa_drawer_ancho", ultimo);
+        };
+        document.body.style.userSelect = "none";
+        window.addEventListener("mousemove", mover); window.addEventListener("mouseup", soltar);
+        window.addEventListener("touchmove", mover); window.addEventListener("touchend", soltar);
+      }
+
+      if (!habilitado || !abierto) return null;
+      // Sin fondo oscuro a propósito: la pantalla de atrás sigue usable (ej. cargar el pedido mientras chateás).
+      // En celular left:0 + right:0 (no 100vw): cubre todo el ancho aunque la página de atrás desborde.
+      return (
+        <div style={{ position: "fixed", top: 0, right: 0, ...(esMovil ? { left: 0 } : { width: ancho, maxWidth: "100vw" }), height: "100dvh", background: "#f7f7f5",
+          boxShadow: "-8px 0 24px rgba(0,0,0,0.18)", zIndex: 2100, display: "flex", flexDirection: "column", fontFamily: "system-ui, sans-serif" }}>
+          {!esMovil && <div onMouseDown={empezarResize} onTouchStart={empezarResize} title="Arrastrá para cambiar el ancho"
+            style={{ position: "absolute", left: -4, top: 0, bottom: 0, width: 8, cursor: "ew-resize", zIndex: 2 }} />}
+          <VistaWhatsApp usuario={usuario} modo="drawer" ancho={esMovil ? 0 : ancho}
+            onVolver={() => setAbierto(false)}
+            onCargarPedido={(d) => { waEmitir("wa:cargar-pedido", d); if (esMovil) setAbierto(false); }} />
         </div>
       );
     }
@@ -6673,6 +6797,16 @@ const [facturasMap, setFacturasMap] = useState({});
       const [categoriaFiltro, setCategoriaFiltro] = useState("");
       const [carrito, setCarrito] = useState([]);
       const [form, setForm] = useState(FORM_INICIAL);
+      // "Cargar pedido" desde el chat de WhatsApp (drawer o pantalla): abre Nuevo pedido con nombre y teléfono.
+      useEffect(() => {
+        const h = (e) => {
+          const d = e.detail || {};
+          setVista("panel"); setTab("nuevo");
+          setForm(f => ({ ...f, cliente: d.nombre || f.cliente, telefono: d.telefono || f.telefono }));
+        };
+        window.addEventListener("wa:cargar-pedido", h);
+        return () => window.removeEventListener("wa:cargar-pedido", h);
+      }, []);
       const [areaManual, setAreaManual] = useState("");   // alta manual: área asignada a mano (override del reporte de zonas). "" = sin asignar.
       const [descuentoRetiro, setDescuentoRetiro] = useState(false);   // alta manual: toggle 10% OFF Retiro (descuento DERIVADO, no ítem del carrito).
       const [envioZona, setEnvioZona] = useState("");                  // alta manual: zona de envío elegida ("" = sin envío).
@@ -7885,11 +8019,14 @@ let numeroAsignado = "";
         />
       );
 
+      // Se usa llamándola como función (no como componente JSX): definida acá adentro, como componente React la re-montaba
+      // en cada render de PanelApp (y el latido del widget de WhatsApp arrancaba de cero todo el tiempo).
       const Header = () => (
-        <div style={s.header}>
+        <div style={{ ...s.header, position: "relative" }}>
           <div style={s.brand}>
             <img src="/Piccadely_Logotipo-Centrado-Negro.svg" alt="Piccadely" style={{ height: 36, objectFit: "contain" }} />
           </div>
+          {!emergencia && <WidgetWhatsApp />}{/* centrado (posición absoluta en desktop, en línea en celular) */}
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={s.fechaHoy}>{new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 12, borderLeft: "1px solid #eee" }}>
@@ -8110,7 +8247,7 @@ let numeroAsignado = "";
     if (vista === "repartidores") {
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <div style={{ padding: 24, maxWidth: 500 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
                 <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -8156,13 +8293,13 @@ let numeroAsignado = "";
         );
       }
       if (vista === "ventasRealizar") {
-        return <div style={s.wrap}><Header /><VistaVentasRealizar usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+        return <div style={s.wrap}>{Header()}<VistaVentasRealizar usuario={usuario} onVolver={() => setVista("panel")} /></div>;
       }
       if (vista === "usuarios") {
-        return <div style={s.wrap}><Header /><Usuarios onVolver={() => setVista("panel")} /></div>;
+        return <div style={s.wrap}>{Header()}<Usuarios onVolver={() => setVista("panel")} /></div>;
       }
       if (vista === "caja") {
-        return <div style={s.wrap}><Header /><VistaCaja pedidosFinalizados={pedidosFinalizados} pedidosActivos={pedidosActivos} onVolver={() => setVista("panel")} usuario={usuario} /></div>;
+        return <div style={s.wrap}>{Header()}<VistaCaja pedidosFinalizados={pedidosFinalizados} pedidosActivos={pedidosActivos} onVolver={() => setVista("panel")} usuario={usuario} /></div>;
       }
 if (vista === "dashboard") {
         const filtrarVentas = (desde, hasta) => repPedidos.filter(p => {
@@ -8193,7 +8330,7 @@ if (vista === "dashboard") {
         const pctFR = totalAct > 0 ? Math.round((totalFR / totalAct) * 100) : 0;
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <div style={{ padding: 24 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
                 <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -8319,7 +8456,7 @@ if (vista === "dashboard") {
         };
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <div style={{ padding: 24 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
                 <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -8481,7 +8618,7 @@ if (vista === "dashboard") {
         };
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <div style={{ padding: 24 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
                 <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -8584,7 +8721,7 @@ if (vista === "dashboard") {
         };
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <div style={{ padding: 24 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
                 <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -8724,7 +8861,7 @@ if (vista === "dashboard") {
         const cardBox = { background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "20px 22px" };
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <div style={{ padding: 24 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
                 <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -8845,7 +8982,7 @@ if (vista === "dashboard") {
         const fechasDisponibles = [...new Set(pedidosProcesados.filter(p => { const est = pedidosLocales[p.id]?.estado || p.estado; return est !== "Entregado" && est !== "Anulado" && p.fechaDisplay && p.fechaDisplay >= HOY; }).map(p => p.fechaDisplay))].sort();
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <div style={{ padding: 24 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
                 <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -9015,7 +9152,7 @@ if (vista === "dashboard") {
 
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <div style={{ padding: 24 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
                 <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -9138,74 +9275,74 @@ if (vista === "dashboard") {
         );
       }
      if (vista === "importar") {
-      return <div style={s.wrap}><Header /><VistaImportar usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaImportar usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "libroVentas") {
-      return <div style={s.wrap}><Header /><VistaLibroVentas onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaLibroVentas onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "libroCompras") {
-      return <div style={s.wrap}><Header /><VistaLibroCompras onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaLibroCompras onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "clientes") {
-      return <div style={s.wrap}><Header /><VistaClientes onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaClientes onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "ordenesCompra") {
-      return <div style={s.wrap}><Header /><VistaOrdenesCompra usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaOrdenesCompra usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "facturasCompra") {
-      return <div style={s.wrap}><Header /><VistaFacturasCompra usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaFacturasCompra usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "cuentasPorPagar") {
-      return <div style={s.wrap}><Header /><VistaCuentasPorPagar usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaCuentasPorPagar usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "proveedores") {
-      return <div style={s.wrap}><Header /><VistaProveedores onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaProveedores onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "categoriasGasto") {
-      return <div style={s.wrap}><Header /><VistaCategoriasGasto onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaCategoriasGasto onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "gastosComunes") {
-      return <div style={s.wrap}><Header /><VistaGastosComunes usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaGastosComunes usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "categoriasGastoComun") {
-      return <div style={s.wrap}><Header /><VistaCategoriasGastoComun onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaCategoriasGastoComun onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "empleados") {
-      return <div style={s.wrap}><Header /><VistaEmpleados usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaEmpleados usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "liquidaciones") {
-      return <div style={s.wrap}><Header /><VistaLiquidaciones usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaLiquidaciones usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "novedadesRRHH") {
-      return <div style={s.wrap}><Header /><VistaNovedadesRRHH usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaNovedadesRRHH usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "reporteRRHH") {
-      return <div style={s.wrap}><Header /><VistaReporteRRHH onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaReporteRRHH onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "stockActual") {
-      return <div style={s.wrap}><Header /><VistaStockActual usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaStockActual usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "stockIngreso") {
-      return <div style={s.wrap}><Header /><VistaStockIngreso usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaStockIngreso usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "stockRecuento") {
-      return <div style={s.wrap}><Header /><VistaStockRecuento usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaStockRecuento usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "insumos") {
-      return <div style={s.wrap}><Header /><VistaInsumos usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaInsumos usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "recetas") {
-      return <div style={s.wrap}><Header /><VistaRecetas usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaRecetas usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "whatsapp") {
       // Alto fijo de la ventana: el Header arriba y la bandeja ocupa el resto, con scroll propio en lista y chat.
-      return <div style={{ ...s.wrap, height: "100dvh", minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}><Header /><VistaWhatsApp usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={{ ...s.wrap, height: "100dvh", minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{Header()}<VistaWhatsApp usuario={usuario} onVolver={() => setVista("panel")} onCargarPedido={(d) => waEmitir("wa:cargar-pedido", d)} /></div>;
     }
     if (vista === "necesidades") {
-      return <div style={s.wrap}><Header /><VistaNecesidades usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaNecesidades usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "mapa") {
-        return <div style={s.wrap}><Header /><VistaMapa onVolver={() => setVista("panel")} repartidores={repartidoresLista} onCrearTanda={crearTanda} /></div>;
+        return <div style={s.wrap}>{Header()}<VistaMapa onVolver={() => setVista("panel")} repartidores={repartidoresLista} onCrearTanda={crearTanda} /></div>;
       }
       if (vista === "finalizados") {
         // Fuente: /api/reportes/pedidos por rango (repPedidos) — trae TODO lo finalizado
@@ -9231,7 +9368,7 @@ const filas = listaMostrada.map(p => [p.numero, p.cliente, p.telefono, (p.produc
 exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedidos Entregados" : "Pedidos Anulados", ["Nº", "Cliente", "Teléfono", "Productos", "Pago", "Cód. MKP", "Total", "Fecha", "Local", "Factura"], filas, `Total: ${fmt(listaMostrada.reduce((a, p) => a + p.totalNum, 0))}  ·  ${listaMostrada.length} pedidos`, subt);        };
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             {facturando && <ModalFacturacion p={facturando} onCerrar={cerrarModal} />}
             {modalEmailMPNode}
             <div style={{ padding: "24px" }}>
@@ -9365,7 +9502,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
         const etiquetaEstadoTanda = (e) => e === "en_reparto" ? "En reparto" : e === "armada" ? "Armada" : e;
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <div style={{ padding: 24 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
                 <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -9422,7 +9559,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
       if (tab === "nuevo") {
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <TabBar />
             <div style={{ padding: 24, display: "grid", gridTemplateColumns: "1fr 380px", gap: 20, alignItems: "start" }}>
               <div>
@@ -9601,7 +9738,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
             />
           )}
           {modalEmailMPNode}
-          <Header />
+          {Header()}
           {soloLectura && (
             <div style={{ background: "#fff4e5", borderBottom: "1px solid #f0c98a", color: "#8a5a00", padding: "10px 16px", fontSize: 13, fontWeight: 600, textAlign: "center" }}>
               🔒 MODO SOLO LECTURA — el sistema de mail está caído. Solo podés ver los pedidos. Facturación, caja y reportes no están disponibles.
@@ -9767,6 +9904,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
         <>
           <PanelApp usuario={usuario} />
           <AgenteIA />
+          <WhatsAppDock usuario={usuario} />{/* widget + drawer de WhatsApp: fuera de PanelApp para sobrevivir a los cambios de pantalla */}
         </>
       );
     }

@@ -53,6 +53,38 @@ export function whatsappBandejaRouter(pool, { requireAuth }) {
     puede_gestionar: puedeOperar(user) && (c.agente_id == null || c.agente_id === user.id || esAdmin(user)),
   });
 
+  // ── GET /contadores ── para el widget del header (polling cada 5 s desde todas las pantallas).
+  // UNA sola consulta que devuelve solo números (no viaja ningún mensaje):
+  //   activas       = todo lo que no está cerrada.
+  //   por_responder = pendiente_agente / agente cuyo último mensaje es del cliente (o una respuesta que
+  //                   falló y no le llegó): nadie le contestó. Las del bot NO cuentan (el bot las atiende).
+  //   mias_nuevos   = tomadas por quien consulta con mensajes sin leer.
+  // El LATERAL lee 1 fila por conversación abierta usando el índice (conversacion_id, id).
+  router.get("/contadores", ver, async (req, res) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT
+           COUNT(*) AS activas,
+           COUNT(*) FILTER (WHERE c.estado IN ('pendiente_agente', 'agente')
+                              AND (u.direccion = 'in' OR u.estado = 'failed')) AS por_responder,
+           COUNT(*) FILTER (WHERE c.estado = 'agente' AND c.agente_id = $1 AND c.no_leidos > 0) AS mias_nuevos
+         FROM wa_conversaciones c
+         LEFT JOIN LATERAL (
+           SELECT direccion, estado FROM wa_mensajes
+           WHERE conversacion_id = c.id AND tipo <> 'reaction'
+           ORDER BY id DESC LIMIT 1
+         ) u ON true
+         WHERE c.estado <> 'cerrada'`,
+        [req.user.id]
+      );
+      const k = rows[0];
+      res.json({ activas: Number(k.activas), por_responder: Number(k.por_responder), mias_nuevos: Number(k.mias_nuevos) });
+    } catch (err) {
+      console.error("WhatsApp bandeja: error en contadores:", err.message);
+      res.status(500).json({ error: "Error cargando contadores" });
+    }
+  });
+
   // ── GET /conversaciones?estado=&mias=1&abiertas=1&q= ──
   // Ordenadas por último mensaje. Devuelve también contadores por pestaña y una "firma" de pendientes
   // (cantidad + último entrante) para que el front detecte que entró algo nuevo y avise.
