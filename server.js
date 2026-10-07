@@ -10,6 +10,7 @@ import { mpRouter } from "./Routes/mp.js";
 import { botWhatsappRouter } from "./Routes/botWhatsapp.js";
 import { whatsappWebhookRouter, revisarHuerfanosWhatsApp } from "./Routes/whatsappWebhook.js";
 import { whatsappBandejaRouter } from "./Routes/whatsappBandeja.js";
+import { autotestR2 } from "./r2Storage.js";
 import { cotizadorRouter, clienteKeyDe } from "./Routes/cotizador.js";
 import { createRequire } from "module";
 import { normalizarProducto, calcularEnvioTN, esExcluidoProduccion, claveProducto } from "./productos-normalizacion.js"; // clave canónica + costo de envío TN + filtros de producción, compartidos con el front
@@ -5030,4 +5031,9 @@ if (TN_ENABLED) {
 } else {
   console.warn("⚠️ Tienda Nube no configurada: re-sync periódico de pedidos deshabilitado");
 }
-app.listen(process.env.PORT || 3001, () => { console.log("Servidor corriendo"); });
+app.listen(process.env.PORT || 3001, () => {
+  console.log("Servidor corriendo");
+  // Autotest de R2 en segundo plano: loguea "R2: OK" o "R2: ERROR <motivo>". Nunca tira: si falla,
+  // solo quedan deshabilitados los archivos de WhatsApp y el resto del servidor sigue normal.
+  autotestR2();
+});
