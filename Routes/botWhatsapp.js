@@ -255,18 +255,12 @@ async function getCatalogoTexto() {
   }
 }
 
-// ─── ROUTER ──────────────────────────────────────────────────────────
-export function botWhatsappRouter() {
-  const router = express.Router();
-
-  // POST /api/bot/whatsapp
-  // body: { messages: [{role:"user"|"assistant", content:"..."}], config?: { anticipacionHoras, tomarHoy, botPausado } }
-  router.post("/whatsapp", async (req, res) => {
-    const { messages, config } = req.body;
-    if (!messages || !Array.isArray(messages) || messages.length === 0)
-      return res.status(400).json({ error: "messages requerido" });
-    if (!process.env.ANTHROPIC_API_KEY)
-      return res.status(500).json({ error: "ANTHROPIC_API_KEY no configurada" });
+// ─── LÓGICA DEL BOT (reutilizable) ───────────────────────────────────
+// responderBot(messages, config) → { reply, handoff }. Misma lógica para Botmaker (/api/bot/whatsapp)
+// y para el webhook de la Cloud API de Meta. messages: [{role:"user"|"assistant", content}].
+// Lanza error si falla Anthropic (cada llamador decide cómo responder).
+export async function responderBot(messages, config) {
+    if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY no configurada");
 
     // Parámetros configurables (con defaults del manual)
     const cfg = {
@@ -277,10 +271,10 @@ export function botWhatsappRouter() {
 
     // Bot pausado → corta la toma automática y deriva
     if (cfg.botPausado) {
-      return res.json({
+      return {
         reply: "¡Hola! En este momento no estamos tomando pedidos por acá. Un asesor te responde a la brevedad. 🙌",
         handoff: true,
-      });
+      };
     }
 
     try {
@@ -355,9 +349,29 @@ export function botWhatsappRouter() {
         .replace(/\bplaticar\b/gi, "charlar")
         .replace(/\bchévere\b/gi, "buenísimo");
       const reply = argentinizar(raw.replace(/\[HANDOFF\]/gi, "").trim());
-      res.json({ reply, handoff });
+      return { reply, handoff };
     } catch (err) {
       console.error("Error bot WhatsApp:", err.response?.data || err.message);
+      throw err;
+    }
+}
+
+// ─── ROUTER (Botmaker) ───────────────────────────────────────────────
+// Contrato SIN cambios: mismas validaciones, mismas respuestas y mismos códigos que antes del refactor.
+export function botWhatsappRouter() {
+  const router = express.Router();
+
+  // POST /api/bot/whatsapp
+  // body: { messages: [{role:"user"|"assistant", content:"..."}], config?: { anticipacionHoras, tomarHoy, botPausado } }
+  router.post("/whatsapp", async (req, res) => {
+    const { messages, config } = req.body;
+    if (!messages || !Array.isArray(messages) || messages.length === 0)
+      return res.status(400).json({ error: "messages requerido" });
+    if (!process.env.ANTHROPIC_API_KEY)
+      return res.status(500).json({ error: "ANTHROPIC_API_KEY no configurada" });
+    try {
+      res.json(await responderBot(messages, config));
+    } catch (err) {
       res.status(500).json({ error: "Error al consultar el bot" });
     }
   });

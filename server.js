@@ -8,7 +8,7 @@ import nodemailer from "nodemailer";
 import { initAuthDB, setupAuth } from "./auth.js";
 import { mpRouter } from "./Routes/mp.js";
 import { botWhatsappRouter } from "./Routes/botWhatsapp.js";
-import { whatsappWebhookRouter } from "./Routes/whatsappWebhook.js";
+import { whatsappWebhookRouter, revisarHuerfanosWhatsApp } from "./Routes/whatsappWebhook.js";
 import { cotizadorRouter, clienteKeyDe } from "./Routes/cotizador.js";
 import { createRequire } from "module";
 import { normalizarProducto, calcularEnvioTN, esExcluidoProduccion, claveProducto } from "./productos-normalizacion.js"; // clave canónica + costo de envío TN + filtros de producción, compartidos con el front
@@ -456,6 +456,43 @@ async function initDB() {
     desperdicio_pct NUMERIC NOT NULL DEFAULT 8,
     CHECK ((insumo_id IS NULL) <> (subreceta_id IS NULL))
   );`);
+  // WhatsApp Cloud API (Meta): conversaciones por cliente + mensajes (entrantes/salientes) + statuses.
+  // wa_id = número normalizado a formato AR canónico 549XXXXXXXXXX (clave única: un cliente = una conversación).
+  // telefono_envio = el wa_id tal cual lo manda Meta (se responde a ese, sin reformatear).
+  await pool.query(`CREATE TABLE IF NOT EXISTS wa_conversaciones (
+    id SERIAL PRIMARY KEY,
+    wa_id TEXT NOT NULL UNIQUE,
+    telefono_envio TEXT NOT NULL,
+    nombre TEXT,
+    estado TEXT NOT NULL DEFAULT 'bot' CHECK (estado IN ('bot','pendiente_agente','cerrada')),
+    handoff_at TIMESTAMP,
+    ultimo_mensaje_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  );`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS wa_mensajes (
+    id SERIAL PRIMARY KEY,
+    conversacion_id INTEGER NOT NULL REFERENCES wa_conversaciones(id),
+    wa_message_id TEXT UNIQUE,
+    direccion TEXT NOT NULL CHECK (direccion IN ('in','out')),
+    autor TEXT NOT NULL CHECK (autor IN ('cliente','bot','agente')),
+    tipo TEXT NOT NULL DEFAULT 'text',
+    texto TEXT,
+    estado TEXT,
+    error TEXT,
+    wa_timestamp TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW()
+  );`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_wa_mensajes_conv ON wa_mensajes (conversacion_id, id);`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS wa_statuses (
+    id SERIAL PRIMARY KEY,
+    wa_message_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    wa_timestamp TIMESTAMP,
+    error TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE (wa_message_id, status)
+  );`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
   await pool.query(`CREATE TABLE IF NOT EXISTS costos_areas (area INTEGER PRIMARY KEY, costo NUMERIC NOT NULL DEFAULT 1);`);
   await pool.query(`INSERT INTO costos_areas (area, costo) SELECT g, 1 FROM generate_series(1,10) g ON CONFLICT (area) DO NOTHING;`);
@@ -487,7 +524,8 @@ async function initDB() {
      console.log("DB inicializada");
   await initAuthDB(pool);
 }
-initDB().catch(console.error);
+// Después de crear las tablas: reporta entrantes de WhatsApp que quedaron sin responder (TODO en whatsappWebhook.js).
+initDB().then(() => revisarHuerfanosWhatsApp(pool)).catch(console.error);
 
 // Transporter de mail (Gmail SMTP). Definido acá (antes de setupAuth) para inyectarlo al
 // módulo de auth, que lo usa para enviar los códigos 2FA del login.
@@ -692,7 +730,7 @@ async function enviarMailAnulacion(pedido) {
 // ─── MERCADO PAGO ─────────────────────────────────────────────────────
 app.use("/api/mp", mpRouter(pool, mailTransporter));
 app.use("/api/bot", botWhatsappRouter());
-app.use("/api/whatsapp", whatsappWebhookRouter());   // Cloud API de Meta: GET verificación + POST eventos
+app.use("/api/whatsapp", whatsappWebhookRouter(pool));   // Cloud API de Meta: GET verificación + POST eventos (guarda, bot, envío)
 app.use("/api", cotizadorRouter(pool, mailTransporter, requireAdmin));
 
  // ─── ORDERS ───────────────────────────────────────────────────────────
