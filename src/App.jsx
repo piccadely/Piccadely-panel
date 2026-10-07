@@ -4805,6 +4805,360 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       );
     }
 
+    // ─── WHATSAPP — BANDEJA MULTIAGENTE (Fase 2) ─────────────────────────
+    // Lista + chat. Polling cada 5 s. Una conversación 'agente' es de una sola persona: solo ella escribe.
+    // Fuera de la ventana de 24 h no se puede escribir sin plantilla (Fase 3).
+    const WA_ESTADO_INFO = {
+      bot: { label: "Bot", bg: "#eef2ff", c: "#4338ca" },
+      pendiente_agente: { label: "Pendiente", bg: "#fef3c7", c: "#b45309" },
+      agente: { label: "Con agente", bg: "#eafaf1", c: "#1d8a4e" },
+      cerrada: { label: "Cerrada", bg: "#f3f4f6", c: "#6b7280" },
+    };
+    const WA_TABS = [
+      { k: "pendientes", label: "Pendientes", params: { estado: "pendiente_agente" }, cont: "pendientes" },
+      { k: "mias", label: "Mías", params: { mias: "1" }, cont: "mias" },
+      { k: "bot", label: "Bot", params: { estado: "bot" }, cont: "bot" },
+      { k: "todas", label: "Todas", params: { abiertas: "1" }, cont: "todas" },
+      { k: "cerradas", label: "Cerradas", params: { estado: "cerrada" }, cont: "cerradas" },
+    ];
+    const WA_TIPO_ICONO = { audio: "🎤 Audio", image: "📷 Imagen", video: "🎬 Video", document: "📄 Documento", sticker: "🙂 Sticker", location: "📍 Ubicación", contacts: "👤 Contacto", reaction: "Reacción" };
+    const waNumero = (n) => { const d = String(n || ""); return d.startsWith("549") && d.length === 13 ? `+54 9 ${d.slice(3, 5)} ${d.slice(5, 9)}-${d.slice(9)}` : (d ? "+" + d : ""); };
+    const waHora = (iso) => {
+      if (!iso) return "";
+      const f = new Date(iso), hoy = new Date();
+      return f.toDateString() === hoy.toDateString()
+        ? f.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })
+        : f.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" });
+    };
+    const waTextoMensaje = (m) => m.texto || WA_TIPO_ICONO[m.tipo] || `[${m.tipo}]`;
+    // Tick de estado de un saliente (estilo WhatsApp).
+    const waTick = (m) => {
+      if (m.estado === "failed") return { t: "⚠", c: "#c0392b", title: `No se pudo entregar${m.error ? ": " + m.error : ""}` };
+      if (m.estado === "read") return { t: "✓✓", c: "#2563eb", title: "Leído" };
+      if (m.estado === "delivered") return { t: "✓✓", c: "#999", title: "Entregado" };
+      if (m.estado === "sent") return { t: "✓", c: "#999", title: "Enviado" };
+      return { t: "🕓", c: "#bbb", title: "Enviando" };
+    };
+    // Aviso sonoro corto (Web Audio, sin archivo). Si el navegador lo bloquea, no pasa nada.
+    function waBeep() {
+      try {
+        const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
+        const ctx = new C(), o = ctx.createOscillator(), g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination); o.frequency.value = 880;
+        g.gain.setValueAtTime(0.0001, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
+        o.start(); o.stop(ctx.currentTime + 0.45); setTimeout(() => ctx.close(), 800);
+      } catch { /* sin audio */ }
+    }
+
+    function VistaWhatsApp({ usuario, onVolver }) {
+      const [tab, setTab] = useState("pendientes");
+      const [q, setQ] = useState("");
+      const [lista, setLista] = useState([]);
+      const [contadores, setContadores] = useState({});
+      const [puedeOperar, setPuedeOperar] = useState(false);
+      const [cargandoLista, setCargandoLista] = useState(true);
+      const [selId, setSelId] = useState(null);
+      const [conv, setConv] = useState(null);
+      const [mensajes, setMensajes] = useState([]);
+      const [hayMas, setHayMas] = useState(false);
+      const [cargandoChat, setCargandoChat] = useState(false);
+      const [texto, setTexto] = useState("");
+      const [enviando, setEnviando] = useState(false);
+      const [accionando, setAccionando] = useState(false);
+      const [aviso, setAviso] = useState(null);           // { texto, tipo }
+      const [alerta, setAlerta] = useState(false);        // entró algo nuevo en Pendientes
+      const [esMovil, setEsMovil] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches);
+      const firmaRef = useRef(null);
+      const ultimoIdRef = useRef(0);
+      const finRef = useRef(null);
+      const scrollRef = useRef(null);
+      const tituloOriginal = useRef(document.title);
+
+      useEffect(() => {
+        const mq = window.matchMedia("(max-width: 768px)");
+        const h = (e) => setEsMovil(e.matches);
+        mq.addEventListener ? mq.addEventListener("change", h) : mq.addListener(h);
+        return () => { mq.removeEventListener ? mq.removeEventListener("change", h) : mq.removeListener(h); document.title = tituloOriginal.current; };
+      }, []);
+
+      function mostrarAviso(t, tipo = "ok") { setAviso({ texto: t, tipo }); setTimeout(() => setAviso(null), 4500); }
+      const tabActual = WA_TABS.find(t => t.k === tab) || WA_TABS[0];
+
+      async function cargarLista() {
+        try {
+          const params = { ...tabActual.params };
+          if (q.trim()) params.q = q.trim();
+          const r = await axios.get(`${API}/api/whatsapp/conversaciones`, { params });
+          setLista(r.data.conversaciones || []);
+          setContadores(r.data.contadores || {});
+          setPuedeOperar(!!r.data.puede_operar);
+          // ¿Entró algo nuevo en Pendientes? (más pendientes, o un mensaje nuevo en alguna pendiente)
+          const f = r.data.pendientes_firma;
+          const prev = firmaRef.current;
+          if (prev && f && (f.cantidad > prev.cantidad || (f.cantidad > 0 && f.ultimo_entrante && f.ultimo_entrante !== prev.ultimo_entrante))) {
+            setAlerta(true); waBeep();
+            document.title = `🔔 (${f.cantidad}) Pendientes — WhatsApp`;
+          }
+          firmaRef.current = f;
+        } catch (err) { if (err.response?.status !== 401) mostrarAviso(err.response?.data?.error || "Error cargando conversaciones", "error"); }
+        setCargandoLista(false);
+      }
+      useEffect(() => {
+        setCargandoLista(true); cargarLista();
+        const t = setInterval(cargarLista, 5000);
+        return () => clearInterval(t);
+      }, [tab, q]);   // eslint-disable-line
+
+      const alFinal = () => setTimeout(() => finRef.current?.scrollIntoView({ block: "end" }), 30);
+      const cercaDelFinal = () => { const el = scrollRef.current; return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 120; };
+
+      async function abrirConversacion(id) {
+        setCargandoChat(true);
+        try {
+          const r = await axios.get(`${API}/api/whatsapp/conversaciones/${id}/mensajes`);
+          setConv(r.data.conversacion); setMensajes(r.data.mensajes || []); setHayMas(!!r.data.hay_mas);
+          ultimoIdRef.current = (r.data.mensajes || []).reduce((a, m) => Math.max(a, m.id), 0);
+          setLista(ls => ls.map(c => c.id === id ? { ...c, no_leidos: 0 } : c));
+          alFinal();
+        } catch (err) { mostrarAviso(err.response?.data?.error || "Error abriendo la conversación", "error"); }
+        setCargandoChat(false);
+      }
+      // Polling del chat abierto: solo lo nuevo (despues=último id) + estados de los salientes (ticks).
+      async function cargarNuevos(id) {
+        try {
+          const r = await axios.get(`${API}/api/whatsapp/conversaciones/${id}/mensajes`, { params: { despues: ultimoIdRef.current || undefined } });
+          setConv(r.data.conversacion);
+          const nuevos = r.data.mensajes || [];
+          const est = {}; for (const s of r.data.estados_salientes || []) est[s.id] = s;
+          const pegarAbajo = nuevos.length > 0 && cercaDelFinal();
+          setMensajes(ms => {
+            const ids = new Set(ms.map(m => m.id));
+            const act = ms.map(m => est[m.id] ? { ...m, estado: est[m.id].estado, error: est[m.id].error } : m);
+            return [...act, ...nuevos.filter(m => !ids.has(m.id))];
+          });
+          if (nuevos.length) ultimoIdRef.current = Math.max(ultimoIdRef.current, ...nuevos.map(m => m.id));
+          if (pegarAbajo) alFinal();
+        } catch { /* reintenta en el próximo ciclo */ }
+      }
+      useEffect(() => {
+        if (!selId) { setConv(null); setMensajes([]); return; }
+        setTexto(""); abrirConversacion(selId);
+        const t = setInterval(() => cargarNuevos(selId), 5000);
+        return () => clearInterval(t);
+      }, [selId]);   // eslint-disable-line
+
+      async function cargarAnteriores() {
+        if (!selId || !mensajes.length) return;
+        const el = scrollRef.current, altoAntes = el ? el.scrollHeight : 0;
+        try {
+          const r = await axios.get(`${API}/api/whatsapp/conversaciones/${selId}/mensajes`, { params: { antes: mensajes[0].id } });
+          setMensajes(ms => [...(r.data.mensajes || []), ...ms]); setHayMas(!!r.data.hay_mas);
+          setTimeout(() => { if (el) el.scrollTop = el.scrollHeight - altoAntes; }, 30);   // mantiene la posición
+        } catch (err) { mostrarAviso("Error cargando mensajes anteriores", "error"); }
+      }
+
+      async function accion(nombre, confirmar) {
+        if (!conv || accionando) return;
+        if (confirmar && !window.confirm(confirmar)) return;
+        setAccionando(true);
+        try {
+          const r = await axios.post(`${API}/api/whatsapp/conversaciones/${conv.id}/${nombre}`);
+          if (r.data?.mensaje) mostrarAviso(r.data.mensaje);
+          if (nombre === "tomar") { mostrarAviso("Tomaste la conversación: el bot quedó pausado."); setTab("mias"); }
+          await Promise.all([cargarNuevos(conv.id), cargarLista()]);
+        } catch (err) { mostrarAviso(err.response?.data?.error || "No se pudo completar la acción", "error"); await cargarNuevos(conv.id); }
+        setAccionando(false);
+      }
+
+      async function enviar() {
+        const t = texto.trim();
+        if (!t || !conv || enviando) return;
+        setEnviando(true);
+        try {
+          const r = await axios.post(`${API}/api/whatsapp/conversaciones/${conv.id}/responder`, { texto: t });
+          const m = r.data.mensaje;
+          setMensajes(ms => [...ms, m]); ultimoIdRef.current = Math.max(ultimoIdRef.current, m.id);
+          setTexto(""); alFinal(); cargarLista();
+        } catch (err) {
+          const m = err.response?.data?.mensaje;   // 502: quedó guardado como fallido
+          if (m) { setMensajes(ms => [...ms, m]); ultimoIdRef.current = Math.max(ultimoIdRef.current, m.id); alFinal(); }
+          mostrarAviso(err.response?.data?.error || "No se pudo enviar", "error");
+          if (err.response?.status === 409 || err.response?.status === 422) cargarNuevos(conv.id);
+        }
+        setEnviando(false);
+      }
+
+      // Por qué no se puede escribir (null = se puede).
+      const motivoBloqueo = !conv ? null
+        : !puedeOperar ? "Tu usuario es de solo lectura: podés ver las conversaciones pero no responder."
+        : conv.estado === "agente" && !conv.es_mia ? `La está atendiendo ${conv.agente_nombre || "otro agente"}. Solo esa persona puede responder.`
+        : !(conv.estado === "agente" && conv.es_mia) ? "Tomá la conversación para responder (el bot queda pausado)."
+        : !conv.ventana_abierta ? "Pasaron más de 24 h desde el último mensaje del cliente. Para escribirle hace falta una plantilla (disponible en la Fase 3)."
+        : null;
+
+      const btn = (bg, c, b) => ({ fontSize: 12, fontWeight: 600, padding: "7px 12px", borderRadius: 8, border: `1px solid ${b || bg}`, background: bg, color: c, cursor: "pointer", whiteSpace: "nowrap" });
+      const verLista = !esMovil || !selId;
+      const verChat = !esMovil || !!selId;
+
+      return (
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: esMovil ? 0 : 16, gap: 12, boxSizing: "border-box" }}>
+          {/* Barra superior */}
+          {(!esMovil || !selId) && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: esMovil ? "12px 12px 0" : 0 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>💬 WhatsApp</div>
+              {alerta && (
+                <button style={{ ...btn("#fef3c7", "#b45309", "#f59e0b"), animation: "none" }} onClick={() => { setAlerta(false); setTab("pendientes"); document.title = tituloOriginal.current; }}>
+                  🔔 Entró algo nuevo en Pendientes
+                </button>
+              )}
+              <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                <button style={{ ...btn("#f3f4f6", "#9ca3af", "#e5e7eb"), cursor: "not-allowed" }} disabled title="Disponible con plantillas (Fase 3)">+ Nueva conversación</button>
+                <button style={btn("#fff", "#333", "#ddd")} onClick={onVolver}>← Volver</button>
+              </div>
+            </div>
+          )}
+          {aviso && <div style={{ margin: esMovil ? "0 12px" : 0, background: aviso.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${aviso.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: aviso.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>{aviso.texto}</div>}
+
+          <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: esMovil ? "1fr" : "minmax(280px, 360px) 1fr", gap: esMovil ? 0 : 12 }}>
+            {/* ── Lista ── */}
+            {verLista && (
+              <div style={{ minHeight: 0, display: "flex", flexDirection: "column", background: "#fff", border: esMovil ? "none" : "1px solid #eee", borderRadius: esMovil ? 0 : 10, overflow: "hidden" }}>
+                <div style={{ display: "flex", overflowX: "auto", borderBottom: "1px solid #eee" }}>
+                  {WA_TABS.map(t => {
+                    const activa = t.k === tab, n = contadores[t.cont];
+                    return (
+                      <button key={t.k} onClick={() => { setTab(t.k); if (t.k === "pendientes") { setAlerta(false); document.title = tituloOriginal.current; } }}
+                        style={{ flex: "1 0 auto", padding: "10px 10px", fontSize: 12, fontWeight: activa ? 700 : 500, border: "none", borderBottom: `2px solid ${activa ? "#F68B32" : "transparent"}`, background: t.k === "pendientes" && alerta ? "#fffbeb" : "#fff", color: activa ? "#F68B32" : "#555", cursor: "pointer", whiteSpace: "nowrap" }}>
+                        {t.label}{n > 0 ? ` (${n})` : ""}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{ padding: 8, borderBottom: "1px solid #f3f3f3" }}>
+                  <input style={{ width: "100%", boxSizing: "border-box", fontSize: 13, padding: "7px 10px", borderRadius: 8, border: "1px solid #ddd" }} placeholder="Buscar por nombre o número…" value={q} onChange={e => setQ(e.target.value)} />
+                </div>
+                <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+                  {cargandoLista && lista.length === 0 ? <div style={{ padding: 16, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+                    : lista.length === 0 ? <div style={{ padding: 16, color: "#aaa", fontSize: 13 }}>No hay conversaciones en esta pestaña.</div>
+                    : lista.map(c => {
+                      const est = WA_ESTADO_INFO[c.estado] || WA_ESTADO_INFO.bot;
+                      const sel = c.id === selId;
+                      const prefijo = c.ultimo_direccion === "out" ? (c.ultimo_autor === "bot" ? "🤖 " : "Vos/agente: ") : "";
+                      return (
+                        <div key={c.id} onClick={() => setSelId(c.id)} style={{ padding: "10px 12px", borderBottom: "1px solid #f5f5f5", cursor: "pointer", background: sel ? "#fff7ed" : "#fff", display: "flex", gap: 10 }}>
+                          <div style={{ width: 38, height: 38, borderRadius: "50%", background: "#f0f0e8", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0, color: "#666", fontWeight: 700 }}>
+                            {(c.nombre || "?").trim().charAt(0).toUpperCase()}
+                          </div>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nombre || waNumero(c.wa_id)}</span>
+                              <span style={{ fontSize: 11, color: c.no_leidos > 0 ? "#1d8a4e" : "#999", flexShrink: 0 }}>{waHora(c.ultimo_at || c.ultimo_mensaje_at)}</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "center", marginTop: 2 }}>
+                              <span style={{ fontSize: 12, color: "#777", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{prefijo}{c.ultimo_texto || WA_TIPO_ICONO[c.ultimo_tipo] || ""}</span>
+                              {c.no_leidos > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: "#1d8a4e", borderRadius: 10, padding: "1px 7px", flexShrink: 0 }}>{c.no_leidos}</span>}
+                            </div>
+                            <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 9, fontWeight: 700, color: est.c, background: est.bg, borderRadius: 4, padding: "1px 6px", textTransform: "uppercase" }}>{est.label}</span>
+                              {c.agente_nombre && <span style={{ fontSize: 11, color: c.es_mia ? "#1d8a4e" : "#888" }}>👤 {c.es_mia ? "Vos" : c.agente_nombre}</span>}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+
+            {/* ── Chat ── */}
+            {verChat && (
+              <div style={{ minHeight: 0, display: "flex", flexDirection: "column", background: "#efeae2", border: esMovil ? "none" : "1px solid #eee", borderRadius: esMovil ? 0 : 10, overflow: "hidden" }}>
+                {!conv ? (
+                  <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#999", fontSize: 14, padding: 24, textAlign: "center" }}>
+                    {cargandoChat ? "Cargando…" : "Elegí una conversación de la lista."}
+                  </div>
+                ) : (
+                  <>
+                    {/* Encabezado + acciones */}
+                    <div style={{ background: "#fff", borderBottom: "1px solid #eee", padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      {esMovil && <button style={btn("#fff", "#333", "#ddd")} onClick={() => setSelId(null)}>←</button>}
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{conv.nombre || waNumero(conv.wa_id)}</div>
+                        <div style={{ fontSize: 11, color: "#888", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                          <span>{waNumero(conv.wa_id)}</span>
+                          <span style={{ fontWeight: 700, color: (WA_ESTADO_INFO[conv.estado] || {}).c }}>· {(WA_ESTADO_INFO[conv.estado] || {}).label}</span>
+                          {conv.agente_nombre && <span>· 👤 {conv.es_mia ? "Vos" : conv.agente_nombre}</span>}
+                          {!conv.ventana_abierta && <span style={{ color: "#b45309" }}>· fuera de las 24 h</span>}
+                        </div>
+                      </div>
+                      {puedeOperar && (
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {!(conv.estado === "agente" && conv.es_mia) && (
+                            <button style={conv.estado === "agente" && !conv.es_mia ? { ...btn("#f3f4f6", "#9ca3af", "#e5e7eb"), cursor: "not-allowed" } : btn("#F68B32", "#fff")}
+                              disabled={accionando || (conv.estado === "agente" && !conv.es_mia)}
+                              title={conv.estado === "agente" && !conv.es_mia ? `La tiene ${conv.agente_nombre}` : "Asignármela (pausa el bot)"}
+                              onClick={() => accion("tomar")}>✋ Tomar</button>
+                          )}
+                          {conv.estado === "agente" && conv.puede_gestionar && (
+                            <button style={btn("#fff", "#b45309", "#f59e0b")} disabled={accionando} onClick={() => accion("liberar")}>Liberar</button>
+                          )}
+                          {conv.estado !== "bot" && conv.puede_gestionar && (
+                            <button style={btn("#fff", "#4338ca", "#a5b4fc")} disabled={accionando} onClick={() => accion("devolver-bot", "¿Devolver la conversación al bot? Va a volver a responder solo.")}>🤖 Devolver al bot</button>
+                          )}
+                          {conv.estado !== "cerrada" && conv.puede_gestionar && (
+                            <button style={btn("#fff", "#6b7280", "#d1d5db")} disabled={accionando} onClick={() => accion("cerrar", "¿Cerrar la conversación? Si el cliente vuelve a escribir, la retoma el bot.")}>Cerrar</button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Mensajes */}
+                    <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 10px", display: "flex", flexDirection: "column", gap: 6 }}>
+                      {hayMas && <button style={{ ...btn("#fff", "#555", "#ddd"), alignSelf: "center", marginBottom: 6 }} onClick={cargarAnteriores}>Cargar mensajes anteriores</button>}
+                      {mensajes.map(m => {
+                        const sale = m.direccion === "out";
+                        const tick = sale ? waTick(m) : null;
+                        const estilo = !sale ? { bg: "#fff", align: "flex-start" } : m.autor === "bot" ? { bg: "#e0e7ff", align: "flex-end" } : { bg: "#d9fdd3", align: "flex-end" };
+                        return (
+                          <div key={m.id} style={{ alignSelf: estilo.align, maxWidth: esMovil ? "86%" : "72%", background: estilo.bg, borderRadius: 10, padding: "6px 10px 4px", boxShadow: "0 1px 1px rgba(0,0,0,0.06)" }}>
+                            {sale && <div style={{ fontSize: 11, fontWeight: 700, color: m.autor === "bot" ? "#4338ca" : "#1d8a4e", marginBottom: 2 }}>{m.autor === "bot" ? "🤖 Bot" : `👤 ${m.usuario_nombre || "Agente"}`}</div>}
+                            <div style={{ fontSize: 14, color: "#222", whiteSpace: "pre-wrap", wordBreak: "break-word", fontStyle: m.texto ? "normal" : "italic" }}>{waTextoMensaje(m)}</div>
+                            <div style={{ fontSize: 10, color: "#999", textAlign: "right", marginTop: 2, display: "flex", justifyContent: "flex-end", gap: 4, alignItems: "center" }}>
+                              <span>{new Date(m.wa_timestamp || m.created_at).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                              {tick && <span title={tick.title} style={{ color: tick.c, fontWeight: 700 }}>{tick.t}</span>}
+                            </div>
+                            {sale && m.estado === "failed" && m.error && <div style={{ fontSize: 10, color: "#c0392b", marginTop: 2 }}>{m.error}</div>}
+                          </div>
+                        );
+                      })}
+                      <div ref={finRef} />
+                    </div>
+
+                    {/* Input */}
+                    <div style={{ background: "#f7f7f5", borderTop: "1px solid #e5e5e5", padding: 10 }}>
+                      {motivoBloqueo ? (
+                        <div style={{ fontSize: 12, color: "#8a6d3b", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "9px 12px" }}>{motivoBloqueo}</div>
+                      ) : (
+                        <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                          <textarea style={{ flex: 1, minHeight: 40, maxHeight: 140, resize: "vertical", fontSize: 14, padding: "9px 12px", borderRadius: 10, border: "1px solid #ddd", fontFamily: "inherit", boxSizing: "border-box" }}
+                            placeholder="Escribí tu respuesta… (Enter envía, Shift+Enter salto de línea)" value={texto} maxLength={4096}
+                            onChange={e => setTexto(e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); } }} />
+                          <button style={{ ...btn(enviando || !texto.trim() ? "#ccc" : "#1d8a4e", "#fff"), padding: "10px 16px" }} disabled={enviando || !texto.trim()} onClick={enviar}>{enviando ? "…" : "Enviar"}</button>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     // ─── COMPRAS — ÓRDENES DE COMPRA (Entrega 2) ──────────────────────────
     // Admin + superadmin. Flujo pendiente → aprobada → (recibida = Entrega 3); anulable.
     const OC_ESTADO_BADGE = {
@@ -7667,6 +8021,7 @@ let numeroAsignado = "";
                       )}
                     </>
                   )}
+                  {esGestion && <button style={s.dropItem} onClick={() => { setVista("whatsapp"); setMenuAbierto(false); }}>💬 WhatsApp</button>}
                   {esAdmin && <button style={s.dropItem} onClick={() => { setVista("clientes"); setMenuAbierto(false); }}>👥 Clientes</button>}
                   {esAdmin && <button style={s.dropItem} onClick={() => { setVista("ventasRealizar"); setMenuAbierto(false); }}>💼 Ventas a realizar</button>}
                   <button style={s.dropItem} onClick={() => { setVista("tandas"); setMenuAbierto(false); }}>🚚 Tandas activas</button>
@@ -7749,6 +8104,7 @@ let numeroAsignado = "";
       if (VISTAS_STOCK.includes(vista) && !esGestion) return sinAccesoStock("No tenés permiso para ver el stock.");
       if (["stockIngreso", "stockRecuento"].includes(vista) && !(esAdmin || usuario.rol === "encargado")) return sinAccesoStock("Solo admin, superadmin y encargados pueden cargar stock.");
       if (vista === "insumos" && !esAdmin) return sinAccesoStock("El maestro de insumos es solo para administradores.");
+      if (vista === "whatsapp" && !esGestion) return sinAccesoStock("No tenés permiso para ver la bandeja de WhatsApp.");
 
     if (vista === "repartidores") {
         return (
@@ -8839,6 +9195,10 @@ if (vista === "dashboard") {
     }
     if (vista === "recetas") {
       return <div style={s.wrap}><Header /><VistaRecetas usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "whatsapp") {
+      // Alto fijo de la ventana: el Header arriba y la bandeja ocupa el resto, con scroll propio en lista y chat.
+      return <div style={{ ...s.wrap, height: "100dvh", minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}><Header /><VistaWhatsApp usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "necesidades") {
       return <div style={s.wrap}><Header /><VistaNecesidades usuario={usuario} onVolver={() => setVista("panel")} /></div>;

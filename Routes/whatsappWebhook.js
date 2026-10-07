@@ -75,8 +75,8 @@ export function numeroParaEnviar(raw) {
   return (d.startsWith("549") && d.length === 13) ? "54" + d.slice(3) : d;
 }
 
-// Envía un texto por la Cloud API. Devuelve { id } o { error }.
-async function enviarTexto(destino, body) {
+// Envía un texto por la Cloud API. Devuelve { id } o { error }. Lo usan el bot y la bandeja de agentes.
+export async function enviarTexto(destino, body) {
   const to = numeroParaEnviar(destino);
   const token = process.env.WA_TOKEN, phoneId = process.env.WA_PHONE_NUMBER_ID;
   if (!token || !phoneId) return { error: "Faltan WA_TOKEN o WA_PHONE_NUMBER_ID" };
@@ -183,8 +183,11 @@ async function procesarEntrante(pool, m, nombre) {
      ON CONFLICT (wa_id) DO UPDATE SET
        telefono_envio = EXCLUDED.telefono_envio,
        nombre = COALESCE(EXCLUDED.nombre, wa_conversaciones.nombre),
-       -- una conversación cerrada que vuelve a escribir se reabre con el bot; 'pendiente_agente' se respeta
+       -- una conversación cerrada que vuelve a escribir se reabre con el bot (sin agente);
+       -- 'pendiente_agente' y 'agente' se respetan (el bot no contesta)
        estado = CASE WHEN wa_conversaciones.estado = 'cerrada' THEN 'bot' ELSE wa_conversaciones.estado END,
+       agente_id = CASE WHEN wa_conversaciones.estado = 'cerrada' THEN NULL ELSE wa_conversaciones.agente_id END,
+       asignada_at = CASE WHEN wa_conversaciones.estado = 'cerrada' THEN NULL ELSE wa_conversaciones.asignada_at END,
        ultimo_mensaje_at = NOW(), updated_at = NOW()
      RETURNING id`,
     [waId, String(m.from), nombre || null]
@@ -198,12 +201,21 @@ async function procesarEntrante(pool, m, nombre) {
     [conversacionId, m.id, m.type || "unknown", textoDe(m), tsMeta(m.timestamp)]
   );
   if (ins.rows.length === 0) return;          // duplicado: Meta reintentó un mensaje ya guardado
+  // Ventana de 24 h (cuenta desde el último mensaje del cliente) + no leídos para la bandeja.
+  // Va DESPUÉS del insert para que un reintento de Meta no sume un no leído de más.
+  await pool.query(
+    `UPDATE wa_conversaciones SET
+       ultimo_entrante_at = GREATEST(COALESCE(ultimo_entrante_at, $2), $2),
+       no_leidos = no_leidos + $3
+     WHERE id = $1`,
+    [conversacionId, tsMeta(m.timestamp) || new Date(), m.type === "reaction" ? 0 : 1]
+  );
   if (m.type === "reaction") return;           // las reacciones se guardan pero no se contestan
-  programarRespuesta(pool, conversacionId);
+  programarRespuesta(pool, conversacionId);    // responderUltimo() solo contesta si estado = 'bot'
 }
 
 // Pone en el mensaje saliente el status más avanzado registrado (failed gana siempre).
-async function sincronizarEstado(pool, waMessageId) {
+export async function sincronizarEstado(pool, waMessageId) {
   if (!waMessageId) return;
   await pool.query(
     `UPDATE wa_mensajes m SET estado = s.status, error = COALESCE(s.error, m.error)

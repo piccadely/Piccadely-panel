@@ -9,6 +9,7 @@ import { initAuthDB, setupAuth } from "./auth.js";
 import { mpRouter } from "./Routes/mp.js";
 import { botWhatsappRouter } from "./Routes/botWhatsapp.js";
 import { whatsappWebhookRouter, revisarHuerfanosWhatsApp } from "./Routes/whatsappWebhook.js";
+import { whatsappBandejaRouter } from "./Routes/whatsappBandeja.js";
 import { cotizadorRouter, clienteKeyDe } from "./Routes/cotizador.js";
 import { createRequire } from "module";
 import { normalizarProducto, calcularEnvioTN, esExcluidoProduccion, claveProducto } from "./productos-normalizacion.js"; // clave canónica + costo de envío TN + filtros de producción, compartidos con el front
@@ -493,6 +494,20 @@ async function initDB() {
     created_at TIMESTAMP DEFAULT NOW(),
     UNIQUE (wa_message_id, status)
   );`);
+  // Fase 2 — bandeja multiagente (idempotente). Estado 'agente' = la tomó una persona (bot pausado).
+  await pool.query(`ALTER TABLE wa_conversaciones DROP CONSTRAINT IF EXISTS wa_conversaciones_estado_check;`);
+  await pool.query(`ALTER TABLE wa_conversaciones ADD CONSTRAINT wa_conversaciones_estado_check CHECK (estado IN ('bot','pendiente_agente','agente','cerrada'));`);
+  await pool.query(`ALTER TABLE wa_conversaciones ADD COLUMN IF NOT EXISTS agente_id INTEGER;   -- usuarios.id (sin FK: usuarios se crea en initAuthDB, al final)`);
+  await pool.query(`ALTER TABLE wa_conversaciones ADD COLUMN IF NOT EXISTS asignada_at TIMESTAMP;`);
+  await pool.query(`ALTER TABLE wa_conversaciones ADD COLUMN IF NOT EXISTS ultimo_entrante_at TIMESTAMP;`);   // ventana de 24 h de Meta
+  await pool.query(`ALTER TABLE wa_conversaciones ADD COLUMN IF NOT EXISTS no_leidos INTEGER NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS usuario_id INTEGER;`);   // agente que escribió
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS usuario_nombre TEXT;`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_wa_conv_ultimo ON wa_conversaciones (ultimo_mensaje_at DESC);`);
+  // Backfill de la ventana para conversaciones previas a esta fase (solo las que no la tienen).
+  await pool.query(`UPDATE wa_conversaciones c SET ultimo_entrante_at = x.ult
+    FROM (SELECT conversacion_id, MAX(COALESCE(wa_timestamp, created_at)) AS ult FROM wa_mensajes WHERE direccion = 'in' GROUP BY conversacion_id) x
+    WHERE x.conversacion_id = c.id AND c.ultimo_entrante_at IS NULL;`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
   await pool.query(`CREATE TABLE IF NOT EXISTS costos_areas (area INTEGER PRIMARY KEY, costo NUMERIC NOT NULL DEFAULT 1);`);
   await pool.query(`INSERT INTO costos_areas (area, costo) SELECT g, 1 FROM generate_series(1,10) g ON CONFLICT (area) DO NOTHING;`);
@@ -731,6 +746,7 @@ async function enviarMailAnulacion(pedido) {
 app.use("/api/mp", mpRouter(pool, mailTransporter));
 app.use("/api/bot", botWhatsappRouter());
 app.use("/api/whatsapp", whatsappWebhookRouter(pool));   // Cloud API de Meta: GET verificación + POST eventos (guarda, bot, envío)
+app.use("/api/whatsapp", whatsappBandejaRouter(pool, { requireAuth, requireRole }));   // bandeja multiagente (requiere login)
 app.use("/api", cotizadorRouter(pool, mailTransporter, requireAdmin));
 
  // ─── ORDERS ───────────────────────────────────────────────────────────
