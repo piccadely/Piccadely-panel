@@ -52,8 +52,14 @@ export async function r2Leer(key) {
   const r = await s3().send(new GetObjectCommand({ Bucket: bucket(), Key: key }));
   return { body: Buffer.from(await r.Body.transformToByteArray()), contentType: r.ContentType || "application/octet-stream" };
 }
-export async function r2UrlFirmada(key, segundos = 300) {
-  return getSignedUrl(s3(), new GetObjectCommand({ Bucket: bucket(), Key: key }), { expiresIn: segundos });
+// nombreDescarga (opcional): fuerza la descarga con ese nombre (documentos).
+export async function r2UrlFirmada(key, segundos = 300, nombreDescarga = null) {
+  const extra = {};
+  if (nombreDescarga) {
+    const ascii = String(nombreDescarga).replace(/[^A-Za-z0-9._ -]/g, "_");
+    extra.ResponseContentDisposition = `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(nombreDescarga)}`;
+  }
+  return getSignedUrl(s3(), new GetObjectCommand({ Bucket: bucket(), Key: key, ...extra }), { expiresIn: segundos });
 }
 export async function r2Borrar(key) {
   await s3().send(new DeleteObjectCommand({ Bucket: bucket(), Key: key }));

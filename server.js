@@ -11,6 +11,7 @@ import { botWhatsappRouter } from "./Routes/botWhatsapp.js";
 import { whatsappWebhookRouter, revisarHuerfanosWhatsApp } from "./Routes/whatsappWebhook.js";
 import { whatsappBandejaRouter } from "./Routes/whatsappBandeja.js";
 import { autotestR2 } from "./r2Storage.js";
+import { iniciarRetencionWhatsApp } from "./whatsappRetencion.js";
 import { cotizadorRouter, clienteKeyDe } from "./Routes/cotizador.js";
 import { createRequire } from "module";
 import { normalizarProducto, calcularEnvioTN, esExcluidoProduccion, claveProducto } from "./productos-normalizacion.js"; // clave canónica + costo de envío TN + filtros de producción, compartidos con el front
@@ -509,6 +510,30 @@ async function initDB() {
   await pool.query(`UPDATE wa_conversaciones c SET ultimo_entrante_at = x.ult
     FROM (SELECT conversacion_id, MAX(COALESCE(wa_timestamp, created_at)) AS ult FROM wa_mensajes WHERE direccion = 'in' GROUP BY conversacion_id) x
     WHERE x.conversacion_id = c.id AND c.ultimo_entrante_at IS NULL;`);
+  // Fase 3 — archivos (R2) y plantillas (idempotente).
+  // media_estado: pendiente | ok | error | deshabilitado (R2 sin autotest OK) | vencido (borrado por retención).
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS media_id TEXT;`);       // id del media en Meta
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS media_key TEXT;`);      // clave en R2
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS media_mime TEXT;`);
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS media_nombre TEXT;`);
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS media_bytes INTEGER;`);
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS media_estado TEXT;`);
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS caption TEXT;`);        // pie de foto/documento (el bot NO lo lee)
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS plantilla_nombre TEXT;`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_wa_mensajes_created ON wa_mensajes (created_at);`);   // retención
+  await pool.query(`CREATE TABLE IF NOT EXISTS wa_plantillas (
+    id SERIAL PRIMARY KEY,
+    meta_id TEXT UNIQUE,
+    nombre TEXT NOT NULL,
+    idioma TEXT NOT NULL DEFAULT 'es_AR',
+    categoria TEXT,
+    estado TEXT,                 -- APPROVED / PENDING / REJECTED / PAUSED / DISABLED / … (tal cual Meta)
+    motivo TEXT,                 -- motivo de rechazo
+    componentes JSONB,
+    creada_por TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  );`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
   await pool.query(`CREATE TABLE IF NOT EXISTS costos_areas (area INTEGER PRIMARY KEY, costo NUMERIC NOT NULL DEFAULT 1);`);
   await pool.query(`INSERT INTO costos_areas (area, costo) SELECT g, 1 FROM generate_series(1,10) g ON CONFLICT (area) DO NOTHING;`);
@@ -541,7 +566,10 @@ async function initDB() {
   await initAuthDB(pool);
 }
 // Después de crear las tablas: reporta entrantes de WhatsApp que quedaron sin responder (TODO en whatsappWebhook.js).
-initDB().then(() => revisarHuerfanosWhatsApp(pool)).catch(console.error);
+initDB().then(() => {
+  revisarHuerfanosWhatsApp(pool);
+  iniciarRetencionWhatsApp(pool);   // job diario de retención (cerradas y bot; nunca las atendidas)
+}).catch(console.error);
 
 // Transporter de mail (Gmail SMTP). Definido acá (antes de setupAuth) para inyectarlo al
 // módulo de auth, que lo usa para enviar los códigos 2FA del login.

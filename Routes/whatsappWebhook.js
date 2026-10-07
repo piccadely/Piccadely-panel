@@ -24,6 +24,8 @@ import express from "express";
 import crypto from "crypto";
 import axios from "axios";
 import { responderBot } from "./botWhatsapp.js";
+import { TIPOS_MEDIA, descargarMediaMeta, claveArchivo } from "./whatsappMeta.js";
+import { r2Habilitado, archivos } from "../r2Storage.js";
 
 const NL = String.fromCharCode(10);
 const HISTORIAL_MAX = 30;             // mensajes que se leen de la base (el bot después usa los últimos 14)
@@ -193,14 +195,23 @@ async function procesarEntrante(pool, m, nombre) {
     [waId, String(m.from), nombre || null]
   );
   const conversacionId = conv.rows[0].id;
+  // Media (imagen/audio/video/documento/sticker): se guardan los datos ya; el archivo se baja a R2 después.
+  // El texto sigue en null para estos tipos (el bot NO lee imágenes ni audios: comportamiento sin cambios);
+  // el pie de foto va aparte, en `caption`, solo para mostrarlo en el chat.
+  const media = mediaDe(m);
   const ins = await pool.query(
-    `INSERT INTO wa_mensajes (conversacion_id, wa_message_id, direccion, autor, tipo, texto, wa_timestamp)
-     VALUES ($1, $2, 'in', 'cliente', $3, $4, $5)
+    `INSERT INTO wa_mensajes (conversacion_id, wa_message_id, direccion, autor, tipo, texto, wa_timestamp,
+                              media_id, media_mime, media_nombre, caption, media_estado)
+     VALUES ($1, $2, 'in', 'cliente', $3, $4, $5, $6, $7, $8, $9, $10)
      ON CONFLICT (wa_message_id) DO NOTHING
      RETURNING id`,
-    [conversacionId, m.id, m.type || "unknown", textoDe(m), tsMeta(m.timestamp)]
+    [conversacionId, m.id, m.type || "unknown", textoDe(m), tsMeta(m.timestamp),
+     media?.id || null, media?.mime || null, media?.nombre || null, media?.caption || null,
+     media ? (r2Habilitado() ? "pendiente" : "deshabilitado") : null]
   );
   if (ins.rows.length === 0) return;          // duplicado: Meta reintentó un mensaje ya guardado
+  // Descarga del archivo en segundo plano (no demora la respuesta del bot ni el resto del webhook).
+  if (media && r2Habilitado()) guardarMediaEntrante(pool, ins.rows[0].id, conversacionId, media);
   // Ventana de 24 h (cuenta desde el último mensaje del cliente) + no leídos para la bandeja.
   // Va DESPUÉS del insert para que un reintento de Meta no sume un no leído de más.
   await pool.query(
@@ -212,6 +223,47 @@ async function procesarEntrante(pool, m, nombre) {
   );
   if (m.type === "reaction") return;           // las reacciones se guardan pero no se contestan
   programarRespuesta(pool, conversacionId);    // responderUltimo() solo contesta si estado = 'bot'
+}
+
+// Datos del media de un mensaje entrante (null si no es imagen/audio/video/documento/sticker).
+function mediaDe(m) {
+  if (!TIPOS_MEDIA.includes(m.type)) return null;
+  const o = m[m.type] || {};
+  if (!o.id) return null;
+  return { id: o.id, mime: o.mime_type ? String(o.mime_type).split(";")[0] : null, nombre: o.filename || null, caption: o.caption || null };
+}
+
+// Baja el archivo de Meta (GET /{media_id} → url → binario con el token) y lo guarda en R2 (privado).
+// Si falla, el mensaje queda con media_estado 'error' y el motivo; no rompe nada más.
+async function guardarMediaEntrante(pool, mensajeId, conversacionId, media) {
+  try {
+    const d = await descargarMediaMeta(media.id);
+    const mime = d.mime || media.mime || "application/octet-stream";
+    const key = claveArchivo(conversacionId, mensajeId, mime, media.nombre);
+    await archivos.subir(key, d.buffer, mime);
+    await pool.query(
+      "UPDATE wa_mensajes SET media_key = $2, media_mime = $3, media_bytes = $4, media_estado = 'ok', error = NULL WHERE id = $1",
+      [mensajeId, key, mime, d.bytes]
+    );
+  } catch (e) {
+    const motivo = String(e?.response?.data?.error?.message || e.message || "error").slice(0, 300);
+    console.error("WhatsApp: no se pudo guardar el archivo entrante (mensaje", mensajeId + "):", motivo);
+    await pool.query("UPDATE wa_mensajes SET media_estado = 'error', error = $2 WHERE id = $1", [mensajeId, motivo]).catch(() => {});
+  }
+}
+
+// Webhook message_template_status_update: APPROVED / REJECTED / PAUSED / DISABLED / …
+// Si la plantilla no estaba en la base (creada fuera del panel), se agrega mínima; "Sincronizar" la completa.
+async function procesarEstadoPlantilla(pool, v) {
+  if (!v?.message_template_id || !v?.event) return;
+  const motivo = v.reason && v.reason !== "NONE" ? String(v.reason) : null;
+  await pool.query(
+    `INSERT INTO wa_plantillas (meta_id, nombre, idioma, estado, motivo, updated_at)
+     VALUES ($1, $2, $3, $4, $5, NOW())
+     ON CONFLICT (meta_id) DO UPDATE SET estado = EXCLUDED.estado, motivo = EXCLUDED.motivo, updated_at = NOW()`,
+    [String(v.message_template_id), v.message_template_name || "(sin nombre)", v.message_template_language || "es_AR", String(v.event).toUpperCase(), motivo]
+  );
+  console.log("WhatsApp: plantilla", v.message_template_name, "→", v.event);
 }
 
 // Pone en el mensaje saliente el status más avanzado registrado (failed gana siempre).
@@ -253,6 +305,12 @@ async function procesarEvento(pool, body) {
   for (const entry of body?.entry || []) {
     for (const change of entry.changes || []) {
       const v = change.value || {};
+      if (change.field === "message_template_status_update") {
+        resumen.plantillas = (resumen.plantillas || 0) + 1;
+        try { await procesarEstadoPlantilla(pool, v); }
+        catch (e) { console.error("WhatsApp: error actualizando estado de plantilla:", e.message); }
+        continue;
+      }
       const nombres = {};
       for (const c of v.contacts || []) if (c.wa_id) nombres[c.wa_id] = c.profile?.name || null;
       for (const m of v.messages || []) {

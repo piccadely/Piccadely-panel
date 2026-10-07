@@ -4852,6 +4852,399 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       } catch { /* sin audio */ }
     }
 
+    // ─── WHATSAPP — FASE 3: PLANTILLAS Y ARCHIVOS ─────────────────────────
+    // Plantillas: copia local de las de Meta (se refresca con "Sincronizar" y con el webhook de estado).
+    // Archivos: se guardan en R2 (bucket privado); el chat pide una URL firmada corta por cada uno.
+    const WA_ESTADO_PLANTILLA = {
+      APPROVED: { label: "Aprobada", bg: "#eafaf1", c: "#1d8a4e" },
+      PENDING: { label: "Pendiente", bg: "#fef3c7", c: "#b45309" },
+      IN_APPEAL: { label: "En apelación", bg: "#fef3c7", c: "#b45309" },
+      REJECTED: { label: "Rechazada", bg: "#fdecea", c: "#c0392b" },
+      PAUSED: { label: "Pausada", bg: "#f3f4f6", c: "#6b7280" },
+      DISABLED: { label: "Deshabilitada", bg: "#f3f4f6", c: "#6b7280" },
+    };
+    const WA_CATEGORIA = { UTILITY: "Utility", MARKETING: "Marketing", AUTHENTICATION: "Autenticación" };
+    const WA_MEDIA = ["image", "audio", "video", "document", "sticker"];
+    const WA_MAX_ARCHIVO = 10 * 1024 * 1024;
+    const WA_MIMES_SALIENTES = ["image/jpeg", "image/png", "application/pdf"];
+    const waVars = (t) => [...new Set([...String(t || "").matchAll(/{{([0-9]+)}}/g)].map(m => Number(m[1])))].sort((a, b) => a - b);
+    const waReemplazar = (t, vals) => String(t || "").replace(/{{([0-9]+)}}/g, (x, n) => (String(vals?.[Number(n) - 1] ?? "").trim() ? vals[Number(n) - 1] : x));
+    function waPartes(comps) {
+      const c = Array.isArray(comps) ? comps : [];
+      const tipo = (t) => c.find(x => String(x.type).toUpperCase() === t);
+      return { header: tipo("HEADER"), body: tipo("BODY"), footer: tipo("FOOTER"), botones: tipo("BUTTONS")?.buttons || [] };
+    }
+    const waBytes = (n) => !n ? "" : n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
+    const waInput = { width: "100%", boxSizing: "border-box", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", fontFamily: "inherit" };
+    const waLabel = { fontSize: 12, color: "#777", display: "block", margin: "10px 0 4px" };
+    const waBtn = (bg, c, b) => ({ fontSize: 12, fontWeight: 600, padding: "7px 12px", borderRadius: 8, border: `1px solid ${b || bg}`, background: bg, color: c, cursor: "pointer", whiteSpace: "nowrap" });
+
+    // Vista previa con forma de burbuja de WhatsApp (las variables sin completar se ven como {{n}}).
+    function WaPreviewPlantilla({ comps, vars = [], varsHeader = [] }) {
+      const { header, body, footer, botones } = waPartes(comps);
+      return (
+        <div style={{ background: "#efeae2", borderRadius: 10, padding: 12 }}>
+          <div style={{ background: "#fff", borderRadius: 10, padding: "8px 10px", maxWidth: 320, boxShadow: "0 1px 1px rgba(0,0,0,0.08)" }}>
+            {header?.text && <div style={{ fontWeight: 700, fontSize: 14, color: "#222", marginBottom: 4, wordBreak: "break-word" }}>{waReemplazar(header.text, varsHeader)}</div>}
+            {header && !header.text && <div style={{ fontSize: 12, color: "#888", fontStyle: "italic", marginBottom: 4 }}>[Encabezado {String(header.format || "").toLowerCase()}]</div>}
+            <div style={{ fontSize: 14, color: "#222", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{body?.text ? waReemplazar(body.text, vars) : <span style={{ color: "#aaa" }}>(sin cuerpo)</span>}</div>
+            {footer?.text && <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>{footer.text}</div>}
+          </div>
+          {botones.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxWidth: 320, marginTop: 4 }}>
+              {botones.map((b, i) => (
+                <div key={i} style={{ background: "#fff", borderRadius: 8, textAlign: "center", padding: 6, fontSize: 13, color: "#0b7bd8" }}>
+                  {b.type === "URL" ? "🔗 " : b.type === "PHONE_NUMBER" ? "📞 " : "↩ "}{b.text}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Modal "Enviar plantilla": con conversacion = a esa conversación (fuera de las 24 h);
+    // sin conversacion = "Nueva conversación" (pide el número; queda tomada por quien la inicia).
+    // onListo(data, error): se llama al enviar, o si falló pero el mensaje quedó guardado como fallido.
+    function ModalPlantillaWA({ conversacion, onCerrar, onListo }) {
+      const nueva = !conversacion;
+      const [plantillas, setPlantillas] = useState(null);
+      const [sel, setSel] = useState("");
+      const [vars, setVars] = useState([]);
+      const [varsH, setVarsH] = useState([]);
+      const [numero, setNumero] = useState("");
+      const [enviando, setEnviando] = useState(false);
+      const [error, setError] = useState(null);
+      useEffect(() => {
+        axios.get(`${API}/api/whatsapp/plantillas`, { params: { estado: "APPROVED" } })
+          .then(r => setPlantillas((r.data.plantillas || []).filter(p => p.soportada)))
+          .catch(err => { setPlantillas([]); setError(err.response?.data?.error || "No se pudieron cargar las plantillas."); });
+      }, []);
+      const p = (plantillas || []).find(x => String(x.id) === String(sel));
+      function elegir(id) {
+        const pl = (plantillas || []).find(x => String(x.id) === String(id));
+        setSel(id); setError(null);
+        setVars(Array(pl?.variables_cuerpo || 0).fill(""));
+        setVarsH(Array(pl?.variables_header || 0).fill(""));
+      }
+      const numeroOk = !nueva || numero.replace(/[^0-9]/g, "").length >= 10;
+      const completo = !!p && vars.every(v => v.trim()) && varsH.every(v => v.trim()) && numeroOk;
+      async function enviar() {
+        if (!completo || enviando) return;
+        setEnviando(true); setError(null);
+        const body = { plantilla_id: p.id, variables: vars, variables_header: varsH };
+        try {
+          const r = nueva
+            ? await axios.post(`${API}/api/whatsapp/conversaciones/nueva`, { ...body, numero })
+            : await axios.post(`${API}/api/whatsapp/conversaciones/${conversacion.id}/plantilla`, body);
+          onListo(r.data, null);
+        } catch (err) {
+          const d = err.response?.data || {};
+          if (d.mensaje) onListo(d, d.error || "WhatsApp no aceptó la plantilla.");   // quedó guardada como fallida
+          else setError(d.error || "No se pudo enviar la plantilla.");
+        }
+        setEnviando(false);
+      }
+      const campoVar = (lista, setLista, i, etiqueta) => (
+        <div key={etiqueta}>
+          <label style={waLabel}>{etiqueta}</label>
+          <input style={waInput} value={lista[i]} maxLength={500}
+            onChange={e => { const v = e.target.value; setLista(ls => ls.map((x, j) => j === i ? v : x)); }} />
+        </div>
+      );
+      return (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }} onClick={onCerrar}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 20, width: "100%", maxWidth: 520, maxHeight: "92dvh", overflowY: "auto", boxSizing: "border-box" }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#333" }}>{nueva ? "Nueva conversación" : "Enviar plantilla"}</div>
+            <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
+              {nueva ? "Para iniciar una conversación, WhatsApp exige una plantilla aprobada. La conversación queda tomada por vos."
+                : `A ${conversacion.nombre || waNumero(conversacion.wa_id)}. Pasaron más de 24 h desde su último mensaje: solo se le puede escribir con una plantilla aprobada.`}
+            </div>
+            {nueva && (
+              <>
+                <label style={waLabel}>Número</label>
+                <input style={waInput} value={numero} placeholder="Ej. 11 6239 3600 (con código de área, sin 0 ni 15)" onChange={e => setNumero(e.target.value)} />
+              </>
+            )}
+            <label style={waLabel}>Plantilla</label>
+            {plantillas === null ? <div style={{ fontSize: 13, color: "#aaa" }}>Cargando…</div>
+              : plantillas.length === 0 ? <div style={{ fontSize: 13, color: "#8a6d3b", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "8px 10px" }}>No hay plantillas aprobadas que se puedan enviar desde el panel. Revisá la sección Plantillas (y tocá "Sincronizar").</div>
+              : (
+                <select style={waInput} value={sel} onChange={e => elegir(e.target.value)}>
+                  <option value="">Elegí una plantilla…</option>
+                  {plantillas.map(x => <option key={x.id} value={x.id}>{x.nombre} · {WA_CATEGORIA[x.categoria] || x.categoria} · {x.idioma}</option>)}
+                </select>
+              )}
+            {p && (
+              <>
+                {varsH.map((_, i) => campoVar(varsH, setVarsH, i, "Variable del encabezado {{1}}"))}
+                {vars.map((_, i) => campoVar(vars, setVars, i, `Variable {{${i + 1}}}`))}
+                <label style={waLabel}>Vista previa</label>
+                <WaPreviewPlantilla comps={p.componentes} vars={vars} varsHeader={varsH} />
+              </>
+            )}
+            {error && <div style={{ marginTop: 10, fontSize: 13, color: "#c0392b", background: "#fdecea", border: "1px solid #f5c6cb", borderRadius: 8, padding: "8px 10px" }}>{error}</div>}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <button style={waBtn("#fff", "#333", "#ddd")} onClick={onCerrar}>Cancelar</button>
+              <button style={waBtn(completo && !enviando ? "#1d8a4e" : "#ccc", "#fff")} disabled={!completo || enviando} onClick={enviar}>{enviando ? "Enviando…" : "Enviar plantilla"}</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // URLs firmadas (10 min) cacheadas por mensaje, con margen de 1 min.
+    const waUrlCache = new Map();
+    async function waUrlArchivo(id, forzar = false) {
+      const c = waUrlCache.get(id);
+      if (!forzar && c && c.vence > Date.now()) return c;
+      const r = await axios.get(`${API}/api/whatsapp/mensajes/${id}/archivo`);
+      const v = { ...r.data, vence: Date.now() + Math.max(30, (r.data.expira_en || 600) - 60) * 1000 };
+      waUrlCache.set(id, v);
+      return v;
+    }
+
+    // Archivo dentro de una burbuja: imagen/sticker (miniatura, click amplía), audio, video o documento (descarga).
+    function WaMedia({ m, onAmpliar }) {
+      const [info, setInfo] = useState(null);
+      const [err, setErr] = useState(null);
+      const reintentos = useRef(0);
+      const enLinea = ["image", "sticker", "audio", "video"].includes(m.tipo);
+      function cargar(forzar) {
+        return waUrlArchivo(m.id, forzar).then(v => { setInfo(v); setErr(null); }).catch(e => setErr(e.response?.data?.error || "No se pudo cargar el archivo."));
+      }
+      useEffect(() => { if (enLinea && m.tiene_archivo) cargar(false); }, [m.id, m.tiene_archivo]);   // eslint-disable-line
+      // Si la URL venció (chat abierto mucho tiempo), se pide una nueva una sola vez.
+      const alFallar = () => { if (reintentos.current < 1) { reintentos.current++; cargar(true); } else setErr("No se pudo cargar el archivo."); };
+      async function descargar() {
+        try { const v = await waUrlArchivo(m.id, true); window.location.href = v.url; }   // la URL fuerza descarga: no se sale del panel
+        catch (e) { setErr(e.response?.data?.error || "No se pudo descargar el archivo."); }
+      }
+      const chip = (t, c = "#666") => <div style={{ fontSize: 12, color: c, background: "rgba(0,0,0,0.04)", borderRadius: 8, padding: "6px 9px", marginBottom: 3 }}>{t}</div>;
+      const etiqueta = WA_TIPO_ICONO[m.tipo] || m.tipo;
+      if (m.media_estado === "vencido") return chip(`🗑️ ${etiqueta} · archivo vencido (se borró por la política de retención)`, "#888");
+      if (!m.tiene_archivo) {
+        const txt = m.media_estado === "pendiente" ? "⏳ guardando archivo…"
+          : m.media_estado === "deshabilitado" ? "no se guardó (archivos deshabilitados)"
+          : m.media_estado === "error" ? "⚠ no se pudo guardar el archivo" : "";
+        return chip(`${etiqueta}${txt ? " · " + txt : ""}`, m.media_estado === "error" ? "#c0392b" : "#666");
+      }
+      if (err) return chip(`⚠ ${etiqueta} · ${err}`, "#c0392b");
+      if (m.tipo === "document") {
+        return (
+          <button onClick={descargar} title="Descargar" style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", background: "rgba(0,0,0,0.04)", border: "1px solid rgba(0,0,0,0.06)", borderRadius: 8, padding: "8px 10px", cursor: "pointer", marginBottom: 3, fontFamily: "inherit" }}>
+            <span style={{ fontSize: 22 }}>📄</span>
+            <span style={{ minWidth: 0, flex: 1 }}>
+              <span style={{ display: "block", fontSize: 13, color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.media_nombre || "Documento"}</span>
+              <span style={{ display: "block", fontSize: 11, color: "#888" }}>{waBytes(m.media_bytes)}{m.media_bytes ? " · " : ""}Descargar ⬇</span>
+            </span>
+          </button>
+        );
+      }
+      if (!info) return <div style={{ width: m.tipo === "audio" ? 240 : 200, maxWidth: "100%", height: m.tipo === "audio" ? 40 : 140, background: "rgba(0,0,0,0.06)", borderRadius: 8, marginBottom: 3 }} />;
+      if (m.tipo === "image" || m.tipo === "sticker") {
+        return <img src={info.url} alt={etiqueta} onClick={() => onAmpliar && onAmpliar(info.url)} onError={alFallar}
+          style={{ display: "block", maxWidth: m.tipo === "sticker" ? 140 : "min(260px, 100%)", maxHeight: 260, borderRadius: 8, cursor: "zoom-in", marginBottom: 3, background: m.tipo === "sticker" ? "transparent" : "#eee" }} />;
+      }
+      if (m.tipo === "audio") return <audio controls preload="none" src={info.url} onError={alFallar} style={{ display: "block", width: 260, maxWidth: "100%", marginBottom: 3 }} />;
+      return <video controls preload="metadata" src={info.url} onError={alFallar} style={{ display: "block", maxWidth: "min(280px, 100%)", maxHeight: 280, borderRadius: 8, marginBottom: 3 }} />;
+    }
+
+    // ─── Sección Plantillas: listado + sincronizar + alta (solo admin/superadmin) ───
+    const WA_PLANTILLA_VACIA = { nombre: "", categoria: "UTILITY", idioma: "es_AR", header_texto: "", ejemplo_header: "", cuerpo: "", ejemplos_cuerpo: [], botones: [] };
+    function VistaPlantillasWA({ onVolver, angosto = false }) {
+      const [lista, setLista] = useState([]);
+      const [cargando, setCargando] = useState(true);
+      const [puedeCrear, setPuedeCrear] = useState(false);
+      const [wabaOk, setWabaOk] = useState(true);
+      const [sincronizando, setSincronizando] = useState(false);
+      const [filtro, setFiltro] = useState("");
+      const [abierta, setAbierta] = useState(null);
+      const [form, setForm] = useState(null);
+      const [guardando, setGuardando] = useState(false);
+      const [errorForm, setErrorForm] = useState(null);
+      const [aviso, setAviso] = useState(null);
+      const cuerpoRef = useRef(null);
+      function mostrarAviso(t, tipo = "ok") { setAviso({ texto: t, tipo }); setTimeout(() => setAviso(null), 6000); }
+
+      async function cargar() {
+        try {
+          const r = await axios.get(`${API}/api/whatsapp/plantillas`);
+          setLista(r.data.plantillas || []); setPuedeCrear(!!r.data.puede_crear); setWabaOk(!!r.data.waba_configurado);
+        } catch (err) { mostrarAviso(err.response?.data?.error || "Error cargando plantillas", "error"); }
+        setCargando(false);
+      }
+      useEffect(() => { cargar(); }, []);
+
+      async function sincronizar() {
+        if (sincronizando) return;
+        setSincronizando(true);
+        try {
+          const r = await axios.post(`${API}/api/whatsapp/plantillas/sincronizar`);
+          mostrarAviso(`Sincronizado con Meta: ${r.data.total} plantilla(s)${r.data.borradas ? `, ${r.data.borradas} ya no existían y se quitaron` : ""}.`);
+          await cargar();
+        } catch (err) { mostrarAviso(err.response?.data?.error || "No se pudo sincronizar", "error"); }
+        setSincronizando(false);
+      }
+
+      // Formulario de alta
+      const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+      const varsCuerpo = form ? waVars(form.cuerpo) : [];
+      const headerConVar = form ? waVars(form.header_texto).length > 0 : false;
+      useEffect(() => {   // un ejemplo por variable del cuerpo
+        if (!form) return;
+        const n = varsCuerpo.length ? Math.max(...varsCuerpo) : 0;
+        if (form.ejemplos_cuerpo.length !== n) set("ejemplos_cuerpo", Array.from({ length: n }, (_, i) => form.ejemplos_cuerpo[i] || ""));
+      }, [form?.cuerpo]);   // eslint-disable-line
+      function insertarVariable() {
+        const n = (varsCuerpo.length ? Math.max(...varsCuerpo) : 0) + 1;
+        const el = cuerpoRef.current, t = form.cuerpo, marca = `{{${n}}}`;
+        const ini = el ? el.selectionStart : t.length, fin = el ? el.selectionEnd : t.length;
+        set("cuerpo", t.slice(0, ini) + marca + t.slice(fin));
+        setTimeout(() => { if (el) { el.focus(); el.selectionStart = el.selectionEnd = ini + marca.length; } }, 0);
+      }
+      const setBoton = (i, k, v) => setForm(f => ({ ...f, botones: f.botones.map((b, j) => j === i ? { ...b, [k]: v } : b) }));
+      const compsForm = form ? [
+        ...(form.header_texto.trim() ? [{ type: "HEADER", format: "TEXT", text: form.header_texto }] : []),
+        { type: "BODY", text: form.cuerpo },
+        ...(form.botones.some(b => b.texto.trim()) ? [{ type: "BUTTONS", buttons: form.botones.filter(b => b.texto.trim()).map(b => ({ type: b.tipo, text: b.texto })) }] : []),
+      ] : [];
+      async function crear() {
+        if (guardando) return;
+        setGuardando(true); setErrorForm(null);
+        try {
+          const body = { ...form, nombre: form.nombre.trim(), ejemplo_header: headerConVar ? form.ejemplo_header : "" };
+          await axios.post(`${API}/api/whatsapp/plantillas`, body);
+          setForm(null);
+          mostrarAviso(`Plantilla "${body.nombre}" enviada a Meta. Queda Pendiente hasta que la revisen (suele tardar minutos; el estado se actualiza solo).`);
+          await cargar();
+        } catch (err) { setErrorForm(err.response?.data?.error || "No se pudo crear la plantilla."); }
+        setGuardando(false);
+      }
+
+      const visibles = lista.filter(p => !filtro || p.estado === filtro);
+      const estadoChip = (e) => { const i = WA_ESTADO_PLANTILLA[e] || { label: e || "—", bg: "#f3f4f6", c: "#6b7280" }; return <span style={{ fontSize: 10, fontWeight: 700, color: i.c, background: i.bg, borderRadius: 4, padding: "2px 7px", textTransform: "uppercase", whiteSpace: "nowrap" }}>{i.label}</span>; };
+
+      return (
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: angosto ? 12 : 16, boxSizing: "border-box" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>📋 Plantillas de WhatsApp</div>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button style={waBtn("#fff", "#333", "#ddd")} disabled={sincronizando || !wabaOk} onClick={sincronizar} title="Trae de Meta las plantillas y sus estados">{sincronizando ? "Sincronizando…" : "🔄 Sincronizar"}</button>
+              {puedeCrear && <button style={waBtn(wabaOk ? "#F68B32" : "#ccc", "#fff")} disabled={!wabaOk} onClick={() => { setForm({ ...WA_PLANTILLA_VACIA }); setErrorForm(null); }}>+ Nueva plantilla</button>}
+              <button style={waBtn("#fff", "#333", "#ddd")} onClick={onVolver}>← Volver</button>
+            </div>
+          </div>
+          {!wabaOk && <div style={{ fontSize: 13, color: "#8a6d3b", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>Falta configurar WA_WABA_ID en el servidor: no se pueden sincronizar ni crear plantillas.</div>}
+          {aviso && <div style={{ background: aviso.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${aviso.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: aviso.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: "8px 12px", fontSize: 13, marginBottom: 12 }}>{aviso.texto}</div>}
+
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+            {[["", "Todas"], ["APPROVED", "Aprobadas"], ["PENDING", "Pendientes"], ["REJECTED", "Rechazadas"]].map(([k, l]) => (
+              <button key={k || "todas"} style={waBtn(filtro === k ? "#fff7ed" : "#fff", filtro === k ? "#F68B32" : "#555", filtro === k ? "#F68B32" : "#ddd")} onClick={() => setFiltro(k)}>
+                {l} ({k ? lista.filter(p => p.estado === k).length : lista.length})
+              </button>
+            ))}
+          </div>
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
+            {cargando ? <div style={{ padding: 16, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+              : visibles.length === 0 ? <div style={{ padding: 16, color: "#aaa", fontSize: 13 }}>{lista.length ? "No hay plantillas con este estado." : "Todavía no hay plantillas. Tocá «Sincronizar» para traer las de Meta."}</div>
+              : visibles.map(p => (
+                <div key={p.id} style={{ borderBottom: "1px solid #f3f3f3" }}>
+                  <div onClick={() => setAbierta(a => a === p.id ? null : p.id)} style={{ padding: "10px 12px", cursor: "pointer", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#333", wordBreak: "break-all" }}>{p.nombre}</div>
+                      <div style={{ fontSize: 11, color: "#888" }}>{WA_CATEGORIA[p.categoria] || p.categoria || "—"} · {p.idioma}{!p.soportada ? " · no se puede enviar desde el panel (encabezado multimedia o botones con variables)" : ""}</div>
+                    </div>
+                    {estadoChip(p.estado)}
+                    <span style={{ fontSize: 12, color: "#aaa" }}>{abierta === p.id ? "▲" : "▼"}</span>
+                  </div>
+                  {p.estado === "REJECTED" && p.motivo && <div style={{ margin: "0 12px 10px", fontSize: 12, color: "#c0392b" }}>Motivo del rechazo: {p.motivo}</div>}
+                  {abierta === p.id && <div style={{ padding: "0 12px 12px" }}><WaPreviewPlantilla comps={p.componentes} /></div>}
+                </div>
+              ))}
+          </div>
+
+          {form && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }} onClick={() => !guardando && setForm(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 20, width: "100%", maxWidth: 860, maxHeight: "92dvh", overflowY: "auto", boxSizing: "border-box" }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333" }}>Nueva plantilla</div>
+                <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>Se manda a Meta para aprobación. Hasta que la aprueben queda Pendiente y no se puede usar.</div>
+                <div style={{ display: "grid", gridTemplateColumns: angosto ? "1fr" : "minmax(0, 1fr) 320px", gap: 20, marginTop: 6 }}>
+                  <div>
+                    <label style={waLabel}>Nombre (minúsculas, números y guion bajo)</label>
+                    <input style={waInput} value={form.nombre} placeholder="ej. confirmacion_pedido" maxLength={512}
+                      onChange={e => set("nombre", e.target.value.toLowerCase().replace(/ /g, "_").replace(/[^a-z0-9_]/g, ""))} />
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={waLabel}>Categoría</label>
+                        <select style={waInput} value={form.categoria} onChange={e => set("categoria", e.target.value)}>
+                          <option value="UTILITY">Utility (avisos de pedidos, turnos)</option>
+                          <option value="MARKETING">Marketing (promociones)</option>
+                        </select>
+                      </div>
+                      <div style={{ width: 130 }}>
+                        <label style={waLabel}>Idioma</label>
+                        <select style={waInput} value={form.idioma} onChange={e => set("idioma", e.target.value)}>
+                          <option value="es_AR">es_AR</option>
+                          <option value="es">es</option>
+                          <option value="en_US">en_US</option>
+                        </select>
+                      </div>
+                    </div>
+                    <label style={waLabel}>Encabezado (opcional, texto, máx. 60; admite {"{{1}}"})</label>
+                    <input style={waInput} value={form.header_texto} maxLength={60} onChange={e => set("header_texto", e.target.value)} />
+                    {headerConVar && (
+                      <>
+                        <label style={waLabel}>Ejemplo para {"{{1}}"} del encabezado</label>
+                        <input style={waInput} value={form.ejemplo_header} onChange={e => set("ejemplo_header", e.target.value)} />
+                      </>
+                    )}
+                    <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
+                      <label style={waLabel}>Cuerpo ({form.cuerpo.length}/1024)</label>
+                      <button type="button" style={{ ...waBtn("#fff", "#F68B32", "#F68B32"), padding: "3px 8px", marginBottom: 4 }} onClick={insertarVariable}>+ Variable</button>
+                    </div>
+                    <textarea ref={cuerpoRef} style={{ ...waInput, minHeight: 110, resize: "vertical" }} value={form.cuerpo} maxLength={1024}
+                      placeholder={"Hola {{1}}, tu pedido {{2}} ya está listo."} onChange={e => set("cuerpo", e.target.value)} />
+                    {form.ejemplos_cuerpo.map((ej, i) => (
+                      <div key={i}>
+                        <label style={waLabel}>Ejemplo para {`{{${i + 1}}}`}</label>
+                        <input style={waInput} value={ej} onChange={e => { const v = e.target.value; setForm(f => ({ ...f, ejemplos_cuerpo: f.ejemplos_cuerpo.map((x, j) => j === i ? v : x) })); }} />
+                      </div>
+                    ))}
+                    <label style={waLabel}>Botones (opcional)</label>
+                    {form.botones.map((b, i) => (
+                      <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                        <select style={{ ...waInput, width: 150 }} value={b.tipo} onChange={e => setBoton(i, "tipo", e.target.value)}>
+                          <option value="QUICK_REPLY">Respuesta rápida</option>
+                          <option value="URL">Link (https)</option>
+                          <option value="PHONE_NUMBER">Llamar</option>
+                        </select>
+                        <input style={{ ...waInput, flex: 1, minWidth: 120 }} value={b.texto} maxLength={25} placeholder="Texto (máx. 25)" onChange={e => setBoton(i, "texto", e.target.value)} />
+                        {b.tipo === "URL" && <input style={{ ...waInput, flex: "1 1 100%" }} value={b.url} placeholder="https://…" onChange={e => setBoton(i, "url", e.target.value)} />}
+                        {b.tipo === "PHONE_NUMBER" && <input style={{ ...waInput, flex: "1 1 100%" }} value={b.telefono} placeholder="+5491162393600" onChange={e => setBoton(i, "telefono", e.target.value)} />}
+                        <button type="button" style={waBtn("#fff", "#c0392b", "#f5c6cb")} onClick={() => setForm(f => ({ ...f, botones: f.botones.filter((_, j) => j !== i) }))}>✕</button>
+                      </div>
+                    ))}
+                    {form.botones.length < 10 && <button type="button" style={waBtn("#fff", "#555", "#ddd")} onClick={() => setForm(f => ({ ...f, botones: [...f.botones, { tipo: "QUICK_REPLY", texto: "", url: "", telefono: "" }] }))}>+ Agregar botón</button>}
+                  </div>
+                  <div>
+                    <label style={waLabel}>Vista previa (con los ejemplos)</label>
+                    <WaPreviewPlantilla comps={compsForm} vars={form.ejemplos_cuerpo} varsHeader={[form.ejemplo_header]} />
+                  </div>
+                </div>
+                {errorForm && <div style={{ marginTop: 12, fontSize: 13, color: "#c0392b", background: "#fdecea", border: "1px solid #f5c6cb", borderRadius: 8, padding: "8px 10px" }}>{errorForm}</div>}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+                  <button style={waBtn("#fff", "#333", "#ddd")} disabled={guardando} onClick={() => setForm(null)}>Cancelar</button>
+                  <button style={waBtn(guardando || !form.nombre || !form.cuerpo.trim() ? "#ccc" : "#F68B32", "#fff")} disabled={guardando || !form.nombre || !form.cuerpo.trim()} onClick={crear}>{guardando ? "Enviando a Meta…" : "Crear y mandar a aprobación"}</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     function VistaWhatsApp({ usuario, onVolver, modo = "pantalla", ancho = 0, onCargarPedido }) {
       const [tab, setTab] = useState("pendientes");
       const [q, setQ] = useState("");
@@ -4870,6 +5263,13 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [aviso, setAviso] = useState(null);           // { texto, tipo }
       const [alerta, setAlerta] = useState(false);        // entró algo nuevo en Pendientes
       const [esMovil, setEsMovil] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches);
+      const [archivosOk, setArchivosOk] = useState(false);   // R2 OK en el servidor
+      const [modalPlantilla, setModalPlantilla] = useState(null);   // null | "conv" | "nueva"
+      const [verPlantillas, setVerPlantillas] = useState(false);
+      const [ampliada, setAmpliada] = useState(null);       // URL de la imagen abierta en grande
+      const [adjunto, setAdjunto] = useState(null);         // { file, caption } listo para mandar
+      const [subiendo, setSubiendo] = useState(false);
+      const archivoRef = useRef(null);
       const firmaRef = useRef(null);
       const ultimoIdRef = useRef(0);
       const finRef = useRef(null);
@@ -4921,6 +5321,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         try {
           const r = await axios.get(`${API}/api/whatsapp/conversaciones/${id}/mensajes`);
           setConv(r.data.conversacion); setMensajes(r.data.mensajes || []); setHayMas(!!r.data.hay_mas);
+          setArchivosOk(!!r.data.archivos_habilitados);
           ultimoIdRef.current = (r.data.mensajes || []).reduce((a, m) => Math.max(a, m.id), 0);
           setLista(ls => ls.map(c => c.id === id ? { ...c, no_leidos: 0 } : c));
           alFinal();
@@ -4932,12 +5333,19 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         try {
           const r = await axios.get(`${API}/api/whatsapp/conversaciones/${id}/mensajes`, { params: { despues: ultimoIdRef.current || undefined } });
           setConv(r.data.conversacion);
+          setArchivosOk(!!r.data.archivos_habilitados);
           const nuevos = r.data.mensajes || [];
+          // Estados recientes: ticks de los salientes y estado de los archivos (un entrante pasa de "pendiente" a "ok").
           const est = {}; for (const s of r.data.estados_salientes || []) est[s.id] = s;
           const pegarAbajo = nuevos.length > 0 && cercaDelFinal();
           setMensajes(ms => {
             const ids = new Set(ms.map(m => m.id));
-            const act = ms.map(m => est[m.id] ? { ...m, estado: est[m.id].estado, error: est[m.id].error } : m);
+            const act = ms.map(m => {
+              const e = est[m.id];
+              if (!e) return m;
+              const cambio = e.estado !== m.estado || e.error !== m.error || e.media_estado !== m.media_estado || e.tiene_archivo !== m.tiene_archivo;
+              return cambio ? { ...m, estado: e.estado, error: e.error, media_estado: e.media_estado, tiene_archivo: e.tiene_archivo } : m;
+            });
             return [...act, ...nuevos.filter(m => !ids.has(m.id))];
           });
           if (nuevos.length) ultimoIdRef.current = Math.max(ultimoIdRef.current, ...nuevos.map(m => m.id));
@@ -4946,7 +5354,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       }
       useEffect(() => {
         if (!selId) { setConv(null); setMensajes([]); return; }
-        setTexto(""); abrirConversacion(selId);
+        setTexto(""); setAdjunto(null); abrirConversacion(selId);
         const t = setInterval(() => cargarNuevos(selId), 5000);
         return () => clearInterval(t);
       }, [selId]);   // eslint-disable-line
@@ -4992,17 +5400,63 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         setEnviando(false);
       }
 
+      const agregarMensaje = (m) => { if (!m) return; setMensajes(ms => ms.some(x => x.id === m.id) ? ms : [...ms, m]); ultimoIdRef.current = Math.max(ultimoIdRef.current, m.id); alFinal(); };
+
+      // Resultado del modal de plantilla (a esta conversación o una nueva).
+      function plantillaLista(data, error) {
+        const eraNueva = modalPlantilla === "nueva";
+        setModalPlantilla(null);
+        if (eraNueva && data.conversacion_id) {
+          setTab("mias");
+          if (data.conversacion_id === selId) abrirConversacion(selId); else setSelId(data.conversacion_id);
+        } else agregarMensaje(data.mensaje);
+        error ? mostrarAviso(error, "error") : mostrarAviso(eraNueva ? "Plantilla enviada: la conversación quedó tomada por vos." : "Plantilla enviada.");
+        cargarLista();
+      }
+
+      function elegirArchivo(e) {
+        const f = e.target.files?.[0];
+        e.target.value = "";
+        if (!f) return;
+        if (!WA_MIMES_SALIENTES.includes(f.type)) return mostrarAviso("Solo se pueden enviar imágenes JPG o PNG, o documentos PDF.", "error");
+        if (f.size > WA_MAX_ARCHIVO) return mostrarAviso(`El archivo pesa ${waBytes(f.size)}: el máximo es 10 MB.`, "error");
+        setAdjunto({ file: f, caption: texto.trim() });   // lo escrito pasa como epígrafe
+      }
+      async function enviarAdjunto() {
+        if (!adjunto || !conv || subiendo) return;
+        setSubiendo(true);
+        try {
+          const r = await axios.post(`${API}/api/whatsapp/conversaciones/${conv.id}/archivo`, adjunto.file, {
+            headers: { "Content-Type": adjunto.file.type },
+            params: { nombre: adjunto.file.name, caption: adjunto.caption.trim() || undefined },
+          });
+          agregarMensaje(r.data.mensaje);
+          if (adjunto.caption.trim() === texto.trim()) setTexto("");
+          setAdjunto(null); cargarLista();
+        } catch (err) {
+          const m = err.response?.data?.mensaje;   // 502: quedó guardado como fallido
+          if (m) { agregarMensaje(m); setAdjunto(null); }
+          mostrarAviso(err.response?.data?.error || "No se pudo enviar el archivo", "error");
+          if (err.response?.status === 409 || err.response?.status === 422) cargarNuevos(conv.id);
+        }
+        setSubiendo(false);
+      }
+
       // Por qué no se puede escribir (null = se puede).
+      const esMiaYPuedo = !!conv && puedeOperar && conv.estado === "agente" && conv.es_mia;
+      const requierePlantilla = esMiaYPuedo && !conv.ventana_abierta;
       const motivoBloqueo = !conv ? null
         : !puedeOperar ? "Estás en una sesión de solo lectura: podés ver las conversaciones pero no responder."
         : conv.estado === "agente" && !conv.es_mia ? `La está atendiendo ${conv.agente_nombre || "otro agente"}. Solo esa persona puede responder.`
-        : !(conv.estado === "agente" && conv.es_mia) ? "Tomá la conversación para responder (el bot queda pausado)."
-        : !conv.ventana_abierta ? "Pasaron más de 24 h desde el último mensaje del cliente. Para escribirle hace falta una plantilla (disponible en la Fase 3)."
+        : !esMiaYPuedo ? "Tomá la conversación para responder (el bot queda pausado)."
+        : requierePlantilla ? "Pasaron más de 24 h desde el último mensaje del cliente: solo se le puede escribir con una plantilla aprobada."
         : null;
 
       const btn = (bg, c, b) => ({ fontSize: 12, fontWeight: 600, padding: "7px 12px", borderRadius: 8, border: `1px solid ${b || bg}`, background: bg, color: c, cursor: "pointer", whiteSpace: "nowrap" });
       const verLista = !angosto || !selId;
       const verChat = !angosto || !!selId;
+
+      if (verPlantillas) return <VistaPlantillasWA angosto={angosto} onVolver={() => setVerPlantillas(false)} />;
 
       return (
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: angosto ? 0 : 16, gap: 12, boxSizing: "border-box" }}>
@@ -5016,7 +5470,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                 </button>
               )}
               <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                <button style={{ ...btn("#f3f4f6", "#9ca3af", "#e5e7eb"), cursor: "not-allowed" }} disabled title="Disponible con plantillas (Fase 3)">+ Nueva conversación</button>
+                <button style={btn("#fff", "#333", "#ddd")} onClick={() => setVerPlantillas(true)}>📋 Plantillas</button>
+                {puedeOperar && <button style={btn("#F68B32", "#fff")} onClick={() => setModalPlantilla("nueva")} title="Escribirle a un número con una plantilla aprobada">+ Nueva conversación</button>}
                 <button style={btn("#fff", "#333", "#ddd")} onClick={onVolver}>{modo === "drawer" ? "✕ Cerrar" : "← Volver"}</button>
               </div>
             </div>
@@ -5127,10 +5582,14 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                         const sale = m.direccion === "out";
                         const tick = sale ? waTick(m) : null;
                         const estilo = !sale ? { bg: "#fff", align: "flex-start" } : m.autor === "bot" ? { bg: "#e0e7ff", align: "flex-end" } : { bg: "#d9fdd3", align: "flex-end" };
+                        const esMedia = WA_MEDIA.includes(m.tipo);
                         return (
                           <div key={m.id} style={{ alignSelf: estilo.align, maxWidth: angosto ? "86%" : "72%", background: estilo.bg, borderRadius: 10, padding: "6px 10px 4px", boxShadow: "0 1px 1px rgba(0,0,0,0.06)" }}>
-                            {sale && <div style={{ fontSize: 11, fontWeight: 700, color: m.autor === "bot" ? "#4338ca" : "#1d8a4e", marginBottom: 2 }}>{m.autor === "bot" ? "🤖 Bot" : `👤 ${m.usuario_nombre || "Agente"}`}</div>}
-                            <div style={{ fontSize: 14, color: "#222", whiteSpace: "pre-wrap", wordBreak: "break-word", fontStyle: m.texto ? "normal" : "italic" }}>{waTextoMensaje(m)}</div>
+                            {sale && <div style={{ fontSize: 11, fontWeight: 700, color: m.autor === "bot" ? "#4338ca" : "#1d8a4e", marginBottom: 2 }}>{m.autor === "bot" ? "🤖 Bot" : `👤 ${m.usuario_nombre || "Agente"}`}{m.plantilla_nombre && <span style={{ fontWeight: 500, color: "#888" }}> · 📋 plantilla {m.plantilla_nombre}</span>}</div>}
+                            {esMedia && <WaMedia m={m} onAmpliar={setAmpliada} />}
+                            {esMedia
+                              ? (m.caption && <div style={{ fontSize: 14, color: "#222", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{m.caption}</div>)
+                              : <div style={{ fontSize: 14, color: "#222", whiteSpace: "pre-wrap", wordBreak: "break-word", fontStyle: m.texto ? "normal" : "italic" }}>{waTextoMensaje(m)}</div>}
                             <div style={{ fontSize: 10, color: "#999", textAlign: "right", marginTop: 2, display: "flex", justifyContent: "flex-end", gap: 4, alignItems: "center" }}>
                               <span>{new Date(m.wa_timestamp || m.created_at).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
                               {tick && <span title={tick.title} style={{ color: tick.c, fontWeight: 700 }}>{tick.t}</span>}
@@ -5144,10 +5603,33 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
                     {/* Input */}
                     <div style={{ background: "#f7f7f5", borderTop: "1px solid #e5e5e5", padding: 10 }}>
-                      {motivoBloqueo ? (
+                      {requierePlantilla ? (
+                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 12, color: "#8a6d3b", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "8px 12px" }}>
+                          <span style={{ flex: 1, minWidth: 180 }}>{motivoBloqueo}</span>
+                          <button style={btn("#1d8a4e", "#fff")} onClick={() => setModalPlantilla("conv")}>📋 Enviar plantilla</button>
+                        </div>
+                      ) : motivoBloqueo ? (
                         <div style={{ fontSize: 12, color: "#8a6d3b", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "9px 12px" }}>{motivoBloqueo}</div>
+                      ) : adjunto ? (
+                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                          <div style={{ flex: "1 1 100%", fontSize: 12, color: "#555" }}>
+                            {adjunto.file.type === "application/pdf" ? "📄" : "📷"} <b>{adjunto.file.name}</b> · {waBytes(adjunto.file.size)}
+                          </div>
+                          <input style={{ flex: 1, minWidth: 160, fontSize: 14, padding: "9px 12px", borderRadius: 10, border: "1px solid #ddd", boxSizing: "border-box" }}
+                            placeholder="Epígrafe (opcional)" value={adjunto.caption} maxLength={1024}
+                            onChange={e => { const v = e.target.value; setAdjunto(a => ({ ...a, caption: v })); }}
+                            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); enviarAdjunto(); } }} />
+                          <button style={btn("#fff", "#333", "#ddd")} disabled={subiendo} onClick={() => setAdjunto(null)}>Cancelar</button>
+                          <button style={{ ...btn(subiendo ? "#ccc" : "#1d8a4e", "#fff"), padding: "10px 16px" }} disabled={subiendo} onClick={enviarAdjunto}>{subiendo ? "Enviando…" : "Enviar archivo"}</button>
+                        </div>
                       ) : (
                         <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                          {archivosOk && (
+                            <>
+                              <input ref={archivoRef} type="file" accept="image/jpeg,image/png,application/pdf" style={{ display: "none" }} onChange={elegirArchivo} />
+                              <button style={{ ...btn("#fff", "#555", "#ddd"), padding: "10px 12px", fontSize: 15 }} title="Adjuntar imagen (JPG/PNG) o PDF, hasta 10 MB" onClick={() => archivoRef.current?.click()}>📎</button>
+                            </>
+                          )}
                           <textarea style={{ flex: 1, minHeight: 40, maxHeight: 140, resize: "vertical", fontSize: 14, padding: "9px 12px", borderRadius: 10, border: "1px solid #ddd", fontFamily: "inherit", boxSizing: "border-box" }}
                             placeholder="Escribí tu respuesta… (Enter envía, Shift+Enter salto de línea)" value={texto} maxLength={4096}
                             onChange={e => setTexto(e.target.value)}
@@ -5161,6 +5643,15 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               </div>
             )}
           </div>
+          {modalPlantilla && (
+            <ModalPlantillaWA conversacion={modalPlantilla === "conv" ? conv : null} onCerrar={() => setModalPlantilla(null)} onListo={plantillaLista} />
+          )}
+          {ampliada && (
+            <div onClick={() => setAmpliada(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3100, padding: 16, cursor: "zoom-out" }}>
+              <img src={ampliada} alt="Imagen" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 6 }} />
+              <button onClick={() => setAmpliada(null)} style={{ position: "absolute", top: 12, right: 12, ...btn("#fff", "#333", "#fff") }}>✕ Cerrar</button>
+            </div>
+          )}
         </div>
       );
     }
@@ -8159,6 +8650,7 @@ let numeroAsignado = "";
                     </>
                   )}
                   <button style={s.dropItem} onClick={() => { setVista("whatsapp"); setMenuAbierto(false); }}>💬 WhatsApp</button>{/* todos los roles */}
+                  <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("waPlantillas"); setMenuAbierto(false); }}>📋 Plantillas de WhatsApp</button>
                   {esAdmin && <button style={s.dropItem} onClick={() => { setVista("clientes"); setMenuAbierto(false); }}>👥 Clientes</button>}
                   {esAdmin && <button style={s.dropItem} onClick={() => { setVista("ventasRealizar"); setMenuAbierto(false); }}>💼 Ventas a realizar</button>}
                   <button style={s.dropItem} onClick={() => { setVista("tandas"); setMenuAbierto(false); }}>🚚 Tandas activas</button>
@@ -8242,7 +8734,7 @@ let numeroAsignado = "";
       if (["stockIngreso", "stockRecuento"].includes(vista) && !(esAdmin || usuario.rol === "encargado")) return sinAccesoStock("Solo admin, superadmin y encargados pueden cargar stock.");
       if (vista === "insumos" && !esAdmin) return sinAccesoStock("El maestro de insumos es solo para administradores.");
       // Bandeja de WhatsApp: cualquier usuario logueado. Solo queda afuera la sesión de emergencia (sin 2FA).
-      if (vista === "whatsapp" && emergencia) return sinAccesoStock("La bandeja de WhatsApp no está disponible en el modo de emergencia.");
+      if ((vista === "whatsapp" || vista === "waPlantillas") && emergencia) return sinAccesoStock("La bandeja de WhatsApp no está disponible en el modo de emergencia.");
 
     if (vista === "repartidores") {
         return (
@@ -9337,6 +9829,9 @@ if (vista === "dashboard") {
     if (vista === "whatsapp") {
       // Alto fijo de la ventana: el Header arriba y la bandeja ocupa el resto, con scroll propio en lista y chat.
       return <div style={{ ...s.wrap, height: "100dvh", minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{Header()}<VistaWhatsApp usuario={usuario} onVolver={() => setVista("panel")} onCargarPedido={(d) => waEmitir("wa:cargar-pedido", d)} /></div>;
+    }
+    if (vista === "waPlantillas") {
+      return <div style={s.wrap}>{Header()}<VistaPlantillasWA onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "necesidades") {
       return <div style={s.wrap}>{Header()}<VistaNecesidades usuario={usuario} onVolver={() => setVista("panel")} /></div>;
