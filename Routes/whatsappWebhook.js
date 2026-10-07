@@ -67,8 +67,17 @@ function encolar(clave, tarea) {
   return siguiente;
 }
 
+// Número al que se ENVÍA por la Cloud API. Meta manda el wa_id argentino con el 9 (549XXXXXXXXXX),
+// pero para enviar hay que usarlo sin el 9 (54XXXXXXXXXX); si no, da 131030 "recipient not in
+// allowed list". Solo afecta el envío: la clave interna de la conversación sigue siendo 549….
+export function numeroParaEnviar(raw) {
+  const d = String(raw || "").replace(/[^0-9]/g, "");
+  return (d.startsWith("549") && d.length === 13) ? "54" + d.slice(3) : d;
+}
+
 // Envía un texto por la Cloud API. Devuelve { id } o { error }.
-async function enviarTexto(to, body) {
+async function enviarTexto(destino, body) {
+  const to = numeroParaEnviar(destino);
   const token = process.env.WA_TOKEN, phoneId = process.env.WA_PHONE_NUMBER_ID;
   if (!token || !phoneId) return { error: "Faltan WA_TOKEN o WA_PHONE_NUMBER_ID" };
   const version = process.env.WA_GRAPH_VERSION || "v25.0";
