@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "react";
     import axios from "axios";
     import * as XLSX from "xlsx";
     import jsPDF from "jspdf";
@@ -4805,6 +4805,1140 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       );
     }
 
+    // ─── WHATSAPP — BANDEJA MULTIAGENTE (Fase 2) ─────────────────────────
+    // Lista + chat. Polling cada 5 s. Una conversación 'agente' es de una sola persona: solo ella escribe.
+    // Fuera de la ventana de 24 h no se puede escribir sin plantilla (Fase 3).
+    const WA_ESTADO_INFO = {
+      bot: { label: "Bot", bg: "#eef2ff", c: "#4338ca" },
+      pendiente_agente: { label: "Pendiente", bg: "#fef3c7", c: "#b45309" },
+      agente: { label: "Con agente", bg: "#eafaf1", c: "#1d8a4e" },
+      cerrada: { label: "Cerrada", bg: "#f3f4f6", c: "#6b7280" },
+    };
+    const WA_TABS = [
+      { k: "pendientes", label: "Pendientes", params: { estado: "pendiente_agente" }, cont: "pendientes" },
+      { k: "mias", label: "Mías", params: { mias: "1" }, cont: "mias" },
+      { k: "bot", label: "Bot", params: { estado: "bot" }, cont: "bot" },
+      { k: "todas", label: "Todas", params: { abiertas: "1" }, cont: "todas" },
+      { k: "cerradas", label: "Cerradas", params: { estado: "cerrada" }, cont: "cerradas" },
+    ];
+    const WA_TIPO_ICONO = { audio: "🎤 Audio", image: "📷 Imagen", video: "🎬 Video", document: "📄 Documento", sticker: "🙂 Sticker", location: "📍 Ubicación", contacts: "👤 Contacto", reaction: "Reacción" };
+    const waNumero = (n) => { const d = String(n || ""); return d.startsWith("549") && d.length === 13 ? `+54 9 ${d.slice(3, 5)} ${d.slice(5, 9)}-${d.slice(9)}` : (d ? "+" + d : ""); };
+    const waHora = (iso) => {
+      if (!iso) return "";
+      const f = new Date(iso), hoy = new Date();
+      return f.toDateString() === hoy.toDateString()
+        ? f.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })
+        : f.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" });
+    };
+    const waTextoMensaje = (m) => m.texto || WA_TIPO_ICONO[m.tipo] || `[${m.tipo}]`;
+    // Tick de estado de un saliente (estilo WhatsApp).
+    const waTick = (m) => {
+      if (m.estado === "failed") return { t: "⚠", c: "#c0392b", title: `No se pudo entregar${m.error ? ": " + m.error : ""}` };
+      if (m.estado === "read") return { t: "✓✓", c: "#2563eb", title: "Leído" };
+      if (m.estado === "delivered") return { t: "✓✓", c: "#999", title: "Entregado" };
+      if (m.estado === "sent") return { t: "✓", c: "#999", title: "Enviado" };
+      return { t: "🕓", c: "#bbb", title: "Enviando" };
+    };
+    // Aviso sonoro corto (Web Audio, sin archivo). Si el navegador lo bloquea, no pasa nada.
+    function waBeep() {
+      try {
+        const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
+        const ctx = new C(), o = ctx.createOscillator(), g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination); o.frequency.value = 880;
+        g.gain.setValueAtTime(0.0001, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
+        o.start(); o.stop(ctx.currentTime + 0.45); setTimeout(() => ctx.close(), 800);
+      } catch { /* sin audio */ }
+    }
+
+    // ─── WHATSAPP — FASE 3: PLANTILLAS Y ARCHIVOS ─────────────────────────
+    // Plantillas: copia local de las de Meta (se refresca con "Sincronizar" y con el webhook de estado).
+    // Archivos: se guardan en R2 (bucket privado); el chat pide una URL firmada corta por cada uno.
+    const WA_ESTADO_PLANTILLA = {
+      APPROVED: { label: "Aprobada", bg: "#eafaf1", c: "#1d8a4e" },
+      PENDING: { label: "Pendiente", bg: "#fef3c7", c: "#b45309" },
+      IN_APPEAL: { label: "En apelación", bg: "#fef3c7", c: "#b45309" },
+      REJECTED: { label: "Rechazada", bg: "#fdecea", c: "#c0392b" },
+      PAUSED: { label: "Pausada", bg: "#f3f4f6", c: "#6b7280" },
+      DISABLED: { label: "Deshabilitada", bg: "#f3f4f6", c: "#6b7280" },
+    };
+    const WA_CATEGORIA = { UTILITY: "Utility", MARKETING: "Marketing", AUTHENTICATION: "Autenticación" };
+    const WA_MEDIA = ["image", "audio", "video", "document", "sticker"];
+    const WA_MAX_ARCHIVO = 10 * 1024 * 1024;
+    const WA_MIMES_SALIENTES = ["image/jpeg", "image/png", "application/pdf"];
+    const waVars = (t) => [...new Set([...String(t || "").matchAll(/{{([0-9]+)}}/g)].map(m => Number(m[1])))].sort((a, b) => a - b);
+    const waReemplazar = (t, vals) => String(t || "").replace(/{{([0-9]+)}}/g, (x, n) => (String(vals?.[Number(n) - 1] ?? "").trim() ? vals[Number(n) - 1] : x));
+    function waPartes(comps) {
+      const c = Array.isArray(comps) ? comps : [];
+      const tipo = (t) => c.find(x => String(x.type).toUpperCase() === t);
+      return { header: tipo("HEADER"), body: tipo("BODY"), footer: tipo("FOOTER"), botones: tipo("BUTTONS")?.buttons || [] };
+    }
+    const waBytes = (n) => !n ? "" : n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
+    const waInput = { width: "100%", boxSizing: "border-box", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", fontFamily: "inherit" };
+    const waLabel = { fontSize: 12, color: "#777", display: "block", margin: "10px 0 4px" };
+    const waBtn = (bg, c, b) => ({ fontSize: 12, fontWeight: 600, padding: "7px 12px", borderRadius: 8, border: `1px solid ${b || bg}`, background: bg, color: c, cursor: "pointer", whiteSpace: "nowrap" });
+
+    // Vista previa con forma de burbuja de WhatsApp (las variables sin completar se ven como {{n}}).
+    function WaPreviewPlantilla({ comps, vars = [], varsHeader = [] }) {
+      const { header, body, footer, botones } = waPartes(comps);
+      return (
+        <div style={{ background: "#efeae2", borderRadius: 10, padding: 12 }}>
+          <div style={{ background: "#fff", borderRadius: 10, padding: "8px 10px", maxWidth: 320, boxShadow: "0 1px 1px rgba(0,0,0,0.08)" }}>
+            {header?.text && <div style={{ fontWeight: 700, fontSize: 14, color: "#222", marginBottom: 4, wordBreak: "break-word" }}>{waReemplazar(header.text, varsHeader)}</div>}
+            {header && !header.text && <div style={{ fontSize: 12, color: "#888", fontStyle: "italic", marginBottom: 4 }}>[Encabezado {String(header.format || "").toLowerCase()}]</div>}
+            <div style={{ fontSize: 14, color: "#222", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{body?.text ? waReemplazar(body.text, vars) : <span style={{ color: "#aaa" }}>(sin cuerpo)</span>}</div>
+            {footer?.text && <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>{footer.text}</div>}
+          </div>
+          {botones.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxWidth: 320, marginTop: 4 }}>
+              {botones.map((b, i) => (
+                <div key={i} style={{ background: "#fff", borderRadius: 8, textAlign: "center", padding: 6, fontSize: 13, color: "#0b7bd8" }}>
+                  {b.type === "URL" ? "🔗 " : b.type === "PHONE_NUMBER" ? "📞 " : "↩ "}{b.text}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Modal "Enviar plantilla": con conversacion = a esa conversación (fuera de las 24 h);
+    // sin conversacion = "Nueva conversación" (pide el número; queda tomada por quien la inicia).
+    // onListo(data, error): se llama al enviar, o si falló pero el mensaje quedó guardado como fallido.
+    function ModalPlantillaWA({ conversacion, onCerrar, onListo }) {
+      const nueva = !conversacion;
+      const [plantillas, setPlantillas] = useState(null);
+      const [sel, setSel] = useState("");
+      const [vars, setVars] = useState([]);
+      const [varsH, setVarsH] = useState([]);
+      const [numero, setNumero] = useState("");
+      const [enviando, setEnviando] = useState(false);
+      const [error, setError] = useState(null);
+      useEffect(() => {
+        axios.get(`${API}/api/whatsapp/plantillas`, { params: { estado: "APPROVED" } })
+          .then(r => setPlantillas((r.data.plantillas || []).filter(p => p.soportada)))
+          .catch(err => { setPlantillas([]); setError(err.response?.data?.error || "No se pudieron cargar las plantillas."); });
+      }, []);
+      const p = (plantillas || []).find(x => String(x.id) === String(sel));
+      function elegir(id) {
+        const pl = (plantillas || []).find(x => String(x.id) === String(id));
+        setSel(id); setError(null);
+        setVars(Array(pl?.variables_cuerpo || 0).fill(""));
+        setVarsH(Array(pl?.variables_header || 0).fill(""));
+      }
+      const numeroOk = !nueva || numero.replace(/[^0-9]/g, "").length >= 10;
+      const completo = !!p && vars.every(v => v.trim()) && varsH.every(v => v.trim()) && numeroOk;
+      async function enviar() {
+        if (!completo || enviando) return;
+        setEnviando(true); setError(null);
+        const body = { plantilla_id: p.id, variables: vars, variables_header: varsH };
+        try {
+          const r = nueva
+            ? await axios.post(`${API}/api/whatsapp/conversaciones/nueva`, { ...body, numero })
+            : await axios.post(`${API}/api/whatsapp/conversaciones/${conversacion.id}/plantilla`, body);
+          onListo(r.data, null);
+        } catch (err) {
+          const d = err.response?.data || {};
+          if (d.mensaje) onListo(d, d.error || "WhatsApp no aceptó la plantilla.");   // quedó guardada como fallida
+          else setError(d.error || "No se pudo enviar la plantilla.");
+        }
+        setEnviando(false);
+      }
+      const campoVar = (lista, setLista, i, etiqueta) => (
+        <div key={etiqueta}>
+          <label style={waLabel}>{etiqueta}</label>
+          <input style={waInput} value={lista[i]} maxLength={500}
+            onChange={e => { const v = e.target.value; setLista(ls => ls.map((x, j) => j === i ? v : x)); }} />
+        </div>
+      );
+      return (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }} onClick={onCerrar}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 20, width: "100%", maxWidth: 520, maxHeight: "92dvh", overflowY: "auto", boxSizing: "border-box" }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#333" }}>{nueva ? "Nueva conversación" : "Enviar plantilla"}</div>
+            <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
+              {nueva ? "Para iniciar una conversación, WhatsApp exige una plantilla aprobada. La conversación queda tomada por vos."
+                : `A ${conversacion.nombre || waNumero(conversacion.wa_id)}. Pasaron más de 24 h desde su último mensaje: solo se le puede escribir con una plantilla aprobada.`}
+            </div>
+            {nueva && (
+              <>
+                <label style={waLabel}>Número</label>
+                <input style={waInput} value={numero} placeholder="Ej. 11 6239 3600 (con código de área, sin 0 ni 15)" onChange={e => setNumero(e.target.value)} />
+              </>
+            )}
+            <label style={waLabel}>Plantilla</label>
+            {plantillas === null ? <div style={{ fontSize: 13, color: "#aaa" }}>Cargando…</div>
+              : plantillas.length === 0 ? <div style={{ fontSize: 13, color: "#8a6d3b", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "8px 10px" }}>No hay plantillas aprobadas que se puedan enviar desde el panel. Revisá la sección Plantillas (y tocá "Sincronizar").</div>
+              : (
+                <select style={waInput} value={sel} onChange={e => elegir(e.target.value)}>
+                  <option value="">Elegí una plantilla…</option>
+                  {plantillas.map(x => <option key={x.id} value={x.id}>{x.nombre} · {WA_CATEGORIA[x.categoria] || x.categoria} · {x.idioma}</option>)}
+                </select>
+              )}
+            {p && (
+              <>
+                {varsH.map((_, i) => campoVar(varsH, setVarsH, i, "Variable del encabezado {{1}}"))}
+                {vars.map((_, i) => campoVar(vars, setVars, i, `Variable {{${i + 1}}}`))}
+                <label style={waLabel}>Vista previa</label>
+                <WaPreviewPlantilla comps={p.componentes} vars={vars} varsHeader={varsH} />
+              </>
+            )}
+            {error && <div style={{ marginTop: 10, fontSize: 13, color: "#c0392b", background: "#fdecea", border: "1px solid #f5c6cb", borderRadius: 8, padding: "8px 10px" }}>{error}</div>}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <button style={waBtn("#fff", "#333", "#ddd")} onClick={onCerrar}>Cancelar</button>
+              <button style={waBtn(completo && !enviando ? "#1d8a4e" : "#ccc", "#fff")} disabled={!completo || enviando} onClick={enviar}>{enviando ? "Enviando…" : "Enviar plantilla"}</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // URLs firmadas (10 min) cacheadas por mensaje, con margen de 1 min.
+    const waUrlCache = new Map();
+    async function waUrlArchivo(id, forzar = false) {
+      const c = waUrlCache.get(id);
+      if (!forzar && c && c.vence > Date.now()) return c;
+      const r = await axios.get(`${API}/api/whatsapp/mensajes/${id}/archivo`);
+      const v = { ...r.data, vence: Date.now() + Math.max(30, (r.data.expira_en || 600) - 60) * 1000 };
+      waUrlCache.set(id, v);
+      return v;
+    }
+
+    // Archivo dentro de una burbuja: imagen/sticker (miniatura, click amplía), audio, video o documento (descarga).
+    function WaMedia({ m, onAmpliar }) {
+      const [info, setInfo] = useState(null);
+      const [err, setErr] = useState(null);
+      const reintentos = useRef(0);
+      const enLinea = ["image", "sticker", "audio", "video"].includes(m.tipo);
+      function cargar(forzar) {
+        return waUrlArchivo(m.id, forzar).then(v => { setInfo(v); setErr(null); }).catch(e => setErr(e.response?.data?.error || "No se pudo cargar el archivo."));
+      }
+      useEffect(() => { if (enLinea && m.tiene_archivo) cargar(false); }, [m.id, m.tiene_archivo]);   // eslint-disable-line
+      // Si la URL venció (chat abierto mucho tiempo), se pide una nueva una sola vez.
+      const alFallar = () => { if (reintentos.current < 1) { reintentos.current++; cargar(true); } else setErr("No se pudo cargar el archivo."); };
+      async function descargar() {
+        try { const v = await waUrlArchivo(m.id, true); window.location.href = v.url; }   // la URL fuerza descarga: no se sale del panel
+        catch (e) { setErr(e.response?.data?.error || "No se pudo descargar el archivo."); }
+      }
+      const chip = (t, c = "#666") => <div style={{ fontSize: 12, color: c, background: "rgba(0,0,0,0.04)", borderRadius: 8, padding: "6px 9px", marginBottom: 3 }}>{t}</div>;
+      const etiqueta = WA_TIPO_ICONO[m.tipo] || m.tipo;
+      if (m.media_estado === "vencido") return chip(`🗑️ ${etiqueta} · archivo vencido (se borró por la política de retención)`, "#888");
+      if (!m.tiene_archivo) {
+        const txt = m.media_estado === "pendiente" ? "⏳ guardando archivo…"
+          : m.media_estado === "deshabilitado" ? "no se guardó (archivos deshabilitados)"
+          : m.media_estado === "error" ? "⚠ no se pudo guardar el archivo" : "";
+        return chip(`${etiqueta}${txt ? " · " + txt : ""}`, m.media_estado === "error" ? "#c0392b" : "#666");
+      }
+      if (err) return chip(`⚠ ${etiqueta} · ${err}`, "#c0392b");
+      if (m.tipo === "document") {
+        return (
+          <button onClick={descargar} title="Descargar" style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", background: "rgba(0,0,0,0.04)", border: "1px solid rgba(0,0,0,0.06)", borderRadius: 8, padding: "8px 10px", cursor: "pointer", marginBottom: 3, fontFamily: "inherit" }}>
+            <span style={{ fontSize: 22 }}>📄</span>
+            <span style={{ minWidth: 0, flex: 1 }}>
+              <span style={{ display: "block", fontSize: 13, color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.media_nombre || "Documento"}</span>
+              <span style={{ display: "block", fontSize: 11, color: "#888" }}>{waBytes(m.media_bytes)}{m.media_bytes ? " · " : ""}Descargar ⬇</span>
+            </span>
+          </button>
+        );
+      }
+      if (!info) return <div style={{ width: m.tipo === "audio" ? 240 : 200, maxWidth: "100%", height: m.tipo === "audio" ? 40 : 140, background: "rgba(0,0,0,0.06)", borderRadius: 8, marginBottom: 3 }} />;
+      if (m.tipo === "image" || m.tipo === "sticker") {
+        return <img src={info.url} alt={etiqueta} onClick={() => onAmpliar && onAmpliar(info.url)} onError={alFallar}
+          style={{ display: "block", maxWidth: m.tipo === "sticker" ? 140 : "min(260px, 100%)", maxHeight: 260, borderRadius: 8, cursor: "zoom-in", marginBottom: 3, background: m.tipo === "sticker" ? "transparent" : "#eee" }} />;
+      }
+      if (m.tipo === "audio") return <audio controls preload="none" src={info.url} onError={alFallar} style={{ display: "block", width: 260, maxWidth: "100%", marginBottom: 3 }} />;
+      return <video controls preload="metadata" src={info.url} onError={alFallar} style={{ display: "block", maxWidth: "min(280px, 100%)", maxHeight: 280, borderRadius: 8, marginBottom: 3 }} />;
+    }
+
+    // ─── Sección Plantillas: listado + sincronizar + alta (solo admin/superadmin) ───
+    const WA_PLANTILLA_VACIA = { nombre: "", categoria: "UTILITY", idioma: "es_AR", header_texto: "", ejemplo_header: "", cuerpo: "", ejemplos_cuerpo: [], botones: [] };
+    function VistaPlantillasWA({ onVolver, angosto = false }) {
+      const [lista, setLista] = useState([]);
+      const [cargando, setCargando] = useState(true);
+      const [puedeCrear, setPuedeCrear] = useState(false);
+      const [wabaOk, setWabaOk] = useState(true);
+      const [sincronizando, setSincronizando] = useState(false);
+      const [filtro, setFiltro] = useState("");
+      const [abierta, setAbierta] = useState(null);
+      const [form, setForm] = useState(null);
+      const [guardando, setGuardando] = useState(false);
+      const [errorForm, setErrorForm] = useState(null);
+      const [aviso, setAviso] = useState(null);
+      const cuerpoRef = useRef(null);
+      function mostrarAviso(t, tipo = "ok") { setAviso({ texto: t, tipo }); setTimeout(() => setAviso(null), 6000); }
+
+      async function cargar() {
+        try {
+          const r = await axios.get(`${API}/api/whatsapp/plantillas`);
+          setLista(r.data.plantillas || []); setPuedeCrear(!!r.data.puede_crear); setWabaOk(!!r.data.waba_configurado);
+        } catch (err) { mostrarAviso(err.response?.data?.error || "Error cargando plantillas", "error"); }
+        setCargando(false);
+      }
+      useEffect(() => { cargar(); }, []);
+
+      async function sincronizar() {
+        if (sincronizando) return;
+        setSincronizando(true);
+        try {
+          const r = await axios.post(`${API}/api/whatsapp/plantillas/sincronizar`);
+          mostrarAviso(`Sincronizado con Meta: ${r.data.total} plantilla(s)${r.data.borradas ? `, ${r.data.borradas} ya no existían y se quitaron` : ""}.`);
+          await cargar();
+        } catch (err) { mostrarAviso(err.response?.data?.error || "No se pudo sincronizar", "error"); }
+        setSincronizando(false);
+      }
+
+      // Formulario de alta
+      const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+      const varsCuerpo = form ? waVars(form.cuerpo) : [];
+      const headerConVar = form ? waVars(form.header_texto).length > 0 : false;
+      useEffect(() => {   // un ejemplo por variable del cuerpo
+        if (!form) return;
+        const n = varsCuerpo.length ? Math.max(...varsCuerpo) : 0;
+        if (form.ejemplos_cuerpo.length !== n) set("ejemplos_cuerpo", Array.from({ length: n }, (_, i) => form.ejemplos_cuerpo[i] || ""));
+      }, [form?.cuerpo]);   // eslint-disable-line
+      function insertarVariable() {
+        const n = (varsCuerpo.length ? Math.max(...varsCuerpo) : 0) + 1;
+        const el = cuerpoRef.current, t = form.cuerpo, marca = `{{${n}}}`;
+        const ini = el ? el.selectionStart : t.length, fin = el ? el.selectionEnd : t.length;
+        set("cuerpo", t.slice(0, ini) + marca + t.slice(fin));
+        setTimeout(() => { if (el) { el.focus(); el.selectionStart = el.selectionEnd = ini + marca.length; } }, 0);
+      }
+      const setBoton = (i, k, v) => setForm(f => ({ ...f, botones: f.botones.map((b, j) => j === i ? { ...b, [k]: v } : b) }));
+      const compsForm = form ? [
+        ...(form.header_texto.trim() ? [{ type: "HEADER", format: "TEXT", text: form.header_texto }] : []),
+        { type: "BODY", text: form.cuerpo },
+        ...(form.botones.some(b => b.texto.trim()) ? [{ type: "BUTTONS", buttons: form.botones.filter(b => b.texto.trim()).map(b => ({ type: b.tipo, text: b.texto })) }] : []),
+      ] : [];
+      async function crear() {
+        if (guardando) return;
+        setGuardando(true); setErrorForm(null);
+        try {
+          const body = { ...form, nombre: form.nombre.trim(), ejemplo_header: headerConVar ? form.ejemplo_header : "" };
+          await axios.post(`${API}/api/whatsapp/plantillas`, body);
+          setForm(null);
+          mostrarAviso(`Plantilla "${body.nombre}" enviada a Meta. Queda Pendiente hasta que la revisen (suele tardar minutos; el estado se actualiza solo).`);
+          await cargar();
+        } catch (err) { setErrorForm(err.response?.data?.error || "No se pudo crear la plantilla."); }
+        setGuardando(false);
+      }
+
+      const visibles = lista.filter(p => !filtro || p.estado === filtro);
+      const estadoChip = (e) => { const i = WA_ESTADO_PLANTILLA[e] || { label: e || "—", bg: "#f3f4f6", c: "#6b7280" }; return <span style={{ fontSize: 10, fontWeight: 700, color: i.c, background: i.bg, borderRadius: 4, padding: "2px 7px", textTransform: "uppercase", whiteSpace: "nowrap" }}>{i.label}</span>; };
+
+      return (
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: angosto ? 12 : 16, boxSizing: "border-box" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>📋 Plantillas de WhatsApp</div>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button style={waBtn("#fff", "#333", "#ddd")} disabled={sincronizando || !wabaOk} onClick={sincronizar} title="Trae de Meta las plantillas y sus estados">{sincronizando ? "Sincronizando…" : "🔄 Sincronizar"}</button>
+              {puedeCrear && <button style={waBtn(wabaOk ? "#F68B32" : "#ccc", "#fff")} disabled={!wabaOk} onClick={() => { setForm({ ...WA_PLANTILLA_VACIA }); setErrorForm(null); }}>+ Nueva plantilla</button>}
+              <button style={waBtn("#fff", "#333", "#ddd")} onClick={onVolver}>← Volver</button>
+            </div>
+          </div>
+          {!wabaOk && <div style={{ fontSize: 13, color: "#8a6d3b", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>Falta configurar WA_WABA_ID en el servidor: no se pueden sincronizar ni crear plantillas.</div>}
+          {aviso && <div style={{ background: aviso.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${aviso.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: aviso.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: "8px 12px", fontSize: 13, marginBottom: 12 }}>{aviso.texto}</div>}
+
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+            {[["", "Todas"], ["APPROVED", "Aprobadas"], ["PENDING", "Pendientes"], ["REJECTED", "Rechazadas"]].map(([k, l]) => (
+              <button key={k || "todas"} style={waBtn(filtro === k ? "#fff7ed" : "#fff", filtro === k ? "#F68B32" : "#555", filtro === k ? "#F68B32" : "#ddd")} onClick={() => setFiltro(k)}>
+                {l} ({k ? lista.filter(p => p.estado === k).length : lista.length})
+              </button>
+            ))}
+          </div>
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
+            {cargando ? <div style={{ padding: 16, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+              : visibles.length === 0 ? <div style={{ padding: 16, color: "#aaa", fontSize: 13 }}>{lista.length ? "No hay plantillas con este estado." : "Todavía no hay plantillas. Tocá «Sincronizar» para traer las de Meta."}</div>
+              : visibles.map(p => (
+                <div key={p.id} style={{ borderBottom: "1px solid #f3f3f3" }}>
+                  <div onClick={() => setAbierta(a => a === p.id ? null : p.id)} style={{ padding: "10px 12px", cursor: "pointer", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#333", wordBreak: "break-all" }}>{p.nombre}</div>
+                      <div style={{ fontSize: 11, color: "#888" }}>{WA_CATEGORIA[p.categoria] || p.categoria || "—"} · {p.idioma}{!p.soportada ? " · no se puede enviar desde el panel (encabezado multimedia o botones con variables)" : ""}</div>
+                    </div>
+                    {estadoChip(p.estado)}
+                    <span style={{ fontSize: 12, color: "#aaa" }}>{abierta === p.id ? "▲" : "▼"}</span>
+                  </div>
+                  {p.estado === "REJECTED" && p.motivo && <div style={{ margin: "0 12px 10px", fontSize: 12, color: "#c0392b" }}>Motivo del rechazo: {p.motivo}</div>}
+                  {abierta === p.id && <div style={{ padding: "0 12px 12px" }}><WaPreviewPlantilla comps={p.componentes} /></div>}
+                </div>
+              ))}
+          </div>
+
+          {form && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16 }} onClick={() => !guardando && setForm(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 20, width: "100%", maxWidth: 860, maxHeight: "92dvh", overflowY: "auto", boxSizing: "border-box" }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333" }}>Nueva plantilla</div>
+                <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>Se manda a Meta para aprobación. Hasta que la aprueben queda Pendiente y no se puede usar.</div>
+                <div style={{ display: "grid", gridTemplateColumns: angosto ? "1fr" : "minmax(0, 1fr) 320px", gap: 20, marginTop: 6 }}>
+                  <div>
+                    <label style={waLabel}>Nombre (minúsculas, números y guion bajo)</label>
+                    <input style={waInput} value={form.nombre} placeholder="ej. confirmacion_pedido" maxLength={512}
+                      onChange={e => set("nombre", e.target.value.toLowerCase().replace(/ /g, "_").replace(/[^a-z0-9_]/g, ""))} />
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={waLabel}>Categoría</label>
+                        <select style={waInput} value={form.categoria} onChange={e => set("categoria", e.target.value)}>
+                          <option value="UTILITY">Utility (avisos de pedidos, turnos)</option>
+                          <option value="MARKETING">Marketing (promociones)</option>
+                        </select>
+                      </div>
+                      <div style={{ width: 130 }}>
+                        <label style={waLabel}>Idioma</label>
+                        <select style={waInput} value={form.idioma} onChange={e => set("idioma", e.target.value)}>
+                          <option value="es_AR">es_AR</option>
+                          <option value="es">es</option>
+                          <option value="en_US">en_US</option>
+                        </select>
+                      </div>
+                    </div>
+                    <label style={waLabel}>Encabezado (opcional, texto, máx. 60; admite {"{{1}}"})</label>
+                    <input style={waInput} value={form.header_texto} maxLength={60} onChange={e => set("header_texto", e.target.value)} />
+                    {headerConVar && (
+                      <>
+                        <label style={waLabel}>Ejemplo para {"{{1}}"} del encabezado</label>
+                        <input style={waInput} value={form.ejemplo_header} onChange={e => set("ejemplo_header", e.target.value)} />
+                      </>
+                    )}
+                    <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
+                      <label style={waLabel}>Cuerpo ({form.cuerpo.length}/1024)</label>
+                      <button type="button" style={{ ...waBtn("#fff", "#F68B32", "#F68B32"), padding: "3px 8px", marginBottom: 4 }} onClick={insertarVariable}>+ Variable</button>
+                    </div>
+                    <textarea ref={cuerpoRef} style={{ ...waInput, minHeight: 110, resize: "vertical" }} value={form.cuerpo} maxLength={1024}
+                      placeholder={"Hola {{1}}, tu pedido {{2}} ya está listo."} onChange={e => set("cuerpo", e.target.value)} />
+                    {form.ejemplos_cuerpo.map((ej, i) => (
+                      <div key={i}>
+                        <label style={waLabel}>Ejemplo para {`{{${i + 1}}}`}</label>
+                        <input style={waInput} value={ej} onChange={e => { const v = e.target.value; setForm(f => ({ ...f, ejemplos_cuerpo: f.ejemplos_cuerpo.map((x, j) => j === i ? v : x) })); }} />
+                      </div>
+                    ))}
+                    <label style={waLabel}>Botones (opcional)</label>
+                    {form.botones.map((b, i) => (
+                      <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                        <select style={{ ...waInput, width: 150 }} value={b.tipo} onChange={e => setBoton(i, "tipo", e.target.value)}>
+                          <option value="QUICK_REPLY">Respuesta rápida</option>
+                          <option value="URL">Link (https)</option>
+                          <option value="PHONE_NUMBER">Llamar</option>
+                        </select>
+                        <input style={{ ...waInput, flex: 1, minWidth: 120 }} value={b.texto} maxLength={25} placeholder="Texto (máx. 25)" onChange={e => setBoton(i, "texto", e.target.value)} />
+                        {b.tipo === "URL" && <input style={{ ...waInput, flex: "1 1 100%" }} value={b.url} placeholder="https://…" onChange={e => setBoton(i, "url", e.target.value)} />}
+                        {b.tipo === "PHONE_NUMBER" && <input style={{ ...waInput, flex: "1 1 100%" }} value={b.telefono} placeholder="+5491162393600" onChange={e => setBoton(i, "telefono", e.target.value)} />}
+                        <button type="button" style={waBtn("#fff", "#c0392b", "#f5c6cb")} onClick={() => setForm(f => ({ ...f, botones: f.botones.filter((_, j) => j !== i) }))}>✕</button>
+                      </div>
+                    ))}
+                    {form.botones.length < 10 && <button type="button" style={waBtn("#fff", "#555", "#ddd")} onClick={() => setForm(f => ({ ...f, botones: [...f.botones, { tipo: "QUICK_REPLY", texto: "", url: "", telefono: "" }] }))}>+ Agregar botón</button>}
+                  </div>
+                  <div>
+                    <label style={waLabel}>Vista previa (con los ejemplos)</label>
+                    <WaPreviewPlantilla comps={compsForm} vars={form.ejemplos_cuerpo} varsHeader={[form.ejemplo_header]} />
+                  </div>
+                </div>
+                {errorForm && <div style={{ marginTop: 12, fontSize: 13, color: "#c0392b", background: "#fdecea", border: "1px solid #f5c6cb", borderRadius: 8, padding: "8px 10px" }}>{errorForm}</div>}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+                  <button style={waBtn("#fff", "#333", "#ddd")} disabled={guardando} onClick={() => setForm(null)}>Cancelar</button>
+                  <button style={waBtn(guardando || !form.nombre || !form.cuerpo.trim() ? "#ccc" : "#F68B32", "#fff")} disabled={guardando || !form.nombre || !form.cuerpo.trim()} onClick={crear}>{guardando ? "Enviando a Meta…" : "Crear y mandar a aprobación"}</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─── WHATSAPP — FASE 4: CONFIGURACIÓN (interruptores + corte de número). Solo admin / superadmin ───
+    const WA_CALIDAD = { GREEN: { t: "Alta", c: "#1d8a4e" }, YELLOW: { t: "Media", c: "#b45309" }, RED: { t: "Baja", c: "#c0392b" } };
+    function VistaConfigWA({ onVolver, angosto = false }) {
+      const [est, setEst] = useState(null);
+      const [cargando, setCargando] = useState(true);
+      const [ocupado, setOcupado] = useState(null);   // qué acción está en curso
+      const [aviso, setAviso] = useState(null);
+      function mostrarAviso(t, tipo = "ok") { setAviso({ texto: t, tipo }); setTimeout(() => setAviso(null), 8000); }
+      async function cargar() {
+        setCargando(true);
+        try { setEst((await axios.get(`${API}/api/whatsapp/admin/estado`)).data); }
+        catch (err) { mostrarAviso(err.response?.data?.error || "No se pudo leer el estado", "error"); }
+        setCargando(false);
+      }
+      useEffect(() => { cargar(); }, []);
+
+      async function cambiar(clave, valor) {
+        const nombre = est?.etiquetas?.[clave] || clave;
+        const txt = clave === "wa_activo"
+          ? (valor ? "¿ENCENDER WhatsApp en este ambiente? El bot (si está activo) y la bandeja van a responder y enviar mensajes reales." : "¿APAGAR WhatsApp en este ambiente? Se siguen guardando los mensajes que entran, pero nadie responde ni se envía nada.")
+          : (valor ? "¿ENCENDER el bot? Va a responder solo las conversaciones que estén en modo bot." : "¿APAGAR el bot? Todo lo que entre va directo a Pendientes para un agente.");
+        if (!window.confirm(txt)) return;
+        setOcupado(clave);
+        try {
+          const r = await axios.post(`${API}/api/whatsapp/admin/ajustes`, { clave, valor });
+          setEst(e => ({ ...e, ajustes: r.data.ajustes, historial: r.data.historial }));
+          mostrarAviso(`${nombre}: ${valor ? "ENCENDIDO" : "APAGADO"}.`);
+        } catch (err) { mostrarAviso(err.response?.data?.error || "No se pudo guardar", "error"); }
+        setOcupado(null);
+      }
+      async function suscripcion(accion) {
+        const url = est?.ambiente?.webhook_url;
+        const txt = accion === "suscribir"
+          ? `¿Suscribir nuestra app a la WABA ${est?.ambiente?.waba_id} con el webhook de ESTE ambiente?\n\n${url}\n\nDesde ese momento los eventos de los números de esa WABA llegan acá.`
+          : `¿DESUSCRIBIR nuestra app de la WABA ${est?.ambiente?.waba_id}?\n\nDejan de llegar los eventos de esa WABA a nuestra app (rollback).`;
+        if (!window.confirm(txt)) return;
+        setOcupado(accion);
+        try {
+          await axios.post(`${API}/api/whatsapp/admin/${accion}`);
+          mostrarAviso(accion === "suscribir" ? "Suscripción hecha: Meta verificó el webhook de este ambiente." : "Desuscripción hecha.");
+          await cargar();
+        } catch (err) { mostrarAviso(err.response?.data?.error || "Meta no aceptó el pedido", "error"); }
+        setOcupado(null);
+      }
+
+      const caja = { background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 14, marginBottom: 12 };
+      const titulo = { fontSize: 14, fontWeight: 700, color: "#333", marginBottom: 10 };
+      const fila = (k, v, c) => (
+        <div key={k} style={{ display: "flex", gap: 10, fontSize: 13, padding: "4px 0", borderBottom: "1px solid #f6f6f6" }}>
+          <span style={{ width: angosto ? 130 : 210, flexShrink: 0, color: "#888" }}>{k}</span>
+          <span style={{ color: c || "#222", wordBreak: "break-all" }}>{v ?? "—"}</span>
+        </div>
+      );
+      const fecha = (iso) => iso ? new Date(iso).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+      const Interruptor = ({ clave }) => {
+        const on = !!est?.ajustes?.[clave];
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid #f3f3f3" }}>
+            <button role="switch" aria-checked={on} aria-label={est?.etiquetas?.[clave] || clave} disabled={!!ocupado} onClick={() => cambiar(clave, !on)}
+              style={{ width: 52, height: 28, borderRadius: 14, border: "none", background: on ? "#1d8a4e" : "#cbd5e1", position: "relative", cursor: "pointer", flexShrink: 0 }}>
+              <span style={{ position: "absolute", top: 3, left: on ? 27 : 3, width: 22, height: 22, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+            </button>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>{est?.etiquetas?.[clave] || clave}: <span style={{ color: on ? "#1d8a4e" : "#c0392b" }}>{on ? "ENCENDIDO" : "APAGADO"}</span></div>
+              <div style={{ fontSize: 12, color: "#888" }}>
+                {clave === "wa_activo" ? "Apagado: se guardan los mensajes que entran, pero no se responde, no corre el bot y la bandeja no envía." : "Apagado: todo lo que entra va directo a Pendientes, sin respuesta del bot."}
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const amb = est?.ambiente, num = est?.numero, cal = WA_CALIDAD[num?.quality_rating];
+      return (
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: angosto ? 12 : 16, boxSizing: "border-box" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>⚙️ Configuración WhatsApp</div>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+              <button style={waBtn("#fff", "#333", "#ddd")} disabled={cargando} onClick={cargar}>{cargando ? "Cargando…" : "🔄 Actualizar"}</button>
+              <button style={waBtn("#fff", "#333", "#ddd")} onClick={onVolver}>← Volver</button>
+            </div>
+          </div>
+          {aviso && <div style={{ background: aviso.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${aviso.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: aviso.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: "8px 12px", fontSize: 13, marginBottom: 12, whiteSpace: "pre-wrap" }}>{aviso.texto}</div>}
+          {!est ? <div style={{ color: "#aaa", fontSize: 13 }}>{cargando ? "Cargando…" : "Sin datos."}</div> : (
+            <>
+              <div style={caja}>
+                <div style={titulo}>Interruptores (se aplican al instante, sin redeploy)</div>
+                <Interruptor clave="wa_activo" />
+                <Interruptor clave="bot_activo" />
+                {est.historial?.length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>Últimos cambios</div>
+                    {est.historial.map((h, i) => (
+                      <div key={i} style={{ fontSize: 12, color: "#555", padding: "2px 0" }}>
+                        {fecha(h.created_at)} · <b>{h.clave}</b> {h.valor_anterior ? "ON" : "OFF"} → {h.valor ? "ON" : "OFF"} · {h.usuario}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={caja}>
+                <div style={titulo}>Número</div>
+                {est.numero_error ? <div style={{ fontSize: 13, color: "#c0392b" }}>{est.numero_error}</div> : num && (
+                  <>
+                    {fila("Número", num.display_phone_number)}
+                    {fila("Nombre verificado", num.verified_name)}
+                    {fila("Calidad", cal ? cal.t : num.quality_rating, cal?.c)}
+                    {fila("Estado", num.status)}
+                    {fila("Plataforma", num.platform_type, num.platform_type === "CLOUD_API" ? "#1d8a4e" : "#b45309")}
+                    {fila("Verificación del código", num.code_verification_status)}
+                    {num.name_status && fila("Estado del nombre", num.name_status)}
+                  </>
+                )}
+              </div>
+
+              <div style={caja}>
+                <div style={titulo}>Apps suscriptas a la WABA {amb.waba_id || ""}</div>
+                {est.apps_error ? <div style={{ fontSize: 13, color: "#c0392b" }}>{est.apps_error}</div>
+                  : !est.apps?.length ? <div style={{ fontSize: 13, color: "#888" }}>Ninguna app suscripta.</div>
+                  : est.apps.map((a, i) => (
+                    <div key={i} style={{ fontSize: 13, padding: "6px 0", borderBottom: "1px solid #f6f6f6" }}>
+                      <b>{a.nombre || "(sin nombre)"}</b> <span style={{ color: "#888" }}>· id {a.id}</span>
+                      {a.es_nuestra && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#1d8a4e", background: "#eafaf1", borderRadius: 4, padding: "1px 6px" }}>NUESTRA</span>}
+                      <div style={{ fontSize: 12, color: "#666", wordBreak: "break-all" }}>Callback: {a.override_callback_uri || "el de la app (sin override)"}</div>
+                    </div>
+                  ))}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+                  <button style={waBtn(amb.webhook_url ? "#1d8a4e" : "#ccc", "#fff")} disabled={!!ocupado || !amb.webhook_url} onClick={() => suscripcion("suscribir")}>{ocupado === "suscribir" ? "Suscribiendo…" : "Suscribir a este ambiente"}</button>
+                  <button style={waBtn("#fff", "#c0392b", "#f5c6cb")} disabled={!!ocupado} onClick={() => suscripcion("desuscribir")}>{ocupado === "desuscribir" ? "Desuscribiendo…" : "Desuscribir (rollback)"}</button>
+                </div>
+                <div style={{ fontSize: 12, color: "#888", marginTop: 6, wordBreak: "break-all" }}>Webhook de este ambiente: {amb.webhook_url || "desconocido (cargá WA_WEBHOOK_URL)"}</div>
+              </div>
+
+              <div style={caja}>
+                <div style={titulo}>Este ambiente</div>
+                {fila("Phone number ID", amb.phone_number_id)}
+                {fila("WABA ID", amb.waba_id)}
+                {fila("Versión Graph API", amb.graph_version)}
+                {fila("App del token", est.app ? `${est.app.name} (${est.app.id})` : "—")}
+                {fila("Archivos (R2)", amb.r2?.habilitado ? "OK" : `deshabilitados${amb.r2?.motivo ? ": " + amb.r2.motivo : ""}`, amb.r2?.habilitado ? "#1d8a4e" : "#c0392b")}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+                  {Object.entries(amb.variables || {}).map(([k, v]) => (
+                    <span key={k} style={{ fontSize: 11, fontFamily: "monospace", padding: "2px 7px", borderRadius: 4, background: v ? "#eafaf1" : "#f3f4f6", color: v ? "#1d8a4e" : "#999" }}>{v ? "✓" : "–"} {k}</span>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      );
+    }
+
+    function VistaWhatsApp({ usuario, onVolver, modo = "pantalla", ancho = 0, onCargarPedido }) {
+      const [tab, setTab] = useState("pendientes");
+      const [q, setQ] = useState("");
+      const [lista, setLista] = useState([]);
+      const [contadores, setContadores] = useState({});
+      const [puedeOperar, setPuedeOperar] = useState(false);
+      const [cargandoLista, setCargandoLista] = useState(true);
+      const [selId, setSelId] = useState(() => { try { const v = Number(localStorage.getItem("wa_sel_id")); return v > 0 ? v : null; } catch { return null; } });
+      const [conv, setConv] = useState(null);
+      const [mensajes, setMensajes] = useState([]);
+      const [hayMas, setHayMas] = useState(false);
+      const [cargandoChat, setCargandoChat] = useState(false);
+      const [texto, setTexto] = useState("");
+      const [enviando, setEnviando] = useState(false);
+      const [accionando, setAccionando] = useState(false);
+      const [aviso, setAviso] = useState(null);           // { texto, tipo }
+      const [alerta, setAlerta] = useState(false);        // entró algo nuevo en Pendientes
+      const [esMovil, setEsMovil] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches);
+      const [archivosOk, setArchivosOk] = useState(false);   // R2 OK en el servidor
+      const [modalPlantilla, setModalPlantilla] = useState(null);   // null | "conv" | "nueva"
+      const [verPlantillas, setVerPlantillas] = useState(false);
+      const [verConfig, setVerConfig] = useState(false);
+      const [ajustes, setAjustes] = useState(null);           // { wa_activo, bot_activo } del servidor
+      const [ampliada, setAmpliada] = useState(null);       // URL de la imagen abierta en grande
+      const [adjunto, setAdjunto] = useState(null);         // { file, caption } listo para mandar
+      const [subiendo, setSubiendo] = useState(false);
+      const archivoRef = useRef(null);
+      const firmaRef = useRef(null);
+      const ultimoIdRef = useRef(0);
+      const finRef = useRef(null);
+      const scrollRef = useRef(null);
+      const tituloOriginal = useRef(document.title);
+      const angosto = esMovil || (modo === "drawer" && ancho < 760);   // una columna: celular o drawer angosto
+      useEffect(() => { try { selId ? localStorage.setItem("wa_sel_id", String(selId)) : localStorage.removeItem("wa_sel_id"); } catch { /* sin storage */ } }, [selId]);
+
+      useEffect(() => {
+        const mq = window.matchMedia("(max-width: 768px)");
+        const h = (e) => setEsMovil(e.matches);
+        mq.addEventListener ? mq.addEventListener("change", h) : mq.addListener(h);
+        return () => { mq.removeEventListener ? mq.removeEventListener("change", h) : mq.removeListener(h); document.title = tituloOriginal.current; };
+      }, []);
+
+      function mostrarAviso(t, tipo = "ok") { setAviso({ texto: t, tipo }); setTimeout(() => setAviso(null), 4500); }
+      const tabActual = WA_TABS.find(t => t.k === tab) || WA_TABS[0];
+
+      async function cargarLista() {
+        try {
+          const params = { ...tabActual.params };
+          if (q.trim()) params.q = q.trim();
+          const r = await axios.get(`${API}/api/whatsapp/conversaciones`, { params });
+          setLista(r.data.conversaciones || []);
+          setContadores(r.data.contadores || {});
+          setPuedeOperar(!!r.data.puede_operar);
+          setAjustes(r.data.ajustes || null);
+          // ¿Entró algo nuevo en Pendientes? (más pendientes, o un mensaje nuevo en alguna pendiente)
+          const f = r.data.pendientes_firma;
+          const prev = firmaRef.current;
+          if (prev && f && (f.cantidad > prev.cantidad || (f.cantidad > 0 && f.ultimo_entrante && f.ultimo_entrante !== prev.ultimo_entrante))) {
+            setAlerta(true);   // el sonido lo dispara el WhatsAppDock (global)
+            document.title = `🔔 (${f.cantidad}) Pendientes — WhatsApp`;
+          }
+          firmaRef.current = f;
+        } catch (err) { if (err.response?.status !== 401) mostrarAviso(err.response?.data?.error || "Error cargando conversaciones", "error"); }
+        setCargandoLista(false);
+      }
+      useEffect(() => {
+        setCargandoLista(true); cargarLista();
+        const t = setInterval(cargarLista, 5000);
+        return () => clearInterval(t);
+      }, [tab, q]);   // eslint-disable-line
+
+      const alFinal = () => setTimeout(() => finRef.current?.scrollIntoView({ block: "end" }), 30);
+      const cercaDelFinal = () => { const el = scrollRef.current; return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 120; };
+
+      async function abrirConversacion(id) {
+        setCargandoChat(true);
+        try {
+          const r = await axios.get(`${API}/api/whatsapp/conversaciones/${id}/mensajes`);
+          setConv(r.data.conversacion); setMensajes(r.data.mensajes || []); setHayMas(!!r.data.hay_mas);
+          setArchivosOk(!!r.data.archivos_habilitados);
+          ultimoIdRef.current = (r.data.mensajes || []).reduce((a, m) => Math.max(a, m.id), 0);
+          setLista(ls => ls.map(c => c.id === id ? { ...c, no_leidos: 0 } : c));
+          alFinal();
+        } catch (err) { mostrarAviso(err.response?.data?.error || "Error abriendo la conversación", "error"); }
+        setCargandoChat(false);
+      }
+      // Polling del chat abierto: solo lo nuevo (despues=último id) + estados de los salientes (ticks).
+      async function cargarNuevos(id) {
+        try {
+          const r = await axios.get(`${API}/api/whatsapp/conversaciones/${id}/mensajes`, { params: { despues: ultimoIdRef.current || undefined } });
+          setConv(r.data.conversacion);
+          setArchivosOk(!!r.data.archivos_habilitados);
+          const nuevos = r.data.mensajes || [];
+          // Estados recientes: ticks de los salientes y estado de los archivos (un entrante pasa de "pendiente" a "ok").
+          const est = {}; for (const s of r.data.estados_salientes || []) est[s.id] = s;
+          const pegarAbajo = nuevos.length > 0 && cercaDelFinal();
+          setMensajes(ms => {
+            const ids = new Set(ms.map(m => m.id));
+            const act = ms.map(m => {
+              const e = est[m.id];
+              if (!e) return m;
+              const cambio = e.estado !== m.estado || e.error !== m.error || e.media_estado !== m.media_estado || e.tiene_archivo !== m.tiene_archivo;
+              return cambio ? { ...m, estado: e.estado, error: e.error, media_estado: e.media_estado, tiene_archivo: e.tiene_archivo } : m;
+            });
+            return [...act, ...nuevos.filter(m => !ids.has(m.id))];
+          });
+          if (nuevos.length) ultimoIdRef.current = Math.max(ultimoIdRef.current, ...nuevos.map(m => m.id));
+          if (pegarAbajo) alFinal();
+        } catch { /* reintenta en el próximo ciclo */ }
+      }
+      useEffect(() => {
+        if (!selId) { setConv(null); setMensajes([]); return; }
+        setTexto(""); setAdjunto(null); abrirConversacion(selId);
+        const t = setInterval(() => cargarNuevos(selId), 5000);
+        return () => clearInterval(t);
+      }, [selId]);   // eslint-disable-line
+
+      async function cargarAnteriores() {
+        if (!selId || !mensajes.length) return;
+        const el = scrollRef.current, altoAntes = el ? el.scrollHeight : 0;
+        try {
+          const r = await axios.get(`${API}/api/whatsapp/conversaciones/${selId}/mensajes`, { params: { antes: mensajes[0].id } });
+          setMensajes(ms => [...(r.data.mensajes || []), ...ms]); setHayMas(!!r.data.hay_mas);
+          setTimeout(() => { if (el) el.scrollTop = el.scrollHeight - altoAntes; }, 30);   // mantiene la posición
+        } catch (err) { mostrarAviso("Error cargando mensajes anteriores", "error"); }
+      }
+
+      async function accion(nombre, confirmar) {
+        if (!conv || accionando) return;
+        if (confirmar && !window.confirm(confirmar)) return;
+        setAccionando(true);
+        try {
+          const r = await axios.post(`${API}/api/whatsapp/conversaciones/${conv.id}/${nombre}`);
+          if (r.data?.mensaje) mostrarAviso(r.data.mensaje);
+          if (nombre === "tomar") { mostrarAviso("Tomaste la conversación: el bot quedó pausado."); setTab("mias"); }
+          await Promise.all([cargarNuevos(conv.id), cargarLista()]);
+        } catch (err) { mostrarAviso(err.response?.data?.error || "No se pudo completar la acción", "error"); await cargarNuevos(conv.id); }
+        setAccionando(false);
+      }
+
+      async function enviar() {
+        const t = texto.trim();
+        if (!t || !conv || enviando) return;
+        setEnviando(true);
+        try {
+          const r = await axios.post(`${API}/api/whatsapp/conversaciones/${conv.id}/responder`, { texto: t });
+          const m = r.data.mensaje;
+          setMensajes(ms => [...ms, m]); ultimoIdRef.current = Math.max(ultimoIdRef.current, m.id);
+          setTexto(""); alFinal(); cargarLista();
+        } catch (err) {
+          const m = err.response?.data?.mensaje;   // 502: quedó guardado como fallido
+          if (m) { setMensajes(ms => [...ms, m]); ultimoIdRef.current = Math.max(ultimoIdRef.current, m.id); alFinal(); }
+          mostrarAviso(err.response?.data?.error || "No se pudo enviar", "error");
+          if (err.response?.status === 409 || err.response?.status === 422) cargarNuevos(conv.id);
+        }
+        setEnviando(false);
+      }
+
+      const agregarMensaje = (m) => { if (!m) return; setMensajes(ms => ms.some(x => x.id === m.id) ? ms : [...ms, m]); ultimoIdRef.current = Math.max(ultimoIdRef.current, m.id); alFinal(); };
+
+      // Resultado del modal de plantilla (a esta conversación o una nueva).
+      function plantillaLista(data, error) {
+        const eraNueva = modalPlantilla === "nueva";
+        setModalPlantilla(null);
+        if (eraNueva && data.conversacion_id) {
+          setTab("mias");
+          if (data.conversacion_id === selId) abrirConversacion(selId); else setSelId(data.conversacion_id);
+        } else agregarMensaje(data.mensaje);
+        error ? mostrarAviso(error, "error") : mostrarAviso(eraNueva ? "Plantilla enviada: la conversación quedó tomada por vos." : "Plantilla enviada.");
+        cargarLista();
+      }
+
+      function elegirArchivo(e) {
+        const f = e.target.files?.[0];
+        e.target.value = "";
+        if (!f) return;
+        if (!WA_MIMES_SALIENTES.includes(f.type)) return mostrarAviso("Solo se pueden enviar imágenes JPG o PNG, o documentos PDF.", "error");
+        if (f.size > WA_MAX_ARCHIVO) return mostrarAviso(`El archivo pesa ${waBytes(f.size)}: el máximo es 10 MB.`, "error");
+        setAdjunto({ file: f, caption: texto.trim() });   // lo escrito pasa como epígrafe
+      }
+      async function enviarAdjunto() {
+        if (!adjunto || !conv || subiendo) return;
+        setSubiendo(true);
+        try {
+          const r = await axios.post(`${API}/api/whatsapp/conversaciones/${conv.id}/archivo`, adjunto.file, {
+            headers: { "Content-Type": adjunto.file.type },
+            params: { nombre: adjunto.file.name, caption: adjunto.caption.trim() || undefined },
+          });
+          agregarMensaje(r.data.mensaje);
+          if (adjunto.caption.trim() === texto.trim()) setTexto("");
+          setAdjunto(null); cargarLista();
+        } catch (err) {
+          const m = err.response?.data?.mensaje;   // 502: quedó guardado como fallido
+          if (m) { agregarMensaje(m); setAdjunto(null); }
+          mostrarAviso(err.response?.data?.error || "No se pudo enviar el archivo", "error");
+          if (err.response?.status === 409 || err.response?.status === 422) cargarNuevos(conv.id);
+        }
+        setSubiendo(false);
+      }
+
+      // Por qué no se puede escribir (null = se puede).
+      const esMiaYPuedo = !!conv && puedeOperar && conv.estado === "agente" && conv.es_mia;
+      const requierePlantilla = esMiaYPuedo && !conv.ventana_abierta;
+      const motivoBloqueo = !conv ? null
+        : !puedeOperar ? "Estás en una sesión de solo lectura: podés ver las conversaciones pero no responder."
+        : conv.estado === "agente" && !conv.es_mia ? `La está atendiendo ${conv.agente_nombre || "otro agente"}. Solo esa persona puede responder.`
+        : !esMiaYPuedo ? "Tomá la conversación para responder (el bot queda pausado)."
+        : requierePlantilla ? "Pasaron más de 24 h desde el último mensaje del cliente: solo se le puede escribir con una plantilla aprobada."
+        : null;
+
+      const btn = (bg, c, b) => ({ fontSize: 12, fontWeight: 600, padding: "7px 12px", borderRadius: 8, border: `1px solid ${b || bg}`, background: bg, color: c, cursor: "pointer", whiteSpace: "nowrap" });
+      const verLista = !angosto || !selId;
+      const verChat = !angosto || !!selId;
+
+      if (verPlantillas) return <VistaPlantillasWA angosto={angosto} onVolver={() => setVerPlantillas(false)} />;
+      if (verConfig) return <VistaConfigWA angosto={angosto} onVolver={() => { setVerConfig(false); cargarLista(); }} />;
+      const esAdminWA = usuario?.rol === "admin" || usuario?.rol === "superadmin";
+
+      return (
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: angosto ? 0 : 16, gap: 12, boxSizing: "border-box" }}>
+          {/* Barra superior */}
+          {(!angosto || !selId) && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: angosto ? "12px 12px 0" : 0 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>💬 WhatsApp</div>
+              {alerta && (
+                <button style={{ ...btn("#fef3c7", "#b45309", "#f59e0b"), animation: "none" }} onClick={() => { setAlerta(false); setTab("pendientes"); document.title = tituloOriginal.current; }}>
+                  🔔 Entró algo nuevo en Pendientes
+                </button>
+              )}
+              <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                {esAdminWA && <button style={btn("#fff", "#333", "#ddd")} onClick={() => setVerConfig(true)} title="Configuración WhatsApp">⚙️</button>}
+                <button style={btn("#fff", "#333", "#ddd")} onClick={() => setVerPlantillas(true)}>📋 Plantillas</button>
+                {puedeOperar && <button style={btn("#F68B32", "#fff")} onClick={() => setModalPlantilla("nueva")} title="Escribirle a un número con una plantilla aprobada">+ Nueva conversación</button>}
+                <button style={btn("#fff", "#333", "#ddd")} onClick={onVolver}>{modo === "drawer" ? "✕ Cerrar" : "← Volver"}</button>
+              </div>
+            </div>
+          )}
+          {ajustes && (!ajustes.wa_activo || !ajustes.bot_activo) && (!angosto || !selId) && (
+            <div style={{ margin: angosto ? "0 12px" : 0, background: "#fff7ed", border: "1px solid #fdba74", color: "#9a3412", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>
+              {!ajustes.wa_activo ? "⏸ WhatsApp está APAGADO en este ambiente: se guardan los mensajes que entran, pero no se responde ni se envía nada." : "🤖 El bot está APAGADO: todo lo que entra va directo a Pendientes."}
+              {esAdminWA && <button style={{ ...btn("#fff", "#9a3412", "#fdba74"), marginLeft: 8, padding: "3px 8px" }} onClick={() => setVerConfig(true)}>Configurar</button>}
+            </div>
+          )}
+          {aviso && <div style={{ margin: angosto ? "0 12px" : 0, background: aviso.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${aviso.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: aviso.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>{aviso.texto}</div>}
+
+          <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: angosto ? "1fr" : "minmax(280px, 360px) 1fr", gap: angosto ? 0 : 12 }}>
+            {/* ── Lista ── */}
+            {verLista && (
+              <div style={{ minHeight: 0, display: "flex", flexDirection: "column", background: "#fff", border: angosto ? "none" : "1px solid #eee", borderRadius: angosto ? 0 : 10, overflow: "hidden" }}>
+                <div style={{ display: "flex", overflowX: "auto", borderBottom: "1px solid #eee" }}>
+                  {WA_TABS.map(t => {
+                    const activa = t.k === tab, n = contadores[t.cont];
+                    return (
+                      <button key={t.k} onClick={() => { setTab(t.k); if (t.k === "pendientes") { setAlerta(false); document.title = tituloOriginal.current; } }}
+                        style={{ flex: "1 0 auto", padding: "10px 10px", fontSize: 12, fontWeight: activa ? 700 : 500, border: "none", borderBottom: `2px solid ${activa ? "#F68B32" : "transparent"}`, background: t.k === "pendientes" && alerta ? "#fffbeb" : "#fff", color: activa ? "#F68B32" : "#555", cursor: "pointer", whiteSpace: "nowrap" }}>
+                        {t.label}{n > 0 ? ` (${n})` : ""}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{ padding: 8, borderBottom: "1px solid #f3f3f3" }}>
+                  <input style={{ width: "100%", boxSizing: "border-box", fontSize: 13, padding: "7px 10px", borderRadius: 8, border: "1px solid #ddd" }} placeholder="Buscar por nombre o número…" value={q} onChange={e => setQ(e.target.value)} />
+                </div>
+                <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+                  {cargandoLista && lista.length === 0 ? <div style={{ padding: 16, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+                    : lista.length === 0 ? <div style={{ padding: 16, color: "#aaa", fontSize: 13 }}>No hay conversaciones en esta pestaña.</div>
+                    : lista.map(c => {
+                      const est = WA_ESTADO_INFO[c.estado] || WA_ESTADO_INFO.bot;
+                      const sel = c.id === selId;
+                      const prefijo = c.ultimo_direccion === "out" ? (c.ultimo_autor === "bot" ? "🤖 " : "Vos/agente: ") : "";
+                      return (
+                        <div key={c.id} onClick={() => setSelId(c.id)} style={{ padding: "10px 12px", borderBottom: "1px solid #f5f5f5", cursor: "pointer", background: sel ? "#fff7ed" : "#fff", display: "flex", gap: 10 }}>
+                          <div style={{ width: 38, height: 38, borderRadius: "50%", background: "#f0f0e8", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0, color: "#666", fontWeight: 700 }}>
+                            {(c.nombre || "?").trim().charAt(0).toUpperCase()}
+                          </div>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nombre || waNumero(c.wa_id)}</span>
+                              <span style={{ fontSize: 11, color: c.no_leidos > 0 ? "#1d8a4e" : "#999", flexShrink: 0 }}>{waHora(c.ultimo_at || c.ultimo_mensaje_at)}</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "center", marginTop: 2 }}>
+                              <span style={{ fontSize: 12, color: "#777", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{prefijo}{c.ultimo_texto || WA_TIPO_ICONO[c.ultimo_tipo] || ""}</span>
+                              {c.no_leidos > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: "#1d8a4e", borderRadius: 10, padding: "1px 7px", flexShrink: 0 }}>{c.no_leidos}</span>}
+                            </div>
+                            <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 9, fontWeight: 700, color: est.c, background: est.bg, borderRadius: 4, padding: "1px 6px", textTransform: "uppercase" }}>{est.label}</span>
+                              {c.agente_nombre && <span style={{ fontSize: 11, color: c.es_mia ? "#1d8a4e" : "#888" }}>👤 {c.es_mia ? "Vos" : c.agente_nombre}</span>}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+
+            {/* ── Chat ── */}
+            {verChat && (
+              <div style={{ minHeight: 0, display: "flex", flexDirection: "column", background: "#efeae2", border: angosto ? "none" : "1px solid #eee", borderRadius: angosto ? 0 : 10, overflow: "hidden" }}>
+                {!conv ? (
+                  <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#999", fontSize: 14, padding: 24, textAlign: "center" }}>
+                    {cargandoChat ? "Cargando…" : "Elegí una conversación de la lista."}
+                  </div>
+                ) : (
+                  <>
+                    {/* Encabezado + acciones */}
+                    <div style={{ background: "#fff", borderBottom: "1px solid #eee", padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      {angosto && <button style={btn("#fff", "#333", "#ddd")} onClick={() => setSelId(null)}>←</button>}
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{conv.nombre || waNumero(conv.wa_id)}</div>
+                        <div style={{ fontSize: 11, color: "#888", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                          <span>{waNumero(conv.wa_id)}</span>
+                          <span style={{ fontWeight: 700, color: (WA_ESTADO_INFO[conv.estado] || {}).c }}>· {(WA_ESTADO_INFO[conv.estado] || {}).label}</span>
+                          {conv.agente_nombre && <span>· 👤 {conv.es_mia ? "Vos" : conv.agente_nombre}</span>}
+                          {!conv.ventana_abierta && <span style={{ color: "#b45309" }}>· fuera de las 24 h</span>}
+                        </div>
+                      </div>
+                      {onCargarPedido && usuario.rol !== "solo_lectura" && (
+                        <button style={btn("#fff", "#F68B32", "#F68B32")} title="Abre Nuevo pedido con el nombre y el teléfono del cliente"
+                          onClick={() => onCargarPedido({ nombre: conv.nombre || "", telefono: waTelefonoNacional(conv.wa_id) })}>🧾 Cargar pedido</button>
+                      )}
+                      {puedeOperar && (
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {!(conv.estado === "agente" && conv.es_mia) && (
+                            <button style={conv.estado === "agente" && !conv.es_mia ? { ...btn("#f3f4f6", "#9ca3af", "#e5e7eb"), cursor: "not-allowed" } : btn("#F68B32", "#fff")}
+                              disabled={accionando || (conv.estado === "agente" && !conv.es_mia)}
+                              title={conv.estado === "agente" && !conv.es_mia ? `La tiene ${conv.agente_nombre}` : "Asignármela (pausa el bot)"}
+                              onClick={() => accion("tomar")}>✋ Tomar</button>
+                          )}
+                          {conv.estado === "agente" && conv.puede_gestionar && (
+                            <button style={btn("#fff", "#b45309", "#f59e0b")} disabled={accionando} onClick={() => accion("liberar")}>Liberar</button>
+                          )}
+                          {conv.estado !== "bot" && conv.puede_gestionar && (
+                            <button style={btn("#fff", "#4338ca", "#a5b4fc")} disabled={accionando} onClick={() => accion("devolver-bot", "¿Devolver la conversación al bot? Va a volver a responder solo.")}>🤖 Devolver al bot</button>
+                          )}
+                          {conv.estado !== "cerrada" && conv.puede_gestionar && (
+                            <button style={btn("#fff", "#6b7280", "#d1d5db")} disabled={accionando} onClick={() => accion("cerrar", "¿Cerrar la conversación? Si el cliente vuelve a escribir, la retoma el bot.")}>Cerrar</button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Mensajes */}
+                    <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 10px", display: "flex", flexDirection: "column", gap: 6 }}>
+                      {hayMas && <button style={{ ...btn("#fff", "#555", "#ddd"), alignSelf: "center", marginBottom: 6 }} onClick={cargarAnteriores}>Cargar mensajes anteriores</button>}
+                      {mensajes.map(m => {
+                        const sale = m.direccion === "out";
+                        const tick = sale ? waTick(m) : null;
+                        const estilo = !sale ? { bg: "#fff", align: "flex-start" } : m.autor === "bot" ? { bg: "#e0e7ff", align: "flex-end" } : { bg: "#d9fdd3", align: "flex-end" };
+                        const esMedia = WA_MEDIA.includes(m.tipo);
+                        return (
+                          <div key={m.id} style={{ alignSelf: estilo.align, maxWidth: angosto ? "86%" : "72%", background: estilo.bg, borderRadius: 10, padding: "6px 10px 4px", boxShadow: "0 1px 1px rgba(0,0,0,0.06)" }}>
+                            {sale && <div style={{ fontSize: 11, fontWeight: 700, color: m.autor === "bot" ? "#4338ca" : "#1d8a4e", marginBottom: 2 }}>{m.autor === "bot" ? "🤖 Bot" : `👤 ${m.usuario_nombre || "Agente"}`}{m.plantilla_nombre && <span style={{ fontWeight: 500, color: "#888" }}> · 📋 plantilla {m.plantilla_nombre}</span>}</div>}
+                            {esMedia && <WaMedia m={m} onAmpliar={setAmpliada} />}
+                            {esMedia
+                              ? (m.caption && <div style={{ fontSize: 14, color: "#222", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{m.caption}</div>)
+                              : <div style={{ fontSize: 14, color: "#222", whiteSpace: "pre-wrap", wordBreak: "break-word", fontStyle: m.texto ? "normal" : "italic" }}>{waTextoMensaje(m)}</div>}
+                            <div style={{ fontSize: 10, color: "#999", textAlign: "right", marginTop: 2, display: "flex", justifyContent: "flex-end", gap: 4, alignItems: "center" }}>
+                              <span>{new Date(m.wa_timestamp || m.created_at).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                              {tick && <span title={tick.title} style={{ color: tick.c, fontWeight: 700 }}>{tick.t}</span>}
+                            </div>
+                            {sale && m.estado === "failed" && m.error && <div style={{ fontSize: 10, color: "#c0392b", marginTop: 2 }}>{m.error}</div>}
+                          </div>
+                        );
+                      })}
+                      <div ref={finRef} />
+                    </div>
+
+                    {/* Input */}
+                    <div style={{ background: "#f7f7f5", borderTop: "1px solid #e5e5e5", padding: 10 }}>
+                      {requierePlantilla ? (
+                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 12, color: "#8a6d3b", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "8px 12px" }}>
+                          <span style={{ flex: 1, minWidth: 180 }}>{motivoBloqueo}</span>
+                          <button style={btn("#1d8a4e", "#fff")} onClick={() => setModalPlantilla("conv")}>📋 Enviar plantilla</button>
+                        </div>
+                      ) : motivoBloqueo ? (
+                        <div style={{ fontSize: 12, color: "#8a6d3b", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "9px 12px" }}>{motivoBloqueo}</div>
+                      ) : adjunto ? (
+                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                          <div style={{ flex: "1 1 100%", fontSize: 12, color: "#555" }}>
+                            {adjunto.file.type === "application/pdf" ? "📄" : "📷"} <b>{adjunto.file.name}</b> · {waBytes(adjunto.file.size)}
+                          </div>
+                          <input style={{ flex: 1, minWidth: 160, fontSize: 14, padding: "9px 12px", borderRadius: 10, border: "1px solid #ddd", boxSizing: "border-box" }}
+                            placeholder="Epígrafe (opcional)" value={adjunto.caption} maxLength={1024}
+                            onChange={e => { const v = e.target.value; setAdjunto(a => ({ ...a, caption: v })); }}
+                            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); enviarAdjunto(); } }} />
+                          <button style={btn("#fff", "#333", "#ddd")} disabled={subiendo} onClick={() => setAdjunto(null)}>Cancelar</button>
+                          <button style={{ ...btn(subiendo ? "#ccc" : "#1d8a4e", "#fff"), padding: "10px 16px" }} disabled={subiendo} onClick={enviarAdjunto}>{subiendo ? "Enviando…" : "Enviar archivo"}</button>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                          {archivosOk && (
+                            <>
+                              <input ref={archivoRef} type="file" accept="image/jpeg,image/png,application/pdf" style={{ display: "none" }} onChange={elegirArchivo} />
+                              <button style={{ ...btn("#fff", "#555", "#ddd"), padding: "10px 12px", fontSize: 15 }} title="Adjuntar imagen (JPG/PNG) o PDF, hasta 10 MB" onClick={() => archivoRef.current?.click()}>📎</button>
+                            </>
+                          )}
+                          <textarea style={{ flex: 1, minHeight: 40, maxHeight: 140, resize: "vertical", fontSize: 14, padding: "9px 12px", borderRadius: 10, border: "1px solid #ddd", fontFamily: "inherit", boxSizing: "border-box" }}
+                            placeholder="Escribí tu respuesta… (Enter envía, Shift+Enter salto de línea)" value={texto} maxLength={4096}
+                            onChange={e => setTexto(e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); } }} />
+                          <button style={{ ...btn(enviando || !texto.trim() ? "#ccc" : "#1d8a4e", "#fff"), padding: "10px 16px" }} disabled={enviando || !texto.trim()} onClick={enviar}>{enviando ? "…" : "Enviar"}</button>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+          {modalPlantilla && (
+            <ModalPlantillaWA conversacion={modalPlantilla === "conv" ? conv : null} onCerrar={() => setModalPlantilla(null)} onListo={plantillaLista} />
+          )}
+          {ampliada && (
+            <div onClick={() => setAmpliada(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3100, padding: 16, cursor: "zoom-out" }}>
+              <img src={ampliada} alt="Imagen" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 6 }} />
+              <button onClick={() => setAmpliada(null)} style={{ position: "absolute", top: 12, right: 12, ...btn("#fff", "#333", "#fff") }}>✕ Cerrar</button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─── WHATSAPP — WIDGET DEL HEADER + DRAWER GLOBAL ─────────────────────
+    // WhatsAppDock vive en App (al lado de PanelApp), así el drawer sobrevive a los cambios de pantalla.
+    // Hace el polling liviano de /contadores cada 5 s y los publica en un store; el widget del header
+    // solo lee ese store (el Header se re-crea en cada render de PanelApp, por eso no guarda estado propio).
+    // Widget → drawer y chat → "Nuevo pedido" se comunican con eventos de window.
+    const waStore = { cont: null, subs: new Set() };
+    const waSetContadores = (c) => { waStore.cont = c; waStore.subs.forEach(f => f()); };
+    const waSuscribir = (f) => { waStore.subs.add(f); return () => waStore.subs.delete(f); };
+    function useWaContadores() { return useSyncExternalStore(waSuscribir, () => waStore.cont); }
+    const waEmitir = (nombre, detalle) => window.dispatchEvent(new CustomEvent(nombre, { detail: detalle }));
+    // 549XXXXXXXXXX → XXXXXXXXXX (formato local para el alta de pedido).
+    const waTelefonoNacional = (waId) => { const d = String(waId || ""); return d.startsWith("549") && d.length === 13 ? d.slice(3) : (d.startsWith("54") ? d.slice(2) : d); };
+    const waLeer = (k, def) => { try { const v = localStorage.getItem(k); return v === null ? def : v; } catch { return def; } };
+    const waGuardar = (k, v) => { try { localStorage.setItem(k, String(v)); } catch { /* sin storage */ } };
+    const WA_CSS = `
+      @keyframes waLatido { 0%, 100% { box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.45); } 50% { box-shadow: 0 0 0 8px rgba(234, 88, 12, 0); } }
+      .wa-widget { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+      .wa-widget.wa-alerta { animation: waLatido 1.8s ease-in-out infinite; }
+      @media (max-width: 900px) { .wa-widget { position: static; transform: none; } .wa-widget-txt { display: none; } }
+      @media (max-width: 480px) { .wa-widget-lbl { display: none; } }
+    `;
+
+    function WidgetWhatsApp() {
+      const c = useWaContadores();
+      if (!c) return null;
+      const urgente = c.por_responder > 0;
+      const num = (n, label, color) => (
+        <span style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.05 }}>
+          <b style={{ fontSize: 17, color }}>{n}</b>
+          <span className="wa-widget-lbl" style={{ fontSize: 9, fontWeight: 600, color: "#777", textTransform: "uppercase", letterSpacing: 0.3 }}>{label}</span>
+        </span>
+      );
+      return (
+        <button type="button" className={"wa-widget" + (urgente ? " wa-alerta" : "")} onClick={() => waEmitir("wa:abrir")}
+          title={urgente ? `${c.por_responder} conversación(es) esperando respuesta` : "Abrir la bandeja de WhatsApp"}
+          style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
+            border: `2px solid ${urgente ? "#ea580c" : "#86efac"}`, background: urgente ? "#fff7ed" : "#f0fdf4" }}>
+          <span style={{ fontSize: 18 }}>💬</span>
+          <span className="wa-widget-txt" style={{ fontSize: 13, fontWeight: 700, color: "#333" }}>WhatsApp</span>
+          {num(c.activas, "Activas", "#333")}
+          {num(c.por_responder, "Por responder", urgente ? "#c2410c" : "#166534")}
+          {c.mias_nuevos > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: "#1d8a4e", borderRadius: 10, padding: "2px 8px", whiteSpace: "nowrap" }}>Mías: {c.mias_nuevos}</span>}
+        </button>
+      );
+    }
+
+    function WhatsAppDock({ usuario }) {
+      const habilitado = !!usuario && !usuario.modoLectura;   // la sesión de emergencia no usa la bandeja
+      const [abierto, setAbierto] = useState(() => waLeer("wa_drawer_abierto", "0") === "1");
+      const [ancho, setAncho] = useState(() => Math.max(340, Number(waLeer("wa_drawer_ancho", "420")) || 420));
+      const [esMovil, setEsMovil] = useState(() => window.matchMedia("(max-width: 768px)").matches);
+      const prevPorResponder = useRef(null);
+
+      useEffect(() => {   // estilos del widget (latido + posición), una sola vez
+        if (document.getElementById("wa-css")) return;
+        const st = document.createElement("style"); st.id = "wa-css"; st.textContent = WA_CSS; document.head.appendChild(st);
+      }, []);
+      useEffect(() => {   // polling liviano de contadores + beep cuando sube "Por responder"
+        if (!habilitado) { waSetContadores(null); return; }
+        let vivo = true;
+        const tick = async () => {
+          try {
+            const r = await axios.get(`${API}/api/whatsapp/contadores`);
+            if (!vivo) return;
+            const c = r.data;
+            if (prevPorResponder.current !== null && c.por_responder > prevPorResponder.current) waBeep();
+            prevPorResponder.current = c.por_responder;
+            waSetContadores(c);
+          } catch { /* reintenta en el próximo ciclo */ }
+        };
+        tick();
+        const t = setInterval(tick, 5000);
+        return () => { vivo = false; clearInterval(t); };
+      }, [habilitado]);
+      useEffect(() => {
+        const h = () => setAbierto(true);
+        window.addEventListener("wa:abrir", h);
+        const mq = window.matchMedia("(max-width: 768px)");
+        const hm = (e) => setEsMovil(e.matches);
+        mq.addEventListener ? mq.addEventListener("change", hm) : mq.addListener(hm);
+        return () => { window.removeEventListener("wa:abrir", h); mq.removeEventListener ? mq.removeEventListener("change", hm) : mq.removeListener(hm); };
+      }, []);
+      useEffect(() => { waGuardar("wa_drawer_abierto", abierto ? "1" : "0"); }, [abierto]);
+
+      // Redimensionar arrastrando el borde izquierdo (el ancho se guarda al soltar).
+      function empezarResize(e) {
+        e.preventDefault();
+        let ultimo = ancho;
+        const mover = (ev) => {
+          const x = ev.touches ? ev.touches[0].clientX : ev.clientX;
+          ultimo = Math.min(Math.max(window.innerWidth - x, 340), Math.round(window.innerWidth * 0.95));
+          setAncho(ultimo);
+        };
+        const soltar = () => {
+          window.removeEventListener("mousemove", mover); window.removeEventListener("mouseup", soltar);
+          window.removeEventListener("touchmove", mover); window.removeEventListener("touchend", soltar);
+          document.body.style.userSelect = ""; waGuardar("wa_drawer_ancho", ultimo);
+        };
+        document.body.style.userSelect = "none";
+        window.addEventListener("mousemove", mover); window.addEventListener("mouseup", soltar);
+        window.addEventListener("touchmove", mover); window.addEventListener("touchend", soltar);
+      }
+
+      if (!habilitado || !abierto) return null;
+      // Sin fondo oscuro a propósito: la pantalla de atrás sigue usable (ej. cargar el pedido mientras chateás).
+      // En celular left:0 + right:0 (no 100vw): cubre todo el ancho aunque la página de atrás desborde.
+      return (
+        <div style={{ position: "fixed", top: 0, right: 0, ...(esMovil ? { left: 0 } : { width: ancho, maxWidth: "100vw" }), height: "100dvh", background: "#f7f7f5",
+          boxShadow: "-8px 0 24px rgba(0,0,0,0.18)", zIndex: 2100, display: "flex", flexDirection: "column", fontFamily: "system-ui, sans-serif" }}>
+          {!esMovil && <div onMouseDown={empezarResize} onTouchStart={empezarResize} title="Arrastrá para cambiar el ancho"
+            style={{ position: "absolute", left: -4, top: 0, bottom: 0, width: 8, cursor: "ew-resize", zIndex: 2 }} />}
+          <VistaWhatsApp usuario={usuario} modo="drawer" ancho={esMovil ? 0 : ancho}
+            onVolver={() => setAbierto(false)}
+            onCargarPedido={(d) => { waEmitir("wa:cargar-pedido", d); if (esMovil) setAbierto(false); }} />
+        </div>
+      );
+    }
+
     // ─── COMPRAS — ÓRDENES DE COMPRA (Entrega 2) ──────────────────────────
     // Admin + superadmin. Flujo pendiente → aprobada → (recibida = Entrega 3); anulable.
     const OC_ESTADO_BADGE = {
@@ -6319,6 +7453,16 @@ const [facturasMap, setFacturasMap] = useState({});
       const [categoriaFiltro, setCategoriaFiltro] = useState("");
       const [carrito, setCarrito] = useState([]);
       const [form, setForm] = useState(FORM_INICIAL);
+      // "Cargar pedido" desde el chat de WhatsApp (drawer o pantalla): abre Nuevo pedido con nombre y teléfono.
+      useEffect(() => {
+        const h = (e) => {
+          const d = e.detail || {};
+          setVista("panel"); setTab("nuevo");
+          setForm(f => ({ ...f, cliente: d.nombre || f.cliente, telefono: d.telefono || f.telefono }));
+        };
+        window.addEventListener("wa:cargar-pedido", h);
+        return () => window.removeEventListener("wa:cargar-pedido", h);
+      }, []);
       const [areaManual, setAreaManual] = useState("");   // alta manual: área asignada a mano (override del reporte de zonas). "" = sin asignar.
       const [descuentoRetiro, setDescuentoRetiro] = useState(false);   // alta manual: toggle 10% OFF Retiro (descuento DERIVADO, no ítem del carrito).
       const [envioZona, setEnvioZona] = useState("");                  // alta manual: zona de envío elegida ("" = sin envío).
@@ -7531,11 +8675,14 @@ let numeroAsignado = "";
         />
       );
 
+      // Se usa llamándola como función (no como componente JSX): definida acá adentro, como componente React la re-montaba
+      // en cada render de PanelApp (y el latido del widget de WhatsApp arrancaba de cero todo el tiempo).
       const Header = () => (
-        <div style={s.header}>
+        <div style={{ ...s.header, position: "relative" }}>
           <div style={s.brand}>
             <img src="/Piccadely_Logotipo-Centrado-Negro.svg" alt="Piccadely" style={{ height: 36, objectFit: "contain" }} />
           </div>
+          {!emergencia && <WidgetWhatsApp />}{/* centrado (posición absoluta en desktop, en línea en celular) */}
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={s.fechaHoy}>{new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 12, borderLeft: "1px solid #eee" }}>
@@ -7667,6 +8814,9 @@ let numeroAsignado = "";
                       )}
                     </>
                   )}
+                  <button style={s.dropItem} onClick={() => { setVista("whatsapp"); setMenuAbierto(false); }}>💬 WhatsApp</button>{/* todos los roles */}
+                  <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("waPlantillas"); setMenuAbierto(false); }}>📋 Plantillas de WhatsApp</button>
+                  {esAdmin && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("waConfig"); setMenuAbierto(false); }}>⚙️ Configuración WhatsApp</button>}
                   {esAdmin && <button style={s.dropItem} onClick={() => { setVista("clientes"); setMenuAbierto(false); }}>👥 Clientes</button>}
                   {esAdmin && <button style={s.dropItem} onClick={() => { setVista("ventasRealizar"); setMenuAbierto(false); }}>💼 Ventas a realizar</button>}
                   <button style={s.dropItem} onClick={() => { setVista("tandas"); setMenuAbierto(false); }}>🚚 Tandas activas</button>
@@ -7749,11 +8899,13 @@ let numeroAsignado = "";
       if (VISTAS_STOCK.includes(vista) && !esGestion) return sinAccesoStock("No tenés permiso para ver el stock.");
       if (["stockIngreso", "stockRecuento"].includes(vista) && !(esAdmin || usuario.rol === "encargado")) return sinAccesoStock("Solo admin, superadmin y encargados pueden cargar stock.");
       if (vista === "insumos" && !esAdmin) return sinAccesoStock("El maestro de insumos es solo para administradores.");
+      // Bandeja de WhatsApp: cualquier usuario logueado. Solo queda afuera la sesión de emergencia (sin 2FA).
+      if (["whatsapp", "waPlantillas", "waConfig"].includes(vista) && emergencia) return sinAccesoStock("La bandeja de WhatsApp no está disponible en el modo de emergencia.");
 
     if (vista === "repartidores") {
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <div style={{ padding: 24, maxWidth: 500 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
                 <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -7799,13 +8951,13 @@ let numeroAsignado = "";
         );
       }
       if (vista === "ventasRealizar") {
-        return <div style={s.wrap}><Header /><VistaVentasRealizar usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+        return <div style={s.wrap}>{Header()}<VistaVentasRealizar usuario={usuario} onVolver={() => setVista("panel")} /></div>;
       }
       if (vista === "usuarios") {
-        return <div style={s.wrap}><Header /><Usuarios onVolver={() => setVista("panel")} /></div>;
+        return <div style={s.wrap}>{Header()}<Usuarios onVolver={() => setVista("panel")} /></div>;
       }
       if (vista === "caja") {
-        return <div style={s.wrap}><Header /><VistaCaja pedidosFinalizados={pedidosFinalizados} pedidosActivos={pedidosActivos} onVolver={() => setVista("panel")} usuario={usuario} /></div>;
+        return <div style={s.wrap}>{Header()}<VistaCaja pedidosFinalizados={pedidosFinalizados} pedidosActivos={pedidosActivos} onVolver={() => setVista("panel")} usuario={usuario} /></div>;
       }
 if (vista === "dashboard") {
         const filtrarVentas = (desde, hasta) => repPedidos.filter(p => {
@@ -7836,7 +8988,7 @@ if (vista === "dashboard") {
         const pctFR = totalAct > 0 ? Math.round((totalFR / totalAct) * 100) : 0;
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <div style={{ padding: 24 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
                 <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -7962,7 +9114,7 @@ if (vista === "dashboard") {
         };
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <div style={{ padding: 24 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
                 <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -8124,7 +9276,7 @@ if (vista === "dashboard") {
         };
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <div style={{ padding: 24 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
                 <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -8227,7 +9379,7 @@ if (vista === "dashboard") {
         };
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <div style={{ padding: 24 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
                 <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -8367,7 +9519,7 @@ if (vista === "dashboard") {
         const cardBox = { background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "20px 22px" };
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <div style={{ padding: 24 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
                 <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -8488,7 +9640,7 @@ if (vista === "dashboard") {
         const fechasDisponibles = [...new Set(pedidosProcesados.filter(p => { const est = pedidosLocales[p.id]?.estado || p.estado; return est !== "Entregado" && est !== "Anulado" && p.fechaDisplay && p.fechaDisplay >= HOY; }).map(p => p.fechaDisplay))].sort();
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <div style={{ padding: 24 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
                 <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -8658,7 +9810,7 @@ if (vista === "dashboard") {
 
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <div style={{ padding: 24 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
                 <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -8781,70 +9933,81 @@ if (vista === "dashboard") {
         );
       }
      if (vista === "importar") {
-      return <div style={s.wrap}><Header /><VistaImportar usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaImportar usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "libroVentas") {
-      return <div style={s.wrap}><Header /><VistaLibroVentas onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaLibroVentas onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "libroCompras") {
-      return <div style={s.wrap}><Header /><VistaLibroCompras onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaLibroCompras onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "clientes") {
-      return <div style={s.wrap}><Header /><VistaClientes onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaClientes onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "ordenesCompra") {
-      return <div style={s.wrap}><Header /><VistaOrdenesCompra usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaOrdenesCompra usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "facturasCompra") {
-      return <div style={s.wrap}><Header /><VistaFacturasCompra usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaFacturasCompra usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "cuentasPorPagar") {
-      return <div style={s.wrap}><Header /><VistaCuentasPorPagar usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaCuentasPorPagar usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "proveedores") {
-      return <div style={s.wrap}><Header /><VistaProveedores onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaProveedores onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "categoriasGasto") {
-      return <div style={s.wrap}><Header /><VistaCategoriasGasto onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaCategoriasGasto onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "gastosComunes") {
-      return <div style={s.wrap}><Header /><VistaGastosComunes usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaGastosComunes usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "categoriasGastoComun") {
-      return <div style={s.wrap}><Header /><VistaCategoriasGastoComun onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaCategoriasGastoComun onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "empleados") {
-      return <div style={s.wrap}><Header /><VistaEmpleados usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaEmpleados usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "liquidaciones") {
-      return <div style={s.wrap}><Header /><VistaLiquidaciones usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaLiquidaciones usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "novedadesRRHH") {
-      return <div style={s.wrap}><Header /><VistaNovedadesRRHH usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaNovedadesRRHH usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "reporteRRHH") {
-      return <div style={s.wrap}><Header /><VistaReporteRRHH onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaReporteRRHH onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "stockActual") {
-      return <div style={s.wrap}><Header /><VistaStockActual usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaStockActual usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "stockIngreso") {
-      return <div style={s.wrap}><Header /><VistaStockIngreso usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaStockIngreso usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "stockRecuento") {
-      return <div style={s.wrap}><Header /><VistaStockRecuento usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaStockRecuento usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "insumos") {
-      return <div style={s.wrap}><Header /><VistaInsumos usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaInsumos usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "recetas") {
-      return <div style={s.wrap}><Header /><VistaRecetas usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaRecetas usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "whatsapp") {
+      // Alto fijo de la ventana: el Header arriba y la bandeja ocupa el resto, con scroll propio en lista y chat.
+      return <div style={{ ...s.wrap, height: "100dvh", minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{Header()}<VistaWhatsApp usuario={usuario} onVolver={() => setVista("panel")} onCargarPedido={(d) => waEmitir("wa:cargar-pedido", d)} /></div>;
+    }
+    if (vista === "waConfig") {
+      if (!esAdmin) return sinAccesoStock("La configuración de WhatsApp es solo para admin y superadmin.");
+      return <div style={s.wrap}>{Header()}<VistaConfigWA onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "waPlantillas") {
+      return <div style={s.wrap}>{Header()}<VistaPlantillasWA onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "necesidades") {
-      return <div style={s.wrap}><Header /><VistaNecesidades usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaNecesidades usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "mapa") {
-        return <div style={s.wrap}><Header /><VistaMapa onVolver={() => setVista("panel")} repartidores={repartidoresLista} onCrearTanda={crearTanda} /></div>;
+        return <div style={s.wrap}>{Header()}<VistaMapa onVolver={() => setVista("panel")} repartidores={repartidoresLista} onCrearTanda={crearTanda} /></div>;
       }
       if (vista === "finalizados") {
         // Fuente: /api/reportes/pedidos por rango (repPedidos) — trae TODO lo finalizado
@@ -8870,7 +10033,7 @@ const filas = listaMostrada.map(p => [p.numero, p.cliente, p.telefono, (p.produc
 exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedidos Entregados" : "Pedidos Anulados", ["Nº", "Cliente", "Teléfono", "Productos", "Pago", "Cód. MKP", "Total", "Fecha", "Local", "Factura"], filas, `Total: ${fmt(listaMostrada.reduce((a, p) => a + p.totalNum, 0))}  ·  ${listaMostrada.length} pedidos`, subt);        };
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             {facturando && <ModalFacturacion p={facturando} onCerrar={cerrarModal} />}
             {modalEmailMPNode}
             <div style={{ padding: "24px" }}>
@@ -9004,7 +10167,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
         const etiquetaEstadoTanda = (e) => e === "en_reparto" ? "En reparto" : e === "armada" ? "Armada" : e;
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <div style={{ padding: 24 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
                 <button style={s.btnVolver} onClick={() => setVista("panel")}>← Volver</button>
@@ -9061,7 +10224,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
       if (tab === "nuevo") {
         return (
           <div style={s.wrap}>
-            <Header />
+            {Header()}
             <TabBar />
             <div style={{ padding: 24, display: "grid", gridTemplateColumns: "1fr 380px", gap: 20, alignItems: "start" }}>
               <div>
@@ -9240,7 +10403,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
             />
           )}
           {modalEmailMPNode}
-          <Header />
+          {Header()}
           {soloLectura && (
             <div style={{ background: "#fff4e5", borderBottom: "1px solid #f0c98a", color: "#8a5a00", padding: "10px 16px", fontSize: 13, fontWeight: 600, textAlign: "center" }}>
               🔒 MODO SOLO LECTURA — el sistema de mail está caído. Solo podés ver los pedidos. Facturación, caja y reportes no están disponibles.
@@ -9406,6 +10569,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
         <>
           <PanelApp usuario={usuario} />
           <AgenteIA />
+          <WhatsAppDock usuario={usuario} />{/* widget + drawer de WhatsApp: fuera de PanelApp para sobrevivir a los cambios de pantalla */}
         </>
       );
     }

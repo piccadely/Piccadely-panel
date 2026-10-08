@@ -92,6 +92,9 @@ export function setupAuth(app, pool, mailTransporter) {
     /^\/api\/pedidos\/productos-all$/, /^\/api\/repartidores$/,
     /^\/api\/tandas$/, /^\/api\/facturas-all$/, /^\/api\/me$/,
   ];
+  // Acciones de la bandeja de WhatsApp (las únicas escrituras que se le permiten a solo_lectura).
+  // (crear plantillas NO está acá: es solo admin/superadmin)
+  const RUTAS_BANDEJA_WA = /^\/api\/whatsapp\/(conversaciones\/([0-9]+\/(tomar|responder|liberar|devolver-bot|cerrar|plantilla|archivo)|nueva)|plantillas\/sincronizar)$/;
   app.use((req, res, next) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) return next(); // sin token → flujo normal
@@ -105,8 +108,12 @@ export function setupAuth(app, pool, mailTransporter) {
     }
     // Rol solo_lectura: ve como encargado (todo GET) pero NO puede escribir (bloquea todo no-GET).
     // Lo admin-only igual lo frena requireAdmin (solo_lectura no es admin).
+    // EXCEPCIÓN acotada: la bandeja de WhatsApp la opera cualquier usuario logueado (decisión de negocio),
+    // así que solo_lectura sí puede tomar / responder / liberar / devolver al bot / cerrar conversaciones,
+    // enviar plantillas y archivos, iniciar una conversación nueva y sincronizar plantillas (no crearlas).
     if (payload.rol === "solo_lectura") {
       if (req.method === "GET") return next();
+      if (req.method === "POST" && RUTAS_BANDEJA_WA.test(req.path)) return next();
       return res.status(403).json({ error: "Rol de solo lectura: acción no permitida." });
     }
     return next();  // token normal → sin restricción acá

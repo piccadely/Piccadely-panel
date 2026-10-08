@@ -8,6 +8,11 @@ import nodemailer from "nodemailer";
 import { initAuthDB, setupAuth } from "./auth.js";
 import { mpRouter } from "./Routes/mp.js";
 import { botWhatsappRouter } from "./Routes/botWhatsapp.js";
+import { whatsappWebhookRouter, revisarHuerfanosWhatsApp } from "./Routes/whatsappWebhook.js";
+import { whatsappBandejaRouter } from "./Routes/whatsappBandeja.js";
+import { whatsappAdminRouter } from "./Routes/whatsappAdmin.js";
+import { autotestR2 } from "./r2Storage.js";
+import { iniciarRetencionWhatsApp } from "./whatsappRetencion.js";
 import { cotizadorRouter, clienteKeyDe } from "./Routes/cotizador.js";
 import { createRequire } from "module";
 import { normalizarProducto, calcularEnvioTN, esExcluidoProduccion, claveProducto } from "./productos-normalizacion.js"; // clave canónica + costo de envío TN + filtros de producción, compartidos con el front
@@ -455,6 +460,99 @@ async function initDB() {
     desperdicio_pct NUMERIC NOT NULL DEFAULT 8,
     CHECK ((insumo_id IS NULL) <> (subreceta_id IS NULL))
   );`);
+  // WhatsApp Cloud API (Meta): conversaciones por cliente + mensajes (entrantes/salientes) + statuses.
+  // wa_id = número normalizado a formato AR canónico 549XXXXXXXXXX (clave única: un cliente = una conversación).
+  // telefono_envio = el wa_id tal cual lo manda Meta (se responde a ese, sin reformatear).
+  await pool.query(`CREATE TABLE IF NOT EXISTS wa_conversaciones (
+    id SERIAL PRIMARY KEY,
+    wa_id TEXT NOT NULL UNIQUE,
+    telefono_envio TEXT NOT NULL,
+    nombre TEXT,
+    estado TEXT NOT NULL DEFAULT 'bot' CHECK (estado IN ('bot','pendiente_agente','cerrada')),
+    handoff_at TIMESTAMP,
+    ultimo_mensaje_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  );`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS wa_mensajes (
+    id SERIAL PRIMARY KEY,
+    conversacion_id INTEGER NOT NULL REFERENCES wa_conversaciones(id),
+    wa_message_id TEXT UNIQUE,
+    direccion TEXT NOT NULL CHECK (direccion IN ('in','out')),
+    autor TEXT NOT NULL CHECK (autor IN ('cliente','bot','agente')),
+    tipo TEXT NOT NULL DEFAULT 'text',
+    texto TEXT,
+    estado TEXT,
+    error TEXT,
+    wa_timestamp TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW()
+  );`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_wa_mensajes_conv ON wa_mensajes (conversacion_id, id);`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS wa_statuses (
+    id SERIAL PRIMARY KEY,
+    wa_message_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    wa_timestamp TIMESTAMP,
+    error TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE (wa_message_id, status)
+  );`);
+  // Fase 2 — bandeja multiagente (idempotente). Estado 'agente' = la tomó una persona (bot pausado).
+  await pool.query(`ALTER TABLE wa_conversaciones DROP CONSTRAINT IF EXISTS wa_conversaciones_estado_check;`);
+  await pool.query(`ALTER TABLE wa_conversaciones ADD CONSTRAINT wa_conversaciones_estado_check CHECK (estado IN ('bot','pendiente_agente','agente','cerrada'));`);
+  await pool.query(`ALTER TABLE wa_conversaciones ADD COLUMN IF NOT EXISTS agente_id INTEGER;   -- usuarios.id (sin FK: usuarios se crea en initAuthDB, al final)`);
+  await pool.query(`ALTER TABLE wa_conversaciones ADD COLUMN IF NOT EXISTS asignada_at TIMESTAMP;`);
+  await pool.query(`ALTER TABLE wa_conversaciones ADD COLUMN IF NOT EXISTS ultimo_entrante_at TIMESTAMP;`);   // ventana de 24 h de Meta
+  await pool.query(`ALTER TABLE wa_conversaciones ADD COLUMN IF NOT EXISTS no_leidos INTEGER NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS usuario_id INTEGER;`);   // agente que escribió
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS usuario_nombre TEXT;`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_wa_conv_ultimo ON wa_conversaciones (ultimo_mensaje_at DESC);`);
+  // Backfill de la ventana para conversaciones previas a esta fase (solo las que no la tienen).
+  await pool.query(`UPDATE wa_conversaciones c SET ultimo_entrante_at = x.ult
+    FROM (SELECT conversacion_id, MAX(COALESCE(wa_timestamp, created_at)) AS ult FROM wa_mensajes WHERE direccion = 'in' GROUP BY conversacion_id) x
+    WHERE x.conversacion_id = c.id AND c.ultimo_entrante_at IS NULL;`);
+  // Fase 3 — archivos (R2) y plantillas (idempotente).
+  // media_estado: pendiente | ok | error | deshabilitado (R2 sin autotest OK) | vencido (borrado por retención).
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS media_id TEXT;`);       // id del media en Meta
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS media_key TEXT;`);      // clave en R2
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS media_mime TEXT;`);
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS media_nombre TEXT;`);
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS media_bytes INTEGER;`);
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS media_estado TEXT;`);
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS caption TEXT;`);        // pie de foto/documento (el bot NO lo lee)
+  await pool.query(`ALTER TABLE wa_mensajes ADD COLUMN IF NOT EXISTS plantilla_nombre TEXT;`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_wa_mensajes_created ON wa_mensajes (created_at);`);   // retención
+  await pool.query(`CREATE TABLE IF NOT EXISTS wa_plantillas (
+    id SERIAL PRIMARY KEY,
+    meta_id TEXT UNIQUE,
+    nombre TEXT NOT NULL,
+    idioma TEXT NOT NULL DEFAULT 'es_AR',
+    categoria TEXT,
+    estado TEXT,                 -- APPROVED / PENDING / REJECTED / PAUSED / DISABLED / … (tal cual Meta)
+    motivo TEXT,                 -- motivo de rechazo
+    componentes JSONB,
+    creada_por TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  );`);
+  // Fase 4 — interruptores sin redeploy (whatsappAjustes.js). SIN filas iniciales a propósito:
+  // si no hay fila, el ajuste vale APAGADO (default seguro en una base nueva como la de producción).
+  await pool.query(`CREATE TABLE IF NOT EXISTS wa_ajustes (
+    clave TEXT PRIMARY KEY,                -- wa_activo / bot_activo
+    valor BOOLEAN NOT NULL,
+    updated_at TIMESTAMP DEFAULT NOW(),
+    updated_by_id INTEGER,                 -- usuarios.id (sin FK: usuarios se crea al final, en initAuthDB)
+    updated_by TEXT
+  );`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS wa_ajustes_historial (
+    id SERIAL PRIMARY KEY,
+    clave TEXT NOT NULL,
+    valor_anterior BOOLEAN,
+    valor BOOLEAN NOT NULL,
+    usuario_id INTEGER,
+    usuario TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+  );`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
   await pool.query(`CREATE TABLE IF NOT EXISTS costos_areas (area INTEGER PRIMARY KEY, costo NUMERIC NOT NULL DEFAULT 1);`);
   await pool.query(`INSERT INTO costos_areas (area, costo) SELECT g, 1 FROM generate_series(1,10) g ON CONFLICT (area) DO NOTHING;`);
@@ -486,7 +584,11 @@ async function initDB() {
      console.log("DB inicializada");
   await initAuthDB(pool);
 }
-initDB().catch(console.error);
+// Después de crear las tablas: reporta entrantes de WhatsApp que quedaron sin responder (TODO en whatsappWebhook.js).
+initDB().then(() => {
+  revisarHuerfanosWhatsApp(pool);
+  iniciarRetencionWhatsApp(pool);   // job diario de retención (cerradas y bot; nunca las atendidas)
+}).catch(console.error);
 
 // Transporter de mail (Gmail SMTP). Definido acá (antes de setupAuth) para inyectarlo al
 // módulo de auth, que lo usa para enviar los códigos 2FA del login.
@@ -691,6 +793,9 @@ async function enviarMailAnulacion(pedido) {
 // ─── MERCADO PAGO ─────────────────────────────────────────────────────
 app.use("/api/mp", mpRouter(pool, mailTransporter));
 app.use("/api/bot", botWhatsappRouter());
+app.use("/api/whatsapp", whatsappWebhookRouter(pool));   // Cloud API de Meta: GET verificación + POST eventos (guarda, bot, envío)
+app.use("/api/whatsapp", whatsappBandejaRouter(pool, { requireAuth }));   // bandeja multiagente (requiere login)
+app.use("/api/whatsapp", whatsappAdminRouter(pool, { requireAuth }));     // Configuración WhatsApp + corte (solo admin/superadmin)
 app.use("/api", cotizadorRouter(pool, mailTransporter, requireAdmin));
 
  // ─── ORDERS ───────────────────────────────────────────────────────────
@@ -4974,4 +5079,9 @@ if (TN_ENABLED) {
 } else {
   console.warn("⚠️ Tienda Nube no configurada: re-sync periódico de pedidos deshabilitado");
 }
-app.listen(process.env.PORT || 3001, () => { console.log("Servidor corriendo"); });
+app.listen(process.env.PORT || 3001, () => {
+  console.log("Servidor corriendo");
+  // Autotest de R2 en segundo plano: loguea "R2: OK" o "R2: ERROR <motivo>". Nunca tira: si falla,
+  // solo quedan deshabilitados los archivos de WhatsApp y el resto del servidor sigue normal.
+  autotestR2();
+});
