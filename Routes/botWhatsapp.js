@@ -19,7 +19,7 @@ const tnHeaders = {
 // ═════════════════════════════════════════════════════════════════════
 //  CONFIG DE HORARIOS DE ENTREGA  (ajustable)
 //  El cálculo es DETERMINÍSTICO (en código), nunca lo razona el modelo.
-//   · HOY (same-day) → SOLO CABA: se ofrece un ETA ("dentro de ~2-3 horas"), nunca una franja fija.
+//   · HOY (same-day) → SOLO CABA: "le puede llegar en menos de 2 horas", sin hora exacta ni rango con horarios.
 //                      GBA no toma pedidos para hoy.
 //   · OTRO DÍA       → se ofrecen las franjas fijas de abajo (CABA y GBA).
 // ═════════════════════════════════════════════════════════════════════
@@ -29,11 +29,9 @@ const FRANJAS_OTRO_DIA = [
   { inicio: "17:00", fin: "21:00" },
 ];
 const CORTE_HOY = "18:00";            // última hora para pedir con entrega HOY same-day (CABA, ajustable)
-const ETA_HORAS = { min: 2, max: 3 }; // "dentro de ~2-3 horas"
 
-// "HH:MM" → minutos desde medianoche, y viceversa.
+// "HH:MM" → minutos desde medianoche.
 const hhmmAMin = (s) => { const [h, m] = s.split(":").map(Number); return h * 60 + m; };
-const minAHHMM = (min) => { const t = ((min % 1440) + 1440) % 1440; return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; };
 
 // "Ahora" en America/Argentina/Buenos_Aires → { dia, hora:"HH:MM", minutos }
 function ahoraArgentina() {
@@ -50,18 +48,16 @@ const FRANJAS_TXT = FRANJAS_OTRO_DIA.map((f) => `${f.inicio} a ${f.fin}`).join("
 
 // Opciones de entrega que el agente PUEDE ofrecer, calculadas por código.
 //   modo === "otro_dia" → las tres franjas fijas.
-//   modo === "hoy"      → ETA si todavía no pasó el corte; si pasó, no hay hoy → reservar otro día.
+//   modo === "hoy"      → "menos de 2 horas" si todavía no pasó el corte; si pasó, no hay hoy → reservar otro día.
 function opcionesEntrega(ahora, modo) {
   if (modo === "otro_dia") {
     return { modo, hayHoy: false, texto: `franjas fijas ${FRANJAS_TXT}.` };
   }
   // modo === "hoy"
   if (ahora.minutos < hhmmAMin(CORTE_HOY)) {
-    const desde = minAHHMM(ahora.minutos + ETA_HORAS.min * 60);
-    const hasta = minAHHMM(ahora.minutos + ETA_HORAS.max * 60);
     return {
       modo, hayHoy: true,
-      texto: `te llega dentro de ~${ETA_HORAS.min}-${ETA_HORAS.max} horas (aprox. entre las ${desde} y las ${hasta}). Ofrecé SOLO este ETA, nunca una franja fija.`,
+      texto: `si lo quiere para ahora, decí que le puede llegar en menos de 2 horas. NUNCA des una hora exacta ni un rango con horarios (nada de "de 17:42 a 18:42").`,
     };
   }
   return {
@@ -149,8 +145,8 @@ Desayunos: 8:30 a 11:30.
 - Los horarios de entrega que SÍ podés ofrecer te los pasa el sistema en el bloque "ENTREGA" del CONTEXTO EN TIEMPO REAL. Usá EXCLUSIVAMENTE esas opciones: para fines de entrega, ignorá cualquier otra franja u horario mencionado en estas reglas.
 - Primero averiguá o inferí si el cliente quiere la entrega para HOY o para OTRO DÍA (reserva).
 - Entrega para HOY: SOLO CABA, vía ETA. GBA: no se toman pedidos para hoy → ofrecé reserva para otro día. Si todavía no sabés la zona del cliente, pedí la dirección/zona antes de prometer same-day.
-- Para HOY en CABA: ofrecé SOLO el ETA que te da el sistema ("te llega dentro de ~2-3 horas"), NUNCA una franja fija. Si el sistema dice que ya pasó la hora de corte, decí con tacto que hoy ya no llega y ofrecé reservar para otro día con las franjas.
-- Para OTRO DÍA: ofrecé SOLO las franjas fijas que te pasa el sistema (9 a 13, 13 a 17, 17 a 21).
+- Para HOY en CABA, si lo quiere para ahora: decí que le puede llegar en menos de 2 horas. NUNCA des una hora exacta ni inventes rangos con minutos. Si el sistema dice que ya pasó la hora de corte, decí con tacto que hoy ya no llega y ofrecé reservar para otro día con las franjas.
+- Para OTRO DÍA, ofrecé SOLO las franjas fijas tal cual (9 a 13, 13 a 17, 17 a 21). Nunca las achiques ni armes rangos propios.
 - NUNCA ofrezcas un horario ya vencido ni inventes horarios fuera de los que te pasa el sistema.
 
 ## Anticipación mínima
