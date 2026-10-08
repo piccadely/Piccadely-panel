@@ -11,6 +11,12 @@
 //       process.env.WA_TOKEN          (token de acceso para enviar por la Cloud API)
 //       process.env.WA_PHONE_NUMBER_ID (ID del número emisor en la Cloud API)
 //       process.env.WA_GRAPH_VERSION  (opcional, default v25.0)
+//       process.env.WA_WABA_ID        (filtra los eventos de plantillas de otra cuenta)
+//  FILTRO POR NÚMERO: solo se procesan los eventos cuyo metadata.phone_number_id coincide con
+//  WA_PHONE_NUMBER_ID; el resto se ignora (log corto) y se responde 200 igual. Así, si a un ambiente
+//  le llegan eventos del número del otro (staging ↔ producción), no contesta de más.
+//  INTERRUPTORES (whatsappAjustes.js, en la base): wa_activo apagado → guarda pero no responde;
+//  bot_activo apagado → lo entrante va directo a pendiente_agente.
 //  Requiere que server.js deje el body crudo en req.rawBody (express.json({ verify })).
 //
 //  Flujo del POST: valida la firma → responde 200 YA (Meta corta a los pocos segundos y reintenta)
@@ -26,6 +32,7 @@ import axios from "axios";
 import { responderBot } from "./botWhatsapp.js";
 import { TIPOS_MEDIA, descargarMediaMeta, claveArchivo } from "./whatsappMeta.js";
 import { r2Habilitado, archivos } from "../r2Storage.js";
+import { leerAjustesWA } from "../whatsappAjustes.js";
 
 const NL = String.fromCharCode(10);
 const HISTORIAL_MAX = 30;             // mensajes que se leen de la base (el bot después usa los últimos 14)
@@ -147,6 +154,9 @@ async function responderUltimo(pool, conversacionId) {
   if (!ult_in || (ult_out && ult_out > ult_in)) return;   // nada nuevo del cliente desde la última respuesta
   const conv = await pool.query("SELECT estado, telefono_envio FROM wa_conversaciones WHERE id = $1", [conversacionId]);
   if (!conv.rows[0] || conv.rows[0].estado !== "bot") return;   // ya la tiene un agente
+  const ajustes = await leerAjustesWA(pool);
+  if (!ajustes.wa_activo) return;                                     // WhatsApp apagado: no se responde
+  if (!ajustes.bot_activo) { await derivarSinBot(pool, conversacionId); return; }
 
   const historial = await armarHistorial(pool, conversacionId);
   if (!historial.length) return;
@@ -175,8 +185,17 @@ async function responderUltimo(pool, conversacionId) {
   }
 }
 
-// Mensaje entrante: guarda (idempotente por message.id) y encola la respuesta.
-async function procesarEntrante(pool, m, nombre) {
+// Bot apagado: la conversación pasa directo a la bandeja (Pendientes), sin respuesta automática.
+async function derivarSinBot(pool, conversacionId) {
+  const r = await pool.query(
+    "UPDATE wa_conversaciones SET estado = 'pendiente_agente', handoff_at = NOW(), updated_at = NOW() WHERE id = $1 AND estado = 'bot'",
+    [conversacionId]
+  );
+  if (r.rowCount) console.log("WhatsApp: conversación", conversacionId, "derivada a agente (bot apagado).");
+}
+
+// Mensaje entrante: guarda (idempotente por message.id) y, según los interruptores, encola la respuesta.
+async function procesarEntrante(pool, m, nombre, ajustes) {
   if (!m?.id || !m?.from) return;
   const waId = normalizarWaId(m.from);
   const conv = await pool.query(
@@ -222,6 +241,8 @@ async function procesarEntrante(pool, m, nombre) {
     [conversacionId, tsMeta(m.timestamp) || new Date(), m.type === "reaction" ? 0 : 1]
   );
   if (m.type === "reaction") return;           // las reacciones se guardan pero no se contestan
+  if (!ajustes.wa_activo) return;              // WhatsApp apagado: queda guardado, sin respuesta ni bot
+  if (!ajustes.bot_activo) return derivarSinBot(pool, conversacionId);
   programarRespuesta(pool, conversacionId);    // responderUltimo() solo contesta si estado = 'bot'
 }
 
@@ -302,20 +323,36 @@ async function procesarStatus(pool, s) {
 // Procesa el payload completo del webhook (después de haber respondido 200).
 async function procesarEvento(pool, body) {
   const resumen = { mensajes: 0, estados: 0, tipos: {} };
+  const phoneId = process.env.WA_PHONE_NUMBER_ID, wabaId = process.env.WA_WABA_ID;
+  let ajustes = null;
   for (const entry of body?.entry || []) {
     for (const change of entry.changes || []) {
       const v = change.value || {};
       if (change.field === "message_template_status_update") {
+        // Las plantillas son de la cuenta (WABA), no del número: se filtra por entry.id.
+        if (wabaId && entry.id && String(entry.id) !== String(wabaId)) {
+          resumen.ignorados = (resumen.ignorados || 0) + 1;
+          console.log(`WhatsApp webhook: plantilla de otra cuenta ignorada (WABA …${String(entry.id).slice(-4)}).`);
+          continue;
+        }
         resumen.plantillas = (resumen.plantillas || 0) + 1;
         try { await procesarEstadoPlantilla(pool, v); }
         catch (e) { console.error("WhatsApp: error actualizando estado de plantilla:", e.message); }
         continue;
       }
+      // Solo el número de ESTE ambiente. Sin WA_PHONE_NUMBER_ID no se procesa nada (fail-closed).
+      const pid = v.metadata?.phone_number_id;
+      if (!phoneId || String(pid || "") !== String(phoneId)) {
+        resumen.ignorados = (resumen.ignorados || 0) + 1;
+        console.log(`WhatsApp webhook: evento de otro número ignorado (${change.field || "?"}, phone_number_id …${String(pid || "ninguno").slice(-4)}).`);
+        continue;
+      }
+      if (!ajustes) ajustes = await leerAjustesWA(pool);
       const nombres = {};
       for (const c of v.contacts || []) if (c.wa_id) nombres[c.wa_id] = c.profile?.name || null;
       for (const m of v.messages || []) {
         resumen.mensajes++; resumen.tipos[m.type] = (resumen.tipos[m.type] || 0) + 1;
-        try { await procesarEntrante(pool, m, nombres[m.from]); }
+        try { await procesarEntrante(pool, m, nombres[m.from], ajustes); }
         catch (e) { console.error("WhatsApp: error guardando mensaje entrante:", e.message); }
       }
       for (const s of v.statuses || []) {
@@ -326,6 +363,7 @@ async function procesarEvento(pool, body) {
     }
   }
   // Log mínimo, SIN datos personales (ni teléfonos ni textos).
+  if (ajustes && (!ajustes.wa_activo || !ajustes.bot_activo)) resumen.ajustes = { wa_activo: ajustes.wa_activo, bot_activo: ajustes.bot_activo };
   console.log("WhatsApp webhook:", JSON.stringify(resumen));
 }
 

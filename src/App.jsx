@@ -5245,6 +5245,159 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       );
     }
 
+    // ─── WHATSAPP — FASE 4: CONFIGURACIÓN (interruptores + corte de número). Solo admin / superadmin ───
+    const WA_CALIDAD = { GREEN: { t: "Alta", c: "#1d8a4e" }, YELLOW: { t: "Media", c: "#b45309" }, RED: { t: "Baja", c: "#c0392b" } };
+    function VistaConfigWA({ onVolver, angosto = false }) {
+      const [est, setEst] = useState(null);
+      const [cargando, setCargando] = useState(true);
+      const [ocupado, setOcupado] = useState(null);   // qué acción está en curso
+      const [aviso, setAviso] = useState(null);
+      function mostrarAviso(t, tipo = "ok") { setAviso({ texto: t, tipo }); setTimeout(() => setAviso(null), 8000); }
+      async function cargar() {
+        setCargando(true);
+        try { setEst((await axios.get(`${API}/api/whatsapp/admin/estado`)).data); }
+        catch (err) { mostrarAviso(err.response?.data?.error || "No se pudo leer el estado", "error"); }
+        setCargando(false);
+      }
+      useEffect(() => { cargar(); }, []);
+
+      async function cambiar(clave, valor) {
+        const nombre = est?.etiquetas?.[clave] || clave;
+        const txt = clave === "wa_activo"
+          ? (valor ? "¿ENCENDER WhatsApp en este ambiente? El bot (si está activo) y la bandeja van a responder y enviar mensajes reales." : "¿APAGAR WhatsApp en este ambiente? Se siguen guardando los mensajes que entran, pero nadie responde ni se envía nada.")
+          : (valor ? "¿ENCENDER el bot? Va a responder solo las conversaciones que estén en modo bot." : "¿APAGAR el bot? Todo lo que entre va directo a Pendientes para un agente.");
+        if (!window.confirm(txt)) return;
+        setOcupado(clave);
+        try {
+          const r = await axios.post(`${API}/api/whatsapp/admin/ajustes`, { clave, valor });
+          setEst(e => ({ ...e, ajustes: r.data.ajustes, historial: r.data.historial }));
+          mostrarAviso(`${nombre}: ${valor ? "ENCENDIDO" : "APAGADO"}.`);
+        } catch (err) { mostrarAviso(err.response?.data?.error || "No se pudo guardar", "error"); }
+        setOcupado(null);
+      }
+      async function suscripcion(accion) {
+        const url = est?.ambiente?.webhook_url;
+        const txt = accion === "suscribir"
+          ? `¿Suscribir nuestra app a la WABA ${est?.ambiente?.waba_id} con el webhook de ESTE ambiente?\n\n${url}\n\nDesde ese momento los eventos de los números de esa WABA llegan acá.`
+          : `¿DESUSCRIBIR nuestra app de la WABA ${est?.ambiente?.waba_id}?\n\nDejan de llegar los eventos de esa WABA a nuestra app (rollback).`;
+        if (!window.confirm(txt)) return;
+        setOcupado(accion);
+        try {
+          await axios.post(`${API}/api/whatsapp/admin/${accion}`);
+          mostrarAviso(accion === "suscribir" ? "Suscripción hecha: Meta verificó el webhook de este ambiente." : "Desuscripción hecha.");
+          await cargar();
+        } catch (err) { mostrarAviso(err.response?.data?.error || "Meta no aceptó el pedido", "error"); }
+        setOcupado(null);
+      }
+
+      const caja = { background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 14, marginBottom: 12 };
+      const titulo = { fontSize: 14, fontWeight: 700, color: "#333", marginBottom: 10 };
+      const fila = (k, v, c) => (
+        <div key={k} style={{ display: "flex", gap: 10, fontSize: 13, padding: "4px 0", borderBottom: "1px solid #f6f6f6" }}>
+          <span style={{ width: angosto ? 130 : 210, flexShrink: 0, color: "#888" }}>{k}</span>
+          <span style={{ color: c || "#222", wordBreak: "break-all" }}>{v ?? "—"}</span>
+        </div>
+      );
+      const fecha = (iso) => iso ? new Date(iso).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+      const Interruptor = ({ clave }) => {
+        const on = !!est?.ajustes?.[clave];
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid #f3f3f3" }}>
+            <button role="switch" aria-checked={on} aria-label={est?.etiquetas?.[clave] || clave} disabled={!!ocupado} onClick={() => cambiar(clave, !on)}
+              style={{ width: 52, height: 28, borderRadius: 14, border: "none", background: on ? "#1d8a4e" : "#cbd5e1", position: "relative", cursor: "pointer", flexShrink: 0 }}>
+              <span style={{ position: "absolute", top: 3, left: on ? 27 : 3, width: 22, height: 22, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+            </button>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>{est?.etiquetas?.[clave] || clave}: <span style={{ color: on ? "#1d8a4e" : "#c0392b" }}>{on ? "ENCENDIDO" : "APAGADO"}</span></div>
+              <div style={{ fontSize: 12, color: "#888" }}>
+                {clave === "wa_activo" ? "Apagado: se guardan los mensajes que entran, pero no se responde, no corre el bot y la bandeja no envía." : "Apagado: todo lo que entra va directo a Pendientes, sin respuesta del bot."}
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const amb = est?.ambiente, num = est?.numero, cal = WA_CALIDAD[num?.quality_rating];
+      return (
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: angosto ? 12 : 16, boxSizing: "border-box" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>⚙️ Configuración WhatsApp</div>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+              <button style={waBtn("#fff", "#333", "#ddd")} disabled={cargando} onClick={cargar}>{cargando ? "Cargando…" : "🔄 Actualizar"}</button>
+              <button style={waBtn("#fff", "#333", "#ddd")} onClick={onVolver}>← Volver</button>
+            </div>
+          </div>
+          {aviso && <div style={{ background: aviso.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${aviso.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: aviso.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: "8px 12px", fontSize: 13, marginBottom: 12, whiteSpace: "pre-wrap" }}>{aviso.texto}</div>}
+          {!est ? <div style={{ color: "#aaa", fontSize: 13 }}>{cargando ? "Cargando…" : "Sin datos."}</div> : (
+            <>
+              <div style={caja}>
+                <div style={titulo}>Interruptores (se aplican al instante, sin redeploy)</div>
+                <Interruptor clave="wa_activo" />
+                <Interruptor clave="bot_activo" />
+                {est.historial?.length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>Últimos cambios</div>
+                    {est.historial.map((h, i) => (
+                      <div key={i} style={{ fontSize: 12, color: "#555", padding: "2px 0" }}>
+                        {fecha(h.created_at)} · <b>{h.clave}</b> {h.valor_anterior ? "ON" : "OFF"} → {h.valor ? "ON" : "OFF"} · {h.usuario}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={caja}>
+                <div style={titulo}>Número</div>
+                {est.numero_error ? <div style={{ fontSize: 13, color: "#c0392b" }}>{est.numero_error}</div> : num && (
+                  <>
+                    {fila("Número", num.display_phone_number)}
+                    {fila("Nombre verificado", num.verified_name)}
+                    {fila("Calidad", cal ? cal.t : num.quality_rating, cal?.c)}
+                    {fila("Estado", num.status)}
+                    {fila("Plataforma", num.platform_type, num.platform_type === "CLOUD_API" ? "#1d8a4e" : "#b45309")}
+                    {fila("Verificación del código", num.code_verification_status)}
+                    {num.name_status && fila("Estado del nombre", num.name_status)}
+                  </>
+                )}
+              </div>
+
+              <div style={caja}>
+                <div style={titulo}>Apps suscriptas a la WABA {amb.waba_id || ""}</div>
+                {est.apps_error ? <div style={{ fontSize: 13, color: "#c0392b" }}>{est.apps_error}</div>
+                  : !est.apps?.length ? <div style={{ fontSize: 13, color: "#888" }}>Ninguna app suscripta.</div>
+                  : est.apps.map((a, i) => (
+                    <div key={i} style={{ fontSize: 13, padding: "6px 0", borderBottom: "1px solid #f6f6f6" }}>
+                      <b>{a.nombre || "(sin nombre)"}</b> <span style={{ color: "#888" }}>· id {a.id}</span>
+                      {a.es_nuestra && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#1d8a4e", background: "#eafaf1", borderRadius: 4, padding: "1px 6px" }}>NUESTRA</span>}
+                      <div style={{ fontSize: 12, color: "#666", wordBreak: "break-all" }}>Callback: {a.override_callback_uri || "el de la app (sin override)"}</div>
+                    </div>
+                  ))}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+                  <button style={waBtn(amb.webhook_url ? "#1d8a4e" : "#ccc", "#fff")} disabled={!!ocupado || !amb.webhook_url} onClick={() => suscripcion("suscribir")}>{ocupado === "suscribir" ? "Suscribiendo…" : "Suscribir a este ambiente"}</button>
+                  <button style={waBtn("#fff", "#c0392b", "#f5c6cb")} disabled={!!ocupado} onClick={() => suscripcion("desuscribir")}>{ocupado === "desuscribir" ? "Desuscribiendo…" : "Desuscribir (rollback)"}</button>
+                </div>
+                <div style={{ fontSize: 12, color: "#888", marginTop: 6, wordBreak: "break-all" }}>Webhook de este ambiente: {amb.webhook_url || "desconocido (cargá WA_WEBHOOK_URL)"}</div>
+              </div>
+
+              <div style={caja}>
+                <div style={titulo}>Este ambiente</div>
+                {fila("Phone number ID", amb.phone_number_id)}
+                {fila("WABA ID", amb.waba_id)}
+                {fila("Versión Graph API", amb.graph_version)}
+                {fila("App del token", est.app ? `${est.app.name} (${est.app.id})` : "—")}
+                {fila("Archivos (R2)", amb.r2?.habilitado ? "OK" : `deshabilitados${amb.r2?.motivo ? ": " + amb.r2.motivo : ""}`, amb.r2?.habilitado ? "#1d8a4e" : "#c0392b")}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+                  {Object.entries(amb.variables || {}).map(([k, v]) => (
+                    <span key={k} style={{ fontSize: 11, fontFamily: "monospace", padding: "2px 7px", borderRadius: 4, background: v ? "#eafaf1" : "#f3f4f6", color: v ? "#1d8a4e" : "#999" }}>{v ? "✓" : "–"} {k}</span>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      );
+    }
+
     function VistaWhatsApp({ usuario, onVolver, modo = "pantalla", ancho = 0, onCargarPedido }) {
       const [tab, setTab] = useState("pendientes");
       const [q, setQ] = useState("");
@@ -5266,6 +5419,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [archivosOk, setArchivosOk] = useState(false);   // R2 OK en el servidor
       const [modalPlantilla, setModalPlantilla] = useState(null);   // null | "conv" | "nueva"
       const [verPlantillas, setVerPlantillas] = useState(false);
+      const [verConfig, setVerConfig] = useState(false);
+      const [ajustes, setAjustes] = useState(null);           // { wa_activo, bot_activo } del servidor
       const [ampliada, setAmpliada] = useState(null);       // URL de la imagen abierta en grande
       const [adjunto, setAdjunto] = useState(null);         // { file, caption } listo para mandar
       const [subiendo, setSubiendo] = useState(false);
@@ -5296,6 +5451,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           setLista(r.data.conversaciones || []);
           setContadores(r.data.contadores || {});
           setPuedeOperar(!!r.data.puede_operar);
+          setAjustes(r.data.ajustes || null);
           // ¿Entró algo nuevo en Pendientes? (más pendientes, o un mensaje nuevo en alguna pendiente)
           const f = r.data.pendientes_firma;
           const prev = firmaRef.current;
@@ -5457,6 +5613,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const verChat = !angosto || !!selId;
 
       if (verPlantillas) return <VistaPlantillasWA angosto={angosto} onVolver={() => setVerPlantillas(false)} />;
+      if (verConfig) return <VistaConfigWA angosto={angosto} onVolver={() => { setVerConfig(false); cargarLista(); }} />;
+      const esAdminWA = usuario?.rol === "admin" || usuario?.rol === "superadmin";
 
       return (
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: angosto ? 0 : 16, gap: 12, boxSizing: "border-box" }}>
@@ -5470,10 +5628,17 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                 </button>
               )}
               <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                {esAdminWA && <button style={btn("#fff", "#333", "#ddd")} onClick={() => setVerConfig(true)} title="Configuración WhatsApp">⚙️</button>}
                 <button style={btn("#fff", "#333", "#ddd")} onClick={() => setVerPlantillas(true)}>📋 Plantillas</button>
                 {puedeOperar && <button style={btn("#F68B32", "#fff")} onClick={() => setModalPlantilla("nueva")} title="Escribirle a un número con una plantilla aprobada">+ Nueva conversación</button>}
                 <button style={btn("#fff", "#333", "#ddd")} onClick={onVolver}>{modo === "drawer" ? "✕ Cerrar" : "← Volver"}</button>
               </div>
+            </div>
+          )}
+          {ajustes && (!ajustes.wa_activo || !ajustes.bot_activo) && (!angosto || !selId) && (
+            <div style={{ margin: angosto ? "0 12px" : 0, background: "#fff7ed", border: "1px solid #fdba74", color: "#9a3412", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>
+              {!ajustes.wa_activo ? "⏸ WhatsApp está APAGADO en este ambiente: se guardan los mensajes que entran, pero no se responde ni se envía nada." : "🤖 El bot está APAGADO: todo lo que entra va directo a Pendientes."}
+              {esAdminWA && <button style={{ ...btn("#fff", "#9a3412", "#fdba74"), marginLeft: 8, padding: "3px 8px" }} onClick={() => setVerConfig(true)}>Configurar</button>}
             </div>
           )}
           {aviso && <div style={{ margin: angosto ? "0 12px" : 0, background: aviso.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${aviso.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: aviso.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>{aviso.texto}</div>}
@@ -8651,6 +8816,7 @@ let numeroAsignado = "";
                   )}
                   <button style={s.dropItem} onClick={() => { setVista("whatsapp"); setMenuAbierto(false); }}>💬 WhatsApp</button>{/* todos los roles */}
                   <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("waPlantillas"); setMenuAbierto(false); }}>📋 Plantillas de WhatsApp</button>
+                  {esAdmin && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("waConfig"); setMenuAbierto(false); }}>⚙️ Configuración WhatsApp</button>}
                   {esAdmin && <button style={s.dropItem} onClick={() => { setVista("clientes"); setMenuAbierto(false); }}>👥 Clientes</button>}
                   {esAdmin && <button style={s.dropItem} onClick={() => { setVista("ventasRealizar"); setMenuAbierto(false); }}>💼 Ventas a realizar</button>}
                   <button style={s.dropItem} onClick={() => { setVista("tandas"); setMenuAbierto(false); }}>🚚 Tandas activas</button>
@@ -8734,7 +8900,7 @@ let numeroAsignado = "";
       if (["stockIngreso", "stockRecuento"].includes(vista) && !(esAdmin || usuario.rol === "encargado")) return sinAccesoStock("Solo admin, superadmin y encargados pueden cargar stock.");
       if (vista === "insumos" && !esAdmin) return sinAccesoStock("El maestro de insumos es solo para administradores.");
       // Bandeja de WhatsApp: cualquier usuario logueado. Solo queda afuera la sesión de emergencia (sin 2FA).
-      if ((vista === "whatsapp" || vista === "waPlantillas") && emergencia) return sinAccesoStock("La bandeja de WhatsApp no está disponible en el modo de emergencia.");
+      if (["whatsapp", "waPlantillas", "waConfig"].includes(vista) && emergencia) return sinAccesoStock("La bandeja de WhatsApp no está disponible en el modo de emergencia.");
 
     if (vista === "repartidores") {
         return (
@@ -9829,6 +9995,10 @@ if (vista === "dashboard") {
     if (vista === "whatsapp") {
       // Alto fijo de la ventana: el Header arriba y la bandeja ocupa el resto, con scroll propio en lista y chat.
       return <div style={{ ...s.wrap, height: "100dvh", minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{Header()}<VistaWhatsApp usuario={usuario} onVolver={() => setVista("panel")} onCargarPedido={(d) => waEmitir("wa:cargar-pedido", d)} /></div>;
+    }
+    if (vista === "waConfig") {
+      if (!esAdmin) return sinAccesoStock("La configuración de WhatsApp es solo para admin y superadmin.");
+      return <div style={s.wrap}>{Header()}<VistaConfigWA onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "waPlantillas") {
       return <div style={s.wrap}>{Header()}<VistaPlantillasWA onVolver={() => setVista("panel")} /></div>;

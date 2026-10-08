@@ -20,6 +20,7 @@ import {
   componentesEnvio, validarVariables, variablesDe, partesPlantilla,
 } from "./whatsappMeta.js";
 import { r2Habilitado, estadoR2, archivos } from "../r2Storage.js";
+import { leerAjustesWA } from "../whatsappAjustes.js";
 
 const ESTADOS = ["bot", "pendiente_agente", "agente", "cerrada"];
 const MAX_TEXTO = 4096;   // límite de la Cloud API para un mensaje de texto
@@ -53,6 +54,11 @@ export function whatsappBandejaRouter(pool, { requireAuth }) {
   const esAdmin = (u) => u?.rol === "admin" || u?.rol === "superadmin";
   const puedeOperar = (u) => !!u && !u.modoLectura;
   const idValido = (v) => Number.isInteger(Number(v)) && Number(v) > 0;
+  // Con wa_activo apagado (Configuración WhatsApp) la bandeja no envía nada: ni respuestas, ni plantillas, ni archivos.
+  const waEncendido = async (req, res, next) => {
+    if ((await leerAjustesWA(pool)).wa_activo) return next();
+    res.status(423).json({ error: "WhatsApp está apagado en este ambiente (Configuración WhatsApp): no se envían mensajes.", code: "wa_apagado" });
+  };
 
   // Agrega puede_gestionar (liberar / devolver / cerrar) según quién consulta.
   const conFlags = (c, user) => ({
@@ -139,6 +145,7 @@ export function whatsappBandejaRouter(pool, { requireAuth }) {
         pendientes_firma: { cantidad: Number(k.pendientes), ultimo_entrante: k.pendientes_ultimo_entrante },
         puede_operar: puedeOperar(req.user),
         archivos_habilitados: r2Habilitado(),
+        ajustes: await leerAjustesWA(pool),   // wa_activo / bot_activo, para el aviso en pantalla
       });
     } catch (err) {
       console.error("WhatsApp bandeja: error listando:", err.message);
@@ -216,7 +223,7 @@ export function whatsappBandejaRouter(pool, { requireAuth }) {
   });
 
   // ── POST /conversaciones/:id/responder { texto } ── solo la dueña; dentro de la ventana de 24 h.
-  router.post("/conversaciones/:id/responder", operar, async (req, res) => {
+  router.post("/conversaciones/:id/responder", operar, waEncendido, async (req, res) => {
     if (!idValido(req.params.id)) return res.status(400).json({ error: "Conversación inválida." });
     const id = Number(req.params.id);
     const texto = String(req.body?.texto || "").trim();
@@ -421,7 +428,7 @@ export function whatsappBandejaRouter(pool, { requireAuth }) {
   // ── POST /conversaciones/:id/plantilla { plantilla_id, variables, variables_header } ──
   // Se puede mandar aunque hayan pasado las 24 h (para eso existen las plantillas). La ventana se vuelve a
   // abrir recién cuando el cliente responda.
-  router.post("/conversaciones/:id/plantilla", operar, manejar(async (req, res) => {
+  router.post("/conversaciones/:id/plantilla", operar, waEncendido, manejar(async (req, res) => {
     if (!idValido(req.params.id)) throw { _http: 400, msg: "Conversación inválida." };
     const id = Number(req.params.id);
     const conv = await convDelAgente(id, req.user);
@@ -434,7 +441,7 @@ export function whatsappBandejaRouter(pool, { requireAuth }) {
   // ── POST /conversaciones/nueva { numero, plantilla_id, variables, variables_header } ──
   // Crea (o reusa) la conversación tomada por quien la inicia y le manda la plantilla. Atómico: si el número
   // ya tiene una conversación tomada por otra persona, 409.
-  router.post("/conversaciones/nueva", operar, manejar(async (req, res) => {
+  router.post("/conversaciones/nueva", operar, waEncendido, manejar(async (req, res) => {
     const waId = normalizarNumeroIngresado(req.body?.numero);
     if (!waId) throw { _http: 400, msg: "Número inválido. Escribilo con código de área, sin 0 ni 15 (ej. 11 6239 3600)." };
     const p = await plantillaAprobada(req.body?.plantilla_id);
@@ -481,7 +488,7 @@ export function whatsappBandejaRouter(pool, { requireAuth }) {
 
   // ── POST /conversaciones/:id/archivo?nombre=&caption= ── body = el archivo (imagen JPG/PNG o PDF, máx 10 MB).
   // Se sube a Meta, se envía y se guarda una copia en R2. Necesita la ventana de 24 h y ser la dueña.
-  router.post("/conversaciones/:id/archivo", operar, express.raw({ type: () => true, limit: "11mb" }), manejar(async (req, res) => {
+  router.post("/conversaciones/:id/archivo", operar, waEncendido, express.raw({ type: () => true, limit: "11mb" }), manejar(async (req, res) => {
     if (!r2Habilitado()) throw { _http: 503, msg: `Archivos deshabilitados: ${estadoR2().motivo}` };
     if (!idValido(req.params.id)) throw { _http: 400, msg: "Conversación inválida." };
     const id = Number(req.params.id);

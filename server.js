@@ -10,6 +10,7 @@ import { mpRouter } from "./Routes/mp.js";
 import { botWhatsappRouter } from "./Routes/botWhatsapp.js";
 import { whatsappWebhookRouter, revisarHuerfanosWhatsApp } from "./Routes/whatsappWebhook.js";
 import { whatsappBandejaRouter } from "./Routes/whatsappBandeja.js";
+import { whatsappAdminRouter } from "./Routes/whatsappAdmin.js";
 import { autotestR2 } from "./r2Storage.js";
 import { iniciarRetencionWhatsApp } from "./whatsappRetencion.js";
 import { cotizadorRouter, clienteKeyDe } from "./Routes/cotizador.js";
@@ -534,6 +535,24 @@ async function initDB() {
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
   );`);
+  // Fase 4 — interruptores sin redeploy (whatsappAjustes.js). SIN filas iniciales a propósito:
+  // si no hay fila, el ajuste vale APAGADO (default seguro en una base nueva como la de producción).
+  await pool.query(`CREATE TABLE IF NOT EXISTS wa_ajustes (
+    clave TEXT PRIMARY KEY,                -- wa_activo / bot_activo
+    valor BOOLEAN NOT NULL,
+    updated_at TIMESTAMP DEFAULT NOW(),
+    updated_by_id INTEGER,                 -- usuarios.id (sin FK: usuarios se crea al final, en initAuthDB)
+    updated_by TEXT
+  );`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS wa_ajustes_historial (
+    id SERIAL PRIMARY KEY,
+    clave TEXT NOT NULL,
+    valor_anterior BOOLEAN,
+    valor BOOLEAN NOT NULL,
+    usuario_id INTEGER,
+    usuario TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+  );`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repartidores (id SERIAL PRIMARY KEY, nombre TEXT NOT NULL UNIQUE, activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW());`);
   await pool.query(`CREATE TABLE IF NOT EXISTS costos_areas (area INTEGER PRIMARY KEY, costo NUMERIC NOT NULL DEFAULT 1);`);
   await pool.query(`INSERT INTO costos_areas (area, costo) SELECT g, 1 FROM generate_series(1,10) g ON CONFLICT (area) DO NOTHING;`);
@@ -776,6 +795,7 @@ app.use("/api/mp", mpRouter(pool, mailTransporter));
 app.use("/api/bot", botWhatsappRouter());
 app.use("/api/whatsapp", whatsappWebhookRouter(pool));   // Cloud API de Meta: GET verificación + POST eventos (guarda, bot, envío)
 app.use("/api/whatsapp", whatsappBandejaRouter(pool, { requireAuth }));   // bandeja multiagente (requiere login)
+app.use("/api/whatsapp", whatsappAdminRouter(pool, { requireAuth }));     // Configuración WhatsApp + corte (solo admin/superadmin)
 app.use("/api", cotizadorRouter(pool, mailTransporter, requireAdmin));
 
  // ─── ORDERS ───────────────────────────────────────────────────────────
