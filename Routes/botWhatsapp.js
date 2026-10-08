@@ -133,6 +133,7 @@ Si no lo dijo, preguntá "¿es para comer o para piccar?" y cuántos son, y reco
 - Grande: comen 4, piccan de 8 a 10.
 - XL: comen 6, piccan 12.
 - Más de 12 personas: Combinados.
+Si la cantidad queda entre dos tamaños (ej.: 7 u 11 que piccan), recomendá el más grande: mejor que sobre a que falte.
 Los ingredientes son los mismos en todos los tamaños; cambia la cantidad.
 
 ## Cobertura y modalidad
