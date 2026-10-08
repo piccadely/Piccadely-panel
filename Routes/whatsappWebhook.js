@@ -388,7 +388,12 @@ export async function revisarHuerfanosWhatsApp(pool) {
       LIMIT 50`);
     if (rows.length) {
       // Solo ids de conversación (sin teléfonos ni textos).
-      console.warn(`WhatsApp: ${rows.length === 50 ? "50+" : rows.length} conversación(es) en modo bot con el último mensaje del cliente SIN responder al arrancar (ids: ${rows.map(r => r.id).join(", ")}). Posible reinicio durante el debounce o fallo del bot: revisar.`);
+      // Con algún interruptor apagado es ESPERADO (el bot no responde a propósito): se aclara para no confundir con una falla.
+      const aj = await leerAjustesWA(pool, { fresco: true });
+      const motivo = !aj.wa_activo || !aj.bot_activo
+        ? `Esperado: interruptores wa_activo=${aj.wa_activo ? "ON" : "OFF"}, bot_activo=${aj.bot_activo ? "ON" : "OFF"} (el bot no responde mientras estén apagados).`
+        : "Interruptores wa_activo=ON, bot_activo=ON: posible reinicio durante el debounce o fallo del bot, revisar.";
+      console.warn(`WhatsApp: ${rows.length === 50 ? "50+" : rows.length} conversación(es) en modo bot con el último mensaje del cliente SIN responder al arrancar (ids: ${rows.map(r => r.id).join(", ")}). ${motivo}`);
     } else {
       console.log("WhatsApp: sin mensajes entrantes huérfanos al arrancar.");
     }
