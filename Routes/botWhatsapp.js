@@ -113,6 +113,7 @@ Cliente: "somos 6 para piccar" → MAL: explicar los 4 tamaños → BIEN: "Para 
 - NO confirmes ni cobres vos el pedido. Cuando esté completo, hacé un RESUMEN claro (productos, tamaño, subtotal, envío, total, datos del cliente, fecha y rango) y avisá que un asesor lo confirma y manda el link de pago. Si el cliente quiere cerrar ya o se complica, derivá a una persona escribiendo [HANDOFF] al final de tu mensaje.
 - No prometas cosas fuera de estas reglas (zonas, horarios imposibles, descuentos inexistentes).
 - Copiá los precios TAL CUAL figuran en el catálogo, del tamaño/variante exacta que pidió el cliente. Si hay precio promo, usá el promo. En el resumen, mostrá cada ítem con su precio y después el total.
+- Si el cliente dice un precio ('¿la grande está $X?'), NO lo confirmes por las dudas: buscalo en el catálogo y decí el precio real. Si el producto que menciona no está en el catálogo, NO inventes precios ni tamaños: decí que lo chequeás y derivá con [HANDOFF].
 
 # HONESTIDAD DE CATÁLOGO (lo que no tenemos, no se ofrece)
 - Solo ofrecé lo que existe en el catálogo en vivo. Si piden algo que NO está (un producto, un sabor, una variante, una marca de bebida), decilo sin vueltas: "Por el momento no tenemos eso" y enseguida ofrecé la alternativa REAL más parecida que sí esté en el catálogo.
@@ -268,7 +269,15 @@ const tnTexto = (x) => (x && typeof x === "object" ? x.es || x.pt || Object.valu
 const pesos = (n) => `$${Number(n).toLocaleString("es-AR")}`;
 const numValido = (x) => x !== null && x !== undefined && String(x).trim() !== "" && Number.isFinite(Number(x)) && Number(x) > 0;
 
-// Precio de una variante (null = sin precio → la variante se saltea).
+// Etiqueta de variante de TN "Mediana - Comen 2- Piccan 5" → "Mediana (comen 2, piccan 5)".
+// Si no tiene ese patrón, queda tal cual.
+const RE_PERSONAS = /^\s*(.+?)\s*-\s*(comen?)\s*(\d+)\s*-\s*(piccan?)\s*(\d+)\s*$/i;
+const etiquetaVariante = (s) => {
+  const m = String(s).match(RE_PERSONAS);
+  return m ? `${m[1]} (${m[2].toLowerCase()} ${m[3]}, ${m[4].toLowerCase()} ${m[5]})` : String(s).trim();
+};
+
+// Línea de una variante ("  · Mediana (comen 2, piccan 5): $68.000"); null = sin precio → se saltea.
 //   promo menor que el precio → "$PROMO (precio promo, antes $PRICE)"; stock 0 con stock_management → "SIN STOCK".
 function precioVariante(v) {
   if (!numValido(v.price)) return null;
@@ -277,8 +286,8 @@ function precioVariante(v) {
     ? `${pesos(v.promotional_price)} (precio promo, antes ${pesos(precio)})`
     : pesos(precio);
   if (v.stock_management && Number(v.stock) === 0) txt += " SIN STOCK";
-  const etiqueta = (v.values || []).map(tnTexto).filter(Boolean).join(" / ");
-  return etiqueta ? `${etiqueta}: ${txt}` : txt;
+  const etiqueta = (v.values || []).map(tnTexto).filter(Boolean).map(etiquetaVariante).join(" / ");
+  return `  · ${etiqueta ? `${etiqueta}: ${txt}` : txt}`;
 }
 
 // Arma el texto del catálogo: índice de categorías arriba y productos agrupados por ruta completa
@@ -310,13 +319,15 @@ export function armarCatalogoTexto(productos, categorias) {
     for (const c of cats) for (let x = padreDe(c); x; x = padreDe(x)) ancestros.add(x.id);
     cats = [...new Map(cats.filter((c) => !ancestros.has(c.id)).map((c) => [c.id, c])).values()]
       .sort((a, b) => posicion.get(a.id) - posicion.get(b.id));
-    const base = `- ${tnTexto(p.name) || "Producto"} — ${variantes.join(" · ")}`;
+    // Cada variante en su propia línea (Haiku mezcla productos de nombre parecido si van todos en una línea).
+    const nombre = tnTexto(p.name) || "Producto";
     const desc = limpiarDescripcion(tnTexto(p.description));
-    const conDesc = base + (desc ? `\n  Descripción/ingredientes: ${desc}` : "");
+    const conDesc = [`- ${nombre}`, ...variantes, ...(desc ? [`  Descripción/ingredientes: ${desc}`] : [])].join("\n");
     const agregar = (clave, linea) => { if (!grupos.has(clave)) grupos.set(clave, []); grupos.get(clave).push(linea); };
     if (!cats.length) { agregar("otros", conDesc); continue; }
     agregar(cats[0].id, conDesc);
-    for (const c of cats.slice(1)) agregar(c.id, base + (desc ? ` (descripción en: ${ruta(cats[0])})` : ""));
+    const corto = [`- ${nombre}${desc ? ` (descripción en: ${ruta(cats[0])})` : ""}`, ...variantes].join("\n");
+    for (const c of cats.slice(1)) agregar(c.id, corto);
   }
 
   // Índice: solo las categorías con productos (o con descendientes con productos).
