@@ -112,6 +112,8 @@ Cliente: "somos 6 para piccar" → MAL: explicar los 4 tamaños → BIEN: "Para 
 - COSTOS DE ENVÍO: usá EXACTAMENTE la tabla por partido de abajo. Si el partido no está en la tabla, NO hay cobertura: avisá con tacto que a esa zona no llegamos.
 - NO confirmes ni cobres vos el pedido. Cuando esté completo, hacé un RESUMEN claro (productos, tamaño, subtotal, envío, total, datos del cliente, fecha y rango) y avisá que un asesor lo confirma y manda el link de pago. Si el cliente quiere cerrar ya o se complica, derivá a una persona escribiendo [HANDOFF] al final de tu mensaje.
 - No prometas cosas fuera de estas reglas (zonas, horarios imposibles, descuentos inexistentes).
+- Copiá los precios TAL CUAL figuran en el catálogo, del tamaño/variante exacta que pidió el cliente. Si hay precio promo, usá el promo. En el resumen, mostrá cada ítem con su precio y después el total.
+- Si el cliente dice un precio ('¿la grande está $X?'), NO lo confirmes por las dudas: buscalo en el catálogo y decí el precio real. Si el producto que menciona no está en el catálogo, NO inventes precios ni tamaños: decí que lo chequeás y derivá con [HANDOFF].
 
 # HONESTIDAD DE CATÁLOGO (lo que no tenemos, no se ofrece)
 - Solo ofrecé lo que existe en el catálogo en vivo. Si piden algo que NO está (un producto, un sabor, una variante, una marca de bebida), decilo sin vueltas: "Por el momento no tenemos eso" y enseguida ofrecé la alternativa REAL más parecida que sí esté en el catálogo.
@@ -240,34 +242,144 @@ const limpiarDescripcion = (html) => {
   return txt.length > 350 ? txt.slice(0, 350) + "…" : txt;
 };
 
-let _catalogo = { texto: null, ts: 0 };
-async function getCatalogoTexto() {
-  const ahora = Date.now();
-  if (_catalogo.texto && ahora - _catalogo.ts < 5 * 60 * 1000) return _catalogo.texto;
-  try {
-    const r = await axios.get(
-      `https://api.tiendanube.com/2025-03/${STORE_ID}/products?per_page=200`,
-      { headers: tnHeaders }
-    );
-    const lineas = [];
-    for (const p of r.data) {
-      if (p.published === false) continue;
-      const nombre = p.name?.es || p.name?.pt || "Producto";
-      const variantes = (p.variants || []).map(v => {
-        const etiqueta = (v.values || []).map(x => x?.es).filter(Boolean).join(" / ");
-        const precio = v.price != null ? `$${Number(v.price).toLocaleString("es-AR")}` : "s/precio";
-        return etiqueta ? `${etiqueta}: ${precio}` : precio;
+// Tienda Nube: productos y categorías paginados (per_page=200, page=1,2,… hasta que venga vacío;
+// TN responde 404 "Last page is N" cuando se pide una página de más: también corta ahí).
+const TN_PER_PAGE = 200;
+const TN_MAX_PAGINAS = 50;
+async function tnPaginado(recurso) {
+  const out = [];
+  for (let page = 1; page <= TN_MAX_PAGINAS; page++) {
+    let r;
+    try {
+      r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/${recurso}`, {
+        headers: tnHeaders, params: { per_page: TN_PER_PAGE, page }, timeout: 20000,
       });
-      const desc = limpiarDescripcion(p.description?.es);
-      lineas.push(`- ${nombre}${variantes.length ? ` — ${variantes.join(" · ")}` : ""}${desc ? `\n  Descripción/ingredientes: ${desc}` : ""}`);
+    } catch (e) {
+      if (page > 1 && e.response?.status === 404) break;
+      throw e;
     }
-    _catalogo = { texto: lineas.join("\n"), ts: ahora };
-    return _catalogo.texto;
+    const data = Array.isArray(r.data) ? r.data : [];
+    if (!data.length) break;
+    out.push(...data);
+  }
+  return out;
+}
+
+const tnTexto = (x) => (x && typeof x === "object" ? x.es || x.pt || Object.values(x)[0] : x) || "";
+const pesos = (n) => `$${Number(n).toLocaleString("es-AR")}`;
+const numValido = (x) => x !== null && x !== undefined && String(x).trim() !== "" && Number.isFinite(Number(x)) && Number(x) > 0;
+
+// Etiqueta de variante de TN "Mediana - Comen 2- Piccan 5" → "Mediana (comen 2, piccan 5)".
+// Si no tiene ese patrón, queda tal cual.
+const RE_PERSONAS = /^\s*(.+?)\s*-\s*(comen?)\s*(\d+)\s*-\s*(piccan?)\s*(\d+)\s*$/i;
+const etiquetaVariante = (s) => {
+  const m = String(s).match(RE_PERSONAS);
+  return m ? `${m[1]} (${m[2].toLowerCase()} ${m[3]}, ${m[4].toLowerCase()} ${m[5]})` : String(s).trim();
+};
+
+// Línea de una variante ("  · Mediana (comen 2, piccan 5): $68.000"); null = sin precio → se saltea.
+//   promo menor que el precio → "$PROMO (precio promo, antes $PRICE)"; stock 0 con stock_management → "SIN STOCK".
+function precioVariante(v) {
+  if (!numValido(v.price)) return null;
+  const precio = Number(v.price);
+  let txt = numValido(v.promotional_price) && Number(v.promotional_price) < precio
+    ? `${pesos(v.promotional_price)} (precio promo, antes ${pesos(precio)})`
+    : pesos(precio);
+  if (v.stock_management && Number(v.stock) === 0) txt += " SIN STOCK";
+  const etiqueta = (v.values || []).map(tnTexto).filter(Boolean).map(etiquetaVariante).join(" / ");
+  return `  · ${etiqueta ? `${etiqueta}: ${txt}` : txt}`;
+}
+
+// Arma el texto del catálogo: índice de categorías arriba y productos agrupados por ruta completa
+// ("Piccadas > Il Paradiso - 12 Ingredientes"). Categorías con visibility "hidden" (o con un ancestro oculto)
+// se saltean. Un producto en varias categorías va en cada una: completo (con descripción) en la primera del índice
+// y solo con precios en las demás, así ninguna categoría queda vacía y el texto no se duplica entero.
+// Productos sin categoría visible → "## Otros".
+export function armarCatalogoTexto(productos, categorias) {
+  const porId = new Map(categorias.map((c) => [c.id, c]));
+  const padreDe = (c) => (c.parent ? porId.get(c.parent) : null);
+  const oculta = (c) => { for (let x = c, i = 0; x && i < 20; x = padreDe(x), i++) if (String(x.visibility || "").toLowerCase() === "hidden") return true; return false; };
+  const ruta = (c) => { const r = []; for (let x = c, i = 0; x && i < 20; x = padreDe(x), i++) r.unshift(tnTexto(x.name)); return r.join(" > "); };
+  // Orden del índice: recorrido del árbol (padre y después sus hijos), respetando el orden de TN.
+  const visibles = categorias.filter((c) => !oculta(c));
+  const hijos = (pid) => visibles.filter((c) => (c.parent || 0) === pid || (pid === 0 && c.parent && !porId.has(c.parent)));
+  const orden = [], vistos = new Set();
+  const recorrer = (pid, nivel) => { for (const c of hijos(pid)) { if (vistos.has(c.id)) continue; vistos.add(c.id); orden.push({ c, nivel }); recorrer(c.id, nivel + 1); } };
+  recorrer(0, 0);
+  const posicion = new Map(orden.map((o, i) => [o.c.id, i]));
+
+  const grupos = new Map();   // id categoría (o "otros") → líneas
+  for (const p of productos) {
+    if (p.published === false) continue;
+    const variantes = (p.variants || []).map(precioVariante).filter(Boolean);
+    if (!variantes.length) continue;   // sin ningún precio: no se ofrece (el bot no puede cotizarlo)
+    // Categorías visibles más específicas (si está en "Piccadas" y en "Piccadas > X", queda solo "X").
+    let cats = (p.categories || []).map((c) => porId.get(c.id) || c).filter((c) => posicion.has(c.id));
+    const ancestros = new Set();
+    for (const c of cats) for (let x = padreDe(c); x; x = padreDe(x)) ancestros.add(x.id);
+    cats = [...new Map(cats.filter((c) => !ancestros.has(c.id)).map((c) => [c.id, c])).values()]
+      .sort((a, b) => posicion.get(a.id) - posicion.get(b.id));
+    // Cada variante en su propia línea (Haiku mezcla productos de nombre parecido si van todos en una línea).
+    const nombre = tnTexto(p.name) || "Producto";
+    const desc = limpiarDescripcion(tnTexto(p.description));
+    const conDesc = [`- ${nombre}`, ...variantes, ...(desc ? [`  Descripción/ingredientes: ${desc}`] : [])].join("\n");
+    const agregar = (clave, linea) => { if (!grupos.has(clave)) grupos.set(clave, []); grupos.get(clave).push(linea); };
+    if (!cats.length) { agregar("otros", conDesc); continue; }
+    agregar(cats[0].id, conDesc);
+    const corto = [`- ${nombre}${desc ? ` (descripción en: ${ruta(cats[0])})` : ""}`, ...variantes].join("\n");
+    for (const c of cats.slice(1)) agregar(c.id, corto);
+  }
+
+  // Índice: solo las categorías con productos (o con descendientes con productos).
+  const conProductos = new Set();
+  for (const id of grupos.keys()) if (id !== "otros") for (let x = porId.get(id); x; x = padreDe(x)) conProductos.add(x.id);
+  const indice = orden.filter((o) => conProductos.has(o.c.id)).map((o) => `${"  ".repeat(o.nivel)}- ${tnTexto(o.c.name)}`);
+  if (grupos.has("otros")) indice.push("- Otros");
+
+  const secciones = [];
+  for (const { c } of orden) if (grupos.has(c.id)) secciones.push(`## ${ruta(c)}\n${grupos.get(c.id).join("\n")}`);
+  if (grupos.has("otros")) secciones.push(`## Otros\n${grupos.get("otros").join("\n")}`);
+  return `## Índice de categorías\n${indice.join("\n")}\n\n${secciones.join("\n\n")}`;
+}
+
+// Caché de 5 minutos. Si TN falla se sigue usando la última versión buena hasta 2 horas;
+// sin caché o con caché de más de 2 h → el catálogo se marca NO disponible (el bot no da precios).
+const CATALOGO_CACHE_MS = 5 * 60 * 1000;
+const CATALOGO_VENCE_MS = 2 * 60 * 60 * 1000;
+const CATALOGO_REINTENTO_MS = 60 * 1000;   // tras una falla, no se vuelve a llamar a TN por 1 minuto
+let _catalogo = { texto: null, okAt: 0, falloAt: 0, error: null, productos: 0, categorias: 0 };
+let _catalogoEnCurso = null;
+
+async function refrescarCatalogo() {
+  try {
+    const [productos, categorias] = await Promise.all([tnPaginado("products"), tnPaginado("categories")]);
+    _catalogo = { texto: armarCatalogoTexto(productos, categorias), okAt: Date.now(), falloAt: 0, error: null, productos: productos.length, categorias: categorias.length };
   } catch (e) {
-    console.error("Bot WhatsApp: error trayendo catálogo:", e.message);
-    return _catalogo.texto || "(catálogo no disponible en este momento)";
+    const detalle = e.response ? `HTTP ${e.response.status} ${JSON.stringify(e.response.data || "").slice(0, 200)}` : e.message;
+    console.error("Bot WhatsApp: error trayendo el catálogo de Tienda Nube:", detalle);
+    _catalogo = { ..._catalogo, falloAt: Date.now(), error: detalle };
   }
 }
+
+// → { texto, disponible, okAt, error, productos, categorias }. forzar = ignora el caché de 5 minutos.
+export async function getCatalogo({ forzar = false } = {}) {
+  const ahora = Date.now();
+  const fresco = _catalogo.texto && ahora - _catalogo.okAt < CATALOGO_CACHE_MS;
+  const enEspera = _catalogo.falloAt && ahora - _catalogo.falloAt < CATALOGO_REINTENTO_MS;
+  if (forzar || (!fresco && !enEspera)) {
+    _catalogoEnCurso = _catalogoEnCurso || refrescarCatalogo().finally(() => { _catalogoEnCurso = null; });
+    await _catalogoEnCurso;
+  }
+  const disponible = !!_catalogo.texto && Date.now() - _catalogo.okAt <= CATALOGO_VENCE_MS;
+  if (!disponible) console.error("Bot WhatsApp: CATÁLOGO NO DISPONIBLE (sin caché o caché de más de 2 h): el bot no va a dar precios.");
+  return { ..._catalogo, disponible };
+}
+
+// Texto exacto del bloque de catálogo que recibe el modelo.
+const bloqueCatalogo = (cat) => cat.disponible
+  ? `# CATÁLOGO Y PRECIOS EN VIVO (usá SIEMPRE estos precios, nunca inventes)\n${cat.texto}`
+  : "# CATÁLOGO Y PRECIOS EN VIVO\n(no disponible en este momento)";
+const LINEA_SIN_CATALOGO = "- CATÁLOGO NO DISPONIBLE: no des ningún precio; si preguntan precios, derivá con [HANDOFF].";
 
 // ─── LÓGICA DEL BOT (reutilizable) ───────────────────────────────────
 // responderBot(messages, config) → { reply, handoff }. Misma lógica para Botmaker (/api/bot/whatsapp)
@@ -292,7 +404,7 @@ export async function responderBot(messages, config) {
     }
 
     try {
-      const catalogo = await getCatalogoTexto();
+      const catalogo = await getCatalogo();
       const ahoraBA = new Date().toLocaleString("es-AR", {
         timeZone: "America/Argentina/Buenos_Aires",
         weekday: "long", day: "numeric", month: "long", year: "numeric",
@@ -316,14 +428,14 @@ export async function responderBot(messages, config) {
         },
         {
           type: "text",
-          text: `# CATÁLOGO Y PRECIOS EN VIVO (usá SIEMPRE estos precios, nunca inventes)\n${catalogo}`,
+          text: bloqueCatalogo(catalogo),
           cache_control: { type: "ephemeral" },
         },
         {
           type: "text",
           text: `# CONTEXTO EN TIEMPO REAL
 - Fecha y hora actual (Buenos Aires): ${ahoraBA}.
-- Anticipación mínima para PiccaSandwiches/PiccaDesayunos/Catering: ${cfg.anticipacionHoras} horas.
+${catalogo.disponible ? "" : LINEA_SIN_CATALOGO + "\n"}- Anticipación mínima para PiccaSandwiches/PiccaDesayunos/Catering: ${cfg.anticipacionHoras} horas.
 - ¿Se toman pedidos para HOY?: ${cfg.tomarHoy ? "SÍ" : "NO — ofrecé desde mañana con un 'por alta demanda, hoy tomamos pedidos para mañana'"}.
 - RECORDATORIO DE ESTILO: prohibido "te late" (usá "¿qué te parece?" o "¿te va?"); los fiambres/embutidos son "charcuterie", nunca "carnes".
 
@@ -372,8 +484,24 @@ export async function responderBot(messages, config) {
 
 // ─── ROUTER (Botmaker) ───────────────────────────────────────────────
 // Contrato SIN cambios: mismas validaciones, mismas respuestas y mismos códigos que antes del refactor.
-export function botWhatsappRouter() {
+export function botWhatsappRouter({ requireAuth } = {}) {
   const router = express.Router();
+
+  // GET /api/bot/catalogo[?refrescar=1] — debug (login del panel): el texto EXACTO del catálogo que recibe el
+  // bot, cuándo se actualizó bien por última vez y si está disponible. No toca el contrato de /whatsapp (Botmaker).
+  if (requireAuth) {
+    router.get("/catalogo", requireAuth, async (req, res) => {
+      const cat = await getCatalogo({ forzar: req.query.refrescar === "1" });
+      res.json({
+        disponible: cat.disponible,
+        actualizado_at: cat.okAt ? new Date(cat.okAt).toISOString() : null,
+        ultimo_error: cat.error,
+        productos_tn: cat.productos, categorias_tn: cat.categorias,
+        texto: bloqueCatalogo(cat),
+        contexto_extra: cat.disponible ? null : LINEA_SIN_CATALOGO,
+      });
+    });
+  }
 
   // POST /api/bot/whatsapp
   // body: { messages: [{role:"user"|"assistant", content:"..."}], config?: { anticipacionHoras, tomarHoy, botPausado } }
