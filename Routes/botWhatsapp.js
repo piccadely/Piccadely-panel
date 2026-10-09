@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────
 import express from "express";
 import axios from "axios";
+import { detectarZonas, lineasZona } from "./zonaCobertura.js";
 
 const STORE_ID = process.env.TN_STORE_ID;
 const ACCESS_TOKEN = process.env.TN_ACCESS_TOKEN;
@@ -110,7 +111,7 @@ Cliente: "somos 6 para piccar" → MAL: explicar los 4 tamaños → BIEN: "Para 
 
 # REGLAS DURAS (no las rompas)
 - PRECIOS DE PRODUCTOS: usá SIEMPRE los del catálogo en vivo que está más abajo. NUNCA inventes ni estimes precios. Si algo no está en el catálogo, decí que lo consultás.
-- COSTOS DE ENVÍO: usá EXACTAMENTE la tabla por partido de abajo. Si el partido no está en la tabla, NO hay cobertura: avisá con tacto que a esa zona no llegamos.
+- COSTOS DE ENVÍO: usá EXACTAMENTE la tabla por partido de abajo, con el partido que da la 'ZONA DETECTADA' del contexto. Si la zona detectada cae en un partido que no está en la tabla, NO hay cobertura: avisá con tacto que a esa zona no llegamos.
 - NO confirmes ni cobres vos el pedido. Cuando esté completo, hacé un RESUMEN claro (productos, tamaño, subtotal, envío, total, datos del cliente, fecha y rango) y avisá que un asesor lo confirma y manda el link de pago. Si el cliente quiere cerrar ya o se complica, derivá a una persona escribiendo [HANDOFF] al final de tu mensaje.
 - No prometas cosas fuera de estas reglas (zonas, horarios imposibles, descuentos inexistentes).
 - Copiá los precios TAL CUAL figuran en el catálogo, del tamaño/variante exacta que pidió el cliente. Si hay precio promo, usá el promo. En el resumen, mostrá cada ítem con su precio y después el total.
@@ -169,8 +170,9 @@ Los ingredientes son los mismos en todos los tamaños; cambia la cantidad.
 ## Cobertura y modalidad
 - CABA → entrega en el día (same-day) o reserva para otro día.
 - Partidos del GBA de la tabla (incluido Vicente López) → SOLO reserva, con 1 día de anticipación. Nunca entrega para hoy.
-- Partido no listado → no llegamos.
-Preguntá el partido/localidad y matcheá por nombre contra la tabla (más confiable que el mapa).
+- Para ubicar la zona usá SIEMPRE la 'ZONA DETECTADA' del contexto. Nunca deduzcas el partido de memoria.
+- Si no hay zona detectada, NO digas que no llegamos: preguntá el partido o una calle de referencia.
+- Solo decí que no llegamos si la zona detectada cae en un partido que no está en la tabla.
 
 ## Desayunos
 Desayunos: 8:30 a 11:30.
@@ -432,6 +434,8 @@ export async function responderBot(messages, config) {
 
     try {
       const catalogo = await getCatalogo();
+      // Zona de entrega resuelta por código (data/localidades_cobertura.json), nunca por el modelo.
+      const zonaTxt = lineasZona(detectarZonas(messages));
       const ahoraBA = new Date().toLocaleString("es-AR", {
         timeZone: "America/Argentina/Buenos_Aires",
         weekday: "long", day: "numeric", month: "long", year: "numeric",
@@ -462,7 +466,7 @@ export async function responderBot(messages, config) {
           type: "text",
           text: `# CONTEXTO EN TIEMPO REAL
 - Fecha y hora actual (Buenos Aires): ${ahoraBA}.
-${catalogo.disponible ? "" : LINEA_SIN_CATALOGO + "\n"}- Anticipación mínima para PiccaSandwiches/PiccaDesayunos/Catering: ${cfg.anticipacionHoras} horas.
+${catalogo.disponible ? "" : LINEA_SIN_CATALOGO + "\n"}${zonaTxt ? zonaTxt + "\n" : "- ZONA DETECTADA: ninguna todavía (si hace falta, preguntá el partido o una calle de referencia; no digas que no llegamos).\n"}- Anticipación mínima para PiccaSandwiches/PiccaDesayunos/Catering: ${cfg.anticipacionHoras} horas.
 - ¿Se toman pedidos para HOY?: ${cfg.tomarHoy ? "SÍ" : "NO — ofrecé desde mañana con un 'por alta demanda, hoy tomamos pedidos para mañana'"}.
 - RECORDATORIO DE ESTILO: prohibido "te late" (usá "¿qué te parece?" o "¿te va?"); los fiambres/embutidos son "charcuterie", nunca "carnes".
 
