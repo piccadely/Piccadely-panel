@@ -91,9 +91,9 @@ export function detectarZonas(messages) {
 
 const pesos = (n) => `$${Number(n).toLocaleString("es-AR")}`;
 function describir(o) {
-  if (!o.cobertura) return `partido ${o.partido} → SIN COBERTURA (no está en la tabla de envíos)`;
+  if (!o.cobertura) return `partido ${o.partido} → SIN COBERTURA: NO llegamos a esa zona (no está en la tabla de envíos). Decíselo con tacto; NO des costo de envío ni ofrezcas reservar`;
   if (o.partido === "CABA") return `CABA → envío ${pesos(o.costo)} → entrega en el día o reserva para otro día`;
-  return `partido ${o.partido} → envío ${pesos(o.costo)} → solo reserva, 1 día de anticipación`;
+  return `partido ${o.partido} → envío ${pesos(o.costo)} → solo reserva, 1 día de anticipación (NO hay entrega para hoy)`;
 }
 
 // Líneas para el CONTEXTO EN TIEMPO REAL ("" si no se detectó nada).
