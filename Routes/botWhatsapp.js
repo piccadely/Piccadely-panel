@@ -8,7 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────
 import express from "express";
 import axios from "axios";
-import { detectarZonas, lineasZona } from "./zonaCobertura.js";
+import { detectarZonas, lineasZona, zonasUltimoMensaje, zonaSinCoberturaClara, respuestaSinCobertura, prometeCobertura } from "./zonaCobertura.js";
 
 const STORE_ID = process.env.TN_STORE_ID;
 const ACCESS_TOKEN = process.env.TN_ACCESS_TOKEN;
@@ -222,7 +222,7 @@ Derivá (poné [HANDOFF] al final del mensaje) cuando: el cliente lo pide, la co
 Pedido YA HECHO (dónde está, no llegó, demora, cambios, reclamos, factura de un pedido anterior):
 - PRIMERO fijate si el cliente YA mandó el número de pedido y la dirección (en este mensaje o antes en la charla). Si los mandó, derivá DIRECTO con [HANDOFF] y no pidas nada más, aunque esté enojado o sea urgente. Ej.: cliente: "pedido 5678, Cabildo 2000, no llegó" → "Uh, perdón por la demora. ¡Gracias por los datos! Ya te paso con alguien del equipo 🙌" + [HANDOFF].
 - Si NO los mandó, en DOS pasos:
-  · Paso 1: NO pongas [HANDOFF] todavía. Pedí SOLO el número de pedido y la dirección de entrega (nada de teléfono, entre calles ni otros datos). Ej.: "Ahora te paso con un operador para que pueda resolverte, pero antes decime el número de pedido y la dirección así agilizamos la búsqueda 🙌"
+  · Paso 1: NO pongas [HANDOFF] todavía. Pedí SOLO el número de pedido y la dirección de entrega (nada de teléfono, entre calles ni otros datos). En este paso NUNCA digas "gracias por los datos" (todavía no mandó nada) y no pidas perdón si no se quejó. Ej.: cliente: "dónde está mi pedido?" → "Ahora te paso con un operador para que pueda resolverte, pero antes decime el número de pedido y la dirección así agilizamos la búsqueda 🙌"
   · Paso 2: en cuanto el cliente responda (aunque mande solo uno de los dos datos o diga que no tiene el número), agradecé corto y derivá. Ej.: "¡Gracias! Ya te paso con alguien del equipo 🙌" + [HANDOFF]. No vuelvas a pedir datos ni insistas.
 - Disculpa corta ("Uh, perdón por la demora") SOLO si el cliente se queja o es urgente ("no llegó", "ya pasó la hora", "está tardando"). Si solo pregunta dónde está, sin quejarse, no te disculpes.
 - Cómo derivar (en cualquier caso): corto y natural. Decí que esa info no la tenés a mano y que lo pasás con una persona del equipo que lo resuelve enseguida. Ej.: "Esa info no la tengo desde acá, pero ya te paso con alguien del equipo que te lo resuelve al toque 🙌" + [HANDOFF]. NO sigas con "¿algo más?" después de derivar.
@@ -433,10 +433,15 @@ export async function responderBot(messages, config) {
       };
     }
 
+    // Zona sin cobertura clara en el ÚLTIMO mensaje (y ninguna con cobertura): respuesta fija, sin modelo.
+    const fueraDeZona = zonaSinCoberturaClara(zonasUltimoMensaje(messages));
+    if (fueraDeZona) return { reply: respuestaSinCobertura(fueraDeZona), handoff: false };
+
     try {
       const catalogo = await getCatalogo();
       // Zona de entrega resuelta por código (data/localidades_cobertura.json), nunca por el modelo.
-      const zonaTxt = lineasZona(detectarZonas(messages));
+      const zonasCharla = detectarZonas(messages);
+      const zonaTxt = lineasZona(zonasCharla);
       const ahoraBA = new Date().toLocaleString("es-AR", {
         timeZone: "America/Argentina/Buenos_Aires",
         weekday: "long", day: "numeric", month: "long", year: "numeric",
@@ -507,6 +512,12 @@ ${catalogo.disponible ? "" : LINEA_SIN_CATALOGO + "\n"}${zonaTxt ? zonaTxt + "\n
         .replace(/\bplaticar\b/gi, "charlar")
         .replace(/\bchévere\b/gi, "buenísimo");
       const reply = argentinizar(raw.replace(/\[HANDOFF\]/gi, "").trim());
+      // Red de seguridad: la charla está en una zona sin cobertura y el modelo igual prometió envío → texto fijo.
+      const fuera = zonaSinCoberturaClara(zonasCharla);
+      if (fuera && prometeCobertura(reply)) {
+        console.warn("Bot WhatsApp: respuesta reemplazada (prometía envío a una zona sin cobertura).");
+        return { reply: respuestaSinCobertura(fuera), handoff: false };
+      }
       return { reply, handoff };
     } catch (err) {
       console.error("Error bot WhatsApp:", err.response?.data || err.message);
