@@ -9,6 +9,10 @@
 import express from "express";
 import axios from "axios";
 import { detectarZonas, lineasZona, zonasUltimoMensaje, zonaSinCoberturaClara, respuestaSinCobertura, prometeCobertura } from "./zonaCobertura.js";
+import { HERRAMIENTAS, calcularTamanos, calcularTotal } from "./botHerramientas.js";
+
+const MAX_VUELTAS_HERRAMIENTAS = 3;   // vueltas de tool use por respuesta; después se fuerza texto
+const TEXTO_GRUPO_GRANDE = "Como es un evento grande, te paso con alguien del equipo que te arma la propuesta a medida 🙌";
 
 const STORE_ID = process.env.TN_STORE_ID;
 const ACCESS_TOKEN = process.env.TN_ACCESS_TOKEN;
@@ -105,6 +109,7 @@ Sos el asistente de ventas de Piccadely por WhatsApp. Piccadely es una empresa a
 - No justifiques cada cosa. Si recomendás, una razón corta alcanza.
 - Una sola pregunta por mensaje.
 - Si alcanza con una palabra, usá una palabra ("¡Dale!", "Perfecto", "Sí, llegamos").
+- Si te equivocaste, corregí directo con una disculpa corta ("¡Uh, tenés razón!") y seguí. No repitas disculpas ni uses frases raras como 'vos contás bien'.
 Ejemplos:
 Cliente: "¿llegan a Palermo?" → MAL: "¡Hola! Sí, llegamos a Palermo, que está dentro de CABA en la Comuna 14. El envío tiene un costo de $2.500 y podemos entregarte en el día..." → BIEN: "¡Sí! El envío a Palermo sale $2.500. ¿Para cuándo lo querés?"
 Cliente: "somos 6 para piccar" → MAL: explicar los 4 tamaños → BIEN: "Para 6 te va perfecta la *Mediana*. En promo tenemos la *[promo en Mediana]* ($[precio]) y si querés algo un poquito mejor, está la *[Il Paradiso en Mediana]* ($[precio])." (nombres y precios, siempre del catálogo)
@@ -115,6 +120,7 @@ Cliente: "somos 6 para piccar" → MAL: explicar los 4 tamaños → BIEN: "Para 
 - NO confirmes ni cobres vos el pedido. Cuando esté completo, hacé un RESUMEN claro (productos, tamaño, subtotal, envío, total, datos del cliente, fecha y rango) y avisá que un asesor lo confirma y manda el link de pago. Si el cliente quiere cerrar ya o se complica, derivá a una persona escribiendo [HANDOFF] al final de tu mensaje.
 - No prometas cosas fuera de estas reglas (zonas, horarios imposibles, descuentos inexistentes).
 - Copiá los precios TAL CUAL figuran en el catálogo, del tamaño/variante exacta que pidió el cliente. Si hay precio promo, usá el promo. En el resumen, mostrá cada ítem con su precio y después el total.
+- NUNCA hagas cuentas de personas, cantidades ni precios de cabeza. Para recomendar tamaños usá SIEMPRE calcular_tamanos; para subtotales y totales, SIEMPRE calcular_total. Repetí los números tal cual te los devuelve la herramienta.
 - Si el cliente dice un precio ('¿la grande está $X?'), NO lo confirmes por las dudas: buscalo en el catálogo y decí el precio real. Si el producto que menciona no está en el catálogo, NO inventes precios ni tamaños: decí que lo chequeás y derivá con [HANDOFF].
 
 # HONESTIDAD DE CATÁLOGO (lo que no tenemos, no se ofrece)
@@ -151,7 +157,8 @@ Para PICCAR (picada antes / de entrada):
 - XL: 12 personas.
 - Más de 12 que piccan: Combinados.
 Si la cantidad queda entre dos tamaños (ej.: 7 u 11 que piccan), recomendá el más grande: mejor que sobre a que falte.
-Más de 6 que COMEN: combiná tamaños hasta cubrir la cantidad, con la menor cantidad de piccadas posible: 7 = XL + Chica · 8 = XL + Mediana · 9 o 10 = XL + Grande · 11 o 12 = 2 XL.
+Para cualquier cantidad (y sobre todo más de 6 que comen o más de 12 que piccan) pedile la combinación a calcular_tamanos: arma XL completas + el tamaño más chico que cubra el resto. Nunca la calcules vos.
+GRUPOS GRANDES (50 personas o más, para comer o para piccar): usá calcular_tamanos, pasale la combinación (y el total aproximado con calcular_total si ya eligió producto) y derivá con [HANDOFF] para que el equipo arme el pedido a medida. Ej.: "Para 75 que comen te armamos 12 XL + 1 Grande (rinde para 76). Como es un evento grande, te paso con alguien del equipo que te arma la propuesta a medida 🙌" + [HANDOFF]. Por debajo de 50, seguí el flujo normal hasta el resumen.
 Los ingredientes son los mismos en todos los tamaños; cambia la cantidad.
 
 ## Qué piccada recomendar (SIEMPRE 2 opciones del tamaño que corresponda)
@@ -383,7 +390,10 @@ let _catalogoEnCurso = null;
 async function refrescarCatalogo() {
   try {
     const [productos, categorias] = await Promise.all([tnPaginado("products"), tnPaginado("categories")]);
-    _catalogo = { texto: armarCatalogoTexto(productos, categorias), okAt: Date.now(), falloAt: 0, error: null, productos: productos.length, categorias: categorias.length };
+    _catalogo = {
+      texto: armarCatalogoTexto(productos, categorias), lista: productos.filter((p) => p.published !== false),   // lista: para calcular_total
+      okAt: Date.now(), falloAt: 0, error: null, productos: productos.length, categorias: categorias.length,
+    };
   } catch (e) {
     const detalle = e.response ? `HTTP ${e.response.status} ${JSON.stringify(e.response.data || "").slice(0, 200)}` : e.message;
     console.error("Bot WhatsApp: error trayendo el catálogo de Tienda Nube:", detalle);
@@ -487,11 +497,16 @@ ${catalogo.disponible ? "" : LINEA_SIN_CATALOGO + "\n"}${zonaTxt ? zonaTxt + "\n
         },
       ];
 
-      const resp = await axios.post("https://api.anthropic.com/v1/messages", {
+      // Tool use: las cuentas (tamaños por personas, subtotales y totales) las hace el código.
+      // Si el modelo pide una herramienta, se ejecuta y se le devuelve el resultado (máx. 3 vueltas;
+      // en la última llamada se fuerza respuesta de texto).
+      const llamarModelo = (msgs, permitirHerramientas) => axios.post("https://api.anthropic.com/v1/messages", {
         model: "claude-haiku-4-5-20251001",
         max_tokens: 400,
         system: systemBloques,
-        messages: messages.slice(-14),
+        tools: HERRAMIENTAS,
+        ...(permitirHerramientas ? {} : { tool_choice: { type: "none" } }),
+        messages: msgs,
       }, {
         headers: {
           "x-api-key": process.env.ANTHROPIC_API_KEY,
@@ -500,9 +515,28 @@ ${catalogo.disponible ? "" : LINEA_SIN_CATALOGO + "\n"}${zonaTxt ? zonaTxt + "\n
         },
         timeout: 25000,
       });
+      const ejecutar = (nombre, entrada) =>
+        nombre === "calcular_tamanos" ? calcularTamanos(entrada)
+        : nombre === "calcular_total" ? calcularTotal(entrada, catalogo.disponible ? catalogo.lista : null)
+        : { error: `Herramienta desconocida: ${nombre}` };
 
-      const raw = resp.data.content?.[0]?.text || "Perdón, no pude responder. ¿Probás de nuevo?";
-      const handoff = /\[HANDOFF\]/i.test(raw);
+      let conversacion = messages.slice(-14);
+      let resp, grupoGrande = false;
+      for (let vuelta = 0; ; vuelta++) {
+        resp = await llamarModelo(conversacion, vuelta < MAX_VUELTAS_HERRAMIENTAS);
+        const usos = (resp.data.content || []).filter((b) => b.type === "tool_use");
+        if (resp.data.stop_reason !== "tool_use" || !usos.length) break;
+        const resultados = usos.map((u) => {
+          const r = ejecutar(u.name, u.input || {});
+          if (u.name === "calcular_tamanos" && r.grupo_grande) grupoGrande = true;
+          return { type: "tool_result", tool_use_id: u.id, content: JSON.stringify(r), ...(r.error ? { is_error: true } : {}) };
+        });
+        conversacion = [...conversacion, { role: "assistant", content: resp.data.content }, { role: "user", content: resultados }];
+      }
+
+      const raw = (resp.data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim()
+        || "Perdón, no pude responder. ¿Probás de nuevo?";
+      let handoff = /\[HANDOFF\]/i.test(raw);
       // Red de seguridad: por si al modelo se le escapa un modismo no argentino
       const argentinizar = (t) => t
         .replace(/¿\s*[Tt]e late\b/g, (m) => (m.includes("T") ? "¿Te va" : "¿te va"))
@@ -511,7 +545,12 @@ ${catalogo.disponible ? "" : LINEA_SIN_CATALOGO + "\n"}${zonaTxt ? zonaTxt + "\n
         .replace(/\bahorita\b/gi, "ahora")
         .replace(/\bplaticar\b/gi, "charlar")
         .replace(/\bchévere\b/gi, "buenísimo");
-      const reply = argentinizar(raw.replace(/\[HANDOFF\]/gi, "").trim());
+      let reply = argentinizar(raw.replace(/\[HANDOFF\]/gi, "").trim());
+      // Grupo grande (50+ personas, según calcular_tamanos): siempre se deriva al equipo.
+      if (grupoGrande && !handoff) {
+        handoff = true;
+        if (!/equipo/i.test(reply)) reply = `${reply}\n\n${TEXTO_GRUPO_GRANDE}`;
+      }
       // Red de seguridad: la charla está en una zona sin cobertura y el modelo igual prometió envío → texto fijo.
       const fuera = zonaSinCoberturaClara(zonasCharla);
       if (fuera && prometeCobertura(reply)) {
