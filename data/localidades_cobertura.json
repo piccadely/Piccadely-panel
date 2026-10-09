@@ -1,0 +1,6695 @@
+{
+ "11 de septiembre": {
+  "nombre": "11 de Septiembre",
+  "partido": "Tres de Febrero",
+  "costo": 7500,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "12 de octubre": {
+  "nombre": "12 de Octubre",
+  "partido": "9 de Julio",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "16 de julio": {
+  "nombre": "16 de Julio",
+  "partido": "Azul",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "17 de agosto": {
+  "nombre": "17 de Agosto",
+  "partido": "Puán",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "20 de junio": {
+  "nombre": "20 de Junio",
+  "partido": "La Matanza",
+  "costo": 20000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "25 de mayo": {
+  "nombre": "25 de Mayo",
+  "partido": "25 de Mayo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "30 de agosto": {
+  "nombre": "30 de Agosto",
+  "partido": "Trenque Lauquen",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "9 de abril": {
+  "nombre": "9 de Abril",
+  "partido": "Esteban Echeverría",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "9 de julio": {
+  "nombre": "9 de Julio",
+  "partido": "9 de Julio",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "abasto": {
+  "nombre": "Abasto",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "abbott": {
+  "nombre": "Abbott",
+  "partido": "Monte",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "acassuso": {
+  "nombre": "Acassuso",
+  "partido": "San Isidro",
+  "costo": 5000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "acasusso": {
+  "nombre": "Acasusso",
+  "partido": "San Isidro",
+  "costo": 5000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "acevedo": {
+  "nombre": "Acevedo",
+  "partido": "Pergamino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "adolfo alsina": {
+  "nombre": "Adolfo Alsina",
+  "partido": "Adolfo Alsina",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "adolfo gonzales chaves": {
+  "nombre": "Adolfo Gonzales Chaves",
+  "partido": "Adolfo Gonzales Chaves",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "adrogue": {
+  "nombre": "Adrogué",
+  "partido": "Almirante Brown",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "aeropuerto internacional ezeiza": {
+  "nombre": "Aeropuerto Internacional Ezeiza",
+  "partido": "Ezeiza",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "agronomia": {
+  "nombre": "Agronomía",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "aguas verdes": {
+  "nombre": "Aguas Verdes",
+  "partido": "La Costa",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "agustin mosconi": {
+  "nombre": "Agustín Mosconi",
+  "partido": "25 de Mayo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "agustin roca": {
+  "nombre": "Agustín Roca",
+  "partido": "Junín",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "agustina": {
+  "nombre": "Agustina",
+  "partido": "Junín",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "alberdi viejo": {
+  "nombre": "Alberdi Viejo",
+  "partido": "Leandro N. Alem",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "alberti": {
+  "nombre": "Alberti",
+  "partido": "Alberti",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "aldo bonzi": {
+  "nombre": "Aldo Bonzi",
+  "partido": "La Matanza",
+  "costo": 20000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "alejandro korn": {
+  "nombre": "Alejandro Korn",
+  "partido": "San Vicente",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "alejandro petion": {
+  "nombre": "Alejandro Petión",
+  "partido": "Cañuelas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "alfredo demarchi": {
+  "nombre": "Alfredo Demarchi",
+  "partido": "9 de Julio",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "almagro": {
+  "nombre": "Almagro",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "almirante brown": {
+  "nombre": "Almirante Brown",
+  "partido": "Almirante Brown",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "altamirano": {
+  "nombre": "Altamirano",
+  "partido": "Brandsen",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "alvarez de toledo": {
+  "nombre": "Álvarez de Toledo",
+  "partido": "Saladillo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "alvarez jonte": {
+  "nombre": "Alvarez Jonte",
+  "partido": "Punta Indio",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "america": {
+  "nombre": "América",
+  "partido": "Rivadavia",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "andant": {
+  "nombre": "Andant",
+  "partido": "Daireaux",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "angel etcheverry": {
+  "nombre": "Ángel Etcheverry",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "antonio carboni": {
+  "nombre": "Antonio Carboni",
+  "partido": "Lobos",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "aparicio": {
+  "nombre": "Aparicio",
+  "partido": "Coronel Dorrego",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "arana": {
+  "nombre": "Arana",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "arboledas": {
+  "nombre": "Arboledas",
+  "partido": "Daireaux",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "area de promocion el triangulo": {
+  "nombre": "Área de Promoción El Triángulo",
+  "partido": "Malvinas Argentinas",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "area reserva cinturon ecologico": {
+  "nombre": "Área Reserva Cinturón Ecológico",
+  "partido": "Avellaneda",
+  "costo": 6000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "arenas verdes": {
+  "nombre": "Arenas Verdes",
+  "partido": "Lobería",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "arenaza": {
+  "nombre": "Arenaza",
+  "partido": "Lincoln",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "argerich": {
+  "nombre": "Argerich",
+  "partido": "Villarino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "ariel": {
+  "nombre": "Ariel",
+  "partido": "Azul",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "arrecifes": {
+  "nombre": "Arrecifes",
+  "partido": "Arrecifes",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "arribenos": {
+  "nombre": "Arribeños",
+  "partido": "General Arenales",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "arroyo corto": {
+  "nombre": "Arroyo Corto",
+  "partido": "Saavedra",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "arroyo de la cruz": {
+  "nombre": "Arroyo de la Cruz",
+  "partido": "Exaltación de la Cruz",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "arroyo dulce": {
+  "nombre": "Arroyo Dulce",
+  "partido": "Salto",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "arroyo venado": {
+  "nombre": "Arroyo Venado",
+  "partido": "Guaminí",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "arturo segui": {
+  "nombre": "Arturo Seguí",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "ascension": {
+  "nombre": "Ascensión",
+  "partido": "General Arenales",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "atalaya": {
+  "nombre": "Atalaya",
+  "partido": "Magdalena",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "atlantida": {
+  "nombre": "Atlántida",
+  "partido": "Mar Chiquita",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "avellaneda": {
+  "nombre": "Avellaneda",
+  "partido": "Avellaneda",
+  "costo": 6000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "ayacucho": {
+  "nombre": "Ayacucho",
+  "partido": "Ayacucho",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "azcuenaga": {
+  "nombre": "Azcuénaga",
+  "partido": "San Andrés de Giles",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "azopardo": {
+  "nombre": "Azopardo",
+  "partido": "Puán",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "azul": {
+  "nombre": "Azul",
+  "partido": "Azul",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "bahia blanca": {
+  "nombre": "Bahía Blanca",
+  "partido": "Bahía Blanca",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "bahia san blas": {
+  "nombre": "Bahía San Blas",
+  "partido": "Patagones",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "baigorrita": {
+  "nombre": "Baigorrita",
+  "partido": "General Viamonte",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "bajo hondo": {
+  "nombre": "Bajo Hondo",
+  "partido": "Coronel de Marina Leonardo Rosales",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "balcarce": {
+  "nombre": "Balcarce",
+  "partido": "Balcarce",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "balneario laguna de gomez": {
+  "nombre": "Balneario Laguna de Gómez",
+  "partido": "Junín",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "balneario orense": {
+  "nombre": "Balneario Orense",
+  "partido": "Tres Arroyos",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "balneario pehuen co": {
+  "nombre": "Balneario Pehuen Co",
+  "partido": "Coronel de Marina Leonardo Rosales",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "balneario san cayetano": {
+  "nombre": "Balneario San Cayetano",
+  "partido": "San Cayetano",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "balneario sauce grande": {
+  "nombre": "Balneario Sauce Grande",
+  "partido": "Monte Hermoso",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "balvanera": {
+  "nombre": "Balvanera",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "banderalo": {
+  "nombre": "Banderaló",
+  "partido": "General Villegas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "banfield": {
+  "nombre": "Banfield",
+  "partido": "Lomas de Zamora",
+  "costo": 11000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "baradero": {
+  "nombre": "Baradero",
+  "partido": "Baradero",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barker": {
+  "nombre": "Barker",
+  "partido": "Benito Juárez",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barracas": {
+  "nombre": "Barracas",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "barrio america unida": {
+  "nombre": "Barrio América Unida",
+  "partido": "Presidente Perón",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "barrio banco provincia": {
+  "nombre": "Barrio Banco Provincia",
+  "partido": "Berisso",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barrio colinas verdes": {
+  "nombre": "Barrio Colinas Verdes",
+  "partido": "General Pueyrredón",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barrio el carmen este": {
+  "nombre": "Barrio El Carmen Este",
+  "partido": "Berisso",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barrio el carmen oeste": {
+  "nombre": "Barrio El Carmen Oeste",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "barrio el casal": {
+  "nombre": "Barrio El Casal",
+  "partido": "General Pueyrredón",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barrio el coyunco": {
+  "nombre": "Barrio El Coyunco",
+  "partido": "General Pueyrredón",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barrio el taladro": {
+  "nombre": "Barrio El Taladro",
+  "partido": "Cañuelas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barrio gambier": {
+  "nombre": "Barrio Gambier",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "barrio kennedy": {
+  "nombre": "Barrio Kennedy",
+  "partido": "General Juan Madariaga",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barrio la gloria": {
+  "nombre": "Barrio La Gloria",
+  "partido": "General Pueyrredón",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barrio las casuarinas": {
+  "nombre": "Barrio Las Casuarinas",
+  "partido": "Luján",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barrio las golondrinas": {
+  "nombre": "Barrio Las Golondrinas",
+  "partido": "Brandsen",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barrio las malvinas": {
+  "nombre": "Barrio Las Malvinas",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "barrio las margaritas": {
+  "nombre": "Barrio Las Margaritas",
+  "partido": "Rojas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barrio las quintas": {
+  "nombre": "Barrio Las Quintas",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "barrio lisandro de la torre y santa marta": {
+  "nombre": "Barrio Lisandro de la Torre y Santa Marta",
+  "partido": "Marcos Paz",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "barrio los bosquecitos": {
+  "nombre": "Barrio Los Bosquecitos",
+  "partido": "Brandsen",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barrio los pioneros barrio tavella": {
+  "nombre": "Barrio Los Pioneros (Barrio Tavella)",
+  "partido": "Campana",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barrio morabo": {
+  "nombre": "Barrio Morabo",
+  "partido": "General Rodríguez",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "barrio parque general san martin": {
+  "nombre": "Barrio Parque General San Martín",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "barrio parque las acacias": {
+  "nombre": "Barrio Parque Las Acacias",
+  "partido": "Brandsen",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barrio rio salado": {
+  "nombre": "Barrio Río Salado",
+  "partido": "General Paz",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barrio ruta 24 kilometro 10": {
+  "nombre": "Barrio Ruta 24 Kilómetro 10",
+  "partido": "General Rodríguez",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "barrio saavedra": {
+  "nombre": "Barrio Saavedra",
+  "partido": "Zárate",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barrio san cayetano": {
+  "nombre": "Barrio San Cayetano",
+  "partido": "Chascomús",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barrio santa paula": {
+  "nombre": "Barrio Santa Paula",
+  "partido": "General Pueyrredón",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "barrio universitario": {
+  "nombre": "Barrio Universitario",
+  "partido": "Berisso",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "batan": {
+  "nombre": "Batán",
+  "partido": "General Pueyrredón",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "bayauca": {
+  "nombre": "Bayauca",
+  "partido": "Lincoln",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "beccar": {
+  "nombre": "Béccar",
+  "partido": "San Isidro",
+  "costo": 5000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "belen de escobar": {
+  "nombre": "Belén de Escobar",
+  "partido": "Escobar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "belgrano": {
+  "nombre": "Belgrano",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "bella vista": {
+  "nombre": "Bella Vista",
+  "partido": "San Miguel",
+  "costo": 15000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "bellocq": {
+  "nombre": "Bellocq",
+  "partido": "Carlos Casares",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "benavidez": {
+  "nombre": "Benavídez",
+  "partido": "Tigre",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "benito juarez": {
+  "nombre": "Benito Juárez",
+  "partido": "Benito Juárez",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "berazategui": {
+  "nombre": "Berazategui",
+  "partido": "Berazategui",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "berazategui oeste": {
+  "nombre": "Berazategui Oeste",
+  "partido": "Berazategui",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "berdier": {
+  "nombre": "Berdier",
+  "partido": "Salto",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "berisso": {
+  "nombre": "Berisso",
+  "partido": "Berisso",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "bermudez": {
+  "nombre": "Bermúdez",
+  "partido": "Lincoln",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "bernal": {
+  "nombre": "Bernal",
+  "partido": "Quilmes",
+  "costo": 11000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "bernal oeste": {
+  "nombre": "Bernal Oeste",
+  "partido": "Quilmes",
+  "costo": 11000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "berutti": {
+  "nombre": "Berutti",
+  "partido": "Trenque Lauquen",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "billinghurst": {
+  "nombre": "Billinghurst",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "blaquier": {
+  "nombre": "Blaquier",
+  "partido": "Florentino Ameghino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "boca": {
+  "nombre": "Boca",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "bocayuva": {
+  "nombre": "Bocayuva",
+  "partido": "Pellegrini",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "boedo": {
+  "nombre": "Boedo",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "bolivar": {
+  "nombre": "Bolívar",
+  "partido": "Bolívar",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "bordenave": {
+  "nombre": "Bordenave",
+  "partido": "Puán",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "bosques": {
+  "nombre": "Bosques",
+  "partido": "Florencio Varela",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "boulogne": {
+  "nombre": "Boulogne",
+  "partido": "San Isidro",
+  "costo": 5000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "boulogne sur mer": {
+  "nombre": "Boulogne Sur Mer",
+  "partido": "San Isidro",
+  "costo": 5000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "bragado": {
+  "nombre": "Bragado",
+  "partido": "Bragado",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "brandsen": {
+  "nombre": "Brandsen",
+  "partido": "Brandsen",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "buenos aires capital": {
+  "nombre": "Buenos Aires Capital",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "burzaco": {
+  "nombre": "Burzaco",
+  "partido": "Almirante Brown",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "caba": {
+  "nombre": "Caba",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "caballito": {
+  "nombre": "Caballito",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "cabildo": {
+  "nombre": "Cabildo",
+  "partido": "Bahía Blanca",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "cachari": {
+  "nombre": "Cacharí",
+  "partido": "Azul",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "cadret": {
+  "nombre": "Cadret",
+  "partido": "Carlos Casares",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "camet": {
+  "nombre": "Camet",
+  "partido": "General Pueyrredón",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "camet norte": {
+  "nombre": "Camet Norte",
+  "partido": "Mar Chiquita",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "campana": {
+  "nombre": "Campana",
+  "partido": "Campana",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "campo de mayo": {
+  "nombre": "Campo de Mayo",
+  "partido": "San Miguel",
+  "costo": 15000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "campos salles": {
+  "nombre": "Campos Salles",
+  "partido": "San Nicolás",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "canada seca": {
+  "nombre": "Cañada Seca",
+  "partido": "General Villegas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "canning": [
+  {
+   "nombre": "Canning",
+   "partido": "Esteban Echeverría",
+   "costo": null,
+   "modalidad": null,
+   "cobertura": false
+  },
+  {
+   "nombre": "Canning",
+   "partido": "Ezeiza",
+   "costo": 25000,
+   "modalidad": "1 día",
+   "cobertura": true
+  }
+ ],
+ "canuelas": {
+  "nombre": "Cañuelas",
+  "partido": "Cañuelas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "capital": {
+  "nombre": "Capital",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "capital federal": {
+  "nombre": "Capital Federal",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "capitan castro": {
+  "nombre": "Capitán Castro",
+  "partido": "Pehuajó",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "capitan sarmiento": {
+  "nombre": "Capitán Sarmiento",
+  "partido": "Capitán Sarmiento",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "carapachay": {
+  "nombre": "Carapachay",
+  "partido": "Vicente López",
+  "costo": 5000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "cardenal cagliero": {
+  "nombre": "Cardenal Cagliero",
+  "partido": "Patagones",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "carhue": {
+  "nombre": "Carhué",
+  "partido": "Adolfo Alsina",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "carilo": {
+  "nombre": "Cariló",
+  "partido": "Pinamar",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "carlos beguerie": {
+  "nombre": "Carlos Beguerie",
+  "partido": "Roque Pérez",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "carlos casares": {
+  "nombre": "Carlos Casares",
+  "partido": "Carlos Casares",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "carlos keen": {
+  "nombre": "Carlos Keen",
+  "partido": "Luján",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "carlos maria naon": {
+  "nombre": "Carlos María Naón",
+  "partido": "9 de Julio",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "carlos salas": {
+  "nombre": "Carlos Salas",
+  "partido": "Lincoln",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "carlos spegazzini": {
+  "nombre": "Carlos Spegazzini",
+  "partido": "Ezeiza",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "carlos tejedor": {
+  "nombre": "Carlos Tejedor",
+  "partido": "Carlos Tejedor",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "carlos tomas sourigues": {
+  "nombre": "Carlos Tomás Sourigues",
+  "partido": "Berazategui",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "carmen de areco": {
+  "nombre": "Carmen de Areco",
+  "partido": "Carmen de Areco",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "carmen de patagones": {
+  "nombre": "Carmen de Patagones",
+  "partido": "Patagones",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "casalins": {
+  "nombre": "Casalins",
+  "partido": "Pila",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "casbas": {
+  "nombre": "Casbas",
+  "partido": "Guaminí",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "cascada": {
+  "nombre": "Cascada",
+  "partido": "Coronel Suárez",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "caseros": {
+  "nombre": "Caseros",
+  "partido": "Tres de Febrero",
+  "costo": 7500,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "castelar": {
+  "nombre": "Castelar",
+  "partido": "Morón",
+  "costo": 12000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "castelli": {
+  "nombre": "Castelli",
+  "partido": "Castelli",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "castilla": {
+  "nombre": "Castilla",
+  "partido": "Chacabuco",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "cazon": {
+  "nombre": "Cazón",
+  "partido": "Saladillo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "centro guerrero": {
+  "nombre": "Centro Guerrero",
+  "partido": "Castelli",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "cerro de la gloria": {
+  "nombre": "Cerro de la Gloria",
+  "partido": "Castelli",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "chacabuco": {
+  "nombre": "Chacabuco",
+  "partido": "Chacabuco",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "chacarita": {
+  "nombre": "Chacarita",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "chapadmalal": {
+  "nombre": "Chapadmalal",
+  "partido": "General Pueyrredón",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "chascomus": {
+  "nombre": "Chascomús",
+  "partido": "Chascomús",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "chasico": {
+  "nombre": "Chasicó",
+  "partido": "Tornquist",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "chillar": {
+  "nombre": "Chillar",
+  "partido": "Azul",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "chivilcoy": {
+  "nombre": "Chivilcoy",
+  "partido": "Chivilcoy",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "churruca": {
+  "nombre": "Churruca",
+  "partido": "Tres de Febrero",
+  "costo": 7500,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "city bell": {
+  "nombre": "City Bell",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "ciudad autonoma de buenos aires": {
+  "nombre": "Ciudad Autonoma De Buenos Aires",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "ciudad de buenos aires": {
+  "nombre": "Ciudad de Buenos Aires",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "ciudad del libertador general san martin": {
+  "nombre": "Ciudad del Libertador General San Martín",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "ciudad evita": {
+  "nombre": "Ciudad Evita",
+  "partido": "La Matanza",
+  "costo": 20000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "ciudad jardin": {
+  "nombre": "Ciudad Jardin",
+  "partido": "Tres de Febrero",
+  "costo": 7500,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "ciudad jardin el libertador": {
+  "nombre": "Ciudad Jardín El Libertador",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "ciudad jardin lomas del palomar": {
+  "nombre": "Ciudad Jardín Lomas del Palomar",
+  "partido": "Tres de Febrero",
+  "costo": 7500,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "ciudadela": {
+  "nombre": "Ciudadela",
+  "partido": "Tres de Febrero",
+  "costo": 7500,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "claraz": {
+  "nombre": "Claraz",
+  "partido": "Necochea",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "claromeco": {
+  "nombre": "Claromecó",
+  "partido": "Tres Arroyos",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "claypole": {
+  "nombre": "Claypole",
+  "partido": "Almirante Brown",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "coghlan": {
+  "nombre": "Coghlan",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "colegiales": {
+  "nombre": "Colegiales",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "colon": {
+  "nombre": "Colón",
+  "partido": "Colón",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "colonia hinojo": {
+  "nombre": "Colonia Hinojo",
+  "partido": "Olavarría",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "colonia mauricio": {
+  "nombre": "Colonia Mauricio",
+  "partido": "Carlos Casares",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "colonia san martin": {
+  "nombre": "Colonia San Martín",
+  "partido": "Saavedra",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "colonia san miguel": {
+  "nombre": "Colonia San Miguel",
+  "partido": "Olavarría",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "colonia san miguel arcangel": {
+  "nombre": "Colonia San Miguel Arcángel",
+  "partido": "Adolfo Alsina",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "colonia san ricardo": {
+  "nombre": "Colonia San Ricardo",
+  "partido": "General Pinto",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "colonia sere": {
+  "nombre": "Colonia Seré",
+  "partido": "Carlos Tejedor",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "comandante nicanor otamendi": {
+  "nombre": "Comandante Nicanor Otamendi",
+  "partido": "General Alvarado",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "comodoro py": {
+  "nombre": "Comodoro Py",
+  "partido": "Bragado",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "conesa": {
+  "nombre": "Conesa",
+  "partido": "San Nicolás",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "constitucion": {
+  "nombre": "Constitución",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "copetonas": {
+  "nombre": "Copetonas",
+  "partido": "Tres Arroyos",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "coronel boerr": {
+  "nombre": "Coronel Boerr",
+  "partido": "Las Flores",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "coronel brandsen": {
+  "nombre": "Coronel Brandsen",
+  "partido": "Brandsen",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "coronel charlone": {
+  "nombre": "Coronel Charlone",
+  "partido": "General Villegas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "coronel de marina leonardo rosales": {
+  "nombre": "Coronel de Marina Leonardo Rosales",
+  "partido": "Coronel de Marina Leonardo Rosales",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "coronel dorrego": {
+  "nombre": "Coronel Dorrego",
+  "partido": "Coronel Dorrego",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "coronel martinez de hoz": {
+  "nombre": "Coronel Martínez de Hoz",
+  "partido": "Lincoln",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "coronel pringles": {
+  "nombre": "Coronel Pringles",
+  "partido": "Coronel Pringles",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "coronel segui": {
+  "nombre": "Coronel Seguí",
+  "partido": "Alberti",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "coronel suarez": {
+  "nombre": "Coronel Suárez",
+  "partido": "Coronel Suárez",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "coronel vidal": {
+  "nombre": "Coronel Vidal",
+  "partido": "Mar Chiquita",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "cortines": {
+  "nombre": "Cortines",
+  "partido": "Luján",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "costa bonita": {
+  "nombre": "Costa Bonita",
+  "partido": "Necochea",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "country club bosque real": {
+  "nombre": "Country Club Bosque Real",
+  "partido": "General Rodríguez",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "country club las praderas": {
+  "nombre": "Country Club Las Praderas",
+  "partido": "Luján",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "crotto": {
+  "nombre": "Crotto",
+  "partido": "Tapalqué",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "crucesita": {
+  "nombre": "Crucesita",
+  "partido": "Avellaneda",
+  "costo": 6000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "cuartel v": {
+  "nombre": "Cuartel V",
+  "partido": "Moreno",
+  "costo": 17000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "cucullu": {
+  "nombre": "Cucullú",
+  "partido": "San Andrés de Giles",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "curamalal": {
+  "nombre": "Curamalal",
+  "partido": "Coronel Suárez",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "curaru": {
+  "nombre": "Curarú",
+  "partido": "Carlos Tejedor",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "d orbigny": {
+  "nombre": "D'Orbigny",
+  "partido": "Coronel Suárez",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "daireaux": {
+  "nombre": "Daireaux",
+  "partido": "Daireaux",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "darregueira": {
+  "nombre": "Darregueira",
+  "partido": "Puán",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "de bary": {
+  "nombre": "De Bary",
+  "partido": "Pellegrini",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "de la canal": {
+  "nombre": "De la Canal",
+  "partido": "Tandil",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "de la garma": {
+  "nombre": "De La Garma",
+  "partido": "Adolfo Gonzales Chaves",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "del carril": {
+  "nombre": "Del Carril",
+  "partido": "Saladillo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "del valle": {
+  "nombre": "Del Valle",
+  "partido": "25 de Mayo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "del viso": [
+  {
+   "nombre": "Del Viso",
+   "partido": "José C. Paz",
+   "costo": 15000,
+   "modalidad": "1 día",
+   "cobertura": true
+  },
+  {
+   "nombre": "Del Viso",
+   "partido": "Pilar",
+   "costo": 25000,
+   "modalidad": "1 día",
+   "cobertura": true
+  }
+ ],
+ "delfin huergo": {
+  "nombre": "Delfín Huergo",
+  "partido": "Adolfo Alsina",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "derqui": {
+  "nombre": "Derqui",
+  "partido": "Pilar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "dique lujan": {
+  "nombre": "Dique Luján",
+  "partido": "Tigre",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "dique n 1": {
+  "nombre": "Dique N° 1",
+  "partido": "Ensenada",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "dock sud": {
+  "nombre": "Dock Sud",
+  "partido": "Avellaneda",
+  "costo": 6000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "dolores": {
+  "nombre": "Dolores",
+  "partido": "Dolores",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "domselaar": {
+  "nombre": "Domselaar",
+  "partido": "San Vicente",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "don bosco": {
+  "nombre": "Don Bosco",
+  "partido": "Quilmes",
+  "costo": 11000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "don orione": {
+  "nombre": "Don Orione",
+  "partido": "Almirante Brown",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "don torcuato": {
+  "nombre": "Don Torcuato",
+  "partido": "Tigre",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "don torcuato este": {
+  "nombre": "Don Torcuato Este",
+  "partido": "Tigre",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "don torcuato oeste": {
+  "nombre": "Don Torcuato Oeste",
+  "partido": "Tigre",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "dudignac": {
+  "nombre": "Dudignac",
+  "partido": "9 de Julio",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "dufaur": {
+  "nombre": "Dufaur",
+  "partido": "Saavedra",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "duggan": {
+  "nombre": "Duggan",
+  "partido": "San Antonio de Areco",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "dunamar": {
+  "nombre": "Dunamar",
+  "partido": "Tres Arroyos",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "el cazador": {
+  "nombre": "El Cazador",
+  "partido": "Escobar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "el divisorio": {
+  "nombre": "El Divisorio",
+  "partido": "Coronel Pringles",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "el dorado": {
+  "nombre": "El Dorado",
+  "partido": "Leandro N. Alem",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "el jaguel": {
+  "nombre": "El Jagüel",
+  "partido": "Esteban Echeverría",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "el libertador": {
+  "nombre": "El Libertador",
+  "partido": "Tres de Febrero",
+  "costo": 7500,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "el marquesado": {
+  "nombre": "El Marquesado",
+  "partido": "General Pueyrredón",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "el palomar": [
+  {
+   "nombre": "El Palomar",
+   "partido": "Morón",
+   "costo": 12000,
+   "modalidad": "1 día",
+   "cobertura": true
+  },
+  {
+   "nombre": "El Palomar",
+   "partido": "Tres de Febrero",
+   "costo": 7500,
+   "modalidad": "1 día",
+   "cobertura": true
+  }
+ ],
+ "el paraiso": {
+  "nombre": "El Paraíso",
+  "partido": "Ramallo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "el pato": {
+  "nombre": "El Pato",
+  "partido": "Berazategui",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "el pensamiento": {
+  "nombre": "El Pensamiento",
+  "partido": "Coronel Pringles",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "el perdido": {
+  "nombre": "El Perdido",
+  "partido": "Coronel Dorrego",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "el remanso": {
+  "nombre": "El Remanso",
+  "partido": "Exaltación de la Cruz",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "el retiro": {
+  "nombre": "El Retiro",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "el talar": {
+  "nombre": "El Talar",
+  "partido": "Tigre",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "el trigo": {
+  "nombre": "El Trigo",
+  "partido": "Las Flores",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "el triunfo": {
+  "nombre": "El Triunfo",
+  "partido": "Lincoln",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "el tropezon": {
+  "nombre": "El Tropezón",
+  "partido": "Florencio Varela",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "elvira": {
+  "nombre": "Elvira",
+  "partido": "Lobos",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "emilio ayarza": {
+  "nombre": "Emilio Ayarza",
+  "partido": "Chivilcoy",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "emilio v bunge": {
+  "nombre": "Emilio V. Bunge",
+  "partido": "General Villegas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "ensenada": {
+  "nombre": "Ensenada",
+  "partido": "Ensenada",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "erezcano": {
+  "nombre": "Erezcano",
+  "partido": "San Nicolás",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "ernestina": {
+  "nombre": "Ernestina",
+  "partido": "25 de Mayo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "escalada": {
+  "nombre": "Escalada",
+  "partido": "Zárate",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "escobar": {
+  "nombre": "Escobar",
+  "partido": "Escobar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "espartillar": [
+  {
+   "nombre": "Espartillar",
+   "partido": "Adolfo Alsina",
+   "costo": null,
+   "modalidad": null,
+   "cobertura": false
+  },
+  {
+   "nombre": "Espartillar",
+   "partido": "Saavedra",
+   "costo": null,
+   "modalidad": null,
+   "cobertura": false
+  }
+ ],
+ "espigas": {
+  "nombre": "Espigas",
+  "partido": "Olavarría",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "estacion arenales": {
+  "nombre": "Estación Arenales",
+  "partido": "General Arenales",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "estacion camet": {
+  "nombre": "Estación Camet",
+  "partido": "General Pueyrredón",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "estacion chapadmalal": {
+  "nombre": "Estación Chapadmalal",
+  "partido": "General Pueyrredón",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "estanislao severo zeballos": {
+  "nombre": "Estanislao Severo Zeballos",
+  "partido": "Florencio Varela",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "esteban agustin gascon": {
+  "nombre": "Esteban Agustín Gascón",
+  "partido": "Adolfo Alsina",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "esteban echeverria": {
+  "nombre": "Esteban Echeverría",
+  "partido": "Esteban Echeverría",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "estela": {
+  "nombre": "Estela",
+  "partido": "Puán",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "exaltacion de la cruz": {
+  "nombre": "Exaltación de la Cruz",
+  "partido": "Exaltación de la Cruz",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "ezeiza": {
+  "nombre": "Ezeiza",
+  "partido": "Ezeiza",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "ezpeleta": {
+  "nombre": "Ezpeleta",
+  "partido": "Quilmes",
+  "costo": 11000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "ezpeleta oeste": {
+  "nombre": "Ezpeleta Oeste",
+  "partido": "Quilmes",
+  "costo": 11000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "faro": {
+  "nombre": "Faro",
+  "partido": "Coronel Dorrego",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "fatima": {
+  "nombre": "Fátima",
+  "partido": "Pilar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "felipe sola": {
+  "nombre": "Felipe Solá",
+  "partido": "Puán",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "ferre": {
+  "nombre": "Ferré",
+  "partido": "General Arenales",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "florencio varela": {
+  "nombre": "Florencio Varela",
+  "partido": "Florencio Varela",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "florentino ameghino": {
+  "nombre": "Florentino Ameghino",
+  "partido": "Florentino Ameghino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "flores": {
+  "nombre": "Flores",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "floresta": {
+  "nombre": "Floresta",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "florida": {
+  "nombre": "Florida",
+  "partido": "Vicente López",
+  "costo": 5000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "florida oeste": {
+  "nombre": "Florida Oeste",
+  "partido": "Vicente López",
+  "costo": 5000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "fontezuela": {
+  "nombre": "Fontezuela",
+  "partido": "Pergamino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "fortin acha": {
+  "nombre": "Fortín Acha",
+  "partido": "Leandro N. Alem",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "fortin olavarria": {
+  "nombre": "Fortín Olavarría",
+  "partido": "Rivadavia",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "fortin tiburcio": {
+  "nombre": "Fortín Tiburcio",
+  "partido": "Junín",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "francisco alvarez": {
+  "nombre": "Francisco Álvarez",
+  "partido": "Moreno",
+  "costo": 17000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "francisco madero": {
+  "nombre": "Francisco Madero",
+  "partido": "Pehuajó",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "franklin": {
+  "nombre": "Franklin",
+  "partido": "San Andrés de Giles",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "frente mar": {
+  "nombre": "Frente Mar",
+  "partido": "Mar Chiquita",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "gahan": {
+  "nombre": "Gahan",
+  "partido": "Salto",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "gardey": {
+  "nombre": "Gardey",
+  "partido": "Tandil",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "garin": {
+  "nombre": "Garín",
+  "partido": "Escobar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "garre": {
+  "nombre": "Garré",
+  "partido": "Guaminí",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general alvarado": {
+  "nombre": "General Alvarado",
+  "partido": "General Alvarado",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general alvear": {
+  "nombre": "General Alvear",
+  "partido": "General Alvear",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general arenales": {
+  "nombre": "General Arenales",
+  "partido": "General Arenales",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general belgrano": {
+  "nombre": "General Belgrano",
+  "partido": "General Belgrano",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general conesa": {
+  "nombre": "General Conesa",
+  "partido": "Tordillo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general daniel cerri": {
+  "nombre": "General Daniel Cerri",
+  "partido": "Bahía Blanca",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general guido": {
+  "nombre": "General Guido",
+  "partido": "General Guido",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general hornos": {
+  "nombre": "General Hornos",
+  "partido": "General Las Heras",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general juan madariaga": {
+  "nombre": "General Juan Madariaga",
+  "partido": "General Juan Madariaga",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general la madrid": {
+  "nombre": "General La Madrid",
+  "partido": "General La Madrid",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general las heras": {
+  "nombre": "General Las Heras",
+  "partido": "General Las Heras",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general lavalle": {
+  "nombre": "General Lavalle",
+  "partido": "General Lavalle",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general mansilla": {
+  "nombre": "General Mansilla",
+  "partido": "Magdalena",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general o brien": {
+  "nombre": "General O'Brien",
+  "partido": "Bragado",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general pacheco": {
+  "nombre": "General Pacheco",
+  "partido": "Tigre",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "general paz": {
+  "nombre": "General Paz",
+  "partido": "General Paz",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general pinto": {
+  "nombre": "General Pinto",
+  "partido": "General Pinto",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general piran": {
+  "nombre": "General Pirán",
+  "partido": "Mar Chiquita",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general pueyrredon": {
+  "nombre": "General Pueyrredón",
+  "partido": "General Pueyrredón",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general rivas": {
+  "nombre": "General Rivas",
+  "partido": "Suipacha",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general rodriguez": {
+  "nombre": "General Rodríguez",
+  "partido": "General Rodríguez",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "general rojo": {
+  "nombre": "General Rojo",
+  "partido": "San Nicolás",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general san martin": {
+  "nombre": "General San Martín",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "general viamonte": {
+  "nombre": "General Viamonte",
+  "partido": "General Viamonte",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "general villegas": {
+  "nombre": "General Villegas",
+  "partido": "General Villegas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "gerli": [
+  {
+   "nombre": "Gerli",
+   "partido": "Avellaneda",
+   "costo": 6000,
+   "modalidad": "1 día",
+   "cobertura": true
+  },
+  {
+   "nombre": "Gerli",
+   "partido": "Lanús",
+   "costo": 6000,
+   "modalidad": "1 día",
+   "cobertura": true
+  }
+ ],
+ "germania": {
+  "nombre": "Germania",
+  "partido": "General Pinto",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "girodias": {
+  "nombre": "Girodias",
+  "partido": "Trenque Lauquen",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "glew": {
+  "nombre": "Glew",
+  "partido": "Almirante Brown",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "gobernador castro": {
+  "nombre": "Gobernador Castro",
+  "partido": "San Pedro",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "gobernador julio a costa": {
+  "nombre": "Gobernador Julio A. Costa",
+  "partido": "Florencio Varela",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "gobernador udaondo": {
+  "nombre": "Gobernador Udaondo",
+  "partido": "Cañuelas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "gobernador ugarte": {
+  "nombre": "Gobernador Ugarte",
+  "partido": "25 de Mayo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "gomez": {
+  "nombre": "Gómez",
+  "partido": "Brandsen",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "gonnet": {
+  "nombre": "Gonnet",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "gonzalez catan": {
+  "nombre": "González Catán",
+  "partido": "La Matanza",
+  "costo": 20000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "gonzalez moreno": {
+  "nombre": "González Moreno",
+  "partido": "Rivadavia",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "gorchs": {
+  "nombre": "Gorchs",
+  "partido": "General Belgrano",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "gorostiaga": {
+  "nombre": "Gorostiaga",
+  "partido": "Chivilcoy",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "gowland": {
+  "nombre": "Gowland",
+  "partido": "Mercedes",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "goyena": {
+  "nombre": "Goyena",
+  "partido": "Saavedra",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "grand bourg": {
+  "nombre": "Grand Bourg",
+  "partido": "Malvinas Argentinas",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "gregorio de laferrere": {
+  "nombre": "Gregorio de Laferrere",
+  "partido": "La Matanza",
+  "costo": 20000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "grunbein": {
+  "nombre": "Grünbein",
+  "partido": "Bahía Blanca",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "guamini": {
+  "nombre": "Guaminí",
+  "partido": "Guaminí",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "guernica": {
+  "nombre": "Guernica",
+  "partido": "Presidente Perón",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "guerrico": {
+  "nombre": "Guerrico",
+  "partido": "Pergamino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "guillermo enrique hudson": {
+  "nombre": "Guillermo Enrique Hudson",
+  "partido": "Berazategui",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "haedo": {
+  "nombre": "Haedo",
+  "partido": "Morón",
+  "costo": 12000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "hale": {
+  "nombre": "Hale",
+  "partido": "Bolívar",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "henderson": {
+  "nombre": "Henderson",
+  "partido": "Hipólito Yrigoyen",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "herrera vegas": {
+  "nombre": "Herrera Vegas",
+  "partido": "Hipólito Yrigoyen",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "hilario ascasubi": {
+  "nombre": "Hilario Ascasubi",
+  "partido": "Villarino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "hinojo": {
+  "nombre": "Hinojo",
+  "partido": "Olavarría",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "hipolito yrigoyen": {
+  "nombre": "Hipólito Yrigoyen",
+  "partido": "Hipólito Yrigoyen",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "hortensia": {
+  "nombre": "Hortensia",
+  "partido": "Carlos Casares",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "huanguelen": {
+  "nombre": "Huanguelén",
+  "partido": "Coronel Suárez",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "hurlingham": {
+  "nombre": "Hurlingham",
+  "partido": "Hurlingham",
+  "costo": 12000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "indio rico": {
+  "nombre": "Indio Rico",
+  "partido": "Coronel Pringles",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "ines indart": {
+  "nombre": "Inés Indart",
+  "partido": "Salto",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "ingeniero adolfo sourdeaux": {
+  "nombre": "Ingeniero Adolfo Sourdeaux",
+  "partido": "Malvinas Argentinas",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "ingeniero juan allan": {
+  "nombre": "Ingeniero Juan Allan",
+  "partido": "Florencio Varela",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "ingeniero maschwitz": {
+  "nombre": "Ingeniero Maschwitz",
+  "partido": "Escobar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "ingeniero pablo nogues": {
+  "nombre": "Ingeniero Pablo Nogués",
+  "partido": "Malvinas Argentinas",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "ingeniero thompson": {
+  "nombre": "Ingeniero Thompson",
+  "partido": "Tres Lomas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "ingeniero white": {
+  "nombre": "Ingeniero White",
+  "partido": "Bahía Blanca",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "irala": {
+  "nombre": "Irala",
+  "partido": "Bragado",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "irene": {
+  "nombre": "Irene",
+  "partido": "Coronel Dorrego",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "irineo portela": {
+  "nombre": "Irineo Portela",
+  "partido": "Baradero",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "isidro casanova": {
+  "nombre": "Isidro Casanova",
+  "partido": "La Matanza",
+  "costo": 20000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "isla santiago": {
+  "nombre": "Isla Santiago",
+  "partido": "Ensenada",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "ituzaingo": {
+  "nombre": "Ituzaingó",
+  "partido": "Ituzaingó",
+  "costo": 17000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "ituzaingo centro": {
+  "nombre": "Ituzaingó Centro",
+  "partido": "Ituzaingó",
+  "costo": 17000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "ituzaingo sur": {
+  "nombre": "Ituzaingó Sur",
+  "partido": "Ituzaingó",
+  "costo": 17000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "jeppener": {
+  "nombre": "Jeppener",
+  "partido": "Brandsen",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "joaquin gorina": {
+  "nombre": "Joaquín Gorina",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "jorge born": {
+  "nombre": "Jorge Born",
+  "partido": "Mercedes",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "jose b casas": {
+  "nombre": "José B. Casas",
+  "partido": "Patagones",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "jose c paz": {
+  "nombre": "José C. Paz",
+  "partido": "José C. Paz",
+  "costo": 15000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "jose hernandez": {
+  "nombre": "José Hernández",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "jose ingenieros": {
+  "nombre": "José Ingenieros",
+  "partido": "Tres de Febrero",
+  "costo": 7500,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "jose juan almeyra": {
+  "nombre": "José Juan Almeyra",
+  "partido": "Navarro",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "jose leon suarez": {
+  "nombre": "Jose Leon Suarez",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "jose maria ezeiza": {
+  "nombre": "José María Ezeiza",
+  "partido": "Ezeiza",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "jose marmol": {
+  "nombre": "José Mármol",
+  "partido": "Almirante Brown",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "jose melchor romero": {
+  "nombre": "José Melchor Romero",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "juan a de la pena": {
+  "nombre": "Juan A. de la Peña",
+  "partido": "Pergamino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "juan a pradere": {
+  "nombre": "Juan A. Pradere",
+  "partido": "Patagones",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "juan anchorena": {
+  "nombre": "Juan Anchorena",
+  "partido": "Pergamino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "juan bautista alberdi": {
+  "nombre": "Juan Bautista Alberdi",
+  "partido": "Leandro N. Alem",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "juan couste": {
+  "nombre": "Juan Cousté",
+  "partido": "Villarino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "juan e barra": {
+  "nombre": "Juan E. Barra",
+  "partido": "Adolfo Gonzales Chaves",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "juan f ibarra": {
+  "nombre": "Juan F. Ibarra",
+  "partido": "Bolívar",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "juan f salaberry": {
+  "nombre": "Juan F. Salaberry",
+  "partido": "Bragado",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "juan jose paso": {
+  "nombre": "Juan José Paso",
+  "partido": "Pehuajó",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "juan maria gutierrez": {
+  "nombre": "Juan María Gutiérrez",
+  "partido": "Berazategui",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "juan n fernandez": {
+  "nombre": "Juan N. Fernández",
+  "partido": "Necochea",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "junin": {
+  "nombre": "Junín",
+  "partido": "Junín",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la angelita": {
+  "nombre": "La Angelita",
+  "partido": "General Arenales",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la armonia": {
+  "nombre": "La Armonía",
+  "partido": "Mar Chiquita",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la aurora": {
+  "nombre": "La Aurora",
+  "partido": "9 de Julio",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la baliza": {
+  "nombre": "La Baliza",
+  "partido": "Mar Chiquita",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la beba": {
+  "nombre": "La Beba",
+  "partido": "Rojas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la caleta": {
+  "nombre": "La Caleta",
+  "partido": "Mar Chiquita",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la capilla": {
+  "nombre": "La Capilla",
+  "partido": "Florencio Varela",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "la carreta": {
+  "nombre": "La Carreta",
+  "partido": "Trenque Lauquen",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la choza": {
+  "nombre": "La Choza",
+  "partido": "General Las Heras",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la colina": {
+  "nombre": "La Colina",
+  "partido": "General La Madrid",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la constancia": {
+  "nombre": "La Constancia",
+  "partido": "Ayacucho",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la costa": {
+  "nombre": "La Costa",
+  "partido": "La Costa",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la cumbre": {
+  "nombre": "La Cumbre",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "la delfina": {
+  "nombre": "La Delfina",
+  "partido": "General Viamonte",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la emilia": {
+  "nombre": "La Emilia",
+  "partido": "San Nicolás",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la gruta": {
+  "nombre": "La Gruta",
+  "partido": "Tornquist",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la invencible": {
+  "nombre": "La Invencible",
+  "partido": "Salto",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la larga": {
+  "nombre": "La Larga",
+  "partido": "Daireaux",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la limpia": {
+  "nombre": "La Limpia",
+  "partido": "Bragado",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la lonja": {
+  "nombre": "La Lonja",
+  "partido": "Pilar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "la lucila": {
+  "nombre": "La Lucila",
+  "partido": "Vicente López",
+  "costo": 5000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "la luisa": {
+  "nombre": "La Luisa",
+  "partido": "Capitán Sarmiento",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la matanza": {
+  "nombre": "La Matanza",
+  "partido": "La Matanza",
+  "costo": 20000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "la pala": {
+  "nombre": "La Pala",
+  "partido": "Adolfo Alsina",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la plata": {
+  "nombre": "La Plata",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "la reja": {
+  "nombre": "La Reja",
+  "partido": "Moreno",
+  "costo": 17000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "la rica": {
+  "nombre": "La Rica",
+  "partido": "Chivilcoy",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la sofia": {
+  "nombre": "La Sofía",
+  "partido": "Carlos Casares",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la tablada": {
+  "nombre": "La Tablada",
+  "partido": "La Matanza",
+  "costo": 20000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "la trinidad": {
+  "nombre": "La Trinidad",
+  "partido": "General Arenales",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "la union": {
+  "nombre": "La Unión",
+  "partido": "Ezeiza",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "la violeta": {
+  "nombre": "La Violeta",
+  "partido": "Pergamino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "labarden": {
+  "nombre": "Labardén",
+  "partido": "General Guido",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "laguna alsina": {
+  "nombre": "Laguna Alsina",
+  "partido": "Guaminí",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "laguna de lobos": {
+  "nombre": "Laguna de Lobos",
+  "partido": "Lobos",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "lanus": {
+  "nombre": "Lanús",
+  "partido": "Lanús",
+  "costo": 6000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "lanus este": {
+  "nombre": "Lanús Este",
+  "partido": "Lanús",
+  "costo": 6000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "lanus oeste": {
+  "nombre": "Lanús Oeste",
+  "partido": "Lanús",
+  "costo": 6000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "laplacette": {
+  "nombre": "Laplacette",
+  "partido": "Junín",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "laprida": {
+  "nombre": "Laprida",
+  "partido": "Laprida",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "lartigau": {
+  "nombre": "Lartigau",
+  "partido": "Coronel Pringles",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "las armas": {
+  "nombre": "Las Armas",
+  "partido": "Maipú",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "las bahamas": {
+  "nombre": "Las Bahamas",
+  "partido": "Ramallo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "las carabelas": {
+  "nombre": "Las Carabelas",
+  "partido": "Rojas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "las flores": {
+  "nombre": "Las Flores",
+  "partido": "Las Flores",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "las marianas": {
+  "nombre": "Las Marianas",
+  "partido": "Navarro",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "las martinetas": {
+  "nombre": "Las Martinetas",
+  "partido": "General La Madrid",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "las toninas": {
+  "nombre": "Las Toninas",
+  "partido": "La Costa",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "las toscas": {
+  "nombre": "Las Toscas",
+  "partido": "Lincoln",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "leandro n alem": {
+  "nombre": "Leandro N. Alem",
+  "partido": "Leandro N. Alem",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "lezama": {
+  "nombre": "Lezama",
+  "partido": "Lezama",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "lezica y torrezuri": {
+  "nombre": "Lezica y Torrezuri",
+  "partido": "Luján",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "libano": {
+  "nombre": "Líbano",
+  "partido": "General La Madrid",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "libertad": {
+  "nombre": "Libertad",
+  "partido": "Merlo",
+  "costo": 17000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "licenciado matienzo": {
+  "nombre": "Licenciado Matienzo",
+  "partido": "Lobería",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "lima": {
+  "nombre": "Lima",
+  "partido": "Zárate",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "lin calel": {
+  "nombre": "Lin Calel",
+  "partido": "Tres Arroyos",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "lincoln": {
+  "nombre": "Lincoln",
+  "partido": "Lincoln",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "liniers": {
+  "nombre": "Liniers",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "lisandro olmos": {
+  "nombre": "Lisandro Olmos",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "llavallol": {
+  "nombre": "Llavallol",
+  "partido": "Lomas de Zamora",
+  "costo": 11000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "loberia": {
+  "nombre": "Lobería",
+  "partido": "Lobería",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "lobos": {
+  "nombre": "Lobos",
+  "partido": "Lobos",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "loma hermosa": {
+  "nombre": "Loma Hermosa",
+  "partido": "Tres de Febrero",
+  "costo": 7500,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "loma verde": [
+  {
+   "nombre": "Loma Verde",
+   "partido": "Escobar",
+   "costo": 25000,
+   "modalidad": "1 día",
+   "cobertura": true
+  },
+  {
+   "nombre": "Loma Verde",
+   "partido": "General Paz",
+   "costo": null,
+   "modalidad": null,
+   "cobertura": false
+  }
+ ],
+ "lomas": {
+  "nombre": "Lomas",
+  "partido": "Lomas de Zamora",
+  "costo": 11000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "lomas de san isidro": {
+  "nombre": "Lomas De San Isidro",
+  "partido": "San Isidro",
+  "costo": 5000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "lomas de zamora": {
+  "nombre": "Lomas de Zamora",
+  "partido": "Lomas de Zamora",
+  "costo": 11000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "lomas del mirador": {
+  "nombre": "Lomas del Mirador",
+  "partido": "La Matanza",
+  "costo": 20000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "longchamps": {
+  "nombre": "Longchamps",
+  "partido": "Almirante Brown",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "lopez": {
+  "nombre": "López",
+  "partido": "Benito Juárez",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "lopez lecube": {
+  "nombre": "López Lecube",
+  "partido": "Puán",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "los angeles": {
+  "nombre": "Los Angeles",
+  "partido": "Chacabuco",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "los cachorros": {
+  "nombre": "Los Cachorros",
+  "partido": "Pilar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "los cardales": {
+  "nombre": "Los Cardales",
+  "partido": "Campana",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "los hornos": {
+  "nombre": "Los Hornos",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "los indios": {
+  "nombre": "Los Indios",
+  "partido": "Rojas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "los naranjos": {
+  "nombre": "Los Naranjos",
+  "partido": "Magdalena",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "los pinos": {
+  "nombre": "Los Pinos",
+  "partido": "Balcarce",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "los polvorines": {
+  "nombre": "Los Polvorines",
+  "partido": "Malvinas Argentinas",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "los talas": {
+  "nombre": "Los Talas",
+  "partido": "Berisso",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "los toldos": {
+  "nombre": "Los Toldos",
+  "partido": "General Viamonte",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "lucas monteverde": {
+  "nombre": "Lucas Monteverde",
+  "partido": "25 de Mayo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "lucila del mar": {
+  "nombre": "Lucila del Mar",
+  "partido": "La Costa",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "luis guillon": {
+  "nombre": "Luis Guillón",
+  "partido": "Esteban Echeverría",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "lujan": {
+  "nombre": "Luján",
+  "partido": "Luján",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "magdala": {
+  "nombre": "Magdala",
+  "partido": "Pehuajó",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "magdalena": {
+  "nombre": "Magdalena",
+  "partido": "Magdalena",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "maipu": {
+  "nombre": "Maipú",
+  "partido": "Maipú",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "malvinas argentinas": {
+  "nombre": "Malvinas Argentinas",
+  "partido": "Malvinas Argentinas",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "manuel b gonnet": [
+  {
+   "nombre": "Manuel B. Gonnet",
+   "partido": "La Plata",
+   "costo": 35000,
+   "modalidad": "1 día",
+   "cobertura": true
+  },
+  {
+   "nombre": "Manuel B. Gonnet",
+   "partido": "9 de Julio",
+   "costo": null,
+   "modalidad": null,
+   "cobertura": false
+  }
+ ],
+ "manuel j cobo": {
+  "nombre": "Manuel J. Cobo",
+  "partido": "Lezama",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "manuel ocampo": {
+  "nombre": "Manuel Ocampo",
+  "partido": "Pergamino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "manzanares": {
+  "nombre": "Manzanares",
+  "partido": "Pilar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "manzone": {
+  "nombre": "Manzone",
+  "partido": "Pilar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "maquinista f savio este": {
+  "nombre": "Maquinista F. Savio Este",
+  "partido": "Escobar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "maquinista f savio oeste": {
+  "nombre": "Maquinista F. Savio Oeste",
+  "partido": "Pilar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "mar azul": {
+  "nombre": "Mar Azul",
+  "partido": "Villa Gesell",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "mar chiquita": {
+  "nombre": "Mar Chiquita",
+  "partido": "Mar Chiquita",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "mar de ajo": {
+  "nombre": "Mar de Ajó",
+  "partido": "La Costa",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "mar de ajo norte": {
+  "nombre": "Mar de Ajó Norte",
+  "partido": "La Costa",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "mar de ajo san bernardo": {
+  "nombre": "Mar de Ajó - San Bernardo",
+  "partido": "La Costa",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "mar de cobo": {
+  "nombre": "Mar de Cobo",
+  "partido": "Mar Chiquita",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "mar de las pampas": {
+  "nombre": "Mar de las Pampas",
+  "partido": "Villa Gesell",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "mar del plata": {
+  "nombre": "Mar del Plata",
+  "partido": "General Pueyrredón",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "mar del sur": {
+  "nombre": "Mar del Sur",
+  "partido": "General Alvarado",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "mar del tuyu": {
+  "nombre": "Mar del Tuyú",
+  "partido": "La Costa",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "marcelino ugarte": {
+  "nombre": "Marcelino Ugarte",
+  "partido": "9 de Julio",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "marcos paz": {
+  "nombre": "Marcos Paz",
+  "partido": "Marcos Paz",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "maria ignacia": {
+  "nombre": "María Ignacia",
+  "partido": "Tandil",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "mariano acosta": {
+  "nombre": "Mariano Acosta",
+  "partido": "Merlo",
+  "costo": 17000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "mariano benitez": {
+  "nombre": "Mariano Benítez",
+  "partido": "Pergamino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "mariano h alfonzo": {
+  "nombre": "Mariano H. Alfonzo",
+  "partido": "Pergamino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "marisol": {
+  "nombre": "Marisol",
+  "partido": "Coronel Dorrego",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "martin coronado": {
+  "nombre": "Martín Coronado",
+  "partido": "Tres de Febrero",
+  "costo": 7500,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "martinez": {
+  "nombre": "Martínez",
+  "partido": "San Isidro",
+  "costo": 5000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "maschwitz": {
+  "nombre": "Maschwitz",
+  "partido": "Escobar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "massey": {
+  "nombre": "Massey",
+  "partido": "General Villegas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "mataderos": {
+  "nombre": "Mataderos",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "matheu": {
+  "nombre": "Matheu",
+  "partido": "Escobar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "mauricio hirsch": {
+  "nombre": "Mauricio Hirsch",
+  "partido": "Carlos Casares",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "mayor buratovich": {
+  "nombre": "Mayor Buratovich",
+  "partido": "Villarino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "maza": {
+  "nombre": "Maza",
+  "partido": "Adolfo Alsina",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "mechita": [
+  {
+   "nombre": "Mechita",
+   "partido": "Alberti",
+   "costo": null,
+   "modalidad": null,
+   "cobertura": false
+  },
+  {
+   "nombre": "Mechita",
+   "partido": "Bragado",
+   "costo": null,
+   "modalidad": null,
+   "cobertura": false
+  }
+ ],
+ "mechongue": {
+  "nombre": "Mechongué",
+  "partido": "General Alvarado",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "medanos": {
+  "nombre": "Médanos",
+  "partido": "Villarino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "mercedes": {
+  "nombre": "Mercedes",
+  "partido": "Mercedes",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "merlo": {
+  "nombre": "Merlo",
+  "partido": "Merlo",
+  "costo": 17000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "micaela cascallares": {
+  "nombre": "Micaela Cascallares",
+  "partido": "Tres Arroyos",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "ministro rivadavia": {
+  "nombre": "Ministro Rivadavia",
+  "partido": "Almirante Brown",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "mira pampa": {
+  "nombre": "Mira Pampa",
+  "partido": "Rivadavia",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "miramar": {
+  "nombre": "Miramar",
+  "partido": "General Alvarado",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "moctezuma": {
+  "nombre": "Moctezuma",
+  "partido": "Carlos Casares",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "mones cazon": {
+  "nombre": "Mones Cazón",
+  "partido": "Pehuajó",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "monserrat": {
+  "nombre": "Monserrat",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "monte": {
+  "nombre": "Monte",
+  "partido": "Monte",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "monte castro": {
+  "nombre": "Monte Castro",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "monte chingolo": {
+  "nombre": "Monte Chingolo",
+  "partido": "Lanús",
+  "costo": 6000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "monte grande": {
+  "nombre": "Monte Grande",
+  "partido": "Esteban Echeverría",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "monte hermoso": {
+  "nombre": "Monte Hermoso",
+  "partido": "Monte Hermoso",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "moquehua": {
+  "nombre": "Moquehuá",
+  "partido": "Chivilcoy",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "morea": {
+  "nombre": "Morea",
+  "partido": "9 de Julio",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "moreno": {
+  "nombre": "Moreno",
+  "partido": "Moreno",
+  "costo": 17000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "moron": {
+  "nombre": "Morón",
+  "partido": "Morón",
+  "costo": 12000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "muniz": {
+  "nombre": "Muñiz",
+  "partido": "San Miguel",
+  "costo": 15000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "munro": {
+  "nombre": "Munro",
+  "partido": "Vicente López",
+  "costo": 5000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "napaleofu": {
+  "nombre": "Napaleofú",
+  "partido": "Balcarce",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "navarro": {
+  "nombre": "Navarro",
+  "partido": "Navarro",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "necochea": {
+  "nombre": "Necochea",
+  "partido": "Necochea",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "necochea quequen": {
+  "nombre": "Necochea - Quequén",
+  "partido": "Necochea",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "nicanor olivera": {
+  "nombre": "Nicanor Olivera",
+  "partido": "Necochea",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "norberto de la riestra": {
+  "nombre": "Norberto de la Riestra",
+  "partido": "25 de Mayo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "nordelta": {
+  "nombre": "Nordelta",
+  "partido": "Tigre",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "norumbega": {
+  "nombre": "Norumbega",
+  "partido": "9 de Julio",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "nueva plata": {
+  "nombre": "Nueva Plata",
+  "partido": "Pehuajó",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "nueva pompeya": {
+  "nombre": "Nueva Pompeya",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "nunez": {
+  "nombre": "Nuñez",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "o higgins": {
+  "nombre": "O'Higgins",
+  "partido": "Chacabuco",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "obligado": {
+  "nombre": "Obligado",
+  "partido": "San Pedro",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "ochandio": {
+  "nombre": "Ochandío",
+  "partido": "San Cayetano",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "olascoaga": {
+  "nombre": "Olascoaga",
+  "partido": "Bragado",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "olavarria": {
+  "nombre": "Olavarría",
+  "partido": "Olavarría",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "oliden": {
+  "nombre": "Oliden",
+  "partido": "Brandsen",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "olivera": {
+  "nombre": "Olivera",
+  "partido": "Luján",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "olivos": {
+  "nombre": "Olivos",
+  "partido": "Vicente López",
+  "costo": 5000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "open door": {
+  "nombre": "Open Door",
+  "partido": "Luján",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "ordoqui": {
+  "nombre": "Ordoqui",
+  "partido": "Carlos Casares",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "orense": {
+  "nombre": "Orense",
+  "partido": "Tres Arroyos",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "oriente": {
+  "nombre": "Oriente",
+  "partido": "Coronel Dorrego",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "ostende": {
+  "nombre": "Ostende",
+  "partido": "Pinamar",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pablo podesta": {
+  "nombre": "Pablo Podestá",
+  "partido": "Tres de Febrero",
+  "costo": 7500,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "pacheco": {
+  "nombre": "Pacheco",
+  "partido": "Tigre",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "palermo": {
+  "nombre": "Palermo",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "palomar": [
+  {
+   "nombre": "Palomar",
+   "partido": "Tres de Febrero",
+   "costo": 7500,
+   "modalidad": "1 día",
+   "cobertura": true
+  },
+  {
+   "nombre": "Palomar",
+   "partido": "Morón",
+   "costo": 12000,
+   "modalidad": "1 día",
+   "cobertura": true
+  }
+ ],
+ "parada orlando": {
+  "nombre": "Parada Orlando",
+  "partido": "Exaltación de la Cruz",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "parada robles": {
+  "nombre": "Parada Robles",
+  "partido": "Exaltación de la Cruz",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "parada robles pavon": {
+  "nombre": "Parada Robles - Pavón",
+  "partido": "Exaltación de la Cruz",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pardo": {
+  "nombre": "Pardo",
+  "partido": "Las Flores",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "parque avellaneda": {
+  "nombre": "Parque Avellaneda",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "parque chacabuco": {
+  "nombre": "Parque Chacabuco",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "parque chas": {
+  "nombre": "Parque Chas",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "parque patricios": {
+  "nombre": "Parque Patricios",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "pasman": {
+  "nombre": "Pasman",
+  "partido": "Coronel Suárez",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "paso del rey": {
+  "nombre": "Paso del Rey",
+  "partido": "Moreno",
+  "costo": 17000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "pasteur": {
+  "nombre": "Pasteur",
+  "partido": "Lincoln",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "patagones": {
+  "nombre": "Patagones",
+  "partido": "Patagones",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "paternal": {
+  "nombre": "Paternal",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "patricios": {
+  "nombre": "Patricios",
+  "partido": "9 de Julio",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "paula": {
+  "nombre": "Paula",
+  "partido": "Bolívar",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pavon": {
+  "nombre": "Pavón",
+  "partido": "Exaltación de la Cruz",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pearson": {
+  "nombre": "Pearson",
+  "partido": "Colón",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pedernales": {
+  "nombre": "Pedernales",
+  "partido": "25 de Mayo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pedro luro": {
+  "nombre": "Pedro Luro",
+  "partido": "Villarino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pehuajo": {
+  "nombre": "Pehuajó",
+  "partido": "Pehuajó",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pellegrini": {
+  "nombre": "Pellegrini",
+  "partido": "Pellegrini",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pereyra": {
+  "nombre": "Pereyra",
+  "partido": "Berazategui",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "perez millan": {
+  "nombre": "Pérez Millán",
+  "partido": "Ramallo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pergamino": {
+  "nombre": "Pergamino",
+  "partido": "Pergamino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pichincha": {
+  "nombre": "Pichincha",
+  "partido": "General Villegas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "piedritas": {
+  "nombre": "Piedritas",
+  "partido": "General Villegas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pieres": {
+  "nombre": "Pieres",
+  "partido": "Lobería",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pigue": {
+  "nombre": "Pigüé",
+  "partido": "Saavedra",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pila": {
+  "nombre": "Pila",
+  "partido": "Pila",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pilar": {
+  "nombre": "Pilar",
+  "partido": "Pilar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "pinamar": {
+  "nombre": "Pinamar",
+  "partido": "Pinamar",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pineyro": {
+  "nombre": "Piñeyro",
+  "partido": "Avellaneda",
+  "costo": 6000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "pinzon": {
+  "nombre": "Pinzón",
+  "partido": "Pergamino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pipinas": {
+  "nombre": "Pipinas",
+  "partido": "Punta Indio",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pirovano": {
+  "nombre": "Pirovano",
+  "partido": "Bolívar",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pla": {
+  "nombre": "Pla",
+  "partido": "Alberti",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "platanos": {
+  "nombre": "Plátanos",
+  "partido": "Berazategui",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "playa dorada": {
+  "nombre": "Playa Dorada",
+  "partido": "Mar Chiquita",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "plomer": {
+  "nombre": "Plomer",
+  "partido": "General Las Heras",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "polvaredas": {
+  "nombre": "Polvaredas",
+  "partido": "Saladillo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pontaut": {
+  "nombre": "Pontaut",
+  "partido": "General La Madrid",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pontevedra": {
+  "nombre": "Pontevedra",
+  "partido": "Merlo",
+  "costo": 17000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "porvenir": {
+  "nombre": "Porvenir",
+  "partido": "Florentino Ameghino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "presidente derqui": {
+  "nombre": "Presidente Derqui",
+  "partido": "Pilar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "presidente peron": {
+  "nombre": "Presidente Perón",
+  "partido": "Presidente Perón",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "puan": {
+  "nombre": "Puán",
+  "partido": "Puán",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pueblo doyle": {
+  "nombre": "Pueblo Doyle",
+  "partido": "San Pedro",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pueblo gouin": {
+  "nombre": "Pueblo Gouin",
+  "partido": "Carmen de Areco",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pueblo nuevo": {
+  "nombre": "Pueblo Nuevo",
+  "partido": "Laprida",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "pueblo san jorge": {
+  "nombre": "Pueblo San Jorge",
+  "partido": "Laprida",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "puerto madero": {
+  "nombre": "Puerto Madero",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "punta alta": {
+  "nombre": "Punta Alta",
+  "partido": "Coronel de Marina Leonardo Rosales",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "punta indio": {
+  "nombre": "Punta Indio",
+  "partido": "Punta Indio",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "punta lara": {
+  "nombre": "Punta Lara",
+  "partido": "Ensenada",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "punta mogotes": {
+  "nombre": "Punta Mogotes",
+  "partido": "General Pueyrredón",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "quenuma": {
+  "nombre": "Quenumá",
+  "partido": "Salliqueló",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "quequen": {
+  "nombre": "Quequén",
+  "partido": "Necochea",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "quilmes": {
+  "nombre": "Quilmes",
+  "partido": "Quilmes",
+  "costo": 11000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "quilmes oeste": {
+  "nombre": "Quilmes Oeste",
+  "partido": "Quilmes",
+  "costo": 11000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "rafael calzada": {
+  "nombre": "Rafael Calzada",
+  "partido": "Almirante Brown",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "rafael castillo": {
+  "nombre": "Rafael Castillo",
+  "partido": "La Matanza",
+  "costo": 20000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "rafael obligado": {
+  "nombre": "Rafael Obligado",
+  "partido": "Rojas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "ramallo": {
+  "nombre": "Ramallo",
+  "partido": "Ramallo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "ramon biaus": {
+  "nombre": "Ramón Biaus",
+  "partido": "Chivilcoy",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "ramon santamarina": {
+  "nombre": "Ramón Santamarina",
+  "partido": "Necochea",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "ramos": {
+  "nombre": "Ramos",
+  "partido": "La Matanza",
+  "costo": 20000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "ramos mejia": {
+  "nombre": "Ramos Mejía",
+  "partido": "La Matanza",
+  "costo": 20000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "ramos otero": {
+  "nombre": "Ramos Otero",
+  "partido": "Balcarce",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "rancagua": {
+  "nombre": "Rancagua",
+  "partido": "Pergamino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "ranchos": {
+  "nombre": "Ranchos",
+  "partido": "General Paz",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "ranelagh": {
+  "nombre": "Ranelagh",
+  "partido": "Berazategui",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "rauch": {
+  "nombre": "Rauch",
+  "partido": "Rauch",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "rawson": {
+  "nombre": "Rawson",
+  "partido": "Chacabuco",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "recalde": {
+  "nombre": "Recalde",
+  "partido": "Olavarría",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "recoleta": {
+  "nombre": "Recoleta",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "remedios de escalada": [
+  {
+   "nombre": "Remedios de Escalada",
+   "partido": "Tres de Febrero",
+   "costo": 7500,
+   "modalidad": "1 día",
+   "cobertura": true
+  },
+  {
+   "nombre": "Remedios De Escalada",
+   "partido": "Lanús",
+   "costo": 6000,
+   "modalidad": "1 día",
+   "cobertura": true
+  }
+ ],
+ "remedios de escalada de san martin": {
+  "nombre": "Remedios de Escalada de San Martín",
+  "partido": "Lanús",
+  "costo": 6000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "reta": {
+  "nombre": "Reta",
+  "partido": "Tres Arroyos",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "retiro": {
+  "nombre": "Retiro",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "ricardo rojas": {
+  "nombre": "Ricardo Rojas",
+  "partido": "Tigre",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "rincon de milberg": {
+  "nombre": "Rincón de Milberg",
+  "partido": "Tigre",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "ringuelet": {
+  "nombre": "Ringuelet",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "rio tala": {
+  "nombre": "Río Tala",
+  "partido": "San Pedro",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "rivadavia": {
+  "nombre": "Rivadavia",
+  "partido": "Rivadavia",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "rivera": {
+  "nombre": "Rivera",
+  "partido": "Adolfo Alsina",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "roberto cano": {
+  "nombre": "Roberto Cano",
+  "partido": "Rojas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "roberto de vicenzo": {
+  "nombre": "Roberto de Vicenzo",
+  "partido": "Pilar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "roberto j payro": {
+  "nombre": "Roberto J. Payró",
+  "partido": "Magdalena",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "roberts": {
+  "nombre": "Roberts",
+  "partido": "Lincoln",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "rojas": {
+  "nombre": "Rojas",
+  "partido": "Rojas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "roosevelt": {
+  "nombre": "Roosevelt",
+  "partido": "Rivadavia",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "roque perez": {
+  "nombre": "Roque Pérez",
+  "partido": "Roque Pérez",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "rufino de elizalde": {
+  "nombre": "Rufino de Elizalde",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "saavedra": [
+  {
+   "nombre": "Saavedra",
+   "partido": "CABA",
+   "costo": 2500,
+   "modalidad": "en el día",
+   "cobertura": true
+  },
+  {
+   "nombre": "Saavedra",
+   "partido": "Saavedra",
+   "costo": null,
+   "modalidad": null,
+   "cobertura": false
+  }
+ ],
+ "saenz pena": {
+  "nombre": "Sáenz Peña",
+  "partido": "Tres de Febrero",
+  "costo": 7500,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "saforcada": {
+  "nombre": "Saforcada",
+  "partido": "Junín",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "saladillo": {
+  "nombre": "Saladillo",
+  "partido": "Saladillo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "salazar": {
+  "nombre": "Salazar",
+  "partido": "Daireaux",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "salliquelo": {
+  "nombre": "Salliqueló",
+  "partido": "Salliqueló",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "salto": {
+  "nombre": "Salto",
+  "partido": "Salto",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "salvador maria": {
+  "nombre": "Salvador María",
+  "partido": "Lobos",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "samborombon": {
+  "nombre": "Samborombón",
+  "partido": "Brandsen",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san agustin": {
+  "nombre": "San Agustín",
+  "partido": "Balcarce",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san andres": {
+  "nombre": "San Andres",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "san andres de giles": {
+  "nombre": "San Andrés de Giles",
+  "partido": "San Andrés de Giles",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san antonio de areco": {
+  "nombre": "San Antonio de Areco",
+  "partido": "San Antonio de Areco",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san antonio de padua": {
+  "nombre": "San Antonio de Padua",
+  "partido": "Merlo",
+  "costo": 17000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "san bernardo": [
+  {
+   "nombre": "San Bernardo",
+   "partido": "La Costa",
+   "costo": null,
+   "modalidad": null,
+   "cobertura": false
+  },
+  {
+   "nombre": "San Bernardo",
+   "partido": "Pehuajó",
+   "costo": null,
+   "modalidad": null,
+   "cobertura": false
+  }
+ ],
+ "san carlos de bolivar": {
+  "nombre": "San Carlos de Bolívar",
+  "partido": "Bolívar",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san cayetano": {
+  "nombre": "San Cayetano",
+  "partido": "San Cayetano",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san clemente del tuyu": {
+  "nombre": "San Clemente del Tuyú",
+  "partido": "La Costa",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san cristobal": {
+  "nombre": "San Cristóbal",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "san emilio": {
+  "nombre": "San Emilio",
+  "partido": "General Viamonte",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san enrique": {
+  "nombre": "San Enrique",
+  "partido": "25 de Mayo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san esteban": {
+  "nombre": "San Esteban",
+  "partido": "Pehuajó",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san fernando": {
+  "nombre": "San Fernando",
+  "partido": "San Fernando",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "san francisco de bellocq": {
+  "nombre": "San Francisco de Bellocq",
+  "partido": "Tres Arroyos",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san francisco solano": [
+  {
+   "nombre": "San Francisco Solano",
+   "partido": "Almirante Brown",
+   "costo": null,
+   "modalidad": null,
+   "cobertura": false
+  },
+  {
+   "nombre": "San Francisco Solano",
+   "partido": "Quilmes",
+   "costo": 11000,
+   "modalidad": "1 día",
+   "cobertura": true
+  }
+ ],
+ "san german": {
+  "nombre": "San Germán",
+  "partido": "Puán",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san isidro": {
+  "nombre": "San Isidro",
+  "partido": "San Isidro",
+  "costo": 5000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "san jose": [
+  {
+   "nombre": "San José",
+   "partido": "Almirante Brown",
+   "costo": null,
+   "modalidad": null,
+   "cobertura": false
+  },
+  {
+   "nombre": "San José",
+   "partido": "Coronel Suárez",
+   "costo": null,
+   "modalidad": null,
+   "cobertura": false
+  }
+ ],
+ "san juan bautista": {
+  "nombre": "San Juan Bautista",
+  "partido": "Florencio Varela",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "san justo": {
+  "nombre": "San Justo",
+  "partido": "La Matanza",
+  "costo": 20000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "san justo la matanza": {
+  "nombre": "San Justo La Matanza",
+  "partido": "La Matanza",
+  "costo": 20000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "san manuel": {
+  "nombre": "San Manuel",
+  "partido": "Lobería",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san martin": {
+  "nombre": "San Martín",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "san mauricio": {
+  "nombre": "San Mauricio",
+  "partido": "Rivadavia",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san mayol": {
+  "nombre": "San Mayol",
+  "partido": "Tres Arroyos",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san miguel": {
+  "nombre": "San Miguel",
+  "partido": "San Miguel",
+  "costo": 15000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "san miguel del monte": {
+  "nombre": "San Miguel del Monte",
+  "partido": "Monte",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san nicolas": [
+  {
+   "nombre": "San Nicolás",
+   "partido": "CABA",
+   "costo": 2500,
+   "modalidad": "en el día",
+   "cobertura": true
+  },
+  {
+   "nombre": "San Nicolás",
+   "partido": "San Nicolás",
+   "costo": null,
+   "modalidad": null,
+   "cobertura": false
+  }
+ ],
+ "san nicolas de los arroyos": {
+  "nombre": "San Nicolás de los Arroyos",
+  "partido": "San Nicolás",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san pedro": {
+  "nombre": "San Pedro",
+  "partido": "San Pedro",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san roman": {
+  "nombre": "San Román",
+  "partido": "Coronel Dorrego",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san sebastian": {
+  "nombre": "San Sebastián",
+  "partido": "Chivilcoy",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "san telmo": {
+  "nombre": "San Telmo",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "san vicente": {
+  "nombre": "San Vicente",
+  "partido": "San Vicente",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "sansinena": {
+  "nombre": "Sansinena",
+  "partido": "Rivadavia",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "santa clara del mar": {
+  "nombre": "Santa Clara del Mar",
+  "partido": "Mar Chiquita",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "santa coloma": {
+  "nombre": "Santa Coloma",
+  "partido": "Baradero",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "santa elena": {
+  "nombre": "Santa Elena",
+  "partido": "Mar Chiquita",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "santa eleodora": {
+  "nombre": "Santa Eleodora",
+  "partido": "General Villegas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "santa lucia": {
+  "nombre": "Santa Lucía",
+  "partido": "San Pedro",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "santa luisa": {
+  "nombre": "Santa Luisa",
+  "partido": "Olavarría",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "santa maria": {
+  "nombre": "Santa María",
+  "partido": "Coronel Suárez",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "santa regina": {
+  "nombre": "Santa Regina",
+  "partido": "General Villegas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "santa rosa": {
+  "nombre": "Santa Rosa",
+  "partido": "Cañuelas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "santa teresa": {
+  "nombre": "Santa Teresa",
+  "partido": "Pilar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "santa teresita": {
+  "nombre": "Santa Teresita",
+  "partido": "La Costa",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "santa teresita mar del tuyu": {
+  "nombre": "Santa Teresita - Mar del Tuyú",
+  "partido": "La Costa",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "santa trinidad": {
+  "nombre": "Santa Trinidad",
+  "partido": "Coronel Suárez",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "santo domingo": {
+  "nombre": "Santo Domingo",
+  "partido": "Maipú",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "santos lugares": {
+  "nombre": "Santos Lugares",
+  "partido": "Tres de Febrero",
+  "costo": 7500,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "sarandi": {
+  "nombre": "Sarandí",
+  "partido": "Avellaneda",
+  "costo": 6000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "sarasa": {
+  "nombre": "Sarasa",
+  "partido": "Colón",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "sevigne": {
+  "nombre": "Sevigne",
+  "partido": "Dolores",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "sierra chica": {
+  "nombre": "Sierra Chica",
+  "partido": "Olavarría",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "sierra de los padres": {
+  "nombre": "Sierra de los Padres",
+  "partido": "General Pueyrredón",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "sierras bayas": {
+  "nombre": "Sierras Bayas",
+  "partido": "Olavarría",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "smith": {
+  "nombre": "Smith",
+  "partido": "Carlos Casares",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "sol de mayo": {
+  "nombre": "Sol de Mayo",
+  "partido": "Rojas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "solanet": {
+  "nombre": "Solanet",
+  "partido": "Ayacucho",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "solis": {
+  "nombre": "Solís",
+  "partido": "San Andrés de Giles",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "stroeder": {
+  "nombre": "Stroeder",
+  "partido": "Patagones",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "suipacha": {
+  "nombre": "Suipacha",
+  "partido": "Suipacha",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "sundblad": {
+  "nombre": "Sundblad",
+  "partido": "Rivadavia",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "tablada": {
+  "nombre": "Tablada",
+  "partido": "La Matanza",
+  "costo": 20000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "tamangueyu": {
+  "nombre": "Tamangueyú",
+  "partido": "Lobería",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "tandil": {
+  "nombre": "Tandil",
+  "partido": "Tandil",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "tapalque": {
+  "nombre": "Tapalqué",
+  "partido": "Tapalqué",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "tapiales": {
+  "nombre": "Tapiales",
+  "partido": "La Matanza",
+  "costo": 20000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "tedin uriburu": {
+  "nombre": "Tedín Uriburu",
+  "partido": "Benito Juárez",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "temperley": {
+  "nombre": "Temperley",
+  "partido": "Lomas de Zamora",
+  "costo": 11000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "teniente origone": {
+  "nombre": "Teniente Origone",
+  "partido": "Villarino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "tigre": {
+  "nombre": "Tigre",
+  "partido": "Tigre",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "timote": {
+  "nombre": "Timote",
+  "partido": "Carlos Tejedor",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "todd": {
+  "nombre": "Todd",
+  "partido": "Arrecifes",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "tolosa": {
+  "nombre": "Tolosa",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "tordillo": {
+  "nombre": "Tordillo",
+  "partido": "Tordillo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "tornquist": {
+  "nombre": "Tornquist",
+  "partido": "Tornquist",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "torres": {
+  "nombre": "Torres",
+  "partido": "Luján",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "tortuguitas": [
+  {
+   "nombre": "Tortuguitas",
+   "partido": "José C. Paz",
+   "costo": 15000,
+   "modalidad": "1 día",
+   "cobertura": true
+  },
+  {
+   "nombre": "Tortuguitas",
+   "partido": "Malvinas Argentinas",
+   "costo": 13000,
+   "modalidad": "1 día",
+   "cobertura": true
+  },
+  {
+   "nombre": "Tortuguitas",
+   "partido": "Pilar",
+   "costo": 25000,
+   "modalidad": "1 día",
+   "cobertura": true
+  }
+ ],
+ "transradio": {
+  "nombre": "Transradio",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "trenque lauquen": {
+  "nombre": "Trenque Lauquen",
+  "partido": "Trenque Lauquen",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "tres algarrobos": {
+  "nombre": "Tres Algarrobos",
+  "partido": "Carlos Tejedor",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "tres arroyos": {
+  "nombre": "Tres Arroyos",
+  "partido": "Tres Arroyos",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "tres de febrero": {
+  "nombre": "Tres de Febrero",
+  "partido": "Tres de Febrero",
+  "costo": 7500,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "tres lomas": {
+  "nombre": "Tres Lomas",
+  "partido": "Tres Lomas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "tres picos": {
+  "nombre": "Tres Picos",
+  "partido": "Tornquist",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "tres sargentos": {
+  "nombre": "Tres Sargentos",
+  "partido": "Carmen de Areco",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "tristan suarez": {
+  "nombre": "Tristán Suárez",
+  "partido": "Ezeiza",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "triunvirato": {
+  "nombre": "Triunvirato",
+  "partido": "Lincoln",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "troncos del talar": {
+  "nombre": "Troncos del Talar",
+  "partido": "Tigre",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "tronge": {
+  "nombre": "Trongé",
+  "partido": "Trenque Lauquen",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "trujui": {
+  "nombre": "Trujui",
+  "partido": "Moreno",
+  "costo": 17000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "turdera": {
+  "nombre": "Turdera",
+  "partido": "Lomas de Zamora",
+  "costo": 11000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "udaquiola": {
+  "nombre": "Udaquiola",
+  "partido": "Ayacucho",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "urdampilleta": {
+  "nombre": "Urdampilleta",
+  "partido": "Bolívar",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "uribelarrea": {
+  "nombre": "Uribelarrea",
+  "partido": "Cañuelas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "va maria irene de los remedios escalada": {
+  "nombre": "Va.María Irene de los Remedios Escalada",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "va marques alejandro maria de aguado": {
+  "nombre": "Va.Marqués Alejandro María de Aguado",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "valdes": {
+  "nombre": "Valdés",
+  "partido": "25 de Mayo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "valentin alsina": {
+  "nombre": "Valentín Alsina",
+  "partido": "Lanús",
+  "costo": 6000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "valeria del mar": {
+  "nombre": "Valeria del Mar",
+  "partido": "Pinamar",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "vasquez": {
+  "nombre": "Vásquez",
+  "partido": "Adolfo Gonzales Chaves",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "vedia": {
+  "nombre": "Vedia",
+  "partido": "Leandro N. Alem",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "velez sarsfield": {
+  "nombre": "Vélez Sarsfield",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "velloso": {
+  "nombre": "Velloso",
+  "partido": "Tapalqué",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "veronica": {
+  "nombre": "Verónica",
+  "partido": "Punta Indio",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "versalles": {
+  "nombre": "Versalles",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "vicente casares": {
+  "nombre": "Vicente Casares",
+  "partido": "Cañuelas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "vicente lopez": {
+  "nombre": "Vicente López",
+  "partido": "Vicente López",
+  "costo": 5000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "victoria": {
+  "nombre": "Victoria",
+  "partido": "San Fernando",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "vieytes": {
+  "nombre": "Vieytes",
+  "partido": "Magdalena",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa adelina": [
+  {
+   "nombre": "Villa Adelina",
+   "partido": "San Isidro",
+   "costo": 5000,
+   "modalidad": "1 día",
+   "cobertura": true
+  },
+  {
+   "nombre": "Villa Adelina",
+   "partido": "Vicente López",
+   "costo": 5000,
+   "modalidad": "1 día",
+   "cobertura": true
+  }
+ ],
+ "villa alfredo fortabat": {
+  "nombre": "Villa Alfredo Fortabat",
+  "partido": "Olavarría",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa alsina": {
+  "nombre": "Villa Alsina",
+  "partido": "Baradero",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa angelica": {
+  "nombre": "Villa Angélica",
+  "partido": "Pergamino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa arguello": {
+  "nombre": "Villa Argüello",
+  "partido": "Berisso",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa arrieta": {
+  "nombre": "Villa Arrieta",
+  "partido": "Olavarría",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa astolfi": {
+  "nombre": "Villa Astolfi",
+  "partido": "Pilar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa ayacucho": {
+  "nombre": "Villa Ayacucho",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa ballester": {
+  "nombre": "Villa Ballester",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa bernardo monteagudo": {
+  "nombre": "Villa Bernardo Monteagudo",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa bordeau": {
+  "nombre": "Villa Bordeau",
+  "partido": "Bahía Blanca",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa bosch": {
+  "nombre": "Villa Bosch",
+  "partido": "Tres de Febrero",
+  "costo": 7500,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa brown": {
+  "nombre": "Villa Brown",
+  "partido": "Florencio Varela",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa cacique": {
+  "nombre": "Villa Cacique",
+  "partido": "Benito Juárez",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa campi": {
+  "nombre": "Villa Campi",
+  "partido": "San Nicolás",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa canto": {
+  "nombre": "Villa Canto",
+  "partido": "San Nicolás",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa castelar": {
+  "nombre": "Villa Castelar",
+  "partido": "Puán",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa catela": {
+  "nombre": "Villa Catela",
+  "partido": "Ensenada",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa centenario": {
+  "nombre": "Villa Centenario",
+  "partido": "Lomas de Zamora",
+  "costo": 11000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa chacabuco": {
+  "nombre": "Villa Chacabuco",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa coronel jose m zapiola": {
+  "nombre": "Villa Coronel José M. Zapiola",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa crespo": {
+  "nombre": "Villa Crespo",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "villa de mayo": {
+  "nombre": "Villa de Mayo",
+  "partido": "Malvinas Argentinas",
+  "costo": 13000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa del mar": {
+  "nombre": "Villa del Mar",
+  "partido": "Coronel de Marina Leonardo Rosales",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa del parque": {
+  "nombre": "Villa del Parque",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "villa devoto": {
+  "nombre": "Villa Devoto",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "villa dolores": {
+  "nombre": "Villa Dolores",
+  "partido": "Berisso",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa dominico": {
+  "nombre": "Villa Domínico",
+  "partido": "Avellaneda",
+  "costo": 6000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa eduardo madero": {
+  "nombre": "Villa Eduardo Madero",
+  "partido": "La Matanza",
+  "costo": 20000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa elisa": {
+  "nombre": "Villa Elisa",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa elvira": {
+  "nombre": "Villa Elvira",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa espana": {
+  "nombre": "Villa España",
+  "partido": "Berazategui",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa esperanza": {
+  "nombre": "Villa Esperanza",
+  "partido": "San Nicolás",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa espil": {
+  "nombre": "Villa Espil",
+  "partido": "San Andrés de Giles",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa espora": {
+  "nombre": "Villa Espora",
+  "partido": "Bahía Blanca",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa fiorito": {
+  "nombre": "Villa Fiorito",
+  "partido": "Lomas de Zamora",
+  "costo": 11000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa flandria norte": {
+  "nombre": "Villa Flandria Norte",
+  "partido": "Luján",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa flandria sur": {
+  "nombre": "Villa Flandria Sur",
+  "partido": "Luján",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa fournier": {
+  "nombre": "Villa Fournier",
+  "partido": "9 de Julio",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa francia": {
+  "nombre": "Villa Francia",
+  "partido": "General Pinto",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa garibaldi": {
+  "nombre": "Villa Garibaldi",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa general antonio j de sucre": {
+  "nombre": "Villa General Antonio J. de Sucre",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa general arias": {
+  "nombre": "Villa General Arias",
+  "partido": "Coronel de Marina Leonardo Rosales",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa general eugenio necochea": {
+  "nombre": "Villa General Eugenio Necochea",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa general jose tomas guido": {
+  "nombre": "Villa General José Tomás Guido",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa general juan g las heras": {
+  "nombre": "Villa General Juan G. Las Heras",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa general mitre": {
+  "nombre": "Villa General Mitre",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "villa general savio": {
+  "nombre": "Villa General Savio",
+  "partido": "Ramallo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa gesell": {
+  "nombre": "Villa Gesell",
+  "partido": "Villa Gesell",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa gobernador udadondo": {
+  "nombre": "Villa Gobernador Udadondo",
+  "partido": "Ituzaingó",
+  "costo": 17000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa godoy cruz": {
+  "nombre": "Villa Godoy Cruz",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa granaderos de san martin": {
+  "nombre": "Villa Granaderos de San Martín",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa gregoria matorras": {
+  "nombre": "Villa Gregoria Matorras",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa grisolia": {
+  "nombre": "Villa Grisolía",
+  "partido": "Alberti",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa independencia": {
+  "nombre": "Villa Independencia",
+  "partido": "Berisso",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa iris": {
+  "nombre": "Villa Iris",
+  "partido": "Puán",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa jose leon suarez": {
+  "nombre": "Villa José León Suárez",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa juan martin de pueyrredon": {
+  "nombre": "Villa Juan Martín de Pueyrredón",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa la arcadia": {
+  "nombre": "Villa La Arcadia",
+  "partido": "Coronel Suárez",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa la florida": {
+  "nombre": "Villa La Florida",
+  "partido": "Quilmes",
+  "costo": 11000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa la serrania": {
+  "nombre": "Villa La Serranía",
+  "partido": "Olavarría",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa laguna la brava": {
+  "nombre": "Villa Laguna La Brava",
+  "partido": "Balcarce",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa lia": {
+  "nombre": "Villa Lía",
+  "partido": "San Antonio de Areco",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa libertad": {
+  "nombre": "Villa Libertad",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa lugano": {
+  "nombre": "Villa Lugano",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "villa luro": {
+  "nombre": "Villa Luro",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "villa luzuriaga": {
+  "nombre": "Villa Luzuriaga",
+  "partido": "La Matanza",
+  "costo": 20000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa lynch": {
+  "nombre": "Villa Lynch",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa lynch pueyrredon": {
+  "nombre": "Villa Lynch Pueyrredón",
+  "partido": "Bolívar",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa maipu": {
+  "nombre": "Villa Maipú",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa manuel pomar": [
+  {
+   "nombre": "Villa Manuel Pomar",
+   "partido": "Colón",
+   "costo": null,
+   "modalidad": null,
+   "cobertura": false
+  },
+  {
+   "nombre": "Villa Manuel Pomar",
+   "partido": "Rojas",
+   "costo": null,
+   "modalidad": null,
+   "cobertura": false
+  }
+ ],
+ "villa margarita": {
+  "nombre": "Villa Margarita",
+  "partido": "Adolfo Alsina",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa maria": {
+  "nombre": "Villa María",
+  "partido": "Alberti",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa martelli": {
+  "nombre": "Villa Martelli",
+  "partido": "Vicente López",
+  "costo": 5000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa moll": {
+  "nombre": "Villa Moll",
+  "partido": "Navarro",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa montoro": {
+  "nombre": "Villa Montoro",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa nueva": {
+  "nombre": "Villa Nueva",
+  "partido": "Berisso",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa ortiz": {
+  "nombre": "Villa Ortiz",
+  "partido": "Alberti",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa ortuzar": {
+  "nombre": "Villa Ortúzar",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "villa parque cecir": {
+  "nombre": "Villa Parque Cecir",
+  "partido": "Rojas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa parque girado": {
+  "nombre": "Villa Parque Girado",
+  "partido": "Chascomús",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa parque presidente figueroa alcorta": {
+  "nombre": "Villa Parque Presidente Figueroa Alcorta",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa parque san lorenzo": {
+  "nombre": "Villa Parque San Lorenzo",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa parque sicardi": {
+  "nombre": "Villa Parque Sicardi",
+  "partido": "La Plata",
+  "costo": 35000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa portena": {
+  "nombre": "Villa Porteña",
+  "partido": "Berisso",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa progreso": {
+  "nombre": "Villa Progreso",
+  "partido": "Berisso",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa pueyrredon": {
+  "nombre": "Villa Pueyrredón",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "villa raffo": {
+  "nombre": "Villa Raffo",
+  "partido": "Tres de Febrero",
+  "costo": 7500,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa ramallo": {
+  "nombre": "Villa Ramallo",
+  "partido": "Ramallo",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa real": {
+  "nombre": "Villa Real",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "villa riachuelo": {
+  "nombre": "Villa Riachuelo",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "villa riccio": {
+  "nombre": "Villa Riccio",
+  "partido": "San Nicolás",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa rodriguez": {
+  "nombre": "Villa Rodríguez",
+  "partido": "Tres Arroyos",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa rosa": {
+  "nombre": "Villa Rosa",
+  "partido": "Pilar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa roth": {
+  "nombre": "Villa Roth",
+  "partido": "General Pinto",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa ruiz": {
+  "nombre": "Villa Ruiz",
+  "partido": "San Andrés de Giles",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa saboya": {
+  "nombre": "Villa Saboya",
+  "partido": "General Villegas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa san andres": {
+  "nombre": "Villa San Andrés",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa san carlos": {
+  "nombre": "Villa San Carlos",
+  "partido": "Berisso",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa san jose": {
+  "nombre": "Villa San José",
+  "partido": "Pergamino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa san luis": {
+  "nombre": "Villa San Luis",
+  "partido": "Florencio Varela",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa santa rita": {
+  "nombre": "Villa Santa Rita",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "villa santa rosa": {
+  "nombre": "Villa Santa Rosa",
+  "partido": "Florencio Varela",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa santos tesei": {
+  "nombre": "Villa Santos Tesei",
+  "partido": "Hurlingham",
+  "costo": 12000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa sarmiento": {
+  "nombre": "Villa Sarmiento",
+  "partido": "Morón",
+  "costo": 12000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa sauze": {
+  "nombre": "Villa Sauze",
+  "partido": "General Villegas",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa soldati": {
+  "nombre": "Villa Soldati",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "villa tesei": {
+  "nombre": "Villa Tesei",
+  "partido": "Hurlingham",
+  "costo": 12000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa urquiza": {
+  "nombre": "Villa Urquiza",
+  "partido": "CABA",
+  "costo": 2500,
+  "modalidad": "en el día",
+  "cobertura": true
+ },
+ "villa vatteone": {
+  "nombre": "Villa Vatteone",
+  "partido": "Florencio Varela",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa ventana": {
+  "nombre": "Villa Ventana",
+  "partido": "Tornquist",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villa yapeyu": {
+  "nombre": "Villa Yapeyú",
+  "partido": "San Martín",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "villa zula": {
+  "nombre": "Villa Zula",
+  "partido": "Berisso",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villalonga": {
+  "nombre": "Villalonga",
+  "partido": "Patagones",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villanueva": {
+  "nombre": "Villanueva",
+  "partido": "General Paz",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "villarino": {
+  "nombre": "Villarino",
+  "partido": "Villarino",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "vina": {
+  "nombre": "Viña",
+  "partido": "Arrecifes",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "virrey del pino": {
+  "nombre": "Virrey del Pino",
+  "partido": "La Matanza",
+  "costo": 20000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "virreyes": {
+  "nombre": "Virreyes",
+  "partido": "San Fernando",
+  "costo": 8000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "vivorata": {
+  "nombre": "Vivoratá",
+  "partido": "Mar Chiquita",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "warnes": {
+  "nombre": "Warnes",
+  "partido": "Bragado",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "wilde": {
+  "nombre": "Wilde",
+  "partido": "Avellaneda",
+  "costo": 6000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "william c morris": {
+  "nombre": "William C. Morris",
+  "partido": "Hurlingham",
+  "costo": 12000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "william morris": {
+  "nombre": "William Morris",
+  "partido": "Hurlingham",
+  "costo": 12000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "zarate": {
+  "nombre": "Zárate",
+  "partido": "Zárate",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "zavalia": {
+  "nombre": "Zavalía",
+  "partido": "General Viamonte",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ },
+ "zelaya": {
+  "nombre": "Zelaya",
+  "partido": "Pilar",
+  "costo": 25000,
+  "modalidad": "1 día",
+  "cobertura": true
+ },
+ "zenon videla dorna": {
+  "nombre": "Zenón Videla Dorna",
+  "partido": "Monte",
+  "costo": null,
+  "modalidad": null,
+  "cobertura": false
+ }
+}
