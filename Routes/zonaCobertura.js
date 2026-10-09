@@ -77,16 +77,46 @@ export function zonasEnTexto(texto) {
   return out;
 }
 
+const textoDe = (m) => { const c = m?.content; return typeof c === "string" ? c : Array.isArray(c) ? c.map((x) => x?.text || "").join(" ") : ""; };
+
 // Mensajes de la charla → zonas del mensaje del CLIENTE más reciente que mencione alguna.
 export function detectarZonas(messages) {
   const delCliente = (messages || []).filter((m) => m?.role === "user");
   for (let i = delCliente.length - 1; i >= 0; i--) {
-    const c = delCliente[i].content;
-    const texto = typeof c === "string" ? c : Array.isArray(c) ? c.map((x) => x?.text || "").join(" ") : "";
-    const zonas = zonasEnTexto(texto);
+    const zonas = zonasEnTexto(textoDe(delCliente[i]));
     if (zonas.length) return zonas;
   }
   return [];
+}
+
+// Zonas del ÚLTIMO mensaje del cliente (solo ese).
+export function zonasUltimoMensaje(messages) {
+  const delCliente = (messages || []).filter((m) => m?.role === "user");
+  return delCliente.length ? zonasEnTexto(textoDe(delCliente[delCliente.length - 1])) : [];
+}
+
+// Nombre de la zona sin cobertura si las zonas son "claramente afuera": hay una sin cobertura NO ambigua
+// y ninguna zona (ni opción de una ambigua) con cobertura. Si no, null.
+export function zonaSinCoberturaClara(zonas) {
+  if (zonas.some((z) => z.opciones.some((o) => o.cobertura))) return null;
+  const fuera = zonas.find((z) => z.opciones.length === 1 && !z.opciones[0].cobertura);
+  return fuera ? fuera.opciones[0].nombre : null;
+}
+
+// Respuesta fija para una zona sin cobertura (no pasa por el modelo).
+export const respuestaSinCobertura = (zona) =>
+  `Por ahora no llegamos a ${zona} 😕. Si tenés otra dirección de entrega en CABA o GBA, decime y me fijo. `
+  + "También podés retirarla en nuestros PiccaPoints de Recoleta (French 2615) o Villa Ortúzar (Álvarez Thomas 1558), y con retiro tenés 10% off.";
+
+// ¿La respuesta del modelo promete cobertura? (menciona un costo de envío, o "llegamos" sin "no" adelante)
+export function prometeCobertura(texto) {
+  const raw = String(texto || "").toLowerCase();
+  if (/env[ií]o[^\n]{0,60}\$\s?[0-9]/.test(raw) || /\$\s?[0-9][^\n]{0,60}env[ií]o/.test(raw)) return true;
+  const n = ` ${normalizarZona(texto)} `;
+  for (let i = n.indexOf(" llegamos "); i !== -1; i = n.indexOf(" llegamos ", i + 1)) {
+    if (!/ no( te| les| le)?$/.test(n.slice(Math.max(0, i - 12), i))) return true;
+  }
+  return false;
 }
 
 const pesos = (n) => `$${Number(n).toLocaleString("es-AR")}`;
