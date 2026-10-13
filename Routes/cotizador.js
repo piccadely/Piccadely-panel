@@ -1,13 +1,6 @@
 import express from "express";
 import axios from "axios";
-
-// ─── Config Tienda Nube ──────────────────────────────────────────────
-const STORE_ID = process.env.TN_STORE_ID;
-const ACCESS_TOKEN = process.env.TN_ACCESS_TOKEN;
-const tnHeaders = {
-  Authentication: `bearer ${ACCESS_TOKEN}`,
-  "User-Agent": "PiccadelyPanel (piccadely@gmail.com)",
-};
+import { getProductosTN } from "./tnCatalogo.js";   // catálogo TN compartido (paginado + caché de 5 min)
 
 // ─── Piccadas por nivel: categoría + qué piccadas puede usar ─────────
 const PICCADA = {
@@ -69,18 +62,9 @@ const MIX = {
 
 const ETIQUETAS = { economica: "Clásica", intermedia: "Selección", premium: "Premium" };
 
-// ─── Catálogo en vivo con caché de 5 min ─────────────────────────────
-let _cache = { data: null, ts: 0 };
-async function getProductos() {
-  const ahora = Date.now();
-  if (_cache.data && ahora - _cache.ts < 5 * 60 * 1000) return _cache.data;
-  const r = await axios.get(
-    `https://api.tiendanube.com/2025-03/${STORE_ID}/products?per_page=200`,
-    { headers: tnHeaders }
-  );
-  _cache = { data: r.data, ts: ahora };
-  return r.data;
-}
+// ─── Catálogo en vivo: Routes/tnCatalogo.js (compartido con regalos) ──
+// Los precios del cotizador de eventos siguen saliendo de v.price (sin promo), como antes.
+const getProductos = getProductosTN;
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 const sinAcentos = s => (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");

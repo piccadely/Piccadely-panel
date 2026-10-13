@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Piccadely · Regalos empresariales</title>
+<meta name="description" content="Armá los regalos de tu empresa con Piccadely: Piccadas, cajas, desayunos y giftcards, con descuento por volumen.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+<style>
+:root{
+  --naranja:#F68B32; --naranja-hondo:#D96E14; --naranja-suave:#FDEBDB;
+  --tinta:#2B1D14; --tinta-2:#6B5A4E; --linea:#E8DFD7;
+  --fondo:#FFFFFF; --fondo-2:#F7F3EF; --card:#FFFFFF; --ok:#499342; --error:#C0392B;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --naranja-suave:#3A2616; --tinta:#F5ECE4; --tinta-2:#BBA899; --linea:#3E322A;
+    --fondo:#1B1410; --fondo-2:#241B16; --card:#2A201A;
+  }
+}
+:root[data-theme="dark"]{
+  --naranja-suave:#3A2616; --tinta:#F5ECE4; --tinta-2:#BBA899; --linea:#3E322A;
+  --fondo:#1B1410; --fondo-2:#241B16; --card:#2A201A;
+}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--fondo);color:var(--tinta);font:16px/1.55 Figtree,system-ui,-apple-system,"Segoe UI",sans-serif}
+h1,h2,h3{font-family:"Bricolage Grotesque",Figtree,system-ui,sans-serif;margin:0;line-height:1.1}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--naranja);outline-offset:2px}
+[hidden]{display:none!important}
+
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px clamp(16px,4vw,40px);border-bottom:1px solid var(--linea)}
+.brand{text-decoration:none;color:var(--tinta);display:flex;flex-direction:column}
+.brand img{height:38px;width:auto;display:block;margin-bottom:4px}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .brand img{filter:invert(1)}}
+:root[data-theme="dark"] .brand img{filter:invert(1)}
+.brand small{color:var(--tinta-2);font-size:13px}
+.volver{border:1.5px solid var(--naranja);color:var(--naranja-hondo);border-radius:999px;padding:7px 14px;text-decoration:none;font-weight:600;font-size:14px;white-space:nowrap}
+@media(prefers-color-scheme:dark){.volver{color:var(--naranja)}}
+@media(max-width:520px){.volver-extra{display:none}}
+.aviso-api{background:#7c2d12;color:#fff;font-size:13px;padding:8px clamp(16px,4vw,40px)}
+
+.hero{padding:clamp(28px,6vw,64px) clamp(16px,4vw,40px) 20px;max-width:1180px;margin:0 auto}
+.hero h1{font-size:clamp(34px,6vw,64px);font-weight:800;letter-spacing:-1.5px;max-width:14ch}
+.hero p{color:var(--tinta-2);max-width:56ch;font-size:18px;margin:14px 0 0}
+
+main{max-width:1180px;margin:0 auto;padding:0 clamp(16px,4vw,40px) 120px;display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:32px;align-items:start}
+@media(max-width:960px){main{grid-template-columns:1fr}}
+
+.paso{border-top:1px solid var(--linea);padding:28px 0}
+.paso-tit{display:flex;gap:14px;align-items:baseline;margin-bottom:16px}
+.paso-num{font-family:"Bricolage Grotesque",sans-serif;font-weight:800;font-size:15px;background:var(--naranja);color:#fff;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;flex:none;transform:translateY(4px)}
+.paso h2{font-size:26px;font-weight:700}
+.ayuda{color:var(--tinta-2);font-size:15px;margin:4px 0 0}
+
+.cantidad-wrap{display:flex;gap:20px;align-items:center;flex-wrap:wrap}
+.cantidad{display:flex;align-items:center;border:1.5px solid var(--linea);border-radius:14px;overflow:hidden}
+.cantidad button{background:none;border:0;width:52px;height:60px;font-size:24px;cursor:pointer}
+.cantidad button:hover{background:var(--fondo-2)}
+.cantidad input{width:96px;text-align:center;border:0;background:none;font-family:"Bricolage Grotesque",sans-serif;font-size:32px;font-weight:800;-moz-appearance:textfield}
+input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.escala{display:flex;gap:6px;flex-wrap:wrap}
+.escala span{font-size:13px;padding:5px 10px;border-radius:999px;border:1px solid var(--linea);color:var(--tinta-2)}
+.escala span.on{background:var(--ok);border-color:var(--ok);color:#fff}
+
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+.tab{border:1.5px solid var(--linea);background:var(--card);border-radius:999px;padding:8px 16px;cursor:pointer;font-weight:600;font-size:15px}
+.tab[aria-pressed="true"]{background:var(--tinta);border-color:var(--tinta);color:var(--fondo)}
+.presu{display:flex;gap:12px;align-items:center;margin:0 0 18px;flex-wrap:wrap;font-size:15px;color:var(--tinta-2)}
+.presu select{border:1.5px solid var(--linea);background:var(--card);border-radius:10px;padding:7px 10px}
+
+.grilla{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+.vacio-grilla{color:var(--tinta-2);font-size:15px;padding:18px;border:1.5px dashed var(--linea);border-radius:16px}
+.prod{background:var(--card);border:1.5px solid var(--linea);border-radius:16px;overflow:hidden;display:flex;flex-direction:column;transition:border-color .15s}
+.prod.sel{border-color:var(--naranja)}
+.prod.fuera{opacity:.45}
+.foto{aspect-ratio:4/3;display:grid;place-items:center;font-size:54px;background:var(--fondo-2);overflow:hidden}
+.foto img{width:100%;height:100%;object-fit:cover;display:block}
+.prod-body{padding:14px 14px 16px;display:flex;flex-direction:column;gap:6px;flex:1}
+.prod h3{font-size:18px;font-weight:700}
+.prod .variante{font-size:13px;font-weight:600;color:var(--naranja-hondo)}
+@media(prefers-color-scheme:dark){.prod .variante{color:var(--naranja)}}
+.prod .desc{font-size:14px;color:var(--tinta-2);flex:1}
+.prod .precio{font-weight:700;font-size:17px}
+.prod .antes{font-size:13px;color:var(--tinta-2);text-decoration:line-through;font-weight:500;margin-left:6px}
+.prod .linea-q{display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:8px}
+.mini{display:flex;align-items:center;gap:4px}
+.mini button{width:34px;height:34px;border-radius:10px;border:1.5px solid var(--linea);background:var(--card);cursor:pointer;font-size:18px}
+.mini button.mas{background:var(--naranja);border-color:var(--naranja);color:#fff}
+.mini input{width:46px;text-align:center;border:0;background:none;font-weight:700;font-size:16px}
+
+.opciones{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:620px){.opciones{grid-template-columns:1fr}}
+.opcion{border:1.5px solid var(--linea);border-radius:16px;padding:16px;cursor:pointer;background:var(--card);display:block}
+.opcion:has(input:checked){border-color:var(--naranja);background:var(--naranja-suave)}
+.opcion input{accent-color:var(--naranja);margin-right:8px}
+.opcion strong{font-size:17px}
+.opcion p{margin:6px 0 0;font-size:14px;color:var(--tinta-2)}
+.sub{margin-top:16px;display:grid;gap:12px}
+.fila{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:620px){.fila{grid-template-columns:1fr}}
+label.campo{display:flex;flex-direction:column;gap:5px;font-size:14px;font-weight:600}
+label.campo input,label.campo select,label.campo textarea{border:1.5px solid var(--linea);background:var(--card);border-radius:10px;padding:10px 12px;font-weight:400;font-size:15px}
+textarea{resize:vertical;min-height:70px}
+.check{display:flex;gap:10px;align-items:flex-start;font-size:15px;cursor:pointer}
+.check input{accent-color:var(--naranja);width:18px;height:18px;margin-top:2px;flex:none}
+.nota-envio{font-size:13px;color:var(--tinta-2);margin:0}
+.plantilla{background:var(--fondo-2);border-radius:14px;padding:14px 16px;font-size:14px}
+.plantilla .cols{overflow-x:auto;margin-top:8px}
+.plantilla table{border-collapse:collapse;font-size:13px;white-space:nowrap}
+.plantilla td,.plantilla th{border:1px solid var(--linea);padding:5px 9px;text-align:left}
+.plantilla th{background:var(--card)}
+
+aside{position:sticky;top:calc(16px + env(safe-area-inset-top,0px));background:var(--tinta);color:var(--fondo);border-radius:22px;padding:22px}
+@media(max-width:960px){aside{position:static}}
+aside h2{font-size:22px;margin-bottom:4px}
+.asig{font-size:14px;opacity:.75;margin-bottom:14px}
+.asig.ok{color:#9BD18F;opacity:1}
+.asig.mal{color:var(--naranja);opacity:1}
+.lineas{list-style:none;padding:0;margin:0 0 14px;display:grid;gap:8px;font-size:14px}
+.lineas li{display:flex;justify-content:space-between;gap:10px}
+.lineas .vacio{opacity:.6}
+.tot{border-top:1px solid rgba(255,255,255,.18);padding-top:12px;display:grid;gap:6px;font-size:15px}
+@media(prefers-color-scheme:dark){.tot{border-color:rgba(0,0,0,.18)}}
+.tot div{display:flex;justify-content:space-between;gap:10px}
+.tot .desc-vol{color:#9BD18F}
+.tot .est{font-size:11px;opacity:.7;font-weight:600;margin-left:4px}
+.tot .grande{font-family:"Bricolage Grotesque",sans-serif;font-size:30px;font-weight:800;margin-top:6px;align-items:baseline}
+.tot .grande small{font-family:Figtree,sans-serif;font-size:14px;font-weight:500;opacity:.75}
+.porreg{font-size:14px;opacity:.75;text-align:right}
+.calc-estado{font-size:12px;opacity:.6;min-height:16px;margin-top:6px}
+.calc-error{font-size:13px;color:#FFB4A8;margin-top:8px}
+.ctas{display:grid;gap:10px;margin-top:18px}
+.btn{border:0;border-radius:14px;padding:14px;font-weight:700;font-size:16px;cursor:pointer;text-align:center;text-decoration:none}
+.btn-1{background:var(--naranja);color:#fff}
+.btn-1:hover{background:var(--naranja-hondo)}
+.btn-2{background:transparent;color:var(--fondo);border:1.5px solid rgba(255,255,255,.35)}
+@media(prefers-color-scheme:dark){.btn-2{border-color:rgba(0,0,0,.3)}}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.nota{font-size:12px;opacity:.65;margin-top:12px}
+
+.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translate(-50%,20px);background:var(--ok);color:#fff;padding:12px 20px;border-radius:12px;font-weight:600;opacity:0;pointer-events:none;transition:.25s;max-width:90vw;z-index:10}
+.toast.error{background:var(--error)}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.cargando{color:var(--tinta-2);padding:24px 0}
+.gc-otro{font-size:14px;color:var(--tinta-2);margin:12px 0 0}
+.gc-otro a{color:var(--naranja-hondo);font-weight:600}
+@media(prefers-color-scheme:dark){.gc-otro a{color:var(--naranja)}}
+.hp{position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="aviso-api" id="aviso-api" hidden></div>
+<header>
+  <a class="brand" href="https://piccadely.com"><img src="/Piccadely_Logotipo_Izquierda_Negro.png" alt="Piccadely" width="129" height="38"><small>Regalos empresariales</small></a>
+  <a class="volver" href="https://piccadely.com">← Volver<span class="volver-extra"> a la web</span></a>
+</header>
+
+<section class="hero">
+  <h1>Regalos que se piccan en equipo</h1>
+  <p>Armá los regalos de tu empresa en un par de minutos: elegí cuántos, qué mandar y adónde. Te llega la propuesta lista para pasar a aprobación.</p>
+</section>
+
+<main>
+<div>
+
+  <section class="paso">
+    <div class="paso-tit"><span class="paso-num">1</span><div><h2>¿Cuántos regalos?</h2><p class="ayuda">Mientras más, mejor el precio.</p></div></div>
+    <div class="cantidad-wrap">
+      <div class="cantidad">
+        <button type="button" aria-label="Restar" data-cant="-1">−</button>
+        <input id="cant" type="number" min="1" value="20" aria-label="Cantidad de regalos">
+        <button type="button" aria-label="Sumar" data-cant="1">+</button>
+      </div>
+      <div class="escala" id="escala"></div>
+    </div>
+  </section>
+
+  <section class="paso">
+    <div class="paso-tit"><span class="paso-num">2</span><div><h2>¿Qué querés regalar?</h2><p class="ayuda">Podés combinar: por ejemplo, Piccadas medianas para los gerentes y cajas para el resto.</p></div></div>
+    <div id="cat-cargando" class="cargando">Cargando el catálogo…</div>
+    <div id="cat-ok" hidden>
+      <div class="tabs" id="tabs" role="group" aria-label="Estilo de regalo"></div>
+      <div class="presu">
+        <label for="presu">Presupuesto por regalo</label>
+        <select id="presu">
+          <option value="0">Sin tope</option>
+          <option value="40000">Hasta $40.000</option>
+          <option value="70000">Hasta $70.000</option>
+          <option value="110000">Hasta $110.000</option>
+        </select>
+      </div>
+      <div class="grilla" id="grilla"></div>
+      <p class="gc-otro" id="gc-otro" hidden>¿Otro monto? <a id="gc-otro-link" href="https://wa.me/5491162393921" target="_blank" rel="noopener">Escribinos por WhatsApp</a></p>
+      <div id="bebidas-wrap" hidden>
+        <h3 style="font-size:20px;margin:28px 0 4px">Sumale una bebida</h3>
+        <p class="ayuda" style="margin:0 0 14px">Opcional. Va junto con los regalos y no cuenta en la cantidad.</p>
+        <div class="grilla" id="bebidas"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="paso">
+    <div class="paso-tit"><span class="paso-num">3</span><div><h2>¿Adónde los mandamos?</h2><p class="ayuda">Las giftcards se envían por mail, no suman envío.</p></div></div>
+    <div class="opciones">
+      <label class="opcion"><input type="radio" name="entrega" value="uno" checked><strong>Todos a un mismo lugar</strong><p>La oficina, un evento o un depósito. Un solo envío.</p></label>
+      <label class="opcion"><input type="radio" name="entrega" value="varios"><strong>Cada uno a su casa</strong><p>Nos pasás la lista y entregamos a cada persona.</p></label>
+    </div>
+
+    <div class="sub" id="sub-uno">
+      <div class="fila">
+        <label class="campo">Zona de entrega
+          <select id="zona-uno"><option value="CABA">CABA</option></select>
+        </label>
+        <label class="campo">Fecha de entrega<input type="date" id="fecha"></label>
+      </div>
+      <label class="campo">Dirección<input type="text" id="dir" placeholder="Av. Siempreviva 742, piso 3" autocomplete="street-address"></label>
+    </div>
+
+    <div class="sub" id="sub-varios" hidden>
+      <div class="fila">
+        <label class="campo">Destinatarios en CABA<input type="number" min="0" id="n-caba" value="0"></label>
+        <label class="campo">Destinatarios en GBA<input type="number" min="0" id="n-gba" value="0"></label>
+      </div>
+      <p class="nota-envio">El envío final se calcula con la planilla de destinatarios.</p>
+      <label class="campo">Fecha de entrega<input type="date" id="fecha-v"></label>
+      <div class="plantilla">
+        <strong>Después nos pasás la lista con este formato</strong> (te mandamos la planilla para completar):
+        <div class="cols"><table>
+          <tr><th>Nombre</th><th>Teléfono</th><th>Dirección</th><th>Entre calles</th><th>Barrio / Partido</th><th>Regalo</th><th>Mensaje de tarjeta</th></tr>
+          <tr><td>Ana López</td><td>11 5555-1234</td><td>Gorriti 4500</td><td>Malabia y Armenia</td><td>Palermo</td><td>Caja de regalo</td><td>¡Gracias por este año!</td></tr>
+        </table></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="paso">
+    <div class="paso-tit"><span class="paso-num">4</span><div><h2>Que se note que es de ustedes</h2></div></div>
+    <div class="sub" style="margin-top:0">
+      <label class="check"><input type="checkbox" id="tarjeta" checked><span><strong>Tarjeta con mensaje</strong> · sin cargo. Un mensaje para todos o uno por persona en la lista.</span></label>
+      <label class="campo" id="msg-wrap">Mensaje para la tarjeta<textarea id="msg" maxlength="500" placeholder="¡Gracias por un gran año! Brindemos por lo que viene."></textarea></label>
+      <label class="check"><input type="checkbox" id="tarjeta-propia"><span><strong>Enviás tu tarjeta personal</strong> · nos acercás tus tarjetas y las sumamos a cada regalo, sin cargo.</span></label>
+    </div>
+  </section>
+
+  <section class="paso">
+    <div class="paso-tit"><span class="paso-num">5</span><div><h2>Tus datos</h2><p class="ayuda">Para mandarte la propuesta y la factura.</p></div></div>
+    <div class="sub" style="margin-top:0">
+      <div class="fila">
+        <label class="campo">Empresa<input type="text" id="empresa" autocomplete="organization"></label>
+        <label class="campo">CUIT (opcional)<input type="text" id="cuit" inputmode="numeric"></label>
+      </div>
+      <div class="fila">
+        <label class="campo">Tu nombre<input type="text" id="nombre" autocomplete="name"></label>
+        <label class="campo">Teléfono<input type="tel" id="tel" autocomplete="tel"></label>
+      </div>
+      <label class="campo">Email<input type="email" id="email" autocomplete="email"></label>
+      <label class="check"><input type="checkbox" id="facA"><span>Necesito Factura A</span></label>
+      <div class="hp" aria-hidden="true"><label>Sitio web<input type="text" id="sitio_web" name="sitio_web" tabindex="-1" autocomplete="off"></label></div>
+    </div>
+  </section>
+
+</div>
+
+<aside aria-live="polite">
+  <h2>Tu propuesta</h2>
+  <div class="asig" id="asig"></div>
+  <ul class="lineas" id="lineas"></ul>
+  <div class="tot">
+    <div><span>Regalos</span><span id="t-reg">$0</span></div>
+    <div id="r-beb" hidden><span>Bebidas</span><span id="t-beb">$0</span></div>
+    <div class="desc-vol" id="r-desc" hidden><span id="l-desc">Descuento</span><span id="t-desc">$0</span></div>
+    <div><span>Envío<span class="est" id="env-est" hidden>estimado</span></span><span id="t-env">—</span></div>
+    <div class="grande"><small>Total</small><span id="t-tot">$0</span></div>
+    <div class="porreg" id="t-por"></div>
+  </div>
+  <div class="calc-estado" id="calc-estado"></div>
+  <div class="calc-error" id="calc-error" hidden></div>
+  <div class="ctas">
+    <button class="btn btn-1" id="b-sol" type="button" disabled>Pedir la propuesta</button>
+    <a class="btn btn-2" id="b-wa" href="#" target="_blank" rel="noopener">Cerrar por WhatsApp</a>
+  </div>
+  <p class="nota">Precio orientativo. Te confirmamos disponibilidad y fecha antes de cobrar.</p>
+</aside>
+</main>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+// ===== API: producción, salvo ?api= (para probar contra staging) o localhost =====
+const API_PROD = "https://piccadely-panel-production.up.railway.app";
+const API = (() => {
+  const valida = (u) => /^https:\/\/[a-z0-9.-]+(:[0-9]+)?$/i.test(u) || /^http:\/\/(localhost|127\.0\.0\.1)(:[0-9]+)?$/.test(u);
+  const q = new URLSearchParams(location.search).get("api");
+  if (q && valida(q.replace(/\/+$/, ""))) { try { sessionStorage.setItem("regalos_api", q.replace(/\/+$/, "")); } catch (_) {} return q.replace(/\/+$/, ""); }
+  try { const s = sessionStorage.getItem("regalos_api"); if (s && valida(s)) return s; } catch (_) {}
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) return "http://localhost:3001";
+  return API_PROD;
+})();
+const WA = "5491162393921";   // WhatsApp corporativo
+
+const $ = (s) => document.querySelector(s);
+const plata = (n) => "$" + Math.round(Number(n) || 0).toLocaleString("es-AR");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const estado = { cat: null, estilo: null, q: {}, calc: null, pedido: 0 };
+const ICONOS = { giftcard: "🎁", desayuno: "🥐", caja: "📦", chica: "🧀", mediana: "🍽️", bebida: "🍷" };
+
+// Aviso visible si no es producción (preview / localhost / ?api=)
+if (API !== API_PROD) { const a = $("#aviso-api"); a.textContent = `Modo prueba: usando la API ${API}`; a.hidden = false; }
+else if (/\.vercel\.app$/.test(location.hostname)) { const a = $("#aviso-api"); a.textContent = "Preview: esta página usa la API de producción. Para probar contra staging agregá ?api=<URL de staging>."; a.hidden = false; }
+
+// "Mediana - Comen 2- Piccan 5" → "Mediana · comen 2, piccan 5"
+const varianteLinda = (v) => {
+  const m = String(v || "").match(/^\s*(.+?)\s*-?\s*(comen?)\s*([0-9]+)\s*-\s*(piccan?)\s*([0-9]+)\s*$/i);
+  return m ? `${m[1]} · ${m[2].toLowerCase()} ${m[3]}, ${m[4].toLowerCase()} ${m[5]}` : String(v || "");
+};
+const itemsTodos = () => estado.cat ? estado.cat.estilos.flatMap((e) => e.items) : [];
+const itemDe = (id) => itemsTodos().find((i) => String(i.variant_id) === String(id));
+
+// ===== Render =====
+function renderEscala() {
+  if (!estado.cat) return;
+  const c = +$("#cant").value || 0;
+  $("#escala").innerHTML = estado.cat.tramos.map((t) => `<span class="${c >= t.min ? "on" : ""}">${t.min}+ regalos · ${t.pct}% off</span>`).join("");
+}
+function renderTabs() {
+  const regalos = estado.cat.estilos.filter((e) => !e.extra);
+  $("#tabs").innerHTML = regalos.map((e) => {
+    const tiene = e.items.some((i) => estado.q[i.variant_id] > 0);
+    return `<button class="tab" type="button" aria-pressed="${estado.estilo === e.id}" data-e="${e.id}">${esc(e.nombre)}${tiene ? " •" : ""}</button>`;
+  }).join("");
+}
+function tarjeta(i, tope) {
+  const q = estado.q[i.variant_id] || 0, fuera = tope && i.precio > tope;
+  const foto = i.foto ? `<img src="${esc(i.foto)}" alt="" loading="lazy">` : (ICONOS[i.estilo] || "🎁");
+  return `<article class="prod ${q ? "sel" : ""} ${fuera ? "fuera" : ""}">
+    <div class="foto" aria-hidden="true">${foto}</div>
+    <div class="prod-body"><h3>${esc(i.nombre)}</h3>${i.variante ? `<div class="variante">${esc(varianteLinda(i.variante))}</div>` : ""}<div class="desc">${esc(i.descripcion)}</div>
+      <div class="linea-q"><span class="precio">${plata(i.precio)}${i.precio_antes ? `<span class="antes">${plata(i.precio_antes)}</span>` : ""}</span>
+        <div class="mini"><button type="button" aria-label="Restar ${esc(i.nombre)}" data-q="${i.variant_id}" data-d="-1">−</button>
+        <input type="number" min="0" value="${q}" data-in="${i.variant_id}" aria-label="Cantidad de ${esc(i.nombre)}">
+        <button type="button" class="mas" aria-label="Sumar ${esc(i.nombre)}" data-q="${i.variant_id}" data-d="1">+</button></div>
+      </div></div></article>`;
+}
+function renderGrilla() {
+  const tope = +$("#presu").value;
+  const e = estado.cat.estilos.find((x) => x.id === estado.estilo);
+  $("#grilla").innerHTML = e && e.items.length ? e.items.map((i) => tarjeta(i, tope)).join("")
+    : `<div class="vacio-grilla">Por ahora no hay opciones disponibles en esta categoría.</div>`;
+  $("#gc-otro").hidden = estado.estilo !== "giftcard";
+  const beb = estado.cat.estilos.find((x) => x.extra);
+  $("#bebidas-wrap").hidden = !(beb && beb.items.length);
+  if (beb) $("#bebidas").innerHTML = beb.items.map((i) => tarjeta(i, 0)).join("");
+}
+function renderZonas() {
+  const sel = $("#zona-uno");
+  sel.innerHTML = `<option value="CABA">CABA</option>` + estado.cat.envio.partidos.map((p) => `<option value="${esc(p.partido)}">${esc(p.partido)}</option>`).join("");
+}
+
+// ===== Cálculo (server-side, con debounce) =====
+const entregaModo = () => document.querySelector("[name=entrega]:checked").value;
+function cuerpo() {
+  return {
+    items: Object.entries(estado.q).filter(([, q]) => q > 0).map(([variant_id, cantidad]) => ({ variant_id, cantidad })),
+    cantidadRegalos: Math.max(1, parseInt($("#cant").value, 10) || 1),
+    entrega: entregaModo() === "uno"
+      ? { modo: "uno", zona: $("#zona-uno").value, direccion: $("#dir").value.trim() }
+      : { modo: "varios", nCaba: Math.max(0, parseInt($("#n-caba").value, 10) || 0), nGba: Math.max(0, parseInt($("#n-gba").value, 10) || 0) },
+  };
+}
+let tCalc = null;
+function recalcular() {
+  clearTimeout(tCalc);
+  $("#calc-estado").textContent = "Actualizando…";
+  tCalc = setTimeout(async () => {
+    const n = ++estado.pedido;
+    try {
+      const r = await fetch(API + "/api/regalos/calcular", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo()) });
+      const d = await r.json();
+      if (n !== estado.pedido) return;   // llegó una respuesta vieja
+      if (!r.ok) throw new Error(d.error || "No se pudo calcular");
+      estado.calc = d; renderResumen();
+      $("#calc-estado").textContent = "";
+    } catch (e) {
+      if (n !== estado.pedido) return;
+      $("#calc-estado").textContent = "";
+      const err = $("#calc-error"); err.textContent = "No pudimos actualizar el total: " + e.message; err.hidden = false;
+    }
+  }, 300);
+}
+function renderResumen() {
+  const r = estado.calc; if (!r) return;
+  const a = $("#asig");
+  if (!r.regalos) { a.className = "asig"; a.textContent = `Elegí qué mandar para tus ${r.cantidadRegalos} regalos.`; }
+  else if (!r.faltan && !r.sobran) { a.className = "asig ok"; a.textContent = `${r.regalos} de ${r.cantidadRegalos} regalos asignados`; }
+  else { a.className = "asig mal"; a.textContent = `${r.regalos} de ${r.cantidadRegalos} regalos asignados · ${r.faltan ? `faltan ${r.faltan}` : `sobran ${r.sobran}`}`; }
+  $("#lineas").innerHTML = r.lineas.length
+    ? r.lineas.map((l) => `<li><span>${l.cantidad} × ${esc(l.nombre)}${l.variante && !l.digital ? " · " + esc(varianteLinda(l.variante).split(" · ")[0]) : ""}</span><span>${plata(l.subtotal)}</span></li>`).join("")
+    : '<li class="vacio">Todavía no sumaste regalos</li>';
+  $("#t-reg").textContent = plata(r.subtotalRegalos);
+  $("#r-beb").hidden = !r.subtotalBebidas; $("#t-beb").textContent = plata(r.subtotalBebidas);
+  $("#r-desc").hidden = !r.descuento; $("#l-desc").textContent = r.tramo ? `Descuento por volumen (${r.tramo.pct}%)` : ""; $("#t-desc").textContent = "−" + plata(r.descuento);
+  $("#t-env").textContent = r.fisicos ? plata(r.envio) : "—"; $("#env-est").hidden = !r.envioEstimado;
+  $("#t-tot").textContent = plata(r.total);
+  $("#t-por").textContent = r.regalos ? `${plata(r.porRegalo)} por regalo` : "";
+  const err = $("#calc-error"); err.hidden = !r.errores; err.textContent = r.errores ? r.errores.join(". ") : "";
+  const ok = r.regalos > 0 && !r.errores;
+  $("#b-sol").disabled = !ok;
+  $("#b-wa").style.pointerEvents = ok ? "" : "none"; $("#b-wa").style.opacity = ok ? "" : ".45";
+  // pista: autocompletar destinatarios
+  const nc = $("#n-caba"), ng = $("#n-gba");
+  if (entregaModo() === "varios" && (+nc.value) + (+ng.value) === 0 && r.fisicos) { nc.value = r.fisicos; recalcular(); }
+}
+
+// ===== Propuesta (lead + PDF) y WhatsApp =====
+function datosLead(canal) {
+  const b = cuerpo();
+  return {
+    ...b, canal,
+    cliente: { nombre: $("#nombre").value.trim(), email: $("#email").value.trim(), telefono: $("#tel").value.trim() },
+    empresa: $("#empresa").value.trim(), cuit: $("#cuit").value.trim(), facturaA: $("#facA").checked,
+    fecha: (entregaModo() === "uno" ? $("#fecha").value : $("#fecha-v").value) || null,
+    tarjeta: { conMensaje: $("#tarjeta").checked, mensaje: $("#tarjeta").checked ? $("#msg").value.trim() : "" },
+    tarjetaPropia: $("#tarjeta-propia").checked,
+    sitio_web: $("#sitio_web").value,   // honeypot: siempre vacío para una persona
+  };
+}
+async function guardarLead(canal) {
+  const r = await fetch(API + "/api/regalos/propuesta", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(datosLead(canal)) });
+  const d = await r.json();
+  if (!r.ok || !d.ok) throw new Error(d.error || "No se pudo guardar");
+  return d;
+}
+function mensajeWA(r, id) {
+  const entrega = entregaModo() === "uno" ? `Todos a un mismo lugar (${$("#zona-uno").value})` : "Cada uno a su dirección";
+  const emp = $("#empresa").value.trim();
+  return `¡Hola! Quiero cotizar regalos empresariales${emp ? " para " + emp : ""}.${id ? `\nPropuesta N° *#${id}*` : ""}\n\n` +
+    r.lineas.map((l) => `• ${l.cantidad} × ${l.nombre}${l.variante && !l.digital ? " (" + varianteLinda(l.variante).split(" · ")[0] + ")" : ""}`).join("\n") +
+    `\n\nEntrega: ${entrega}\nTotal estimado: ${plata(r.total)}` + (r.tramo ? ` (con ${r.tramo.pct}% off por volumen)` : "");
+}
+
+$("#b-sol").addEventListener("click", async () => {
+  if (!$("#nombre").value.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test($("#email").value.trim())) { toast("Completá tu nombre y email en el paso 5", true); $("#nombre").focus(); return; }
+  const b = $("#b-sol"); b.disabled = true; b.textContent = "Generando…";
+  try {
+    const d = await guardarLead("solicitar");
+    await generarPDF(d.calculo, d.id);
+    toast(`¡Listo! Tu propuesta #${d.id} quedó registrada y te descargamos el PDF. Te contactamos a la brevedad.`);
+  } catch (e) { toast("No pudimos generar la propuesta: " + e.message, true); }
+  finally { b.disabled = false; b.textContent = "Pedir la propuesta"; }
+});
+
+$("#b-wa").addEventListener("click", async (ev) => {
+  ev.preventDefault();
+  const r = estado.calc; if (!r || !r.regalos) return;
+  const ventana = window.open("about:blank", "_blank");   // se abre ya (si no, el navegador la bloquea)
+  let id = null;
+  if ($("#nombre").value.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test($("#email").value.trim())) {
+    try { id = (await guardarLead("whatsapp")).id; } catch (_) { /* igual abre WhatsApp */ }
+  }
+  const url = "https://wa.me/" + WA + "?text=" + encodeURIComponent(mensajeWA(r, id));
+  if (ventana) ventana.location.href = url; else location.href = url;
+});
+
+// PDF de la propuesta (mismo armado que el cotizador de eventos: jsPDF + fotos vía /api/cotizador/img)
+async function generarPDF(c, id) {
+  if (!window.jspdf) throw new Error("no cargó el generador de PDF");
+  const urls = [...new Set(c.lineas.map((l) => l.foto).filter(Boolean))];
+  const cache = {};
+  await Promise.all(urls.map(async (u) => {
+    try { const r = await fetch(API + "/api/cotizador/img?u=" + encodeURIComponent(u)); const d = await r.json(); if (d.dataUrl) cache[u] = d.dataUrl; } catch (_) {}
+  }));
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const W = 210;
+  const empresa = $("#empresa").value.trim();
+  const header = () => {
+    doc.setFillColor(246, 139, 50); doc.rect(0, 0, W, 30, "F");
+    doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(22);
+    doc.text("Piccadely", 15, 16);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(11);
+    doc.text("Propuesta de Regalos Empresariales", 15, 23);
+    doc.text(new Date().toLocaleDateString("es-AR") + (id ? `  ·  N° ${id}` : ""), W - 15, 16, { align: "right" });
+    doc.text(`${c.regalos} regalos${empresa ? " · " + empresa : ""}`, W - 15, 23, { align: "right" });
+  };
+  header();
+  let y = 44; doc.setTextColor(43, 32, 24);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.text("Detalle", 15, y); y += 9;
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+  for (const l of c.lineas) {
+    if (y > 270) { doc.addPage(); header(); y = 44; }
+    const data = l.foto && cache[l.foto];
+    if (data) {
+      const f = (/^data:image\/(\w+)/.exec(data) || [])[1];
+      try { doc.addImage(data, f === "png" ? "PNG" : f === "webp" ? "WEBP" : "JPEG", 15, y - 5, 8, 8); } catch (_) {}
+    }
+    const nombre = `${l.cantidad} x ${l.nombre}${l.variante && !l.digital ? " (" + varianteLinda(l.variante).split(" · ")[0] + ")" : ""}${l.extra ? " · bebida" : ""}`;
+    doc.text(doc.splitTextToSize(nombre, 125), data ? 26 : 15, y);
+    doc.text(`${plata(l.precio)} c/u`, 160, y, { align: "right" });
+    doc.text(plata(l.subtotal), W - 15, y, { align: "right" });
+    y += 9;
+  }
+  doc.setDrawColor(236, 226, 212); doc.line(15, y - 3, W - 15, y - 3); y += 4;
+  const fila = (txt, monto, negrita) => {
+    if (y > 278) { doc.addPage(); header(); y = 44; }
+    doc.setFont("helvetica", negrita ? "bold" : "normal"); doc.setFontSize(negrita ? 13 : 10);
+    doc.text(txt, 120, y, { align: "right" }); doc.text(monto, W - 15, y, { align: "right" }); y += negrita ? 9 : 7;
+  };
+  fila("Regalos", plata(c.subtotalRegalos));
+  if (c.subtotalBebidas) fila("Bebidas", plata(c.subtotalBebidas));
+  if (c.descuento) fila(`Descuento por volumen (${c.tramo.pct}%)`, "-" + plata(c.descuento));
+  if (c.fisicos) fila("Envío" + (c.envioEstimado ? " (estimado)" : ""), plata(c.envio));
+  fila("Total", plata(c.total), true);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.text(`${plata(c.porRegalo)} por regalo`, W - 15, y, { align: "right" }); y += 12;
+
+  const ent = c.envioDetalle;
+  const notas = [
+    ent ? (ent.modo === "uno" ? `Entrega: todos a un mismo lugar (${ent.zona})${$("#dir").value.trim() ? " · " + $("#dir").value.trim() : ""}.` : `Entrega: cada uno a su casa (${ent.nCaba} en CABA, ${ent.nGba} en GBA). El envío final se calcula con la planilla de destinatarios.`) : "Las giftcards se envían por mail.",
+    $("#tarjeta").checked ? `Tarjeta con mensaje${$("#msg").value.trim() ? ": “" + $("#msg").value.trim() + "”" : ""}.` : "",
+    $("#tarjeta-propia").checked ? "Sumamos tu tarjeta personal a cada regalo." : "",
+  ].filter(Boolean);
+  doc.setFontSize(10); doc.setTextColor(43, 32, 24);
+  for (const n of notas) { const t = doc.splitTextToSize(n, W - 30); if (y + t.length * 5 > 280) { doc.addPage(); header(); y = 44; } doc.text(t, 15, y); y += t.length * 5 + 2; }
+  doc.setFontSize(9); doc.setTextColor(138, 122, 107);
+  doc.text("Precio orientativo, válido por 7 días. Te confirmamos disponibilidad y fecha antes de cobrar.", 15, 285);
+  doc.text("Corporativo: 11 6239-3921 · corporativo@piccadely.com", 15, 291);
+  doc.save(`propuesta-regalos-piccadely${id ? "-" + id : ""}.pdf`);
+}
+
+function toast(m, error) { const t = $("#toast"); t.textContent = m; t.classList.toggle("error", !!error); t.classList.add("show"); clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove("show"), 4500); }
+
+// ===== Eventos =====
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("button"); if (!t || !estado.cat) return;
+  if (t.dataset.cant) { const i = $("#cant"); i.value = Math.max(1, (+i.value || 0) + +t.dataset.cant); renderEscala(); recalcular(); }
+  if (t.dataset.e) { estado.estilo = t.dataset.e; renderTabs(); renderGrilla(); }
+  if (t.dataset.q) { const id = t.dataset.q; estado.q[id] = Math.max(0, (estado.q[id] || 0) + +t.dataset.d); renderTabs(); renderGrilla(); recalcular(); }
+});
+document.addEventListener("change", (e) => {
+  if (e.target.dataset.in) { estado.q[e.target.dataset.in] = Math.max(0, parseInt(e.target.value, 10) || 0); renderTabs(); renderGrilla(); recalcular(); }
+});
+$("#cant").addEventListener("input", () => { renderEscala(); recalcular(); });
+$("#presu").addEventListener("change", renderGrilla);
+document.querySelectorAll("[name=entrega]").forEach((r) => r.addEventListener("change", () => {
+  const v = entregaModo(); $("#sub-uno").hidden = v !== "uno"; $("#sub-varios").hidden = v !== "varios"; recalcular();
+}));
+["#zona-uno", "#n-caba", "#n-gba"].forEach((s) => $(s).addEventListener("input", recalcular));
+$("#tarjeta").addEventListener("change", () => { $("#msg-wrap").hidden = !$("#tarjeta").checked; });
+
+$("#gc-otro-link").href = "https://wa.me/" + WA + "?text=" + encodeURIComponent("¡Hola! Quiero una giftcard de Piccadely por otro monto para regalos empresariales.");
+
+// fecha mínima: pasado mañana
+const min = new Date(Date.now() + 2 * 864e5).toISOString().slice(0, 10);
+$("#fecha").min = min; $("#fecha-v").min = min;
+
+// ===== Inicio =====
+(async () => {
+  try {
+    const r = await fetch(API + "/api/regalos/catalogo");
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "error");
+    estado.cat = d;
+    const conItems = d.estilos.filter((e) => !e.extra && e.items.length);
+    estado.estilo = (conItems.find((e) => e.id === "caja") || conItems[0] || d.estilos[0]).id;
+    $("#cat-cargando").hidden = true; $("#cat-ok").hidden = false;
+    renderZonas(); renderEscala(); renderTabs(); renderGrilla(); recalcular();
+  } catch (e) {
+    $("#cat-cargando").textContent = "No pudimos cargar el catálogo. Probá recargar la página en un rato.";
+  }
+})();
+</script>
+</body>
+</html>
