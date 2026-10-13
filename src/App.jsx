@@ -1606,6 +1606,37 @@ const [facturaLabel, setFacturaLabel] = useState(null);
         </div>
       );
     }
+    // ─── LEADS DE REGALOS EMPRESARIALES (public/regalos.html → origen 'regalos') ───
+    // Detalle compartido por "Cotizaciones" y "Ventas a realizar". `opciones` = { tipo: "regalos", lineas, entrega, ... }.
+    const REGALOS_BADGE = { bg: "#e0f2f1", color: "#0f766e" };   // verde azulado (manual = violeta, formulario = naranja)
+    const esLeadRegalos = (c) => c?.origen === "regalos" || (c?.opciones && !Array.isArray(c.opciones) && c.opciones.tipo === "regalos");
+    function DetalleRegalos({ c }) {
+      const o = c?.opciones && !Array.isArray(c.opciones) ? c.opciones : null;
+      const pesos = (n) => "$" + Math.round(Number(n) || 0).toLocaleString("es-AR");
+      if (!o) return <div style={{ fontSize: 12, color: "#999" }}>Sin detalle guardado.</div>;
+      const ent = o.entrega || {};
+      const entregaTxt = ent.modo === "varios"
+        ? `Cada uno a su casa · ${ent.nCaba ?? 0} en CABA + ${ent.nGba ?? 0} en GBA (envío estimado)`
+        : ent.zona ? `Todos a un mismo lugar · ${ent.zona}${ent.direccion ? " · " + ent.direccion : ""}${ent.viajes ? ` · ${ent.viajes} viaje(s)` : ""}` : "Sin envío (solo giftcards)";
+      return (
+        <div style={{ fontSize: 13, color: "#444", background: "#f3faf9", borderRadius: 8, padding: "10px 12px" }}>
+          <div style={{ marginBottom: 6 }}>🎁 <b>{o.regalos ?? c.personas}</b> regalos{o.cantidadRegalos && o.cantidadRegalos !== o.regalos ? ` (pidió ${o.cantidadRegalos})` : ""}{c.fecha_evento ? " · 📅 " + c.fecha_evento : ""}</div>
+          <ul style={{ margin: "0 0 6px", paddingLeft: 18, color: "#555" }}>
+            {(o.lineas || []).map((l, k) => <li key={k} style={{ fontSize: 12 }}>{l.cantidad}× {l.nombre}{l.variante && !l.digital ? ` (${l.variante})` : ""}{l.extra ? " · bebida" : ""} · {pesos(l.subtotal)}</li>)}
+          </ul>
+          <div style={{ fontSize: 12, color: "#555" }}>
+            Regalos {pesos(o.subtotalRegalos)}{o.subtotalBebidas ? ` · Bebidas ${pesos(o.subtotalBebidas)}` : ""}{o.descuento ? ` · Descuento ${o.tramo?.pct ?? ""}% −${pesos(o.descuento)}` : ""} · Envío {pesos(o.envio)}{o.envioEstimado ? " (estimado)" : ""}
+          </div>
+          <div style={{ fontWeight: 700, color: REGALOS_BADGE.color, margin: "4px 0" }}>Total {pesos(o.total ?? c.total_elegido)}{o.porRegalo ? ` · ${pesos(o.porRegalo)} por regalo` : ""}</div>
+          <div style={{ fontSize: 12, color: "#555" }}>🚚 {entregaTxt}</div>
+          <div style={{ fontSize: 12, color: "#555" }}>
+            💌 {o.tarjeta?.conMensaje ? `Tarjeta con mensaje${o.tarjeta.mensaje ? `: “${o.tarjeta.mensaje}”` : ""}` : "Sin tarjeta con mensaje"}{o.tarjetaPropia ? " · envía su tarjeta personal" : ""}
+          </div>
+          {(o.cuit || o.facturaA) && <div style={{ fontSize: 12, color: "#555" }}>🧾 {o.cuit ? `CUIT ${o.cuit}` : ""}{o.cuit && o.facturaA ? " · " : ""}{o.facturaA ? "Factura A" : ""}</div>}
+        </div>
+      );
+    }
+
     function VistaCotizaciones({ onVolver }) {
       const [lista, setLista] = useState([]);
       const [loading, setLoading] = useState(true);
@@ -1661,9 +1692,31 @@ const [facturaLabel, setFacturaLabel] = useState(null);
           {!loading && !error && filtradas.length === 0 && <p style={{ color: "#999" }}>No hay cotizaciones todavía.</p>}
 
           {filtradas.map(c => {
-            const elegida = (c.opciones || []).find(o => o.nivel === c.nivel_elegido);
+            // Los leads de regalos guardan en `opciones` un objeto ({ tipo: "regalos", ... }), no la lista de opciones del evento.
+            const esRegalos = esLeadRegalos(c);
+            const elegida = Array.isArray(c.opciones) ? c.opciones.find(o => o.nivel === c.nivel_elegido) : null;
             const items = elegida ? [...(elegida.piccadas || []), ...(elegida.sandwiches || []), ...(elegida.vegetarianas || [])] : [];
             const link = wsp(c.telefono);
+            if (esRegalos) return (
+              <div key={c.id} style={{ ...card, borderLeft: "4px solid " + (colorEstado[c.estado] || "#ddd") }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 6, background: REGALOS_BADGE.bg, color: REGALOS_BADGE.color }}>🎁 Regalos empresariales</span>
+                  <span style={{ fontSize: 12, color: "#999" }}>#{c.id} · {fmtFecha(c.creada_en)} · {c.canal === "whatsapp" ? "📲 WhatsApp" : "📄 Pidió la propuesta"}</span>
+                  <select value={c.estado} onChange={e => cambiarEstado(c.id, e.target.value)}
+                    style={{ marginLeft: "auto", fontSize: 12, padding: "5px 8px", borderRadius: 6, border: "1px solid #ddd", color: colorEstado[c.estado], fontWeight: 600 }}>
+                    {estados.map(e => <option key={e} value={e}>{e.charAt(0).toUpperCase() + e.slice(1)}</option>)}
+                  </select>
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>
+                  {c.cliente_nombre || "Sin nombre"}{c.empresa ? <span style={{ color: "#888", fontWeight: 400 }}> · {c.empresa}</span> : null}
+                </div>
+                <div style={{ fontSize: 13, color: "#666", margin: "4px 0 10px" }}>
+                  ✉️ {c.email || "-"} · 📱 {c.telefono || "-"}
+                  {link && <a href={link} target="_blank" rel="noreferrer" style={{ marginLeft: 8, color: "#1ea05a", textDecoration: "none", fontWeight: 600 }}>Escribir ›</a>}
+                </div>
+                <DetalleRegalos c={c} />
+              </div>
+            );
             return (
               <div key={c.id} style={{ ...card, borderLeft: "4px solid " + (colorEstado[c.estado] || "#ddd") }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
@@ -7176,6 +7229,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
     const OPP_FORM_VACIO = { cliente_nombre: "", empresa: "", email: "", telefono: "", personas: "", fecha_evento: "", zona: "", total_elegido: "", notas: "", estado: "pendiente" };
     function VistaVentasRealizar({ usuario, onVolver }) {
       const [lista, setLista] = useState([]);
+      const [detalleAbierto, setDetalleAbierto] = useState({});   // id → detalle de regalos desplegado
       const [clientesMap, setClientesMap] = useState({});
       const [clientesList, setClientesList] = useState([]);
       const [loading, setLoading] = useState(true);
@@ -7289,7 +7343,9 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: "#333", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         {c.cliente_nombre || "Sin nombre"}{c.empresa ? <span style={{ color: "#888", fontWeight: 400 }}>· {c.empresa}</span> : null}
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: c.origen === "manual" ? "#ede9fe" : "#fff4e8", color: c.origen === "manual" ? "#6d28d9" : "#d9701c" }}>{c.origen === "manual" ? "manual" : "formulario"}</span>
+                        {esLeadRegalos(c)
+                          ? <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: REGALOS_BADGE.bg, color: REGALOS_BADGE.color }}>Regalos</span>
+                          : <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: c.origen === "manual" ? "#ede9fe" : "#fff4e8", color: c.origen === "manual" ? "#6d28d9" : "#d9701c" }}>{c.origen === "manual" ? "manual" : "formulario"}</span>}
                         {ti && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: ti.bg, color: ti.color }}>{ti.emoji} {ti.label}</span>}
                       </div>
                       <div style={{ fontSize: 12, color: "#888", marginTop: 3 }}>
@@ -7297,6 +7353,13 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                       </div>
                       {c.estado === "perdida" && c.motivo_perdida && <div style={{ fontSize: 11, color: "#c0392b", marginTop: 3 }}>Perdida: {c.motivo_perdida}</div>}
                       {c.notas && <div style={{ fontSize: 12, color: "#666", marginTop: 3 }}>{c.notas}</div>}
+                      {esLeadRegalos(c) && (
+                        <button type="button" onClick={() => setDetalleAbierto(d => ({ ...d, [c.id]: !d[c.id] }))}
+                          style={{ marginTop: 6, fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 6, border: `1px solid ${REGALOS_BADGE.color}`, background: "#fff", color: REGALOS_BADGE.color, cursor: "pointer" }}>
+                          {detalleAbierto[c.id] ? "Ocultar detalle ▴" : "Ver detalle ▾"}
+                        </button>
+                      )}
+                      {esLeadRegalos(c) && detalleAbierto[c.id] && <div style={{ marginTop: 8 }}><DetalleRegalos c={c} /></div>}
                     </div>
                     <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                       <div style={{ fontSize: 16, fontWeight: 700, color: "#333" }}>{money(c.total_elegido)}</div>

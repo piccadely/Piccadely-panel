@@ -14,6 +14,7 @@ import { whatsappAdminRouter } from "./Routes/whatsappAdmin.js";
 import { autotestR2 } from "./r2Storage.js";
 import { iniciarRetencionWhatsApp } from "./whatsappRetencion.js";
 import { cotizadorRouter, clienteKeyDe } from "./Routes/cotizador.js";
+import { regalosRouter } from "./Routes/regalos.js";
 import { createRequire } from "module";
 import { normalizarProducto, calcularEnvioTN, esExcluidoProduccion, claveProducto } from "./productos-normalizacion.js"; // clave canónica + costo de envío TN + filtros de producción, compartidos con el front
 const requireCJS = createRequire(import.meta.url); // server.js es ESM; require solo para el JSON de polígonos
@@ -797,6 +798,7 @@ app.use("/api/whatsapp", whatsappWebhookRouter(pool));   // Cloud API de Meta: G
 app.use("/api/whatsapp", whatsappBandejaRouter(pool, { requireAuth }));   // bandeja multiagente (requiere login)
 app.use("/api/whatsapp", whatsappAdminRouter(pool, { requireAuth }));     // Configuración WhatsApp + corte (solo admin/superadmin)
 app.use("/api", cotizadorRouter(pool, mailTransporter, requireAdmin));
+app.use("/api/regalos", regalosRouter(pool, mailTransporter));   // Cotizador de Regalos Empresariales (público: catálogo, cálculo y propuesta)
 
  // ─── ORDERS ───────────────────────────────────────────────────────────
 app.get("/api/orders", async (req, res) => {
