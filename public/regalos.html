@@ -44,7 +44,8 @@ header{display:flex;justify-content:space-between;align-items:center;gap:12px;pa
 .volver{border:1.5px solid var(--naranja);color:var(--naranja-hondo);border-radius:999px;padding:7px 14px;text-decoration:none;font-weight:600;font-size:14px;white-space:nowrap}
 @media(prefers-color-scheme:dark){.volver{color:var(--naranja)}}
 @media(max-width:520px){.volver-extra{display:none}}
-.aviso-api{background:#7c2d12;color:#fff;font-size:13px;padding:8px clamp(16px,4vw,40px)}
+.aviso-api{background:#1e3a5f;color:#fff;font-size:13px;padding:8px clamp(16px,4vw,40px);word-break:break-all}
+.aviso-api.prod{background:#7c2d12}
 
 .hero{padding:clamp(28px,6vw,64px) clamp(16px,4vw,40px) 20px;max-width:1180px;margin:0 auto}
 .hero h1{font-size:clamp(34px,6vw,64px);font-weight:800;letter-spacing:-1.5px;max-width:14ch}
@@ -103,10 +104,12 @@ input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-
 .opcion strong{font-size:17px}
 .opcion p{margin:6px 0 0;font-size:14px;color:var(--tinta-2)}
 .sub{margin-top:16px;display:grid;gap:12px}
-.fila{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@media(max-width:620px){.fila{grid-template-columns:1fr}}
+.fila{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+@media(max-width:620px){.fila{grid-template-columns:minmax(0,1fr)}}
+/* Los inputs (sobre todo type=date y number) tienen un ancho mínimo propio: sin esto empujan la columna y desbordan el paso. */
+.fila>*,.sub>*,label.campo{min-width:0}
 label.campo{display:flex;flex-direction:column;gap:5px;font-size:14px;font-weight:600}
-label.campo input,label.campo select,label.campo textarea{border:1.5px solid var(--linea);background:var(--card);border-radius:10px;padding:10px 12px;font-weight:400;font-size:15px}
+label.campo input,label.campo select,label.campo textarea{width:100%;min-width:0;max-width:100%;border:1.5px solid var(--linea);background:var(--card);border-radius:10px;padding:10px 12px;font-weight:400;font-size:15px}
 textarea{resize:vertical;min-height:70px}
 .check{display:flex;gap:10px;align-items:flex-start;font-size:15px;cursor:pointer}
 .check input{accent-color:var(--naranja);width:18px;height:18px;margin-top:2px;flex:none}
@@ -313,9 +316,50 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const estado = { cat: null, estilo: null, q: {}, calc: null, pedido: 0 };
 const ICONOS = { giftcard: "🎁", desayuno: "🥐", caja: "📦", chica: "🧀", mediana: "🍽️", bebida: "🍷" };
 
-// Aviso visible si no es producción (preview / localhost / ?api=)
-if (API !== API_PROD) { const a = $("#aviso-api"); a.textContent = `Modo prueba: usando la API ${API}`; a.hidden = false; }
-else if (/\.vercel\.app$/.test(location.hostname)) { const a = $("#aviso-api"); a.textContent = "Preview: esta página usa la API de producción. Para probar contra staging agregá ?api=<URL de staging>."; a.hidden = false; }
+// Aviso con la API en uso: SOLO en previews de Vercel y localhost (nunca en el dominio de producción).
+const ES_PREVIEW = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) || /\.vercel\.app$/.test(location.hostname);
+if (ES_PREVIEW) {
+  const a = $("#aviso-api");
+  a.textContent = `API: ${API}` + (API === API_PROD ? " (producción · para staging agregá ?api=<URL de staging>)" : "");
+  a.classList.toggle("prod", API === API_PROD);
+  a.hidden = false;
+}
+
+// ===== Pedidos al API: el cliente nunca ve errores técnicos =====
+// Se chequea res.ok y que la respuesta sea JSON ANTES de parsear (un 404 de un preview devuelve HTML →
+// "Unexpected token '<'"). El detalle técnico va solo a console.error, con la URL del API usada.
+const MSG = {
+  catalogo: "No pudimos cargar el catálogo. Probá de nuevo en un rato o escribinos por WhatsApp.",
+  calcular: "No pudimos calcular el total. Probá de nuevo en un rato o escribinos por WhatsApp.",
+  propuesta: "No pudimos generar la propuesta. Probá de nuevo en un rato o escribinos por WhatsApp.",
+};
+class ErrorAmable extends Error {}
+async function pedirJSON(ruta, opciones, amable) {
+  const url = API + ruta;
+  let r;
+  try { r = await fetch(url, opciones); }
+  catch (e) { console.error("Regalos: error de red", { api: API, url, error: e.message }); throw new ErrorAmable(amable); }
+  const ct = r.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) {
+    const cuerpo = await r.text().catch(() => "");
+    console.error("Regalos: la respuesta no es JSON", { api: API, url, status: r.status, contentType: ct, cuerpo: cuerpo.slice(0, 300) });
+    throw new ErrorAmable(amable);
+  }
+  let d;
+  try { d = await r.json(); }
+  catch (e) { console.error("Regalos: JSON inválido", { api: API, url, status: r.status, error: e.message }); throw new ErrorAmable(amable); }
+  if (!r.ok) {
+    console.error("Regalos: error del API", { api: API, url, status: r.status, respuesta: d });
+    // 400 / 429 traen mensajes pensados para el cliente (datos faltantes, demasiadas propuestas); el resto, el genérico.
+    throw new ErrorAmable((r.status === 400 || r.status === 429) && d && d.error ? d.error : amable);
+  }
+  return d;
+}
+const mensajeCliente = (e, amable) => {
+  if (e instanceof ErrorAmable) return e.message;
+  console.error("Regalos: error inesperado", { api: API, error: e && e.message, e });
+  return amable;
+};
 
 // "Mediana - Comen 2- Piccan 5" → "Mediana · comen 2, piccan 5"
 const varianteLinda = (v) => {
@@ -383,16 +427,15 @@ function recalcular() {
   tCalc = setTimeout(async () => {
     const n = ++estado.pedido;
     try {
-      const r = await fetch(API + "/api/regalos/calcular", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo()) });
-      const d = await r.json();
+      const d = await pedirJSON("/api/regalos/calcular", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo()) }, MSG.calcular);
       if (n !== estado.pedido) return;   // llegó una respuesta vieja
-      if (!r.ok) throw new Error(d.error || "No se pudo calcular");
       estado.calc = d; renderResumen();
       $("#calc-estado").textContent = "";
     } catch (e) {
       if (n !== estado.pedido) return;
       $("#calc-estado").textContent = "";
-      const err = $("#calc-error"); err.textContent = "No pudimos actualizar el total: " + e.message; err.hidden = false;
+      const err = $("#calc-error"); err.textContent = mensajeCliente(e, MSG.calcular); err.hidden = false;
+      $("#b-sol").disabled = true;
     }
   }, 300);
 }
@@ -434,9 +477,8 @@ function datosLead(canal) {
   };
 }
 async function guardarLead(canal) {
-  const r = await fetch(API + "/api/regalos/propuesta", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(datosLead(canal)) });
-  const d = await r.json();
-  if (!r.ok || !d.ok) throw new Error(d.error || "No se pudo guardar");
+  const d = await pedirJSON("/api/regalos/propuesta", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(datosLead(canal)) }, MSG.propuesta);
+  if (!d.ok) { console.error("Regalos: la propuesta no se guardó", { api: API, respuesta: d }); throw new ErrorAmable(MSG.propuesta); }
   return d;
 }
 function mensajeWA(r, id) {
@@ -454,7 +496,7 @@ $("#b-sol").addEventListener("click", async () => {
     const d = await guardarLead("solicitar");
     await generarPDF(d.calculo, d.id);
     toast(`¡Listo! Tu propuesta #${d.id} quedó registrada y te descargamos el PDF. Te contactamos a la brevedad.`);
-  } catch (e) { toast("No pudimos generar la propuesta: " + e.message, true); }
+  } catch (e) { toast(mensajeCliente(e, MSG.propuesta), true); }
   finally { b.disabled = false; b.textContent = "Pedir la propuesta"; }
 });
 
@@ -564,16 +606,15 @@ $("#fecha").min = min; $("#fecha-v").min = min;
 // ===== Inicio =====
 (async () => {
   try {
-    const r = await fetch(API + "/api/regalos/catalogo");
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || "error");
+    const d = await pedirJSON("/api/regalos/catalogo", undefined, MSG.catalogo);
+    if (!d || !Array.isArray(d.estilos)) { console.error("Regalos: catálogo con formato inesperado", { api: API, respuesta: d }); throw new ErrorAmable(MSG.catalogo); }
     estado.cat = d;
     const conItems = d.estilos.filter((e) => !e.extra && e.items.length);
     estado.estilo = (conItems.find((e) => e.id === "caja") || conItems[0] || d.estilos[0]).id;
     $("#cat-cargando").hidden = true; $("#cat-ok").hidden = false;
     renderZonas(); renderEscala(); renderTabs(); renderGrilla(); recalcular();
   } catch (e) {
-    $("#cat-cargando").textContent = "No pudimos cargar el catálogo. Probá recargar la página en un rato.";
+    $("#cat-cargando").textContent = mensajeCliente(e, MSG.catalogo);
   }
 })();
 </script>
