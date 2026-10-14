@@ -342,7 +342,13 @@ const MSG = {
   catalogo: "No pudimos cargar el catálogo. Probá de nuevo en un rato o escribinos por WhatsApp.",
   calcular: "No pudimos calcular el total. Probá de nuevo en un rato o escribinos por WhatsApp.",
   propuesta: "No pudimos generar la propuesta. Probá de nuevo en un rato o escribinos por WhatsApp.",
+  actualizando: "Estamos actualizando el catálogo, probá de nuevo en un minuto.",
 };
+// Versión del contrato con la API (Routes/regalos.js → API_VERSION). Si la API manda otra (p. ej. a mitad de un
+// deploy, con el front y la API en versiones distintas), se muestra MSG.actualizando y se reintenta.
+const VERSIONES_SOPORTADAS = [2];
+const REINTENTO_MS = 30000, MAX_REINTENTOS = 3;
+class FormatoInesperado extends Error {}
 class ErrorAmable extends Error {}
 async function pedirJSON(ruta, opciones, amable) {
   const url = API + ruta;
@@ -477,11 +483,14 @@ function recalcular() {
     try {
       const d = await pedirJSON("/api/regalos/calcular", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo()) }, MSG.calcular);
       if (n !== estado.pedido) return;   // llegó una respuesta vieja
+      if (!VERSIONES_SOPORTADAS.includes(d.version)) throw new FormatoInesperado(`/calcular con version ${JSON.stringify(d.version)} (soportadas: ${VERSIONES_SOPORTADAS.join(", ")})`);
       estado.calc = d; renderResumen();
+      estado.reintentos = 0;   // catálogo y cálculo OK: se cierra el ciclo de reintentos
       $("#calc-estado").textContent = "";
     } catch (e) {
       if (n !== estado.pedido) return;
       $("#calc-estado").textContent = "";
+      if (e instanceof FormatoInesperado) { $("#calc-error").textContent = MSG.actualizando; $("#calc-error").hidden = false; $("#b-sol").disabled = true; modoActualizando(e.message); return; }
       const err = $("#calc-error"); err.textContent = mensajeCliente(e, MSG.calcular); err.hidden = false;
       $("#b-sol").disabled = true;
     }
@@ -631,13 +640,13 @@ function toast(m, error) { const t = $("#toast"); t.textContent = m; t.classList
 document.addEventListener("click", (e) => {
   const t = e.target.closest("button"); if (!t || !estado.cat) return;
   if (t.dataset.cant) { const i = $("#cant"); i.value = Math.max(1, (+i.value || 0) + +t.dataset.cant); renderEscala(); recalcular(); }
-  if (t.dataset.e) { estado.estilo = t.dataset.e; renderTabs(); renderGrilla(); }
-  if (t.dataset.q) { const id = t.dataset.q; setCantidad(id, cantDe(id) + +t.dataset.d); renderTabs(); renderGrilla(); recalcular(); }
+  if (t.dataset.e) { estado.estilo = t.dataset.e; dibujar(); }
+  if (t.dataset.q) { const id = t.dataset.q; setCantidad(id, cantDe(id) + +t.dataset.d); dibujar(); recalcular(); }
 });
 document.addEventListener("change", (e) => {
-  if (e.target.dataset.in) { setCantidad(e.target.dataset.in, parseInt(e.target.value, 10) || 0); renderTabs(); renderGrilla(); recalcular(); }
-  if (e.target.dataset.sel) { estado.sel[e.target.dataset.sel] = e.target.value; renderGrilla(); }
-  if (e.target.dataset.monto) renderGrilla();
+  if (e.target.dataset.in) { setCantidad(e.target.dataset.in, parseInt(e.target.value, 10) || 0); dibujar(); recalcular(); }
+  if (e.target.dataset.sel) { estado.sel[e.target.dataset.sel] = e.target.value; dibujar(); }
+  if (e.target.dataset.monto) dibujar();
 });
 $("#cant").addEventListener("input", () => { renderEscala(); recalcular(); });
 // Monto libre: se guarda y recalcula mientras escribe (sin re-dibujar, para no perder el foco).
@@ -649,7 +658,7 @@ document.addEventListener("input", (e) => {
   const qi = document.querySelector(`[data-in="${CSS.escape(id)}"]`); if (qi) qi.value = cantDe(id);
   recalcular();
 });
-$("#presu").addEventListener("change", renderGrilla);
+$("#presu").addEventListener("change", () => dibujar());
 document.querySelectorAll("[name=entrega]").forEach((r) => r.addEventListener("change", () => {
   const v = entregaModo(); $("#sub-uno").hidden = v !== "uno"; $("#sub-varios").hidden = v !== "varios"; recalcular();
 }));
@@ -661,20 +670,52 @@ const min = new Date(Date.now() + 2 * 864e5).toISOString().slice(0, 10);
 $("#fecha").min = min; $("#fecha-v").min = min;
 
 // ===== Inicio =====
-(async () => {
+// Valida el contrato v2 del catálogo antes de usarlo (nunca grilla vacía sin mensaje).
+function validarCatalogo(d) {
+  if (!d || !VERSIONES_SOPORTADAS.includes(d.version)) throw new FormatoInesperado(`/catalogo con version ${JSON.stringify(d && d.version)} (soportadas: ${VERSIONES_SOPORTADAS.join(", ")})`);
+  if (!Array.isArray(d.estilos) || !d.estilos.length) throw new FormatoInesperado("/catalogo sin estilos");
+  for (const e of d.estilos) {
+    if (!Array.isArray(e.grupos)) throw new FormatoInesperado(`/catalogo: estilo ${e.id} sin grupos`);
+    for (const g of e.grupos) for (const t of g.tarjetas || []) if (!Array.isArray(t.variantes) || !t.variantes.length) throw new FormatoInesperado(`/catalogo: tarjeta ${t.clave} sin variantes`);
+  }
+  if (!d.envio || !Array.isArray(d.envio.partidos) || !Array.isArray(d.tramos)) throw new FormatoInesperado("/catalogo sin envio.partidos o tramos");
+}
+function dibujar() {
+  try { renderTabs(); renderGrilla(); }
+  catch (e) { modoActualizando(`error al dibujar la grilla: ${e && e.message}`, e); }
+}
+// Formato/versión que este front no entiende, o error al dibujar: mensaje + reintento a los 30 s (máx. 3).
+let tReintento = null;
+estado.reintentos = 0;
+function modoActualizando(detalle, error) {
+  console.error("Regalos: catálogo no disponible en el formato esperado", { api: API, detalle, intento: estado.reintentos, error });
+  $("#cat-ok").hidden = true; $("#cat-cargando").hidden = false; $("#b-sol").disabled = true;
+  clearTimeout(tReintento);
+  if (estado.reintentos < MAX_REINTENTOS) {
+    $("#cat-cargando").textContent = MSG.actualizando;
+    estado.reintentos++;
+    tReintento = setTimeout(cargarCatalogo, REINTENTO_MS);
+  } else {
+    $("#cat-cargando").textContent = MSG.catalogo;
+  }
+}
+async function cargarCatalogo() {
   try {
     const d = await pedirJSON("/api/regalos/catalogo", undefined, MSG.catalogo);
-    if (!d || !Array.isArray(d.estilos)) { console.error("Regalos: catálogo con formato inesperado", { api: API, respuesta: d }); throw new ErrorAmable(MSG.catalogo); }
+    validarCatalogo(d);
     estado.cat = d;
     estado.libres = new Set(d.estilos.flatMap((e) => tarjetasDe(e)).filter((t) => t.montoLibre).map((t) => t.variantes[0].variant_id));
     const conItems = d.estilos.filter((e) => !e.extra && tarjetasDe(e).length);
-    estado.estilo = (conItems.find((e) => e.id === "caja") || conItems[0] || d.estilos[0]).id;
+    if (!estado.estilo || !conItems.some((e) => e.id === estado.estilo)) estado.estilo = (conItems.find((e) => e.id === "caja") || conItems[0] || d.estilos[0]).id;
+    renderZonas(); renderEscala(); renderTabs(); renderGrilla();
     $("#cat-cargando").hidden = true; $("#cat-ok").hidden = false;
-    renderZonas(); renderEscala(); renderTabs(); renderGrilla(); recalcular();
+    recalcular();   // los reintentos vuelven a 0 recién cuando /calcular también responde bien
   } catch (e) {
-    $("#cat-cargando").textContent = mensajeCliente(e, MSG.catalogo);
+    if (e instanceof ErrorAmable) { $("#cat-cargando").hidden = false; $("#cat-ok").hidden = true; $("#cat-cargando").textContent = e.message; return; }
+    modoActualizando(e instanceof FormatoInesperado ? e.message : `error al preparar el catálogo: ${e && e.message}`, e);
   }
-})();
+}
+cargarCatalogo();
 </script>
 </body>
 </html>
