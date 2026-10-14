@@ -1,232 +1,192 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Piccadely · Cotizador de Eventos</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Piccadely · Cotizador de eventos</title>
+<meta name="description" content="Cotizá las Piccadas y sándwiches de tu evento con Piccadely: contanos cuántos son y te armamos las opciones al instante.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link rel="stylesheet" href="/piccadely-ui.css">
 <style>
-  :root{
-    --orange:#F68B32; --orange-deep:#d9701c; --ink:#2b2018; --muted:#8a7a6b;
-    --cream:#fbf6ee; --card:#ffffff; --line:#ece2d4; --green:#1ea05a;
-  }
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{
-    font-family:'Manrope',sans-serif; color:var(--ink); line-height:1.5;
-    background:
-      radial-gradient(1200px 500px at 80% -10%, rgba(246,139,50,.10), transparent 60%),
-      radial-gradient(900px 500px at -10% 110%, rgba(246,139,50,.07), transparent 60%),
-      var(--cream);
-    min-height:100vh; padding:0 20px 80px;
-  }
-  .wrap{max-width:1040px;margin:0 auto}
-  header{display:flex;align-items:center;justify-content:space-between;padding:26px 0 10px}
-  .brand{font-family:'Fraunces',serif;font-weight:700;font-size:26px;letter-spacing:-.5px}
-  .brand b{color:var(--orange)}
-  .tag{font-size:13px;color:var(--muted);font-weight:600}
-  /* Navegación "volver a la web" en el header */
-  .brand-group{display:flex;flex-direction:column;gap:2px}
-  .brand-link{text-decoration:none;color:inherit;cursor:pointer;display:inline-block}
-  .volver{display:inline-flex;align-items:center;white-space:nowrap;font-family:'Manrope',sans-serif;font-size:13px;font-weight:600;color:var(--orange-deep);text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:8px 14px;transition:background .15s,border-color .15s}
-  .volver:hover{background:rgba(246,139,50,.08);border-color:var(--orange)}
-  @media(max-width:520px){ .volver{font-size:12px;padding:7px 12px} .volver-extra{display:none} }
-  .hero{padding:24px 0 34px;max-width:680px}
-  .hero h1{font-family:'Fraunces',serif;font-weight:600;font-size:clamp(30px,5vw,46px);line-height:1.05;letter-spacing:-1px}
-  .hero h1 em{color:var(--orange);font-style:normal}
-  .hero p{margin-top:14px;color:var(--muted);font-size:17px}
+.hidden{display:none!important}
+/* Pasos numerados solos: si un paso se oculta (desayuno), los demás no saltean número */
+body{counter-reset:paso}
+.paso{counter-increment:paso}
+.paso-num.auto::before{content:counter(paso)}
+main.cot-form{padding-bottom:8px}
+.cot-res{max-width:1180px;margin:0 auto;padding:0 clamp(16px,4vw,40px) 40px}
+.cot-cierre{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:32px;align-items:start}
+@media(max-width:960px){.cot-cierre{grid-template-columns:1fr}}
+.cot-cierre aside{margin-top:28px}
 
-  .card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:26px;box-shadow:0 10px 30px -18px rgba(43,32,24,.25)}
-  .step-label{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:13px;color:var(--orange-deep);text-transform:uppercase;letter-spacing:.8px;margin-bottom:18px}
-  .step-label span{width:22px;height:22px;border-radius:50%;background:var(--orange);color:#fff;display:grid;place-items:center;font-size:12px}
+/* Selectores: tarjetas (tipo, comer/piccar) y chips (combinación) */
+.pill{font:inherit;color:inherit;cursor:pointer;text-align:left}
+.opciones .pill{border:1.5px solid var(--linea);border-radius:16px;padding:16px;background:var(--card);display:block;width:100%}
+.opciones .pill strong{font-size:17px;display:block}
+.opciones .pill small{display:block;margin-top:6px;font-size:14px;color:var(--tinta-2)}
+.opciones .pill.active{border-color:var(--naranja);background:var(--naranja-suave)}
+.tabs .pill{border:1.5px solid var(--linea);background:var(--card);border-radius:999px;padding:8px 16px;font-weight:600;font-size:15px}
+.tabs .pill.active{background:var(--tinta);border-color:var(--tinta);color:var(--fondo)}
+.campo-chico{max-width:260px}
+#personas{font-family:"Bricolage Grotesque",sans-serif;font-size:28px;font-weight:800;padding:8px 14px}
+#personas::placeholder{font-weight:500;color:var(--tinta-2);opacity:.6}
 
-  .grid{display:grid;gap:18px}
-  @media(min-width:640px){.grid-2{grid-template-columns:1fr 1fr}}
-  label.fld{display:block;font-weight:600;font-size:14px;margin-bottom:7px}
-  input[type=number],input[type=text],input[type=date],input[type=email]{
-    width:100%;padding:13px 14px;border:1px solid var(--line);border-radius:12px;font:inherit;font-size:16px;background:#fff;color:var(--ink)
-  }
-  input:focus{outline:none;border-color:var(--orange);box-shadow:0 0 0 3px rgba(246,139,50,.15)}
-  .pills{display:flex;gap:10px;flex-wrap:wrap}
-  .pill{flex:1;min-width:120px;padding:13px;border:1px solid var(--line);border-radius:12px;background:#fff;font:inherit;font-weight:600;cursor:pointer;text-align:center;transition:.15s;color:var(--ink)}
-  .pill small{display:block;font-weight:500;color:var(--muted);font-size:12px;margin-top:2px}
-  .pill.active{border-color:var(--orange);background:#fff7ef;color:var(--orange-deep)}
-  .btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;padding:15px 26px;border:none;border-radius:14px;font:inherit;font-weight:700;font-size:16px;cursor:pointer;transition:.15s;text-decoration:none}
-  .btn-primary{background:var(--orange);color:#fff;box-shadow:0 8px 20px -8px rgba(246,139,50,.7)}
-  .btn-primary:hover{background:var(--orange-deep)}
-  .btn-wsp{background:var(--green);color:#fff}
-  .btn-wsp:hover{filter:brightness(.93)}
-  .btn-ghost{background:#fff;border:1px solid var(--line);color:var(--ink)}
-  .btn-ghost:hover{border-color:var(--orange)}
-  .btn:disabled{opacity:.5;cursor:not-allowed}
+/* Panel lateral */
+.panel-txt{font-size:15px;opacity:.8;margin:6px 0 0}
+.err{font-size:14px;font-weight:600;color:#FFB4A8;margin-top:10px}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .err{color:var(--error)}}
+:root[data-theme="dark"] .err{color:var(--error)}
+.chosen-sum{font-size:15px;line-height:1.5;margin:12px 0 4px;padding:14px;border-radius:14px;border:1px solid rgba(255,255,255,.18)}
+@media(prefers-color-scheme:dark){.chosen-sum{border-color:rgba(0,0,0,.18)}}
+.chosen-sum b{color:var(--naranja)}
+.ok-msg{background:var(--ok);color:#fff;border-radius:14px;padding:14px 16px;font-weight:600;font-size:15px;margin-top:14px}
+.loading{display:inline-block;width:16px;height:16px;border:2.5px solid currentColor;border-top-color:transparent;border-radius:50%;animation:gira .7s linear infinite;vertical-align:-3px}
+@keyframes gira{to{transform:rotate(360deg)}}
 
-  .hidden{display:none}
-  section.block{margin-top:26px}
+/* Opciones: tarjetas con foto grande */
+.opts{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
+.opt{position:relative}
+.opt.featured{border-color:var(--naranja)}
+.opt.chosen{border-color:var(--naranja);box-shadow:0 0 0 3px var(--naranja-suave)}
+.opt .foto{position:relative}
+.badge{position:absolute;top:12px;left:12px;background:var(--naranja);color:#fff;font-size:12px;font-weight:700;padding:5px 11px;border-radius:999px}
+.opt .pp{font-family:"Bricolage Grotesque",sans-serif;font-size:28px;font-weight:800;line-height:1.1;margin-top:2px}
+.opt .pp small{font-family:Figtree,sans-serif;font-size:14px;font-weight:500;color:var(--tinta-2)}
+.opt-tot{font-size:14px;color:var(--tinta-2);font-weight:600}
+.opt ul{list-style:none;padding:12px 0 0;margin:6px 0 10px;border-top:1px solid var(--linea);display:grid;gap:8px;flex:1;align-content:start}
+.opt li{font-size:14px;display:flex;gap:10px;align-items:center}
+.opt li b{color:var(--naranja-hondo)}
+@media(prefers-color-scheme:dark){.opt li b{color:var(--naranja)}}
+.opt li .tam{color:var(--tinta-2)}
+.opt li.veg-tit{font-weight:700;color:var(--ok);padding-top:4px}
+.thumb{width:40px;height:40px;border-radius:10px;object-fit:cover;flex:none;background:var(--fondo-2);border:1px solid var(--linea);display:grid;place-items:center;color:var(--tinta-2)}
+.opt .elegir{width:100%}
 
-  /* opciones */
-  .opts{display:grid;gap:18px}
-  @media(min-width:780px){.opts{grid-template-columns:repeat(3,1fr)}}
-  .opt{position:relative;background:#fff;border:1.5px solid var(--line);border-radius:18px;padding:22px;display:flex;flex-direction:column;transition:.18s}
-  .opt:hover{transform:translateY(-3px);box-shadow:0 16px 34px -20px rgba(43,32,24,.4)}
-  .opt.featured{border-color:var(--orange)}
-  .opt.chosen{border-color:var(--orange);box-shadow:0 0 0 3px rgba(246,139,50,.2)}
-  .opt .lvl{font-family:'Fraunces',serif;font-size:22px;font-weight:600}
-  .opt .pp{margin:10px 0 2px;font-size:30px;font-weight:700;color:var(--orange-deep)}
-  .opt .pp small{font-size:14px;color:var(--muted);font-weight:600}
-  .opt .tot{font-size:13px;color:var(--muted);font-weight:600;margin-bottom:14px}
-  .opt ul{list-style:none;border-top:1px dashed var(--line);padding-top:14px;margin-bottom:18px;flex:1}
-  .opt li{font-size:14px;padding:5px 0;display:flex;gap:8px;align-items:center}
-  .opt li b{color:var(--orange-deep)}
-  .thumb{width:42px;height:42px;border-radius:8px;object-fit:cover;flex:none;border:1px solid var(--line)}
-  .badge{position:absolute;top:-11px;right:16px;background:var(--orange);color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;letter-spacing:.5px}
-
-  .bebidas{margin-top:22px;display:flex;align-items:center;gap:12px;padding:16px;border:1px dashed var(--line);border-radius:14px;background:#fffdf9}
-  .bebidas input{width:20px;height:20px;accent-color:var(--orange)}
-  .bebidas label{font-weight:600;font-size:15px;cursor:pointer}
-  .bebidas small{color:var(--muted);display:block;font-weight:500;font-size:13px}
-
-  .chosen-sum{background:#fff7ef;border:1px solid #f3d9bb;border-radius:14px;padding:16px 18px;margin-bottom:20px;font-weight:600}
-  .chosen-sum b{color:var(--orange-deep)}
-  .ctas{display:flex;gap:14px;flex-wrap:wrap}
-  .ctas .btn{flex:1;min-width:220px}
-  .note{font-size:13px;color:var(--muted);margin-top:14px}
-  .ok-msg{background:#e9f8ef;border:1px solid #b9e7cc;color:#136b39;border-radius:14px;padding:18px;font-weight:600;text-align:center}
-  .err{color:#c0392b;font-size:13px;font-weight:600;margin-top:8px}
-  footer{text-align:center;color:var(--muted);font-size:13px;margin-top:40px}
-  .loading{display:inline-block;width:18px;height:18px;border:2.5px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
+.extras{margin-top:18px;display:grid;gap:14px;justify-items:start}
+.extras .check{border:1.5px dashed var(--linea);border-radius:16px;padding:14px 16px;width:100%}
+.extras small{display:block;color:var(--tinta-2);font-size:14px;margin-top:2px}
+.btn-3{background:var(--card);color:var(--tinta);border:1.5px solid var(--linea);padding:12px 18px}
+.btn-3:hover{border-color:var(--naranja)}
+footer{text-align:center;color:var(--tinta-2);font-size:13px;padding:24px 16px calc(40px + env(safe-area-inset-bottom,0px))}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <div class="brand-group">
-      <a href="https://piccadely.com" class="brand-link"><div class="brand">Picca<b>dely</b></div></a>
-      <div class="tag">Cotizador de Eventos</div>
-    </div>
-    <a href="https://piccadely.com" class="volver">← Volver<span class="volver-extra"> a la web</span></a>
-  </header>
 
-  <div class="hero">
-    <h1>Armá tu evento en <em>3 opciones</em>, al instante.</h1>
-    <p>Contanos cuántos son y qué onda la juntada. Te calculamos tres propuestas con piccadas y sándwiches, y las cerrás como prefieras.</p>
-  </div>
+<header>
+  <a class="brand" href="https://piccadely.com"><img src="/Piccadely_Logotipo_Izquierda_Negro.png" alt="Piccadely" width="129" height="38"><small>Cotizador de eventos</small></a>
+  <a class="volver" href="https://piccadely.com">← Volver<span class="volver-extra"> a la web</span></a>
+</header>
 
-  <!-- PASO 1 -->
-  <div class="card" id="step1">
-    <div class="step-label"><span>1</span> Tu evento</div>
-    <div style="margin-bottom:18px">
-      <label class="fld">¿Qué querés cotizar?</label>
-      <div class="pills" id="tipo">
-        <button type="button" class="pill active" data-v="evento">🧀 Piccadas / Evento</button>
-        <button type="button" class="pill" data-v="desayuno">🥐 Desayuno / Merienda</button>
-      </div>
-    </div>
-    <div class="grid grid-2">
-      <div>
-        <label class="fld" for="personas">¿Cuántas personas?</label>
-        <input type="number" id="personas" min="1" placeholder="Ej: 20" />
-      </div>
-      <div>
-        <label class="fld">¿Es para comer o piccar?</label>
-        <div class="pills" id="modo">
-          <button type="button" class="pill active" data-v="piccar">Piccar <small>piccadita</small></button>
-          <button type="button" class="pill" data-v="comer">Comer <small>almuerzo/cena</small></button>
-        </div>
-      </div>
-    </div>
-    <div class="grid grid-2" id="rowVeg" style="margin-top:18px">
-      <div>
-        <label class="fld" for="vegetarianos">¿Cuántos son vegetarianos?</label>
-        <input type="number" id="vegetarianos" min="0" placeholder="0" />
-      </div>
-      <div></div>
-    </div>
-    <div class="grid" id="rowMix" style="margin-top:18px">
-      <div>
-        <label class="fld">¿Cómo lo combinamos?</label>
-        <div class="pills" id="mix">
-          <button type="button" class="pill" data-v="solo_piccadas">Solo piccadas</button>
-          <button type="button" class="pill" data-v="mas_piccada">Más piccada</button>
-          <button type="button" class="pill active" data-v="equilibrado">Equilibrado</button>
-          <button type="button" class="pill" data-v="mas_sandwich">Más sándwich</button>
-        </div>
-      </div>
-    </div>
-    <div class="grid grid-2" style="margin-top:18px">
-      <div>
-        <label class="fld" for="fecha">Fecha del evento (opcional)</label>
-        <input type="date" id="fecha" />
-      </div>
-      <div>
-        <label class="fld" for="zona">Zona / Localidad (opcional)</label>
-        <input type="text" id="zona" placeholder="Ej: Palermo, CABA" />
-      </div>
-    </div>
-    <div style="margin-top:24px">
-      <button class="btn btn-primary" id="btnCalc">Ver mis opciones →</button>
-      <div class="err hidden" id="err1"></div>
-    </div>
-  </div>
+<section class="hero">
+  <h1>Armá tu evento en un par de minutos</h1>
+  <p>Contanos cuántos son y qué onda la juntada. Te armamos propuestas con Piccadas y sándwiches al instante, y las cerrás como prefieras.</p>
+</section>
 
-  <!-- PASO 2 -->
-  <section class="block hidden" id="step2">
-    <div class="card">
-      <div class="step-label"><span>2</span> Tus 3 opciones</div>
-      <div class="opts" id="opts"></div>
+<main class="cot-form">
+<div id="step1">
 
-      <div class="bebidas">
-        <input type="checkbox" id="bebidas" />
-        <div>
-          <label for="bebidas">Sumar bebidas al evento 🥤🍺</label>
-          <small>Las coordina un asesor según lo que prefieras (la comida se cotiza acá).</small>
-        </div>
-      </div>
-
-      <div style="margin-top:22px">
-        <button class="btn btn-ghost" id="btnPdf">⬇ Descargar cotización en PDF</button>
-      </div>
+  <section class="paso">
+    <div class="paso-tit"><span class="paso-num auto"></span><div><h2>¿Qué querés cotizar?</h2></div></div>
+    <div class="opciones" id="tipo">
+      <button type="button" class="pill active" data-v="evento"><strong>🧀 Piccadas / Evento</strong><small>Para juntadas, cumples, after office y eventos.</small></button>
+      <button type="button" class="pill" data-v="desayuno"><strong>🥐 Desayuno / Merienda</strong><small>Para arrancar el día o cortar la tarde.</small></button>
     </div>
   </section>
 
-  <!-- PASO 3 -->
-  <section class="block hidden" id="step3">
-    <div class="card">
-      <div class="step-label"><span>3</span> Cerrá tu cotización</div>
-      <div class="chosen-sum" id="chosenSum"></div>
-      <div class="grid grid-2">
-        <div>
-          <label class="fld" for="nombre">Tu nombre *</label>
-          <input type="text" id="nombre" placeholder="Nombre y apellido" />
-        </div>
-        <div>
-          <label class="fld" for="empresa">Empresa (opcional)</label>
-          <input type="text" id="empresa" placeholder="Nombre de la empresa" />
-        </div>
-        <div>
-          <label class="fld" for="email">Email *</label>
-          <input type="email" id="email" placeholder="tucorreo@empresa.com" />
-        </div>
-        <div>
-          <label class="fld" for="telefono">Teléfono / WhatsApp *</label>
-          <input type="text" id="telefono" placeholder="11 5555-5555" />
-        </div>
-      </div>
-      <div class="err hidden" id="err3"></div>
+  <section class="paso">
+    <div class="paso-tit"><span class="paso-num auto"></span><div><h2>¿Cuántas personas?</h2></div></div>
+    <label class="campo campo-chico">Personas<input type="number" id="personas" min="1" placeholder="Ej: 20" inputmode="numeric"></label>
+  </section>
 
-      <div class="ctas" style="margin-top:24px">
-        <button class="btn btn-primary" id="btnSolicitar">Solicitar cotización · te contactamos</button>
-        <button class="btn btn-wsp" id="btnWsp">Cerrar por WhatsApp</button>
-      </div>
-      <p class="note">"Solicitar cotización": guardamos tu pedido y un asesor te escribe. "Cerrar por WhatsApp": te llevamos al chat con el resumen listo.</p>
-      <div class="ok-msg hidden" id="okMsg"></div>
+  <section class="paso">
+    <div class="paso-tit"><span class="paso-num auto"></span><div><h2>¿Es para comer o piccar?</h2></div></div>
+    <div class="opciones" id="modo">
+      <button type="button" class="pill active" data-v="piccar"><strong>Piccar</strong><small>Una piccadita para compartir.</small></button>
+      <button type="button" class="pill" data-v="comer"><strong>Comer</strong><small>Que sea el almuerzo o la cena.</small></button>
     </div>
   </section>
 
-  <footer>Piccadely · Picadas para juntadas y eventos · info@piccadely.com</footer>
+  <section class="paso" id="rowVeg">
+    <div class="paso-tit"><span class="paso-num auto"></span><div><h2>¿Cuántos son vegetarianos?</h2><p class="ayuda">Les armamos su parte aparte.</p></div></div>
+    <label class="campo campo-chico">Vegetarianos<input type="number" id="vegetarianos" min="0" placeholder="0" inputmode="numeric"></label>
+  </section>
+
+  <section class="paso" id="rowMix">
+    <div class="paso-tit"><span class="paso-num auto"></span><div><h2>¿Cómo lo combinamos?</h2><p class="ayuda">Piccadas, sándwiches o un poco de cada cosa.</p></div></div>
+    <div class="tabs" id="mix" role="group" aria-label="Combinación">
+      <button type="button" class="pill" data-v="solo_piccadas">Solo Piccadas</button>
+      <button type="button" class="pill" data-v="mas_piccada">Más Piccada</button>
+      <button type="button" class="pill active" data-v="equilibrado">Equilibrado</button>
+      <button type="button" class="pill" data-v="mas_sandwich">Más sándwich</button>
+    </div>
+  </section>
+
+  <section class="paso">
+    <div class="paso-tit"><span class="paso-num auto"></span><div><h2>Fecha y zona</h2><p class="ayuda">Opcional. Nos sirve para confirmarte disponibilidad.</p></div></div>
+    <div class="fila">
+      <label class="campo">Fecha del evento<input type="date" id="fecha"></label>
+      <label class="campo">Zona / Localidad<input type="text" id="zona" placeholder="Ej: Palermo, CABA"></label>
+    </div>
+  </section>
+
 </div>
+
+<aside>
+  <h2>Tus opciones</h2>
+  <p class="panel-txt">Completá los pasos y te mostramos las propuestas con precio por persona.</p>
+  <div class="ctas">
+    <button class="btn btn-1" id="btnCalc">Ver mis opciones →</button>
+  </div>
+  <div class="err hidden" id="err1"></div>
+  <p class="nota">Precio orientativo. Bebidas y envío se cotizan aparte.</p>
+</aside>
+</main>
+
+<section class="cot-res hidden" id="step2">
+  <div class="paso">
+    <div class="paso-tit"><span class="paso-num auto"></span><div><h2>Elegí tu opción</h2><p class="ayuda">Podés descargarlas en PDF para compartirlas.</p></div></div>
+    <div class="opts" id="opts"></div>
+    <div class="extras">
+      <label class="check"><input type="checkbox" id="bebidas"><span><strong>Sumar bebidas al evento 🥤🍺</strong><small>Las coordina un asesor según lo que prefieras (la comida se cotiza acá).</small></span></label>
+      <button class="btn btn-3" id="btnPdf">⬇ Descargar cotización en PDF</button>
+    </div>
+  </div>
+</section>
+
+<section class="cot-res hidden" id="step3">
+  <div class="cot-cierre">
+    <div class="paso">
+      <div class="paso-tit"><span class="paso-num auto"></span><div><h2>Cerrá tu cotización</h2><p class="ayuda">Para mandarte la propuesta y coordinar.</p></div></div>
+      <div class="sub" style="margin-top:0">
+        <div class="fila">
+          <label class="campo">Tu nombre *<input type="text" id="nombre" placeholder="Nombre y apellido" autocomplete="name"></label>
+          <label class="campo">Empresa (opcional)<input type="text" id="empresa" placeholder="Nombre de la empresa" autocomplete="organization"></label>
+        </div>
+        <div class="fila">
+          <label class="campo">Email *<input type="email" id="email" placeholder="tucorreo@empresa.com" autocomplete="email"></label>
+          <label class="campo">Teléfono / WhatsApp *<input type="text" id="telefono" placeholder="11 5555-5555" autocomplete="tel"></label>
+        </div>
+      </div>
+    </div>
+    <aside aria-live="polite">
+      <h2>Tu cotización</h2>
+      <div class="chosen-sum" id="chosenSum"></div>
+      <div class="err hidden" id="err3"></div>
+      <div class="ctas">
+        <button class="btn btn-1" id="btnSolicitar">Solicitar cotización · te contactamos</button>
+        <button class="btn btn-2" id="btnWsp">Cerrar por WhatsApp</button>
+      </div>
+      <p class="nota">"Solicitar cotización": guardamos tu pedido y un asesor te escribe. "Cerrar por WhatsApp": te llevamos al chat con el resumen listo.</p>
+      <div class="ok-msg hidden" id="okMsg"></div>
+    </aside>
+  </div>
+</section>
+
+<footer>Piccadely · Piccadas para juntadas y eventos · info@piccadely.com</footer>
 
 <script>
 const API = "https://piccadely-panel-production.up.railway.app";
@@ -284,19 +244,23 @@ document.getElementById("btnCalc").onclick = async ()=>{
 };
 
 function lineas(items){
-  return items.map(i=>`<li>${i.imagen?`<img class="thumb" src="${i.imagen}" alt="" loading="lazy">`:'<span style="width:42px;text-align:center;flex:none">•</span>'}<span><b>${i.cantidad}×</b> ${i.nombre} <span style="color:var(--muted)">(${i.tamano})</span></span></li>`).join("");
+  return items.map(i=>`<li>${i.imagen?`<img class="thumb" src="${i.imagen}" alt="" loading="lazy">`:'<span class="thumb">•</span>'}<span><b>${i.cantidad}×</b> ${i.nombre} <span class="tam">(${i.tamano})</span></span></li>`).join("");
 }
 
 function renderOpts(){
   const cont = document.getElementById("opts");
+  // Foto grande de la tarjeta: la primera que tenga foto (solo visual)
+  const fotoDe = o=>[...o.piccadas, ...o.sandwiches, ...(o.vegetarianas||[])].find(i=>i.imagen);
   cont.innerHTML = state.calc.opciones.map((o,idx)=>`
-    <div class="opt ${o.nivel==='intermedia'?'featured':''}" data-nivel="${o.nivel}">
-      ${o.nivel==='intermedia'?'<div class="badge">Más elegida</div>':''}
-      <div class="lvl">${o.etiqueta}</div>
-      <div class="pp">${fmt(o.porPersona)} <small>/ persona</small></div>
-      <div class="tot">Total ${fmt(o.total)} · ${state.calc.personas} personas</div>
-      <ul>${lineas(o.piccadas)}${lineas(o.sandwiches)}${o.vegetarianas&&o.vegetarianas.length?'<li style="color:var(--green);font-weight:700;padding-top:6px">🥬 Para vegetarianos:</li>'+lineas(o.vegetarianas):''}</ul>
-      <button class="btn btn-primary elegir" data-nivel="${o.nivel}">Elegir esta</button>
+    <div class="prod opt ${o.nivel==='intermedia'?'featured':''}" data-nivel="${o.nivel}">
+      <div class="foto">${fotoDe(o)?`<img src="${fotoDe(o).imagen}" alt="" loading="lazy">`:'🧀'}${o.nivel==='intermedia'?'<div class="badge">Más elegida</div>':''}</div>
+      <div class="prod-body">
+        <h3 class="lvl">${o.etiqueta}</h3>
+        <div class="pp">${fmt(o.porPersona)} <small>/ persona</small></div>
+        <div class="opt-tot">Total ${fmt(o.total)} · ${state.calc.personas} personas</div>
+        <ul>${lineas(o.piccadas)}${lineas(o.sandwiches)}${o.vegetarianas&&o.vegetarianas.length?'<li class="veg-tit">🥬 Para vegetarianos:</li>'+lineas(o.vegetarianas):''}</ul>
+        <button class="btn btn-1 elegir" data-nivel="${o.nivel}">Elegir esta</button>
+      </div>
     </div>`).join("");
   cont.querySelectorAll(".elegir").forEach(b=>{
     b.onclick=()=>elegir(b.dataset.nivel);
@@ -376,7 +340,7 @@ document.getElementById("btnWsp").onclick = async ()=>{
   finally{ b.disabled=false; b.innerHTML="Cerrar por WhatsApp"; }
 };
 
-// PDF (las 3 opciones, con fotos)
+// PDF (todas las opciones, con fotos)
 document.getElementById("btnPdf").onclick = async ()=>{
   if(!state.calc) return;
   const b=event.target; const txt=b.innerHTML; b.disabled=true; b.innerHTML='<span class="loading"></span> Generando PDF...';
