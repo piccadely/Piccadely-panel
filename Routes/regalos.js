@@ -16,6 +16,12 @@ import { clienteKeyDe } from "./cotizador.js";
 
 // Descuento por volumen según la cantidad de REGALOS (las bebidas no cuentan para el tramo, pero se descuentan).
 export const TRAMOS_REGALOS = [{ min: 5, pct: 5 }, { min: 15, pct: 10 }, { min: 25, pct: 15 }];
+// Versión del CONTRATO entre esta API y public/regalos.html (/catalogo y /calcular la mandan; el front verifica
+// que la soporta). REGLA para cambios de formato: la API sigue sirviendo el formato viejo Y el nuevo durante al
+// menos un deploy (compatibilidad hacia atrás), así no importa si termina primero Vercel (front) o Railway (API).
+// v1 = estilos[].items (hasta 99ad508) · v2 = estilos[].grupos[].tarjetas[].variantes (selección curada).
+export const API_VERSION = 2;
+
 export const TEXTO_SIN_ENVIO = "NO INCLUYE COSTO DE ENVÍO. El costo de envío se calcula de acuerdo a las áreas de entrega.";
 const MAX_CANTIDAD = 10000;
 
@@ -134,6 +140,15 @@ export function armarCatalogoRegalos({ productos, categorias }, config = configR
     estilos.push({ id: e.id, nombre: e.nombre, digital: false, extra: true, grupos: tarjetas.length ? [{ titulo: null, tarjetas }] : [] });
   }
   return { estilos, porVariante, avisos };
+}
+
+// Formato v1 (front anterior a la selección curada): una entrada por variante. Los virtuales de monto libre
+// no existían en v1, así que no se publican ahí. Sacarlo cuando ningún front v1 pueda seguir en uso.
+function itemsV1(e) {
+  return (e.grupos || []).flatMap((g) => g.tarjetas).flatMap((t) => t.variantes.filter((v) => v.precio != null).map((v) => ({
+    variant_id: v.variant_id, product_id: t.product_id ?? null, estilo: e.id, nombre: t.producto, variante: v.etiqueta,
+    descripcion: t.descripcion, precio: v.precio, precio_antes: v.precio_antes, foto: v.foto || t.foto, digital: !!e.digital, extra: !!e.extra,
+  })));
 }
 
 async function catalogoRegalos() {
@@ -271,7 +286,9 @@ export function regalosRouter(pool, mailTransporter) {
       const cat = await catalogoRegalos();
       const tar = tarifas();
       res.json({
-        estilos: cat.estilos,
+        version: API_VERSION,
+        // Compat v1: cada estilo también trae `items` planos (variantes) para un front anterior que siga cacheado.
+        estilos: cat.estilos.map((e) => ({ ...e, items: itemsV1(e) })),
         tramos: TRAMOS_REGALOS,
         envio: { caba: tar.caba, partidos: tar.partidos, referencia: tar.referencia, aviso: TEXTO_SIN_ENVIO },
       });
@@ -283,7 +300,7 @@ export function regalosRouter(pool, mailTransporter) {
 
   router.post("/calcular", async (req, res) => {
     try {
-      res.json(calcularRegalos(await catalogoRegalos(), req.body || {}));
+      res.json({ version: API_VERSION, ...calcularRegalos(await catalogoRegalos(), req.body || {}) });
     } catch (e) {
       console.error("Regalos: error calculando:", e.message);
       res.status(502).json({ error: "No pudimos calcular la propuesta." });
