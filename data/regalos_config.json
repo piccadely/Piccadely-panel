@@ -41,8 +41,8 @@
       "items": [
         { "clave": "pic-clasica", "titulo": "Clásica", "producto": "la fausta" },
         { "clave": "pic-seleccion", "titulo": "Selección", "producto": "comilona" },
-        { "clave": "pic-premium", "titulo": "Premium", "producto": "amistad" },
-        { "clave": "pic-veggie", "titulo": "Veggie", "producto": "quesos del gourmet" }
+        { "clave": "pic-premium", "titulo": "Premium", "producto": "anita de baires" },
+        { "clave": "pic-veggie", "titulo": "Veggie", "producto": "esquesitos" }
       ]
     },
     {
@@ -50,8 +50,8 @@
       "items": [
         { "clave": "pic-clasica", "titulo": "Clásica", "producto": "la fausta" },
         { "clave": "pic-seleccion", "titulo": "Selección", "producto": "comilona" },
-        { "clave": "pic-premium", "titulo": "Premium", "producto": "amistad" },
-        { "clave": "pic-veggie", "titulo": "Veggie", "producto": "quesos del gourmet" }
+        { "clave": "pic-premium", "titulo": "Premium", "producto": "anita de baires" },
+        { "clave": "pic-veggie", "titulo": "Veggie", "producto": "esquesitos" }
       ]
     }
   ],
