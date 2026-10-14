@@ -1,0 +1,63 @@
+{
+  "_comentario": "Selección curada del Cotizador de Regalos (public/regalos.html). Precios, fotos y stock salen en vivo de Tienda Nube; acá se fija QUÉ se muestra. 'producto' se busca por nombre en TN (sin tildes, sin mayúsculas, 'contiene'; si hay varios, gana el nombre exacto y después el más corto). Si no aparece en TN: warning en el log y se omite. 'tamano' filtra la variante cuyo nombre empieza con ese texto (chica / mediana).",
+  "estilos": [
+    {
+      "id": "giftcard", "nombre": "GiftCards", "digital": true,
+      "grupos": [
+        { "titulo": "Por monto", "items": [
+          { "clave": "gc-30000", "titulo": "$30.000", "producto": "giftcard x $30000" },
+          { "clave": "gc-50000", "titulo": "$50.000", "producto": "giftcard x $50000" },
+          { "clave": "gc-100000", "titulo": "$100.000", "virtual": true, "nombre": "Giftcard $100.000", "precio": 100000,
+            "descripcion": "Por mail, para que cada uno elija su Piccada cuando quiera." },
+          { "clave": "gc-personalizada", "titulo": "Personalizado", "virtual": true, "montoLibre": true, "minimo": null, "nombre": "Giftcard personalizada",
+            "descripcion": "Elegí el monto que quieras regalar." }
+        ]},
+        { "titulo": "Gold, Platinum y Black", "items": [
+          { "clave": "gc-gold", "titulo": "Gold", "producto": "piccagift card gold" },
+          { "clave": "gc-platinum", "titulo": "Platinum", "producto": "piccagift card platinum" },
+          { "clave": "gc-black", "titulo": "Black", "producto": "piccagift card black" }
+        ]}
+      ]
+    },
+    {
+      "id": "desayuno", "nombre": "Desayunos",
+      "items": [
+        { "clave": "des-vegetariano", "titulo": "Vegetariano", "producto": "desayuno vegeta" },
+        { "clave": "des-clasico", "titulo": "Clásico", "producto": "roshi" }
+      ]
+    },
+    {
+      "id": "caja", "nombre": "Cajas de regalo",
+      "items": [
+        { "clave": "caja-mediana", "titulo": "Mediana", "producto": "piccapacket luke" },
+        { "clave": "caja-grande", "titulo": "Grande", "producto": "piccabox delicious" },
+        { "clave": "caja-xl", "titulo": "XL", "producto": "caja gourmet" },
+        { "clave": "caja-vegetariana", "titulo": "Vegetariana", "producto": "piccabox the cheese premium" },
+        { "clave": "caja-premium", "titulo": "Premium", "producto": "caja fuerte" }
+      ]
+    },
+    {
+      "id": "chica", "nombre": "Piccadas chicas", "tamano": "chica",
+      "items": [
+        { "clave": "pic-clasica", "titulo": "Clásica", "producto": "la fausta" },
+        { "clave": "pic-seleccion", "titulo": "Selección", "producto": "comilona" },
+        { "clave": "pic-premium", "titulo": "Premium", "producto": "anita de baires" },
+        { "clave": "pic-veggie", "titulo": "Veggie", "producto": "esquesitos" }
+      ]
+    },
+    {
+      "id": "mediana", "nombre": "Piccadas medianas", "tamano": "mediana",
+      "items": [
+        { "clave": "pic-clasica", "titulo": "Clásica", "producto": "la fausta" },
+        { "clave": "pic-seleccion", "titulo": "Selección", "producto": "comilona" },
+        { "clave": "pic-premium", "titulo": "Premium", "producto": "anita de baires" },
+        { "clave": "pic-veggie", "titulo": "Veggie", "producto": "esquesitos" }
+      ]
+    }
+  ],
+  "bebidas": { "id": "bebida", "nombre": "Bebidas", "categoria": "bebidas para regalar" },
+  "etiquetas_variantes": {
+    "_comentario": "Nombre de variante de TN → nombre que se MUESTRA en el selector de tamaño (sin tildes ni mayúsculas para comparar). El lead y el mail guardan el original.",
+    "Extra Grande": "XL"
+  }
+}

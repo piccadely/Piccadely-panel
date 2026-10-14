@@ -44,7 +44,8 @@ header{display:flex;justify-content:space-between;align-items:center;gap:12px;pa
 .volver{border:1.5px solid var(--naranja);color:var(--naranja-hondo);border-radius:999px;padding:7px 14px;text-decoration:none;font-weight:600;font-size:14px;white-space:nowrap}
 @media(prefers-color-scheme:dark){.volver{color:var(--naranja)}}
 @media(max-width:520px){.volver-extra{display:none}}
-.aviso-api{background:#7c2d12;color:#fff;font-size:13px;padding:8px clamp(16px,4vw,40px)}
+.aviso-api{background:#1e3a5f;color:#fff;font-size:13px;padding:8px clamp(16px,4vw,40px);word-break:break-all}
+.aviso-api.prod{background:#7c2d12}
 
 .hero{padding:clamp(28px,6vw,64px) clamp(16px,4vw,40px) 20px;max-width:1180px;margin:0 auto}
 .hero h1{font-size:clamp(34px,6vw,64px);font-weight:800;letter-spacing:-1.5px;max-width:14ch}
@@ -103,10 +104,12 @@ input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-
 .opcion strong{font-size:17px}
 .opcion p{margin:6px 0 0;font-size:14px;color:var(--tinta-2)}
 .sub{margin-top:16px;display:grid;gap:12px}
-.fila{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@media(max-width:620px){.fila{grid-template-columns:1fr}}
+.fila{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+@media(max-width:620px){.fila{grid-template-columns:minmax(0,1fr)}}
+/* Los inputs (sobre todo type=date y number) tienen un ancho mínimo propio: sin esto empujan la columna y desbordan el paso. */
+.fila>*,.sub>*,label.campo{min-width:0}
 label.campo{display:flex;flex-direction:column;gap:5px;font-size:14px;font-weight:600}
-label.campo input,label.campo select,label.campo textarea{border:1.5px solid var(--linea);background:var(--card);border-radius:10px;padding:10px 12px;font-weight:400;font-size:15px}
+label.campo input,label.campo select,label.campo textarea{width:100%;min-width:0;max-width:100%;border:1.5px solid var(--linea);background:var(--card);border-radius:10px;padding:10px 12px;font-weight:400;font-size:15px}
 textarea{resize:vertical;min-height:70px}
 .check{display:flex;gap:10px;align-items:flex-start;font-size:15px;cursor:pointer}
 .check input{accent-color:var(--naranja);width:18px;height:18px;margin-top:2px;flex:none}
@@ -149,9 +152,12 @@ aside h2{font-size:22px;margin-bottom:4px}
 .toast.error{background:var(--error)}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 .cargando{color:var(--tinta-2);padding:24px 0}
-.gc-otro{font-size:14px;color:var(--tinta-2);margin:12px 0 0}
-.gc-otro a{color:var(--naranja-hondo);font-weight:600}
-@media(prefers-color-scheme:dark){.gc-otro a{color:var(--naranja)}}
+.grupo-tit{font-size:17px;font-weight:700;margin:22px 0 10px}
+#grilla>.grupo-tit:first-child{margin-top:0}
+.tam{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600;color:var(--tinta-2);margin-top:4px}
+.tam select,.tam input{border:1.5px solid var(--linea);background:var(--card);border-radius:10px;padding:7px 10px;font-size:14px;font-weight:500;color:var(--tinta);width:100%;min-width:0}
+.resumen-var{font-size:13px;font-weight:600;color:var(--ok)}
+.nota-min{font-size:12px;color:var(--tinta-2)}
 .hp{position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -198,8 +204,7 @@ aside h2{font-size:22px;margin-bottom:4px}
           <option value="110000">Hasta $110.000</option>
         </select>
       </div>
-      <div class="grilla" id="grilla"></div>
-      <p class="gc-otro" id="gc-otro" hidden>¿Otro monto? <a id="gc-otro-link" href="https://wa.me/5491162393921" target="_blank" rel="noopener">Escribinos por WhatsApp</a></p>
+      <div id="grilla"></div>
       <div id="bebidas-wrap" hidden>
         <h3 style="font-size:20px;margin:28px 0 4px">Sumale una bebida</h3>
         <p class="ayuda" style="margin:0 0 14px">Opcional. Va junto con los regalos y no cuenta en la cantidad.</p>
@@ -310,20 +315,73 @@ const WA = "5491162393921";   // WhatsApp corporativo
 const $ = (s) => document.querySelector(s);
 const plata = (n) => "$" + Math.round(Number(n) || 0).toLocaleString("es-AR");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const estado = { cat: null, estilo: null, q: {}, calc: null, pedido: 0 };
+const estado = { cat: null, estilo: null, q: {}, sel: {}, libre: {}, libres: new Set(), calc: null, pedido: 0 };   // libre: giftcard de monto libre (variant_id → { monto, cantidad })
 const ICONOS = { giftcard: "🎁", desayuno: "🥐", caja: "📦", chica: "🧀", mediana: "🍽️", bebida: "🍷" };
 
-// Aviso visible si no es producción (preview / localhost / ?api=)
-if (API !== API_PROD) { const a = $("#aviso-api"); a.textContent = `Modo prueba: usando la API ${API}`; a.hidden = false; }
-else if (/\.vercel\.app$/.test(location.hostname)) { const a = $("#aviso-api"); a.textContent = "Preview: esta página usa la API de producción. Para probar contra staging agregá ?api=<URL de staging>."; a.hidden = false; }
+// Aviso con la API en uso: SOLO en previews de Vercel y localhost (nunca en el dominio de producción).
+const ES_PREVIEW = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) || /\.vercel\.app$/.test(location.hostname);
+if (ES_PREVIEW) {
+  const a = $("#aviso-api");
+  a.textContent = `API: ${API}` + (API === API_PROD ? " (producción · para staging agregá ?api=<URL de staging>)" : "");
+  a.classList.toggle("prod", API === API_PROD);
+  a.hidden = false;
+}
+
+// ===== Pedidos al API: el cliente nunca ve errores técnicos =====
+// Se chequea res.ok y que la respuesta sea JSON ANTES de parsear (un 404 de un preview devuelve HTML →
+// "Unexpected token '<'"). El detalle técnico va solo a console.error, con la URL del API usada.
+const MSG = {
+  catalogo: "No pudimos cargar el catálogo. Probá de nuevo en un rato o escribinos por WhatsApp.",
+  calcular: "No pudimos calcular el total. Probá de nuevo en un rato o escribinos por WhatsApp.",
+  propuesta: "No pudimos generar la propuesta. Probá de nuevo en un rato o escribinos por WhatsApp.",
+};
+class ErrorAmable extends Error {}
+async function pedirJSON(ruta, opciones, amable) {
+  const url = API + ruta;
+  let r;
+  try { r = await fetch(url, opciones); }
+  catch (e) { console.error("Regalos: error de red", { api: API, url, error: e.message }); throw new ErrorAmable(amable); }
+  const ct = r.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) {
+    const cuerpo = await r.text().catch(() => "");
+    console.error("Regalos: la respuesta no es JSON", { api: API, url, status: r.status, contentType: ct, cuerpo: cuerpo.slice(0, 300) });
+    throw new ErrorAmable(amable);
+  }
+  let d;
+  try { d = await r.json(); }
+  catch (e) { console.error("Regalos: JSON inválido", { api: API, url, status: r.status, error: e.message }); throw new ErrorAmable(amable); }
+  if (!r.ok) {
+    console.error("Regalos: error del API", { api: API, url, status: r.status, respuesta: d });
+    // 400 / 429 traen mensajes pensados para el cliente (datos faltantes, demasiadas propuestas); el resto, el genérico.
+    throw new ErrorAmable((r.status === 400 || r.status === 429) && d && d.error ? d.error : amable);
+  }
+  return d;
+}
+const mensajeCliente = (e, amable) => {
+  if (e instanceof ErrorAmable) return e.message;
+  console.error("Regalos: error inesperado", { api: API, error: e && e.message, e });
+  return amable;
+};
 
 // "Mediana - Comen 2- Piccan 5" → "Mediana · comen 2, piccan 5"
 const varianteLinda = (v) => {
   const m = String(v || "").match(/^\s*(.+?)\s*-?\s*(comen?)\s*([0-9]+)\s*-\s*(piccan?)\s*([0-9]+)\s*$/i);
   return m ? `${m[1]} · ${m[2].toLowerCase()} ${m[3]}, ${m[4].toLowerCase()} ${m[5]}` : String(v || "");
 };
-const itemsTodos = () => estado.cat ? estado.cat.estilos.flatMap((e) => e.items) : [];
-const itemDe = (id) => itemsTodos().find((i) => String(i.variant_id) === String(id));
+// "Mediana - Comen 2- Piccan 5" → "Mediana"
+const tamanoCorto = (v) => varianteLinda(v).split(" · ")[0];
+// Nombre de una línea del resumen: "La Fausta · Chica (Clásica)", "Caja Gourmet (XL)", "Giftcard personalizada · $75.000"
+const nombreLinea = (l) => `${l.nombre}${(l.variante_mostrar || l.variante) ? " · " + tamanoCorto(l.variante_mostrar || l.variante) : ""}${!l.digital && l.opcion && l.opcion !== l.nombre ? ` (${l.opcion})` : ""}`;
+const tarjetasDe = (e) => (e && e.grupos ? e.grupos : []).flatMap((g) => g.tarjetas);
+const claveSel = (e, t) => `${e.id}:${t.clave}`;
+const varianteSel = (e, t) => t.variantes.find((v) => v.variant_id === estado.sel[claveSel(e, t)]) || t.variantes[0];
+const cantDe = (id) => (estado.libres.has(id) ? (estado.libre[id] && estado.libre[id].cantidad) || 0 : estado.q[id] || 0);
+const tieneAlgo = (e) => tarjetasDe(e).some((t) => t.variantes.some((v) => cantDe(v.variant_id) > 0));
+function setCantidad(id, n) {
+  n = Math.max(0, n | 0);
+  if (estado.libres.has(id)) estado.libre[id] = { monto: (estado.libre[id] && estado.libre[id].monto) || "", cantidad: n };
+  else estado.q[id] = n;
+}
 
 // ===== Render =====
 function renderEscala() {
@@ -333,32 +391,48 @@ function renderEscala() {
 }
 function renderTabs() {
   const regalos = estado.cat.estilos.filter((e) => !e.extra);
-  $("#tabs").innerHTML = regalos.map((e) => {
-    const tiene = e.items.some((i) => estado.q[i.variant_id] > 0);
-    return `<button class="tab" type="button" aria-pressed="${estado.estilo === e.id}" data-e="${e.id}">${esc(e.nombre)}${tiene ? " •" : ""}</button>`;
-  }).join("");
+  $("#tabs").innerHTML = regalos.map((e) =>
+    `<button class="tab" type="button" aria-pressed="${estado.estilo === e.id}" data-e="${e.id}">${esc(e.nombre)}${tieneAlgo(e) ? " •" : ""}</button>`).join("");
 }
-function tarjeta(i, tope) {
-  const q = estado.q[i.variant_id] || 0, fuera = tope && i.precio > tope;
-  const foto = i.foto ? `<img src="${esc(i.foto)}" alt="" loading="lazy">` : (ICONOS[i.estilo] || "🎁");
-  return `<article class="prod ${q ? "sel" : ""} ${fuera ? "fuera" : ""}">
+function tarjeta(e, t, tope) {
+  const v = varianteSel(e, t), id = v.variant_id;
+  const libre = t.montoLibre ? (estado.libre[id] || { monto: "", cantidad: 0 }) : null;
+  const q = cantDe(id);
+  const algo = t.variantes.some((x) => cantDe(x.variant_id) > 0);
+  const precio = libre ? (Number(libre.monto) > 0 ? Number(libre.monto) : null) : v.precio;
+  const fuera = tope && precio && precio > tope;
+  const fotoUrl = v.foto || t.foto;
+  const foto = fotoUrl ? `<img src="${esc(fotoUrl)}" alt="" loading="lazy">` : (ICONOS[e.id] || "🎁");
+  // Debajo del título: el producto de TN (y el rinde si hay una sola variante: "come 1, piccan 3")
+  const rinde = t.variantes.length === 1 && v.etiqueta ? varianteLinda(v.etiqueta).split(" · ").slice(1).join(" · ") : "";
+  const sub = t.producto && t.producto !== t.titulo ? `<div class="variante">${esc(t.producto)}${rinde ? " · " + esc(rinde) : ""}</div>` : "";
+  const selector = t.variantes.length > 1
+    ? `<label class="tam">Tamaño <select data-sel="${esc(claveSel(e, t))}">${t.variantes.map((x) =>
+        `<option value="${esc(x.variant_id)}"${x.variant_id === id ? " selected" : ""}>${esc(tamanoCorto(x.mostrar || x.etiqueta))} · ${plata(x.precio)}${cantDe(x.variant_id) ? ` (×${cantDe(x.variant_id)})` : ""}</option>`).join("")}</select></label>` : "";
+  const porVariante = t.variantes.length > 1 ? t.variantes.filter((x) => cantDe(x.variant_id) > 0).map((x) => `${esc(tamanoCorto(x.mostrar || x.etiqueta))} ×${cantDe(x.variant_id)}`).join(" · ") : "";
+  const monto = libre
+    ? `<label class="tam">Monto por giftcard <input type="number" inputmode="numeric" min="${t.minimo || 1}" step="1000" placeholder="Ej. 75000" value="${esc(libre.monto)}" data-monto="${esc(id)}"></label>${t.minimo ? `<div class="nota-min">Mínimo ${plata(t.minimo)}</div>` : ""}` : "";
+  return `<article class="prod ${algo ? "sel" : ""} ${fuera ? "fuera" : ""}">
     <div class="foto" aria-hidden="true">${foto}</div>
-    <div class="prod-body"><h3>${esc(i.nombre)}</h3>${i.variante ? `<div class="variante">${esc(varianteLinda(i.variante))}</div>` : ""}<div class="desc">${esc(i.descripcion)}</div>
-      <div class="linea-q"><span class="precio">${plata(i.precio)}${i.precio_antes ? `<span class="antes">${plata(i.precio_antes)}</span>` : ""}</span>
-        <div class="mini"><button type="button" aria-label="Restar ${esc(i.nombre)}" data-q="${i.variant_id}" data-d="-1">−</button>
-        <input type="number" min="0" value="${q}" data-in="${i.variant_id}" aria-label="Cantidad de ${esc(i.nombre)}">
-        <button type="button" class="mas" aria-label="Sumar ${esc(i.nombre)}" data-q="${i.variant_id}" data-d="1">+</button></div>
+    <div class="prod-body"><h3>${esc(t.titulo)}</h3>${sub}<div class="desc">${esc(t.descripcion)}</div>${selector}${monto}
+      ${porVariante ? `<div class="resumen-var">${porVariante}</div>` : ""}
+      <div class="linea-q"><span class="precio" data-precio="${esc(id)}">${precio ? plata(precio) : "Elegí el monto"}${!libre && v.precio_antes ? `<span class="antes">${plata(v.precio_antes)}</span>` : ""}</span>
+        <div class="mini"><button type="button" aria-label="Restar ${esc(t.titulo)}" data-q="${esc(id)}" data-d="-1">−</button>
+        <input type="number" min="0" value="${q}" data-in="${esc(id)}" aria-label="Cantidad de ${esc(t.titulo)}${t.variantes.length > 1 ? " " + esc(tamanoCorto(v.mostrar || v.etiqueta)) : ""}">
+        <button type="button" class="mas" aria-label="Sumar ${esc(t.titulo)}" data-q="${esc(id)}" data-d="1">+</button></div>
       </div></div></article>`;
 }
 function renderGrilla() {
   const tope = +$("#presu").value;
   const e = estado.cat.estilos.find((x) => x.id === estado.estilo);
-  $("#grilla").innerHTML = e && e.items.length ? e.items.map((i) => tarjeta(i, tope)).join("")
+  const grupos = e ? e.grupos : [];
+  $("#grilla").innerHTML = grupos.length
+    ? grupos.map((g) => `${g.titulo ? `<h3 class="grupo-tit">${esc(g.titulo)}</h3>` : ""}<div class="grilla">${g.tarjetas.map((t) => tarjeta(e, t, tope)).join("")}</div>`).join("")
     : `<div class="vacio-grilla">Por ahora no hay opciones disponibles en esta categoría.</div>`;
-  $("#gc-otro").hidden = estado.estilo !== "giftcard";
   const beb = estado.cat.estilos.find((x) => x.extra);
-  $("#bebidas-wrap").hidden = !(beb && beb.items.length);
-  if (beb) $("#bebidas").innerHTML = beb.items.map((i) => tarjeta(i, 0)).join("");
+  const tb = tarjetasDe(beb);
+  $("#bebidas-wrap").hidden = !tb.length;
+  if (beb) $("#bebidas").innerHTML = tb.map((t) => tarjeta(beb, t, 0)).join("");
 }
 function renderZonas() {
   const sel = $("#zona-uno");
@@ -369,7 +443,10 @@ function renderZonas() {
 const entregaModo = () => document.querySelector("[name=entrega]:checked").value;
 function cuerpo() {
   return {
-    items: Object.entries(estado.q).filter(([, q]) => q > 0).map(([variant_id, cantidad]) => ({ variant_id, cantidad })),
+    items: [
+      ...Object.entries(estado.q).filter(([, q]) => q > 0).map(([variant_id, cantidad]) => ({ variant_id, cantidad })),
+      ...Object.entries(estado.libre).filter(([, l]) => l.cantidad > 0 && Number(l.monto) > 0).map(([variant_id, l]) => ({ variant_id, cantidad: l.cantidad, monto: Number(l.monto) })),
+    ],
     cantidadRegalos: Math.max(1, parseInt($("#cant").value, 10) || 1),
     entrega: entregaModo() === "uno"
       ? { modo: "uno", zona: $("#zona-uno").value, direccion: $("#dir").value.trim() }
@@ -383,16 +460,15 @@ function recalcular() {
   tCalc = setTimeout(async () => {
     const n = ++estado.pedido;
     try {
-      const r = await fetch(API + "/api/regalos/calcular", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo()) });
-      const d = await r.json();
+      const d = await pedirJSON("/api/regalos/calcular", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo()) }, MSG.calcular);
       if (n !== estado.pedido) return;   // llegó una respuesta vieja
-      if (!r.ok) throw new Error(d.error || "No se pudo calcular");
       estado.calc = d; renderResumen();
       $("#calc-estado").textContent = "";
     } catch (e) {
       if (n !== estado.pedido) return;
       $("#calc-estado").textContent = "";
-      const err = $("#calc-error"); err.textContent = "No pudimos actualizar el total: " + e.message; err.hidden = false;
+      const err = $("#calc-error"); err.textContent = mensajeCliente(e, MSG.calcular); err.hidden = false;
+      $("#b-sol").disabled = true;
     }
   }, 300);
 }
@@ -403,7 +479,7 @@ function renderResumen() {
   else if (!r.faltan && !r.sobran) { a.className = "asig ok"; a.textContent = `${r.regalos} de ${r.cantidadRegalos} regalos asignados`; }
   else { a.className = "asig mal"; a.textContent = `${r.regalos} de ${r.cantidadRegalos} regalos asignados · ${r.faltan ? `faltan ${r.faltan}` : `sobran ${r.sobran}`}`; }
   $("#lineas").innerHTML = r.lineas.length
-    ? r.lineas.map((l) => `<li><span>${l.cantidad} × ${esc(l.nombre)}${l.variante && !l.digital ? " · " + esc(varianteLinda(l.variante).split(" · ")[0]) : ""}</span><span>${plata(l.subtotal)}</span></li>`).join("")
+    ? r.lineas.map((l) => `<li><span>${l.cantidad} × ${esc(nombreLinea(l))}</span><span>${plata(l.subtotal)}</span></li>`).join("")
     : '<li class="vacio">Todavía no sumaste regalos</li>';
   $("#t-reg").textContent = plata(r.subtotalRegalos);
   $("#r-beb").hidden = !r.subtotalBebidas; $("#t-beb").textContent = plata(r.subtotalBebidas);
@@ -434,16 +510,15 @@ function datosLead(canal) {
   };
 }
 async function guardarLead(canal) {
-  const r = await fetch(API + "/api/regalos/propuesta", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(datosLead(canal)) });
-  const d = await r.json();
-  if (!r.ok || !d.ok) throw new Error(d.error || "No se pudo guardar");
+  const d = await pedirJSON("/api/regalos/propuesta", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(datosLead(canal)) }, MSG.propuesta);
+  if (!d.ok) { console.error("Regalos: la propuesta no se guardó", { api: API, respuesta: d }); throw new ErrorAmable(MSG.propuesta); }
   return d;
 }
 function mensajeWA(r, id) {
   const entrega = entregaModo() === "uno" ? `Todos a un mismo lugar (${$("#zona-uno").value})` : "Cada uno a su dirección";
   const emp = $("#empresa").value.trim();
   return `¡Hola! Quiero cotizar regalos empresariales${emp ? " para " + emp : ""}.${id ? `\nPropuesta N° *#${id}*` : ""}\n\n` +
-    r.lineas.map((l) => `• ${l.cantidad} × ${l.nombre}${l.variante && !l.digital ? " (" + varianteLinda(l.variante).split(" · ")[0] + ")" : ""}`).join("\n") +
+    r.lineas.map((l) => `• ${l.cantidad} × ${nombreLinea(l)}`).join("\n") +
     `\n\nEntrega: ${entrega}\nTotal estimado: ${plata(r.total)}` + (r.tramo ? ` (con ${r.tramo.pct}% off por volumen)` : "");
 }
 
@@ -454,7 +529,7 @@ $("#b-sol").addEventListener("click", async () => {
     const d = await guardarLead("solicitar");
     await generarPDF(d.calculo, d.id);
     toast(`¡Listo! Tu propuesta #${d.id} quedó registrada y te descargamos el PDF. Te contactamos a la brevedad.`);
-  } catch (e) { toast("No pudimos generar la propuesta: " + e.message, true); }
+  } catch (e) { toast(mensajeCliente(e, MSG.propuesta), true); }
   finally { b.disabled = false; b.textContent = "Pedir la propuesta"; }
 });
 
@@ -502,7 +577,7 @@ async function generarPDF(c, id) {
       const f = (/^data:image\/(\w+)/.exec(data) || [])[1];
       try { doc.addImage(data, f === "png" ? "PNG" : f === "webp" ? "WEBP" : "JPEG", 15, y - 5, 8, 8); } catch (_) {}
     }
-    const nombre = `${l.cantidad} x ${l.nombre}${l.variante && !l.digital ? " (" + varianteLinda(l.variante).split(" · ")[0] + ")" : ""}${l.extra ? " · bebida" : ""}`;
+    const nombre = `${l.cantidad} x ${nombreLinea(l)}${l.extra ? " · bebida" : ""}`;
     doc.text(doc.splitTextToSize(nombre, 125), data ? 26 : 15, y);
     doc.text(`${plata(l.precio)} c/u`, 160, y, { align: "right" });
     doc.text(plata(l.subtotal), W - 15, y, { align: "right" });
@@ -542,20 +617,29 @@ document.addEventListener("click", (e) => {
   const t = e.target.closest("button"); if (!t || !estado.cat) return;
   if (t.dataset.cant) { const i = $("#cant"); i.value = Math.max(1, (+i.value || 0) + +t.dataset.cant); renderEscala(); recalcular(); }
   if (t.dataset.e) { estado.estilo = t.dataset.e; renderTabs(); renderGrilla(); }
-  if (t.dataset.q) { const id = t.dataset.q; estado.q[id] = Math.max(0, (estado.q[id] || 0) + +t.dataset.d); renderTabs(); renderGrilla(); recalcular(); }
+  if (t.dataset.q) { const id = t.dataset.q; setCantidad(id, cantDe(id) + +t.dataset.d); renderTabs(); renderGrilla(); recalcular(); }
 });
 document.addEventListener("change", (e) => {
-  if (e.target.dataset.in) { estado.q[e.target.dataset.in] = Math.max(0, parseInt(e.target.value, 10) || 0); renderTabs(); renderGrilla(); recalcular(); }
+  if (e.target.dataset.in) { setCantidad(e.target.dataset.in, parseInt(e.target.value, 10) || 0); renderTabs(); renderGrilla(); recalcular(); }
+  if (e.target.dataset.sel) { estado.sel[e.target.dataset.sel] = e.target.value; renderGrilla(); }
+  if (e.target.dataset.monto) renderGrilla();
 });
 $("#cant").addEventListener("input", () => { renderEscala(); recalcular(); });
+// Monto libre: se guarda y recalcula mientras escribe (sin re-dibujar, para no perder el foco).
+document.addEventListener("input", (e) => {
+  const id = e.target.dataset && e.target.dataset.monto; if (!id) return;
+  const m = parseInt(e.target.value, 10);
+  estado.libre[id] = { monto: m > 0 ? m : "", cantidad: cantDe(id) || (m > 0 ? 1 : 0) };
+  const p = document.querySelector(`[data-precio="${CSS.escape(id)}"]`); if (p) p.textContent = m > 0 ? plata(m) : "Elegí el monto";
+  const qi = document.querySelector(`[data-in="${CSS.escape(id)}"]`); if (qi) qi.value = cantDe(id);
+  recalcular();
+});
 $("#presu").addEventListener("change", renderGrilla);
 document.querySelectorAll("[name=entrega]").forEach((r) => r.addEventListener("change", () => {
   const v = entregaModo(); $("#sub-uno").hidden = v !== "uno"; $("#sub-varios").hidden = v !== "varios"; recalcular();
 }));
 ["#zona-uno", "#n-caba", "#n-gba"].forEach((s) => $(s).addEventListener("input", recalcular));
 $("#tarjeta").addEventListener("change", () => { $("#msg-wrap").hidden = !$("#tarjeta").checked; });
-
-$("#gc-otro-link").href = "https://wa.me/" + WA + "?text=" + encodeURIComponent("¡Hola! Quiero una giftcard de Piccadely por otro monto para regalos empresariales.");
 
 // fecha mínima: pasado mañana
 const min = new Date(Date.now() + 2 * 864e5).toISOString().slice(0, 10);
@@ -564,16 +648,16 @@ $("#fecha").min = min; $("#fecha-v").min = min;
 // ===== Inicio =====
 (async () => {
   try {
-    const r = await fetch(API + "/api/regalos/catalogo");
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || "error");
+    const d = await pedirJSON("/api/regalos/catalogo", undefined, MSG.catalogo);
+    if (!d || !Array.isArray(d.estilos)) { console.error("Regalos: catálogo con formato inesperado", { api: API, respuesta: d }); throw new ErrorAmable(MSG.catalogo); }
     estado.cat = d;
-    const conItems = d.estilos.filter((e) => !e.extra && e.items.length);
+    estado.libres = new Set(d.estilos.flatMap((e) => tarjetasDe(e)).filter((t) => t.montoLibre).map((t) => t.variantes[0].variant_id));
+    const conItems = d.estilos.filter((e) => !e.extra && tarjetasDe(e).length);
     estado.estilo = (conItems.find((e) => e.id === "caja") || conItems[0] || d.estilos[0]).id;
     $("#cat-cargando").hidden = true; $("#cat-ok").hidden = false;
     renderZonas(); renderEscala(); renderTabs(); renderGrilla(); recalcular();
   } catch (e) {
-    $("#cat-cargando").textContent = "No pudimos cargar el catálogo. Probá recargar la página en un rato.";
+    $("#cat-cargando").textContent = mensajeCliente(e, MSG.catalogo);
   }
 })();
 </script>
