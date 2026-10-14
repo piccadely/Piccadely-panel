@@ -485,6 +485,7 @@ function recalcular() {
       if (n !== estado.pedido) return;   // llegó una respuesta vieja
       if (!VERSIONES_SOPORTADAS.includes(d.version)) throw new FormatoInesperado(`/calcular con version ${JSON.stringify(d.version)} (soportadas: ${VERSIONES_SOPORTADAS.join(", ")})`);
       estado.calc = d; renderResumen();
+      estado.reintentos = 0;   // catálogo y cálculo OK: se cierra el ciclo de reintentos
       $("#calc-estado").textContent = "";
     } catch (e) {
       if (n !== estado.pedido) return;
@@ -708,8 +709,7 @@ async function cargarCatalogo() {
     if (!estado.estilo || !conItems.some((e) => e.id === estado.estilo)) estado.estilo = (conItems.find((e) => e.id === "caja") || conItems[0] || d.estilos[0]).id;
     renderZonas(); renderEscala(); renderTabs(); renderGrilla();
     $("#cat-cargando").hidden = true; $("#cat-ok").hidden = false;
-    estado.reintentos = 0;
-    recalcular();
+    recalcular();   // los reintentos vuelven a 0 recién cuando /calcular también responde bien
   } catch (e) {
     if (e instanceof ErrorAmable) { $("#cat-cargando").hidden = false; $("#cat-ok").hidden = true; $("#cat-cargando").textContent = e.message; return; }
     modoActualizando(e instanceof FormatoInesperado ? e.message : `error al preparar el catálogo: ${e && e.message}`, e);
