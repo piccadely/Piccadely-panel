@@ -55,5 +55,9 @@
       ]
     }
   ],
-  "bebidas": { "id": "bebida", "nombre": "Bebidas", "categoria": "bebidas para regalar" }
+  "bebidas": { "id": "bebida", "nombre": "Bebidas", "categoria": "bebidas para regalar" },
+  "etiquetas_variantes": {
+    "_comentario": "Nombre de variante de TN → nombre que se MUESTRA en el selector de tamaño (sin tildes ni mayúsculas para comparar). El lead y el mail guardan el original.",
+    "Extra Grande": "XL"
+  }
 }

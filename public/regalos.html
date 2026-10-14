@@ -371,7 +371,7 @@ const varianteLinda = (v) => {
 // "Mediana - Comen 2- Piccan 5" → "Mediana"
 const tamanoCorto = (v) => varianteLinda(v).split(" · ")[0];
 // Nombre de una línea del resumen: "La Fausta · Chica (Clásica)", "Caja Gourmet (XL)", "Giftcard personalizada · $75.000"
-const nombreLinea = (l) => `${l.nombre}${l.variante ? " · " + tamanoCorto(l.variante) : ""}${!l.digital && l.opcion && l.opcion !== l.nombre ? ` (${l.opcion})` : ""}`;
+const nombreLinea = (l) => `${l.nombre}${(l.variante_mostrar || l.variante) ? " · " + tamanoCorto(l.variante_mostrar || l.variante) : ""}${!l.digital && l.opcion && l.opcion !== l.nombre ? ` (${l.opcion})` : ""}`;
 const tarjetasDe = (e) => (e && e.grupos ? e.grupos : []).flatMap((g) => g.tarjetas);
 const claveSel = (e, t) => `${e.id}:${t.clave}`;
 const varianteSel = (e, t) => t.variantes.find((v) => v.variant_id === estado.sel[claveSel(e, t)]) || t.variantes[0];
@@ -408,8 +408,8 @@ function tarjeta(e, t, tope) {
   const sub = t.producto && t.producto !== t.titulo ? `<div class="variante">${esc(t.producto)}${rinde ? " · " + esc(rinde) : ""}</div>` : "";
   const selector = t.variantes.length > 1
     ? `<label class="tam">Tamaño <select data-sel="${esc(claveSel(e, t))}">${t.variantes.map((x) =>
-        `<option value="${esc(x.variant_id)}"${x.variant_id === id ? " selected" : ""}>${esc(tamanoCorto(x.etiqueta))} · ${plata(x.precio)}${cantDe(x.variant_id) ? ` (×${cantDe(x.variant_id)})` : ""}</option>`).join("")}</select></label>` : "";
-  const porVariante = t.variantes.length > 1 ? t.variantes.filter((x) => cantDe(x.variant_id) > 0).map((x) => `${esc(tamanoCorto(x.etiqueta))} ×${cantDe(x.variant_id)}`).join(" · ") : "";
+        `<option value="${esc(x.variant_id)}"${x.variant_id === id ? " selected" : ""}>${esc(tamanoCorto(x.mostrar || x.etiqueta))} · ${plata(x.precio)}${cantDe(x.variant_id) ? ` (×${cantDe(x.variant_id)})` : ""}</option>`).join("")}</select></label>` : "";
+  const porVariante = t.variantes.length > 1 ? t.variantes.filter((x) => cantDe(x.variant_id) > 0).map((x) => `${esc(tamanoCorto(x.mostrar || x.etiqueta))} ×${cantDe(x.variant_id)}`).join(" · ") : "";
   const monto = libre
     ? `<label class="tam">Monto por giftcard <input type="number" inputmode="numeric" min="${t.minimo || 1}" step="1000" placeholder="Ej. 75000" value="${esc(libre.monto)}" data-monto="${esc(id)}"></label>${t.minimo ? `<div class="nota-min">Mínimo ${plata(t.minimo)}</div>` : ""}` : "";
   return `<article class="prod ${algo ? "sel" : ""} ${fuera ? "fuera" : ""}">
@@ -418,7 +418,7 @@ function tarjeta(e, t, tope) {
       ${porVariante ? `<div class="resumen-var">${porVariante}</div>` : ""}
       <div class="linea-q"><span class="precio" data-precio="${esc(id)}">${precio ? plata(precio) : "Elegí el monto"}${!libre && v.precio_antes ? `<span class="antes">${plata(v.precio_antes)}</span>` : ""}</span>
         <div class="mini"><button type="button" aria-label="Restar ${esc(t.titulo)}" data-q="${esc(id)}" data-d="-1">−</button>
-        <input type="number" min="0" value="${q}" data-in="${esc(id)}" aria-label="Cantidad de ${esc(t.titulo)}${t.variantes.length > 1 ? " " + esc(tamanoCorto(v.etiqueta)) : ""}">
+        <input type="number" min="0" value="${q}" data-in="${esc(id)}" aria-label="Cantidad de ${esc(t.titulo)}${t.variantes.length > 1 ? " " + esc(tamanoCorto(v.mostrar || v.etiqueta)) : ""}">
         <button type="button" class="mas" aria-label="Sumar ${esc(t.titulo)}" data-q="${esc(id)}" data-d="1">+</button></div>
       </div></div></article>`;
 }

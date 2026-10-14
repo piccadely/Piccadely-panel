@@ -61,6 +61,9 @@ export function armarCatalogoRegalos({ productos, categorias }, config = configR
   const avisos = [];
   const porVariante = new Map();   // variant_id (o "v:<clave>" para virtuales) → datos para calcular
   const publicados = productos.filter((p) => p.published !== false);
+  // Nombres de variante para MOSTRAR (config.etiquetas_variantes, ej. "Extra Grande" → "XL"). El lead guarda el original.
+  const mapaEtiquetas = new Map(Object.entries(config.etiquetas_variantes || {}).filter(([k]) => !k.startsWith("_")).map(([k, v]) => [norm(k), v]));
+  const mostrar = (etiqueta) => mapaEtiquetas.get(norm(etiqueta)) || etiqueta;
   const tieneTamano = (p, tamano) => (p.variants || []).some((v) => norm(etiquetaDe(v)).startsWith(tamano));
 
   // Nombre "contiene" (sin tildes ni mayúsculas). Con tamaño, solo productos que lo tengan. Varios → exacto, si no el más corto.
@@ -94,8 +97,8 @@ export function armarCatalogoRegalos({ productos, categorias }, config = configR
       const etiqueta = etiquetaDe(v);
       if (e.tamano && !norm(etiqueta).startsWith(e.tamano)) continue;
       const id = String(v.id), foto = fotoDe(p, v);
-      variantes.push({ variant_id: id, etiqueta, precio: pr.precio, precio_antes: pr.antes, foto });
-      porVariante.set(id, { variant_id: id, product_id: p.id, opcion: it.titulo, nombre: txt(p.name), variante: etiqueta, estilo: e.id,
+      variantes.push({ variant_id: id, etiqueta, mostrar: mostrar(etiqueta), precio: pr.precio, precio_antes: pr.antes, foto });
+      porVariante.set(id, { variant_id: id, product_id: p.id, opcion: it.titulo, nombre: txt(p.name), variante: etiqueta, variante_mostrar: mostrar(etiqueta), estilo: e.id,
         digital: !!e.digital, extra: !!e.extra, foto, precio: pr.precio, precio_antes: pr.antes });
     }
     if (!variantes.length) { avisos.push(`"${txt(p.name)}" (${e.nombre} · ${it.titulo}) no tiene variantes${e.tamano ? " " + e.tamano : ""} con precio y stock: se omite`); return null; }
@@ -168,7 +171,7 @@ export function calcularRegalos(catalogo, body, tar = tarifas()) {
   }
   const lineas = [...acumulado.values()].map(({ item: i, precio, cantidad }) => ({
     variant_id: i.variant_id, product_id: i.product_id, opcion: i.opcion, nombre: i.nombre,
-    variante: i.montoLibre ? pesos(precio) : i.variante, estilo: i.estilo, digital: i.digital, extra: i.extra, foto: i.foto,
+    variante: i.montoLibre ? pesos(precio) : i.variante, variante_mostrar: i.montoLibre ? pesos(precio) : (i.variante_mostrar || i.variante), estilo: i.estilo, digital: i.digital, extra: i.extra, foto: i.foto,
     ...(i.sinProductoTN ? { sinProductoTN: true } : {}), ...(i.montoLibre ? { monto: precio } : {}),
     cantidad, precio, precio_antes: i.precio_antes, subtotal: precio * cantidad,
   }));
