@@ -1,12 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────
 //  Routes/regalos.js  ·  Cotizador de Regalos Empresariales (public/regalos.html)
 //  Montar en server.js:  app.use("/api/regalos", regalosRouter(pool, mailTransporter));
-//    GET  /api/regalos/catalogo   → SELECCIÓN CURADA (data/regalos_config.json) con precio/foto/stock en vivo + tarifas de envío
-//    POST /api/regalos/calcular   → recalcula TODO server-side (precios de TN, descuento, envío, total)
+//    GET  /api/regalos/catalogo   → SELECCIÓN CURADA (data/regalos_config.json) con precio/foto/stock en vivo + tarifas de envío de REFERENCIA
+//    POST /api/regalos/calcular   → recalcula TODO server-side (precios de TN, descuento, total). El ENVÍO NO SE SUMA:
+//                                   la entrega se guarda solo como dato del lead y las tarifas van aparte, como referencia
 //    POST /api/regalos/propuesta  → recalcula, guarda el lead en `cotizaciones` (origen 'regalos') y avisa por mail
 //  Catálogo: Routes/tnCatalogo.js (el mismo caché que el cotizador de eventos). Precio = promocional si
 //  existe y es menor que price (lo que cobra TN en el checkout); si no, price.
-//  Envío: tabla por partido de data/localidades_cobertura.json (la misma del bot). Nada hardcodeado en el front.
+//  Envío: tarifas de referencia de data/localidades_cobertura.json (la misma tabla del bot). NO se suma al total.
 // ─────────────────────────────────────────────────────────────────────
 import express from "express";
 import fs from "fs";
@@ -15,8 +16,7 @@ import { clienteKeyDe } from "./cotizador.js";
 
 // Descuento por volumen según la cantidad de REGALOS (las bebidas no cuentan para el tramo, pero se descuentan).
 export const TRAMOS_REGALOS = [{ min: 5, pct: 5 }, { min: 15, pct: 10 }, { min: 25, pct: 15 }];
-const REGALOS_POR_VIAJE = 15;                 // 'uno': un envío cada 15 regalos físicos
-const PARTIDO_GBA_REFERENCIA = "San Isidro";  // 'varios': tarifa de referencia para GBA (= Vicente López, $5.000)
+export const TEXTO_SIN_ENVIO = "NO INCLUYE COSTO DE ENVÍO. El costo de envío se calcula de acuerdo a las áreas de entrega.";
 const MAX_CANTIDAD = 10000;
 
 // ── Selección curada (data/regalos_config.json): QUÉ se muestra. Precio, foto y stock salen en vivo de TN ──
@@ -38,10 +38,13 @@ function cargarTarifas() {
   const porPartido = new Map();
   for (const v of Object.values(datos)) for (const o of (Array.isArray(v) ? v : [v])) if (o.cobertura) porPartido.set(o.partido, o.costo);
   if (!porPartido.has("CABA")) throw new Error("La tabla de cobertura no tiene CABA");
-  if (!porPartido.has(PARTIDO_GBA_REFERENCIA)) throw new Error(`La tabla de cobertura no tiene ${PARTIDO_GBA_REFERENCIA}`);
   const partidos = [...porPartido].filter(([p]) => p !== "CABA").map(([partido, costo]) => ({ partido, costo }))
     .sort((a, b) => a.partido.localeCompare(b.partido, "es"));
-  return { caba: porPartido.get("CABA"), partidos, porPartido, gbaReferencia: { partido: PARTIDO_GBA_REFERENCIA, costo: porPartido.get(PARTIDO_GBA_REFERENCIA) } };
+  const costosAmba = partidos.map((p) => p.costo);
+  return {
+    caba: porPartido.get("CABA"), partidos, porPartido,
+    referencia: { caba: porPartido.get("CABA"), ambaDesde: Math.min(...costosAmba), ambaHasta: Math.max(...costosAmba) },
+  };
 }
 let _tarifas = null;
 const tarifas = () => (_tarifas ||= cargarTarifas());
@@ -182,33 +185,24 @@ export function calcularRegalos(catalogo, body, tar = tarifas()) {
   const tramo = [...TRAMOS_REGALOS].sort((a, b) => b.min - a.min).find((t) => regalos >= t.min) || null;
   const descuento = tramo ? Math.round((subtotalRegalos + subtotalBebidas) * tramo.pct / 100) : 0;
 
-  // Envío (las giftcards no suman: van por mail)
+  // Entrega: SOLO dato para el lead (no suma al total). Las tarifas van aparte, como referencia.
   const e = body?.entrega || {};
   const modo = e.modo === "varios" ? "varios" : "uno";
-  let envio = 0, envioDetalle = null;
-  if (fisicos > 0) {
-    if (modo === "uno") {
-      const zona = String(e.zona || "CABA");
-      const tarifa = zona === "CABA" ? tar.caba : tar.porPartido.get(zona);
-      if (tarifa == null) errores.push(`Zona de entrega no reconocida: ${zona}`);
-      else {
-        const viajes = Math.ceil(fisicos / REGALOS_POR_VIAJE);
-        envio = tarifa * viajes;
-        envioDetalle = { modo, zona, tarifa, viajes };
-      }
-    } else {
-      const nCaba = entero(e.nCaba) ?? 0, nGba = entero(e.nGba) ?? 0;
-      envio = nCaba * tar.caba + nGba * tar.gbaReferencia.costo;
-      envioDetalle = { modo, nCaba, nGba, tarifaCaba: tar.caba, tarifaGba: tar.gbaReferencia.costo, partidoGbaReferencia: tar.gbaReferencia.partido };
-    }
+  let envioDetalle;
+  if (modo === "uno") {
+    const zona = String(e.zona || "CABA");
+    if (zona !== "CABA" && !tar.porPartido.has(zona)) errores.push(`Zona de entrega no reconocida: ${zona}`);
+    envioDetalle = { modo, zona };
+  } else {
+    envioDetalle = { modo, nCaba: entero(e.nCaba) ?? 0, nGba: entero(e.nGba) ?? 0 };
   }
-  const total = subtotalRegalos + subtotalBebidas - descuento + envio;
+  const total = subtotalRegalos + subtotalBebidas - descuento;   // sin envío
   const cantidadRegalos = entero(body?.cantidadRegalos) ?? regalos;
   return {
     lineas, regalos, fisicos, cantidadRegalos,
     faltan: Math.max(0, cantidadRegalos - regalos), sobran: Math.max(0, regalos - cantidadRegalos),
     subtotalRegalos, subtotalBebidas, tramo, descuento,
-    envio, envioEstimado: modo === "varios" && fisicos > 0, envioDetalle,
+    incluyeEnvio: false, envioDetalle, envioReferencia: tar.referencia, avisoEnvio: TEXTO_SIN_ENVIO,
     total, porRegalo: regalos ? Math.round(total / regalos) : 0,
     ...(errores.length ? { errores } : {}),
   };
@@ -219,9 +213,8 @@ async function notificarRegalos(mailTransporter, lead) {
   if (!mailTransporter) return;
   try {
     const c = lead.calculo, ent = c.envioDetalle;
-    const entregaTxt = !ent ? "Sin envío (solo giftcards)"
-      : ent.modo === "uno" ? `Todos a un mismo lugar · ${ent.zona}${lead.direccion ? " · " + lead.direccion : ""} · ${ent.viajes} viaje(s)`
-      : `Cada uno a su casa · ${ent.nCaba} en CABA + ${ent.nGba} en GBA (estimado)`;
+    const entregaTxt = ent.modo === "uno" ? `Todos a un mismo lugar · ${ent.zona}${lead.direccion ? " · " + lead.direccion : ""}`
+      : `Cada uno a su casa · ${ent.nCaba} en CABA + ${ent.nGba} en GBA`;
     const html = `
       <h2>🎁 Nueva propuesta de regalos empresariales #${lead.id}</h2>
       <p><b>${lead.canal === "whatsapp" ? "📲 Cerró por WhatsApp" : "📄 Pidió la propuesta"}</b></p>
@@ -230,14 +223,15 @@ async function notificarRegalos(mailTransporter, lead) {
       <p><b>${c.regalos} regalos</b>${c.cantidadRegalos !== c.regalos ? ` (pidió ${c.cantidadRegalos})` : ""}${lead.fecha ? " · 📅 " + esc(lead.fecha) : ""}<br>
          <b>Entrega:</b> ${esc(entregaTxt)}</p>
       <ul>${c.lineas.map((l) => `<li>${l.cantidad}× ${l.opcion && l.opcion !== l.nombre ? esc(l.opcion) + " · " : ""}${esc(l.nombre)}${l.variante ? " (" + esc(l.variante) + ")" : ""} · ${pesos(l.subtotal)}${l.sinProductoTN ? " <i>(sin producto en TN)</i>" : ""}</li>`).join("")}</ul>
-      <p>Regalos ${pesos(c.subtotalRegalos)}${c.subtotalBebidas ? " · Bebidas " + pesos(c.subtotalBebidas) : ""}${c.descuento ? ` · Descuento ${c.tramo.pct}% −${pesos(c.descuento)}` : ""} · Envío ${pesos(c.envio)}${c.envioEstimado ? " (estimado)" : ""}<br>
-         <b>Total: ${pesos(c.total)}</b> (${pesos(c.porRegalo)} por regalo)</p>
+      <p>Regalos ${pesos(c.subtotalRegalos)}${c.subtotalBebidas ? " · Bebidas " + pesos(c.subtotalBebidas) : ""}${c.descuento ? ` · Descuento ${c.tramo.pct}% −${pesos(c.descuento)}` : ""}<br>
+         <b>Total estimado sin envío: ${pesos(c.total)}</b> (${pesos(c.porRegalo)} por regalo)<br>
+         <b style="color:#c0392b">${esc(TEXTO_SIN_ENVIO)}</b></p>
       <p><b>Tarjeta:</b> ${lead.tarjeta?.conMensaje ? `con mensaje: “${esc(lead.tarjeta.mensaje || "")}”` : "sin mensaje"}${lead.tarjetaPropia ? " · <b>envía su tarjeta personal</b>" : ""}</p>
       <p style="color:#999;font-size:12px">Piccadely · Cotizador de Regalos Empresariales</p>`;
     await mailTransporter.sendMail({
       from: `Piccadely <${process.env.GMAIL_USER}>`,
       to: "yus@piccadely.com",
-      subject: `🎁 Regalos empresariales #${lead.id} · ${lead.empresa || lead.cliente_nombre} · ${c.regalos} regalos · ${pesos(c.total)}`,
+      subject: `🎁 Regalos empresariales #${lead.id} · ${lead.empresa || lead.cliente_nombre} · ${c.regalos} regalos · ${pesos(c.total)} sin envío`,
       html,
     });
   } catch (e) {
@@ -279,7 +273,7 @@ export function regalosRouter(pool, mailTransporter) {
       res.json({
         estilos: cat.estilos,
         tramos: TRAMOS_REGALOS,
-        envio: { caba: tar.caba, partidos: tar.partidos, gbaReferencia: tar.gbaReferencia, regalosPorViaje: REGALOS_POR_VIAJE },
+        envio: { caba: tar.caba, partidos: tar.partidos, referencia: tar.referencia, aviso: TEXTO_SIN_ENVIO },
       });
     } catch (e) {
       console.error("Regalos: error armando el catálogo:", e.message);
@@ -331,7 +325,7 @@ export function regalosRouter(pool, mailTransporter) {
         tipo: "regalos", lineas: calculo.lineas, entrega: { ...(ent || { modo: b.entrega?.modo === "varios" ? "varios" : "uno" }), direccion: lead.direccion },
         cantidadRegalos: calculo.cantidadRegalos, regalos: calculo.regalos,
         subtotalRegalos: calculo.subtotalRegalos, subtotalBebidas: calculo.subtotalBebidas, tramo: calculo.tramo,
-        descuento: calculo.descuento, envio: calculo.envio, envioEstimado: calculo.envioEstimado,
+        descuento: calculo.descuento, incluyeEnvio: false, envioReferencia: calculo.envioReferencia,   // el total NO incluye envío
         total: calculo.total, porRegalo: calculo.porRegalo,
         tarjeta: lead.tarjeta, tarjetaPropia: lead.tarjetaPropia, empresa: lead.empresa, cuit: lead.cuit, facturaA: lead.facturaA,
       };
