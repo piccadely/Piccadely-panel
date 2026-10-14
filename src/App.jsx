@@ -1622,7 +1622,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
         <div style={{ fontSize: 13, color: "#444", background: "#f3faf9", borderRadius: 8, padding: "10px 12px" }}>
           <div style={{ marginBottom: 6 }}>🎁 <b>{o.regalos ?? c.personas}</b> regalos{o.cantidadRegalos && o.cantidadRegalos !== o.regalos ? ` (pidió ${o.cantidadRegalos})` : ""}{c.fecha_evento ? " · 📅 " + c.fecha_evento : ""}</div>
           <ul style={{ margin: "0 0 6px", paddingLeft: 18, color: "#555" }}>
-            {(o.lineas || []).map((l, k) => <li key={k} style={{ fontSize: 12 }}>{l.cantidad}× {l.nombre}{l.variante && !l.digital ? ` (${l.variante})` : ""}{l.extra ? " · bebida" : ""} · {pesos(l.subtotal)}</li>)}
+            {(o.lineas || []).map((l, k) => <li key={k} style={{ fontSize: 12 }}>{l.cantidad}× {l.opcion && !l.digital && l.opcion !== l.nombre ? `${l.opcion} · ` : ""}{l.nombre}{l.variante ? ` (${l.variante})` : ""}{l.extra ? " · bebida" : ""} · {pesos(l.subtotal)}{l.sinProductoTN ? <span style={{ color: "#b45309" }}> · sin producto en TN</span> : null}</li>)}
           </ul>
           <div style={{ fontSize: 12, color: "#555" }}>
             Regalos {pesos(o.subtotalRegalos)}{o.subtotalBebidas ? ` · Bebidas ${pesos(o.subtotalBebidas)}` : ""}{o.descuento ? ` · Descuento ${o.tramo?.pct ?? ""}% −${pesos(o.descuento)}` : ""} · Envío {pesos(o.envio)}{o.envioEstimado ? " (estimado)" : ""}
