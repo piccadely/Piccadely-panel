@@ -1616,7 +1616,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       if (!o) return <div style={{ fontSize: 12, color: "#999" }}>Sin detalle guardado.</div>;
       const ent = o.entrega || {};
       const entregaTxt = ent.modo === "varios"
-        ? `Cada uno a su casa · ${ent.nCaba ?? 0} en CABA + ${ent.nGba ?? 0} en GBA (envío estimado)`
+        ? `Cada uno a su casa · ${ent.nCaba ?? 0} en CABA + ${ent.nGba ?? 0} en GBA${o.incluyeEnvio === false ? "" : " (envío estimado)"}`
         : ent.zona ? `Todos a un mismo lugar · ${ent.zona}${ent.direccion ? " · " + ent.direccion : ""}${ent.viajes ? ` · ${ent.viajes} viaje(s)` : ""}` : "Sin envío (solo giftcards)";
       return (
         <div style={{ fontSize: 13, color: "#444", background: "#f3faf9", borderRadius: 8, padding: "10px 12px" }}>
@@ -1625,9 +1625,10 @@ const [facturaLabel, setFacturaLabel] = useState(null);
             {(o.lineas || []).map((l, k) => <li key={k} style={{ fontSize: 12 }}>{l.cantidad}× {l.opcion && !l.digital && l.opcion !== l.nombre ? `${l.opcion} · ` : ""}{l.nombre}{l.variante ? ` (${l.variante})` : ""}{l.extra ? " · bebida" : ""} · {pesos(l.subtotal)}{l.sinProductoTN ? <span style={{ color: "#b45309" }}> · sin producto en TN</span> : null}</li>)}
           </ul>
           <div style={{ fontSize: 12, color: "#555" }}>
-            Regalos {pesos(o.subtotalRegalos)}{o.subtotalBebidas ? ` · Bebidas ${pesos(o.subtotalBebidas)}` : ""}{o.descuento ? ` · Descuento ${o.tramo?.pct ?? ""}% −${pesos(o.descuento)}` : ""} · Envío {pesos(o.envio)}{o.envioEstimado ? " (estimado)" : ""}
+            Regalos {pesos(o.subtotalRegalos)}{o.subtotalBebidas ? ` · Bebidas ${pesos(o.subtotalBebidas)}` : ""}{o.descuento ? ` · Descuento ${o.tramo?.pct ?? ""}% −${pesos(o.descuento)}` : ""}
+            {o.incluyeEnvio === false ? " · Envío no incluido (se calcula según el área de entrega)" : ` · Envío ${pesos(o.envio)}${o.envioEstimado ? " (estimado)" : ""}`}
           </div>
-          <div style={{ fontWeight: 700, color: REGALOS_BADGE.color, margin: "4px 0" }}>Total {pesos(o.total ?? c.total_elegido)}{o.porRegalo ? ` · ${pesos(o.porRegalo)} por regalo` : ""}</div>
+          <div style={{ fontWeight: 700, color: REGALOS_BADGE.color, margin: "4px 0" }}>Total{o.incluyeEnvio === false ? " sin envío" : ""} {pesos(o.total ?? c.total_elegido)}{o.porRegalo ? ` · ${pesos(o.porRegalo)} por regalo` : ""}</div>
           <div style={{ fontSize: 12, color: "#555" }}>🚚 {entregaTxt}</div>
           <div style={{ fontSize: 12, color: "#555" }}>
             💌 {o.tarjeta?.conMensaje ? `Tarjeta con mensaje${o.tarjeta.mensaje ? `: “${o.tarjeta.mensaje}”` : ""}` : "Sin tarjeta con mensaje"}{o.tarjetaPropia ? " · envía su tarjeta personal" : ""}

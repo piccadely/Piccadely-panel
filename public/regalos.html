@@ -113,7 +113,12 @@ label.campo input,label.campo select,label.campo textarea{width:100%;min-width:0
 textarea{resize:vertical;min-height:70px}
 .check{display:flex;gap:10px;align-items:flex-start;font-size:15px;cursor:pointer}
 .check input{accent-color:var(--naranja);width:18px;height:18px;margin-top:2px;flex:none}
-.nota-envio{font-size:13px;color:var(--tinta-2);margin:0}
+.ref-envio{margin-top:16px;display:grid;gap:8px}
+.ref-envio .tarifas{margin:0;font-size:15px;color:var(--tinta-2)}
+.aviso-envio{margin:0;padding:12px 14px;border-radius:12px;border:2px solid var(--naranja);background:var(--naranja-suave);font-size:15px;color:var(--tinta)}
+.aviso-envio strong{color:var(--naranja-hondo)}
+@media(prefers-color-scheme:dark){.aviso-envio strong{color:var(--naranja)}}
+.sin-envio{font-size:13px;font-weight:700;color:var(--naranja);text-align:right}
 .plantilla{background:var(--fondo-2);border-radius:14px;padding:14px 16px;font-size:14px}
 .plantilla .cols{overflow-x:auto;margin-top:8px}
 .plantilla table{border-collapse:collapse;font-size:13px;white-space:nowrap}
@@ -214,10 +219,14 @@ aside h2{font-size:22px;margin-bottom:4px}
   </section>
 
   <section class="paso">
-    <div class="paso-tit"><span class="paso-num">3</span><div><h2>¿Adónde los mandamos?</h2><p class="ayuda">Las giftcards se envían por mail, no suman envío.</p></div></div>
+    <div class="paso-tit"><span class="paso-num">3</span><div><h2>¿Adónde los mandamos?</h2><p class="ayuda">Las giftcards se envían por mail.</p></div></div>
     <div class="opciones">
       <label class="opcion"><input type="radio" name="entrega" value="uno" checked><strong>Todos a un mismo lugar</strong><p>La oficina, un evento o un depósito. Un solo envío.</p></label>
       <label class="opcion"><input type="radio" name="entrega" value="varios"><strong>Cada uno a su casa</strong><p>Nos pasás la lista y entregamos a cada persona.</p></label>
+    </div>
+    <div class="ref-envio" id="ref-envio" hidden>
+      <p class="tarifas" id="tarifas-ref"></p>
+      <p class="aviso-envio" id="aviso-envio"></p>
     </div>
 
     <div class="sub" id="sub-uno">
@@ -235,7 +244,6 @@ aside h2{font-size:22px;margin-bottom:4px}
         <label class="campo">Destinatarios en CABA<input type="number" min="0" id="n-caba" value="0"></label>
         <label class="campo">Destinatarios en GBA<input type="number" min="0" id="n-gba" value="0"></label>
       </div>
-      <p class="nota-envio">El envío final se calcula con la planilla de destinatarios.</p>
       <label class="campo">Fecha de entrega<input type="date" id="fecha-v"></label>
       <div class="plantilla">
         <strong>Después nos pasás la lista con este formato</strong> (te mandamos la planilla para completar):
@@ -283,8 +291,8 @@ aside h2{font-size:22px;margin-bottom:4px}
     <div><span>Regalos</span><span id="t-reg">$0</span></div>
     <div id="r-beb" hidden><span>Bebidas</span><span id="t-beb">$0</span></div>
     <div class="desc-vol" id="r-desc" hidden><span id="l-desc">Descuento</span><span id="t-desc">$0</span></div>
-    <div><span>Envío<span class="est" id="env-est" hidden>estimado</span></span><span id="t-env">—</span></div>
     <div class="grande"><small>Total</small><span id="t-tot">$0</span></div>
+    <div class="sin-envio">No incluye costo de envío</div>
     <div class="porreg" id="t-por"></div>
   </div>
   <div class="calc-estado" id="calc-estado"></div>
@@ -435,6 +443,13 @@ function renderGrilla() {
   if (beb) $("#bebidas").innerHTML = tb.map((t) => tarjeta(beb, t, 0)).join("");
 }
 function renderZonas() {
+  const env = estado.cat.envio, ref = env.referencia;
+  if (ref) {
+    $("#tarifas-ref").textContent = `CABA ${plata(ref.caba)} · AMBA desde ${plata(ref.ambaDesde)} hasta ${plata(ref.ambaHasta)}`;
+    const aviso = String(env.aviso || ""), corte = aviso.indexOf(". ");   // primera frase ("NO INCLUYE COSTO DE ENVÍO.") en negrita
+    $("#aviso-envio").innerHTML = corte > 0 ? `<strong>${esc(aviso.slice(0, corte + 1))}</strong> ${esc(aviso.slice(corte + 2))}` : esc(aviso);
+    $("#ref-envio").hidden = false;
+  }
   const sel = $("#zona-uno");
   sel.innerHTML = `<option value="CABA">CABA</option>` + estado.cat.envio.partidos.map((p) => `<option value="${esc(p.partido)}">${esc(p.partido)}</option>`).join("");
 }
@@ -484,7 +499,6 @@ function renderResumen() {
   $("#t-reg").textContent = plata(r.subtotalRegalos);
   $("#r-beb").hidden = !r.subtotalBebidas; $("#t-beb").textContent = plata(r.subtotalBebidas);
   $("#r-desc").hidden = !r.descuento; $("#l-desc").textContent = r.tramo ? `Descuento por volumen (${r.tramo.pct}%)` : ""; $("#t-desc").textContent = "−" + plata(r.descuento);
-  $("#t-env").textContent = r.fisicos ? plata(r.envio) : "—"; $("#env-est").hidden = !r.envioEstimado;
   $("#t-tot").textContent = plata(r.total);
   $("#t-por").textContent = r.regalos ? `${plata(r.porRegalo)} por regalo` : "";
   const err = $("#calc-error"); err.hidden = !r.errores; err.textContent = r.errores ? r.errores.join(". ") : "";
@@ -519,7 +533,8 @@ function mensajeWA(r, id) {
   const emp = $("#empresa").value.trim();
   return `¡Hola! Quiero cotizar regalos empresariales${emp ? " para " + emp : ""}.${id ? `\nPropuesta N° *#${id}*` : ""}\n\n` +
     r.lineas.map((l) => `• ${l.cantidad} × ${nombreLinea(l)}`).join("\n") +
-    `\n\nEntrega: ${entrega}\nTotal estimado: ${plata(r.total)}` + (r.tramo ? ` (con ${r.tramo.pct}% off por volumen)` : "");
+    `\n\nEntrega: ${entrega}\nTotal estimado sin envío: ${plata(r.total)}` + (r.tramo ? ` (con ${r.tramo.pct}% off por volumen)` : "") +
+    (r.avisoEnvio ? `\n${r.avisoEnvio}` : "");
 }
 
 $("#b-sol").addEventListener("click", async () => {
@@ -592,13 +607,13 @@ async function generarPDF(c, id) {
   fila("Regalos", plata(c.subtotalRegalos));
   if (c.subtotalBebidas) fila("Bebidas", plata(c.subtotalBebidas));
   if (c.descuento) fila(`Descuento por volumen (${c.tramo.pct}%)`, "-" + plata(c.descuento));
-  if (c.fisicos) fila("Envío" + (c.envioEstimado ? " (estimado)" : ""), plata(c.envio));
-  fila("Total", plata(c.total), true);
-  doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.text(`${plata(c.porRegalo)} por regalo`, W - 15, y, { align: "right" }); y += 12;
+  fila("Total estimado sin envío", plata(c.total), true);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.text(`${plata(c.porRegalo)} por regalo`, W - 15, y, { align: "right" }); y += 9;
+  if (c.avisoEnvio) { doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(217, 112, 28); const t = doc.splitTextToSize(c.avisoEnvio, W - 30); doc.text(t, 15, y); y += t.length * 5.5 + 5; doc.setTextColor(43, 32, 24); doc.setFont("helvetica", "normal"); }
 
   const ent = c.envioDetalle;
   const notas = [
-    ent ? (ent.modo === "uno" ? `Entrega: todos a un mismo lugar (${ent.zona})${$("#dir").value.trim() ? " · " + $("#dir").value.trim() : ""}.` : `Entrega: cada uno a su casa (${ent.nCaba} en CABA, ${ent.nGba} en GBA). El envío final se calcula con la planilla de destinatarios.`) : "Las giftcards se envían por mail.",
+    ent ? (ent.modo === "uno" ? `Entrega: todos a un mismo lugar (${ent.zona})${$("#dir").value.trim() ? " · " + $("#dir").value.trim() : ""}.` : `Entrega: cada uno a su casa (${ent.nCaba} en CABA, ${ent.nGba} en GBA).`) : "Las giftcards se envían por mail.",
     $("#tarjeta").checked ? `Tarjeta con mensaje${$("#msg").value.trim() ? ": “" + $("#msg").value.trim() + "”" : ""}.` : "",
     $("#tarjeta-propia").checked ? "Sumamos tu tarjeta personal a cada regalo." : "",
   ].filter(Boolean);
