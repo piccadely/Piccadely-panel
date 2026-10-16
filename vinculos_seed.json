@@ -1,0 +1,580 @@
+{
+ "vinculos": [
+  {
+   "producto": "Comilona (Chica - Come 1 - Piccan 3)",
+   "receta": "Comilona Chica"
+  },
+  {
+   "producto": "Comilona Chica",
+   "receta": "Comilona Chica"
+  },
+  {
+   "producto": "Comilona (Mediana - Comen 2- Piccan 5)",
+   "receta": "Comilona Mediana"
+  },
+  {
+   "producto": "Comilona Mediana",
+   "receta": "Comilona Mediana"
+  },
+  {
+   "producto": "Comilona (Grande Comen 4- Piccan 9)",
+   "receta": "Comilona Grande"
+  },
+  {
+   "producto": "Comilona Grande",
+   "receta": "Comilona Grande"
+  },
+  {
+   "producto": "Comilona (XL - Comen 6 - Piccan 12)",
+   "receta": "Comilona XL"
+  },
+  {
+   "producto": "Comilona XL",
+   "receta": "Comilona XL"
+  },
+  {
+   "producto": "Suttile (Chica - Come 1 - Piccan 3)",
+   "receta": "Suttile Chica"
+  },
+  {
+   "producto": "Suttile Chica",
+   "receta": "Suttile Chica"
+  },
+  {
+   "producto": "Suttile (Mediana - Comen 2- Piccan 5)",
+   "receta": "Suttile Mediana"
+  },
+  {
+   "producto": "Suttile Mediana",
+   "receta": "Suttile Mediana"
+  },
+  {
+   "producto": "Suttile (Grande Comen 4- Piccan 9)",
+   "receta": "Suttile Grande"
+  },
+  {
+   "producto": "Suttile Grande",
+   "receta": "Suttile Grande"
+  },
+  {
+   "producto": "Suttile (XL - Comen 6 - Piccan 12)",
+   "receta": "Suttile XL"
+  },
+  {
+   "producto": "Suttile XL",
+   "receta": "Suttile XL"
+  },
+  {
+   "producto": "Giovane (Chica - Come 1 - Piccan 3)",
+   "receta": "Giovane Chica"
+  },
+  {
+   "producto": "Giovane Chica",
+   "receta": "Giovane Chica"
+  },
+  {
+   "producto": "Giovane (Mediana - Comen 2- Piccan 5)",
+   "receta": "Giovane Mediana"
+  },
+  {
+   "producto": "Giovane Mediana",
+   "receta": "Giovane Mediana"
+  },
+  {
+   "producto": "Giovane (Grande Comen 4- Piccan 9)",
+   "receta": "Giovane Grande"
+  },
+  {
+   "producto": "Giovane Grande",
+   "receta": "Giovane Grande"
+  },
+  {
+   "producto": "Giovane (XL - Comen 6 - Piccan 12)",
+   "receta": "Giovane XL"
+  },
+  {
+   "producto": "Giovane XL",
+   "receta": "Giovane XL"
+  },
+  {
+   "producto": "Incontro (Chica - Come 1 - Piccan 3)",
+   "receta": "Incontro Chica"
+  },
+  {
+   "producto": "Incontro Chica",
+   "receta": "Incontro Chica"
+  },
+  {
+   "producto": "Incontro (Mediana - Comen 2- Piccan 5)",
+   "receta": "Incontro Mediana"
+  },
+  {
+   "producto": "Incontro Mediana",
+   "receta": "Incontro Mediana"
+  },
+  {
+   "producto": "Incontro (Grande Comen 4- Piccan 9)",
+   "receta": "Incontro Grande"
+  },
+  {
+   "producto": "Incontro Grande",
+   "receta": "Incontro Grande"
+  },
+  {
+   "producto": "Incontro (XL - Comen 6 - Piccan 12)",
+   "receta": "Incontro XL"
+  },
+  {
+   "producto": "Incontro XL",
+   "receta": "Incontro XL"
+  },
+  {
+   "producto": "Esquesitos (Chica - Come 1 - Piccan 3)",
+   "receta": "Esquesitos Chica"
+  },
+  {
+   "producto": "Esquesitos Chica",
+   "receta": "Esquesitos Chica"
+  },
+  {
+   "producto": "Esquesitos (Mediana - Comen 2- Piccan 5)",
+   "receta": "Esquesitos Mediana"
+  },
+  {
+   "producto": "Esquesitos Mediana",
+   "receta": "Esquesitos Mediana"
+  },
+  {
+   "producto": "Esquesitos (Grande Comen 4- Piccan 9)",
+   "receta": "Esquesitos Grande"
+  },
+  {
+   "producto": "Esquesitos Grande",
+   "receta": "Esquesitos Grande"
+  },
+  {
+   "producto": "Esquesitos (XL - Comen 6 - Piccan 12)",
+   "receta": "Esquesitos XL"
+  },
+  {
+   "producto": "Esquesitos XL",
+   "receta": "Esquesitos XL"
+  },
+  {
+   "producto": "La Fausta (Chica - Come 1 - Piccan 3)",
+   "receta": "La Fausta Chica"
+  },
+  {
+   "producto": "La Fausta Chica",
+   "receta": "La Fausta Chica"
+  },
+  {
+   "producto": "La Fausta (Mediana - Comen 2- Piccan 5)",
+   "receta": "La Fausta Mediana"
+  },
+  {
+   "producto": "La Fausta Mediana",
+   "receta": "La Fausta Mediana"
+  },
+  {
+   "producto": "La Fausta (Grande Comen 4- Piccan 9)",
+   "receta": "La Fausta Grande"
+  },
+  {
+   "producto": "La Fausta Grande",
+   "receta": "La Fausta Grande"
+  },
+  {
+   "producto": "La Fausta (XL - Comen 6 - Piccan 12)",
+   "receta": "La Fausta XL"
+  },
+  {
+   "producto": "La Fausta XL",
+   "receta": "La Fausta XL"
+  },
+  {
+   "producto": "La Gourmet (Chica - Come 1 - Piccan 3)",
+   "receta": "La Gourmet Chica"
+  },
+  {
+   "producto": "La Gourmet Chica",
+   "receta": "La Gourmet Chica"
+  },
+  {
+   "producto": "La Gourmet (Mediana - Comen 2- Piccan 5)",
+   "receta": "La Gourmet Mediana"
+  },
+  {
+   "producto": "La Gourmet Mediana",
+   "receta": "La Gourmet Mediana"
+  },
+  {
+   "producto": "La Gourmet (Grande Comen 4- Piccan 9)",
+   "receta": "La Gourmet Grande"
+  },
+  {
+   "producto": "La Gourmet Grande",
+   "receta": "La Gourmet Grande"
+  },
+  {
+   "producto": "La Gourmet (XL - Comen 6 - Piccan 12)",
+   "receta": "La Gourmet XL"
+  },
+  {
+   "producto": "La Gourmet XL",
+   "receta": "La Gourmet XL"
+  },
+  {
+   "producto": "Amistad (Chica - Come 1 - Piccan 3)",
+   "receta": "Amistad Chica"
+  },
+  {
+   "producto": "Amistad Chica",
+   "receta": "Amistad Chica"
+  },
+  {
+   "producto": "Amistad (Mediana - Comen 2- Piccan 5)",
+   "receta": "Amistad Mediana"
+  },
+  {
+   "producto": "Amistad Mediana",
+   "receta": "Amistad Mediana"
+  },
+  {
+   "producto": "Amistad (Grande Comen 4- Piccan 9)",
+   "receta": "Amistad Grande"
+  },
+  {
+   "producto": "Amistad Grande",
+   "receta": "Amistad Grande"
+  },
+  {
+   "producto": "Amistad (XL - Comen 6 - Piccan 12)",
+   "receta": "Amistad XL"
+  },
+  {
+   "producto": "Amistad XL",
+   "receta": "Amistad XL"
+  },
+  {
+   "producto": "Anita de Baires (Chica - Come 1 - Piccan 3)",
+   "receta": "Anita Chica"
+  },
+  {
+   "producto": "Anita de Baires Chica",
+   "receta": "Anita Chica"
+  },
+  {
+   "producto": "Anita de Baires (Mediana - Comen 2- Piccan 5)",
+   "receta": "Anita Mediana"
+  },
+  {
+   "producto": "Anita de Baires Mediana",
+   "receta": "Anita Mediana"
+  },
+  {
+   "producto": "Anita de Baires (Grande Comen 4- Piccan 9)",
+   "receta": "Anita Grande"
+  },
+  {
+   "producto": "Anita de Baires Grande",
+   "receta": "Anita Grande"
+  },
+  {
+   "producto": "Anita de Baires (XL - Comen 6 - Piccan 12)",
+   "receta": "Anita XL"
+  },
+  {
+   "producto": "Anita de Baires XL",
+   "receta": "Anita XL"
+  },
+  {
+   "producto": "Quesos del Gourmet (Chica - Come 1 - Piccan 3)",
+   "receta": "Quesos del Gourmet Chica"
+  },
+  {
+   "producto": "Quesos del Gourmet Chica",
+   "receta": "Quesos del Gourmet Chica"
+  },
+  {
+   "producto": "Quesos del Gourmet (Mediana - Comen 2- Piccan 5)",
+   "receta": "Quesos del Gourmet Mediana"
+  },
+  {
+   "producto": "Quesos del Gourmet Mediana",
+   "receta": "Quesos del Gourmet Mediana"
+  },
+  {
+   "producto": "Quesos del Gourmet (Grande Comen 4- Piccan 9)",
+   "receta": "Quesos del Gourmet Grande"
+  },
+  {
+   "producto": "Quesos del Gourmet Grande",
+   "receta": "Quesos del Gourmet Grande"
+  },
+  {
+   "producto": "Quesos del Gourmet (XL - Comen 6 - Piccan 12)",
+   "receta": "Quesos del Gourmet XL"
+  },
+  {
+   "producto": "Quesos del Gourmet XL",
+   "receta": "Quesos del Gourmet XL"
+  },
+  {
+   "producto": "HD (Hiper Divina) (Chica - Come 1 - Piccan 3)",
+   "receta": "HD Chica"
+  },
+  {
+   "producto": "HD (Hiper Divina) Chica",
+   "receta": "HD Chica"
+  },
+  {
+   "producto": "HD (Hiper Divina) (Mediana - Comen 2- Piccan 5)",
+   "receta": "HD Mediana"
+  },
+  {
+   "producto": "HD (Hiper Divina) Mediana",
+   "receta": "HD Mediana"
+  },
+  {
+   "producto": "HD (Hiper Divina) (Grande Comen 4- Piccan 9)",
+   "receta": "HD Grande"
+  },
+  {
+   "producto": "HD (Hiper Divina) Grande",
+   "receta": "HD Grande"
+  },
+  {
+   "producto": "HD (Hiper Divina) (XL - Comen 6 - Piccan 12)",
+   "receta": "HD XL"
+  },
+  {
+   "producto": "HD (Hiper Divina) XL",
+   "receta": "HD XL"
+  },
+  {
+   "producto": "Magnolia (Chica - Come 1 - Piccan 3)",
+   "receta": "Magnolia Chica"
+  },
+  {
+   "producto": "Magnolia Chica",
+   "receta": "Magnolia Chica"
+  },
+  {
+   "producto": "Magnolia (Mediana - Comen 2- Piccan 5)",
+   "receta": "Magnolia Mediana"
+  },
+  {
+   "producto": "Magnolia Mediana",
+   "receta": "Magnolia Mediana"
+  },
+  {
+   "producto": "Magnolia (Grande Comen 4- Piccan 9)",
+   "receta": "Magnolia Grande"
+  },
+  {
+   "producto": "Magnolia Grande",
+   "receta": "Magnolia Grande"
+  },
+  {
+   "producto": "Magnolia (XL - Comen 6 - Piccan 12)",
+   "receta": "Magnolia XL"
+  },
+  {
+   "producto": "Magnolia XL",
+   "receta": "Magnolia XL"
+  },
+  {
+   "producto": "MegaPromo Divertida (Chica - Come 1 - Piccan 3)",
+   "receta": "Promo Agosto chica"
+  },
+  {
+   "producto": "MegaPromo Divertida Chica",
+   "receta": "Promo Agosto chica"
+  },
+  {
+   "producto": "MegaPromo Divertida (Mediana - Comen 2- Piccan 5)",
+   "receta": "Promo Agosto mediana"
+  },
+  {
+   "producto": "MegaPromo Divertida Mediana",
+   "receta": "Promo Agosto mediana"
+  },
+  {
+   "producto": "MegaPromo Divertida (Grande Comen 4- Piccan 9)",
+   "receta": "Promo Agosto grande"
+  },
+  {
+   "producto": "MegaPromo Divertida Grande",
+   "receta": "Promo Agosto grande"
+  },
+  {
+   "producto": "Piccada Spring Break (Chica)",
+   "receta": "Primavera Chica 2026"
+  },
+  {
+   "producto": "Piccada Spring Break Chica",
+   "receta": "Primavera Chica 2026"
+  },
+  {
+   "producto": "Spring Break Chica",
+   "receta": "Primavera Chica 2026"
+  },
+  {
+   "producto": "Piccada Spring Break (Mediana)",
+   "receta": "Primavera Mediana 2026"
+  },
+  {
+   "producto": "Piccada Spring Break Mediana",
+   "receta": "Primavera Mediana 2026"
+  },
+  {
+   "producto": "Spring Break Mediana",
+   "receta": "Primavera Mediana 2026"
+  },
+  {
+   "producto": "Piccada Spring Break (Grande)",
+   "receta": "Primavera grande 2026"
+  },
+  {
+   "producto": "Piccada Spring Break Grande",
+   "receta": "Primavera grande 2026"
+  },
+  {
+   "producto": "Spring Break Grande",
+   "receta": "Primavera grande 2026"
+  },
+  {
+   "producto": "Piccada Vegetariana Chica",
+   "receta": "Veggie Chica"
+  },
+  {
+   "producto": "Piccada Vegetariana Mediana",
+   "receta": "Veggie Mediana"
+  },
+  {
+   "producto": "Tablón Supreme",
+   "receta": "Supreme"
+  },
+  {
+   "producto": "El superclásico",
+   "receta": "superclásico"
+  },
+  {
+   "producto": "Tu Encuentro",
+   "receta": "Tablita picca tu encuentro"
+  },
+  {
+   "producto": "Picca tu encuentro",
+   "receta": "Tablita picca tu encuentro"
+  },
+  {
+   "producto": "Tu Festejo",
+   "receta": "Tablita picca tu festejo"
+  },
+  {
+   "producto": "Picca tu festejo",
+   "receta": "Tablita picca tu festejo"
+  },
+  {
+   "producto": "Tu Pausa",
+   "receta": "Tablita picca tu pausa"
+  },
+  {
+   "producto": "Picca tu pausa",
+   "receta": "Tablita picca tu pausa"
+  },
+  {
+   "producto": "PiccaCombo Feliz (Comen 6 - Piccan 12)",
+   "receta": "MegaCombo Feliz comen 6"
+  },
+  {
+   "producto": "Juntadely Feliz (Comen 6 - Piccan 12)",
+   "receta": "Juntadely Feliz COMEN 6"
+  },
+  {
+   "producto": "Juntadely Feliz - Comen 6",
+   "receta": "Juntadely Feliz COMEN 6"
+  },
+  {
+   "producto": "PiccaCombo Feliz (Comen 10 - Piccan 20)",
+   "receta": "MegaCombo Feliz comen 10"
+  },
+  {
+   "producto": "Juntadely Feliz (Comen 10 - Piccan 20)",
+   "receta": "Juntadely Feliz COMEN 10"
+  },
+  {
+   "producto": "Juntadely Feliz - Comen 10",
+   "receta": "Juntadely Feliz COMEN 10"
+  },
+  {
+   "producto": "PiccaCombo Feliz (Comen 15 - Piccan 30)",
+   "receta": "MegaCombo Feliz comen 15"
+  },
+  {
+   "producto": "Juntadely Feliz (Comen 15 - Piccan 30)",
+   "receta": "Juntadely Feliz COMEN 15"
+  },
+  {
+   "producto": "Juntadely Feliz - Comen 15",
+   "receta": "Juntadely Feliz COMEN 15"
+  },
+  {
+   "producto": "PiccaCombo Feliz (Comen 24 - Piccan 48)",
+   "receta": "MegaCombo Feliz comen 24"
+  },
+  {
+   "producto": "Juntadely Feliz (Comen 24 - Piccan 48)",
+   "receta": "Juntadely Feliz COMEN 24"
+  },
+  {
+   "producto": "Juntadely Feliz - Comen 24",
+   "receta": "Juntadely Feliz COMEN 24"
+  },
+  {
+   "producto": "Combo Piccan 15",
+   "receta": "COMBO PICCAN 15"
+  },
+  {
+   "producto": "Comilona Cósmica - Piccan 24",
+   "receta": "Comilona Cósmica + PICCAN 24"
+  },
+  {
+   "producto": "PiccaDT (4/4/2) - Comen 10, piccan 24",
+   "receta": "PiccaDT (4/4/2)"
+  },
+  {
+   "producto": "PiccaDT (4/4/2) - Comen 10",
+   "receta": "PiccaDT (4/4/2)"
+  },
+  {
+   "producto": "Quedo Re Bien - Comen 9, Piccan 20",
+   "receta": "Quedo Re bien"
+  },
+  {
+   "producto": "Quedo Re Bien - Comen 9",
+   "receta": "Quedo Re bien"
+  },
+  {
+   "producto": "Variete 2 1/2 - Comen 4 - Piccan 11",
+   "receta": "Variete 2 1/2"
+  },
+  {
+   "producto": "Gourmet Break Piccan 15",
+   "receta": "Gourmet Break"
+  },
+  {
+   "producto": "Comilona Juntadely Nueva Piccan 12",
+   "receta": "Comilona Juntadely Piccan 12"
+  },
+  {
+   "producto": "Comilona Juntadely Nueva Piccan 24",
+   "receta": "Comilona Juntadely Piccan 24"
+  },
+  {
+   "producto": "Comilona Juntadely Piccan 24",
+   "receta": "Comilona Juntadely Piccan 24"
+  }
+ ]
+}
