@@ -36,6 +36,7 @@ const PRODUCTOS_4_TAMANOS = [
   "Incontro",
   "Quesos del Gourmet",
   "MegaPromo Divertida",
+  "La Gourmet",
 ];
 
 // Alias de formatos con unidades (corto -> largo canónico). Incluye las dos

@@ -3786,21 +3786,87 @@ app.post("/api/recetas/:id/baja", requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Productos vinculados a una receta.
+// ─── Vínculos producto de venta → receta ───
+// Clave del vínculo = la MISMA que usa el matcheo de pedidos (necesidades / stock).
+const claveVinculo = (nombre) => claveProducto(normalizarProducto(String(nombre || "").trim()));
+// Índice clave → vínculo (con su receta). Indexa también re-normalizando producto_nombre: los vínculos
+// guardados antes de sumar un alias (ej. "La Gourmet Chica", previo al alias de La Gourmet) tienen la
+// clave vieja en producto_clave y tienen que contar igual. La clave exacta guardada tiene prioridad.
+async function indiceVinculos(exec = pool) {
+  const r = await exec.query("SELECT rp.id, rp.receta_id, rp.producto_nombre, rp.producto_clave, r.nombre AS receta, r.activo FROM receta_productos rp JOIN recetas r ON r.id = rp.receta_id ORDER BY rp.id");
+  const idx = new Map();
+  for (const x of r.rows) { const k = claveVinculo(x.producto_nombre); if (!idx.has(k)) idx.set(k, x); }
+  for (const x of r.rows) idx.set(x.producto_clave, x);
+  return idx;
+}
+
+// Productos vinculados a una receta (producto o combo; los módulos no se venden).
 app.post("/api/recetas/:id/productos", requireAdmin, async (req, res) => {
   const { nombre, usuario } = req.body || {};
   if (!nombre || !String(nombre).trim()) return res.status(400).json({ error: "Falta el nombre del producto." });
-  const clave = claveProducto(normalizarProducto(String(nombre).trim()));
+  const producto = String(nombre).trim();
+  const clave = claveVinculo(producto);
   try {
-    const dup = await pool.query("SELECT rp.id, r.nombre AS receta FROM receta_productos rp JOIN recetas r ON r.id = rp.receta_id WHERE rp.producto_clave = $1", [clave]);
-    if (dup.rows.length > 0) return res.status(409).json({ error: `Ese producto ya está vinculado a la receta "${dup.rows[0].receta}".` });
-    const r = await pool.query("INSERT INTO receta_productos (receta_id, producto_nombre, producto_clave) VALUES ($1,$2,$3) RETURNING id", [req.params.id, String(nombre).trim(), clave]);
+    const rec = await pool.query("SELECT id, nombre, tipo, activo FROM recetas WHERE id = $1", [req.params.id]);
+    if (rec.rows.length === 0) return res.status(404).json({ error: "Receta no encontrada." });
+    if (rec.rows[0].tipo === "modulo") return res.status(400).json({ error: "Los módulos no se venden: vinculá el producto a una receta de producto o a un combo." });
+    const dup = (await indiceVinculos()).get(clave);
+    if (dup && dup.receta_id === rec.rows[0].id) return res.status(409).json({ error: `Ese producto ya está vinculado a esta receta ("${dup.producto_nombre}").` });
+    if (dup && dup.activo) return res.status(409).json({ error: `Ese producto ya está vinculado a la receta "${dup.receta}". Desvinculalo ahí primero.` });
+    if (dup) {
+      // Vínculo de una receta DADA DE BAJA: no cuenta para nada pero bloqueaba el UNIQUE → se reasigna.
+      await pool.query("UPDATE receta_productos SET receta_id = $1, producto_nombre = $2, producto_clave = $3 WHERE id = $4", [rec.rows[0].id, producto, clave, dup.id]);
+      res.json({ ok: true, id: dup.id, reasignadoDe: dup.receta });
+      registrarAuditoria(usuario, "receta_vincular", "receta", req.params.id, { producto, reasignadoDe: dup.receta });
+      return;
+    }
+    const r = await pool.query("INSERT INTO receta_productos (receta_id, producto_nombre, producto_clave) VALUES ($1,$2,$3) RETURNING id", [req.params.id, producto, clave]);
     res.json({ ok: true, id: r.rows[0].id });
-    registrarAuditoria(usuario, "receta_vincular", "receta", req.params.id, { producto: String(nombre).trim() });
+    registrarAuditoria(usuario, "receta_vincular", "receta", req.params.id, { producto });
   } catch (err) {
     if (err.code === "23505") return res.status(409).json({ error: "Ese producto ya está vinculado a otra receta." });
     res.status(500).json({ error: err.message });
   }
+});
+
+// Importación de vínculos producto → receta desde vinculos_seed.json: { vinculos: [{ producto, receta }] }.
+// Receta por nombre (activa, sin distinguir mayúsculas). Clave existente para la misma receta → salteado;
+// para OTRA receta → conflicto (no se toca). Idempotente.
+app.post("/api/recetas/importar-vinculos", requireAdmin, async (req, res) => {
+  let seed;
+  try { seed = requireCJS("./vinculos_seed.json"); }
+  catch (e) { return res.status(500).json({ error: "No se pudo leer vinculos_seed.json (¿está en la raíz del proyecto?)" }); }
+  if (!Array.isArray(seed?.vinculos)) return res.status(400).json({ error: "vinculos_seed.json tiene que tener { vinculos: [{ producto, receta }] }" });
+  const resumen = { creados: 0, salteados: 0, conflictos: [], recetas_no_encontradas: [], invalidos: [] };
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const recR = await client.query("SELECT id, nombre, tipo FROM recetas WHERE activo = true");
+    const recPorNombre = {}; for (const r of recR.rows) recPorNombre[r.nombre.trim().toLowerCase()] = r;
+    const idx = await indiceVinculos(client);
+    for (const v of seed.vinculos) {
+      const producto = String(v?.producto || "").trim(), receta = String(v?.receta || "").trim();
+      if (!producto || !receta) { resumen.invalidos.push({ producto, receta, motivo: "falta producto o receta" }); continue; }
+      const rec = recPorNombre[receta.toLowerCase()];
+      if (!rec) { resumen.recetas_no_encontradas.push({ producto, receta }); continue; }
+      if (rec.tipo === "modulo") { resumen.invalidos.push({ producto, receta, motivo: "la receta es un módulo" }); continue; }
+      const clave = claveVinculo(producto);
+      const ex = idx.get(clave);
+      if (ex && ex.receta_id === rec.id) { resumen.salteados++; continue; }
+      if (ex) { resumen.conflictos.push({ producto, receta: rec.nombre, vinculado_a: ex.receta, receta_activa: !!ex.activo }); continue; }
+      const ins = await client.query("INSERT INTO receta_productos (receta_id, producto_nombre, producto_clave) VALUES ($1,$2,$3) RETURNING id", [rec.id, producto, clave]);
+      idx.set(clave, { id: ins.rows[0].id, receta_id: rec.id, producto_nombre: producto, producto_clave: clave, receta: rec.nombre, activo: true });
+      resumen.creados++;
+    }
+    await client.query("COMMIT");
+    res.json({ ok: true, resumen });
+    registrarAuditoria(req.body?.usuario, "vinculos_importar", "recetas", 0, { creados: resumen.creados, salteados: resumen.salteados, conflictos: resumen.conflictos.length, no_encontradas: resumen.recetas_no_encontradas.length });
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    console.error("Error importar vínculos:", e.message);
+    res.status(500).json({ error: "Error importando vínculos: " + e.message });
+  } finally { if (client) client.release(); }
 });
 app.delete("/api/recetas/:id/productos/:pid", requireAdmin, async (req, res) => {
   try {
@@ -3861,7 +3927,9 @@ app.get("/api/insumos/necesidades", stockVer, async (req, res) => {
     const idx = await cargarRecetasIndex();
     const insIdx = await cargarInsumosIndex();
     const recetaPorClave = {};
-    const rp = await pool.query("SELECT rp.producto_clave, rp.receta_id FROM receta_productos rp JOIN recetas r ON r.id = rp.receta_id WHERE r.activo = true");
+    const rp = await pool.query("SELECT rp.producto_clave, rp.producto_nombre, rp.receta_id FROM receta_productos rp JOIN recetas r ON r.id = rp.receta_id WHERE r.activo = true ORDER BY rp.id");
+    // También por el nombre re-normalizado (vínculos con clave vieja, previa a un alias); la clave guardada manda.
+    for (const x of rp.rows) { const k = claveVinculo(x.producto_nombre); if (!(k in recetaPorClave)) recetaPorClave[k] = x.receta_id; }
     for (const x of rp.rows) recetaPorClave[x.producto_clave] = x.receta_id;
 
     const necesarioBase = {};   // insumo_id -> base

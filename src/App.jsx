@@ -4369,6 +4369,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [importResumen, setImportResumen] = useState(null);
       const [importandoCombos, setImportandoCombos] = useState(false);
       const [combosResumen, setCombosResumen] = useState(null);
+      const [importandoVinculos, setImportandoVinculos] = useState(false);
+      const [vinculosResumen, setVinculosResumen] = useState(null);
       const [nuevoProducto, setNuevoProducto] = useState("");
 
       function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 4000); }
@@ -4479,6 +4481,13 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         try { const r = await axios.post(`${API}/api/recetas/importar-combos`, { usuario: usuario.nombre_completo }); setCombosResumen(r.data.resumen); await cargar(); }
         catch (err) { mostrarMensaje(err.response?.data?.error || "Error importando combos", "error"); }
         setImportandoCombos(false);
+      }
+      async function importarVinculos() {
+        if (!window.confirm("Importar los vínculos producto → receta desde vinculos_seed.json. Los que ya existen se saltean y los que chocan con otra receta no se tocan (quedan como conflicto). ¿Continuar?")) return;
+        setImportandoVinculos(true);
+        try { const r = await axios.post(`${API}/api/recetas/importar-vinculos`, { usuario: usuario.nombre_completo }); setVinculosResumen(r.data.resumen); await cargar(); }
+        catch (err) { mostrarMensaje(err.response?.data?.error || "Error importando vínculos", "error"); }
+        setImportandoVinculos(false);
       }
 
       const lista = recetas.filter(r => (!filtroTipo || r.tipo === filtroTipo) && (!q || r.nombre.toLowerCase().includes(q.toLowerCase())));
@@ -4599,6 +4608,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               {puedeEditar && <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", color: "#555", cursor: "pointer" }} onClick={() => abrirNuevo("modulo")}>+ Módulo</button>}
               {puedeEditar && <button style={{ fontSize: 12, padding: "8px 14px", borderRadius: 8, border: "1px solid #1d4ed8", background: "#dbeafe", color: "#1d4ed8", cursor: importando ? "default" : "pointer" }} disabled={importando} onClick={importar}>{importando ? "Importando…" : "Importar recetas iniciales"}</button>}
               {puedeEditar && <button style={{ fontSize: 12, padding: "8px 14px", borderRadius: 8, border: "1px solid #8e44ad", background: "#f3e8fb", color: "#8e44ad", cursor: importandoCombos ? "default" : "pointer" }} disabled={importandoCombos} onClick={importarCombos}>{importandoCombos ? "Importando…" : "Importar combos"}</button>}
+              {puedeEditar && <button style={{ fontSize: 12, padding: "8px 14px", borderRadius: 8, border: "1px solid #0f766e", background: "#e6f6f4", color: "#0f766e", cursor: importandoVinculos ? "default" : "pointer" }} disabled={importandoVinculos} onClick={importarVinculos}>{importandoVinculos ? "Importando…" : "Importar vínculos"}</button>}
               <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver</button>
             </div>
           </div>
@@ -4682,6 +4692,48 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               </div>
             </div>
           )}
+
+          {vinculosResumen && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => setVinculosResumen(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 560, maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 12 }}>Importación de vínculos</div>
+                <div style={{ fontSize: 13, color: "#555", lineHeight: 1.8 }}>
+                  Vínculos creados: <b>{vinculosResumen.creados}</b><br />
+                  Salteados (ya estaban): <b>{vinculosResumen.salteados}</b><br />
+                  Conflictos (vinculados a otra receta, no se tocaron): <b>{vinculosResumen.conflictos?.length || 0}</b><br />
+                  Recetas no encontradas: <b>{vinculosResumen.recetas_no_encontradas?.length || 0}</b>
+                  {vinculosResumen.invalidos?.length > 0 && <><br />Inválidos: <b>{vinculosResumen.invalidos.length}</b></>}
+                </div>
+                {vinculosResumen.conflictos?.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#c0392b", marginBottom: 4 }}>Conflictos</div>
+                    <div style={{ maxHeight: 200, overflowY: "auto", fontSize: 12, color: "#8a3b2b" }}>
+                      {vinculosResumen.conflictos.map((c, i) => <div key={i} style={{ padding: "3px 0" }}>· <b>{c.producto}</b> → pedía «{c.receta}», ya está en «{c.vinculado_a}»{c.receta_activa ? "" : " (dada de baja)"}</div>)}
+                    </div>
+                  </div>
+                )}
+                {vinculosResumen.recetas_no_encontradas?.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#b45309", marginBottom: 4 }}>Recetas no encontradas (o dadas de baja)</div>
+                    <div style={{ maxHeight: 200, overflowY: "auto", fontSize: 12, color: "#8a6d3b" }}>
+                      {vinculosResumen.recetas_no_encontradas.map((c, i) => <div key={i} style={{ padding: "3px 0" }}>· <b>{c.producto}</b> → «{c.receta}»</div>)}
+                    </div>
+                  </div>
+                )}
+                {vinculosResumen.invalidos?.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#b45309", marginBottom: 4 }}>Inválidos</div>
+                    <div style={{ maxHeight: 160, overflowY: "auto", fontSize: 12, color: "#8a6d3b" }}>
+                      {vinculosResumen.invalidos.map((c, i) => <div key={i} style={{ padding: "3px 0" }}>· {c.producto || "(sin producto)"} → {c.receta || "(sin receta)"}: {c.motivo}</div>)}
+                    </div>
+                  </div>
+                )}
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+                  <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer" }} onClick={() => setVinculosResumen(null)}>Listo</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
@@ -4698,6 +4750,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [vincular, setVincular] = useState(null);    // { producto } | null
       const [recetas, setRecetas] = useState([]);
       const [busqReceta, setBusqReceta] = useState("");
+      const [vincularError, setVincularError] = useState("");   // error del vínculo, visible DENTRO del modal
+      const [vinculando, setVinculando] = useState(null);       // id de la receta que se está vinculando
       const [crear, setCrear] = useState(null);          // { producto, nombre } | null
 
       function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 4000); }
@@ -4712,11 +4766,21 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         setLoading(false);
       }
       useEffect(() => { cargar(); }, [desde, hasta, local]);
-      async function cargarRecetas() { try { const r = await axios.get(`${API}/api/recetas`, { params: { tipo: "producto" } }); setRecetas(r.data); } catch (e) { /* */ } }
+      // Productos y combos (los módulos no se venden, no se vinculan a productos de la tienda).
+      async function cargarRecetas() {
+        try { const r = await axios.get(`${API}/api/recetas`); setRecetas(r.data.filter(x => x.tipo === "producto" || x.tipo === "combo")); }
+        catch (e) { setVincularError(e.response?.data?.error || "No se pudieron cargar las recetas"); }
+      }
+      function abrirVincular(producto) { setVincular({ producto }); setBusqReceta(""); setVincularError(""); cargarRecetas(); }
 
       async function vincularA(recetaId) {
-        try { await axios.post(`${API}/api/recetas/${recetaId}/productos`, { nombre: vincular.producto, usuario: usuario.nombre_completo }); setVincular(null); await cargar(); mostrarMensaje("Producto vinculado"); }
-        catch (err) { mostrarMensaje(err.response?.data?.error || "Error vinculando", "error"); }
+        setVincularError(""); setVinculando(recetaId);
+        try {
+          const r = await axios.post(`${API}/api/recetas/${recetaId}/productos`, { nombre: vincular.producto, usuario: usuario.nombre_completo });
+          setVincular(null); await cargar();
+          mostrarMensaje(r.data?.reasignadoDe ? `Producto vinculado (estaba en la receta dada de baja «${r.data.reasignadoDe}»)` : "Producto vinculado");
+        } catch (err) { setVincularError(err.response?.data?.error || "Error vinculando"); }
+        setVinculando(null);
       }
       async function crearReceta() {
         if (!crear.nombre.trim()) { mostrarMensaje("Falta el nombre", "error"); return; }
@@ -4775,7 +4839,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               {data.sin_receta.map((s, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, flexWrap: "wrap" }}>
                   <span style={{ flex: 1, color: "#333", minWidth: 180 }}>{s.producto} <span style={{ color: "#999" }}>× {s.cantidad}</span></span>
-                  <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #1d4ed8", background: "#dbeafe", color: "#1d4ed8", cursor: "pointer" }} onClick={() => { setVincular({ producto: s.producto }); setBusqReceta(""); cargarRecetas(); }}>Vincular a receta existente</button>
+                  <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #1d4ed8", background: "#dbeafe", color: "#1d4ed8", cursor: "pointer" }} onClick={() => abrirVincular(s.producto)}>Vincular a receta existente</button>
                   <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #1d8a4e", background: "#eafaf1", color: "#1d8a4e", cursor: "pointer" }} onClick={() => setCrear({ producto: s.producto, nombre: s.producto })}>Crear receta</button>
                 </div>
               ))}
@@ -4823,12 +4887,16 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 480, maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
                 <div style={{ fontSize: 15, fontWeight: 700, color: "#333", marginBottom: 4 }}>Vincular producto a receta</div>
                 <div style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>«{vincular.producto}»</div>
-                <input style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box", marginBottom: 10 }} placeholder="Buscar receta…" value={busqReceta} onChange={e => setBusqReceta(e.target.value)} />
+                <input style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box", marginBottom: 10 }} placeholder="Buscar producto o combo…" value={busqReceta} onChange={e => setBusqReceta(e.target.value)} />
+                {vincularError && <div style={{ background: "#fdecea", border: "1px solid #f5c6cb", color: "#c0392b", borderRadius: 8, padding: "8px 10px", fontSize: 12, marginBottom: 10 }}>⚠️ {vincularError}</div>}
                 <div style={{ maxHeight: 300, overflowY: "auto" }}>
                   {recetasFiltradas.map(r => (
-                    <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #f5f5f5", fontSize: 13 }}>
-                      <span style={{ color: "#333" }}>{r.nombre}</span>
-                      <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #1d4ed8", background: "#dbeafe", color: "#1d4ed8", cursor: "pointer" }} onClick={() => vincularA(r.id)}>Vincular</button>
+                    <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid #f5f5f5", fontSize: 13 }}>
+                      <span style={{ color: "#333" }}>
+                        {r.nombre}
+                        <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 600, borderRadius: 4, padding: "2px 6px", ...(r.tipo === "combo" ? { color: "#8e44ad", background: "#f3e8fb" } : { color: "#1d8a4e", background: "#eafaf1" }) }}>{r.tipo === "combo" ? "COMBO" : "PRODUCTO"}</span>
+                      </span>
+                      <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #1d4ed8", background: "#dbeafe", color: "#1d4ed8", cursor: vinculando ? "default" : "pointer", flex: "none" }} disabled={!!vinculando} onClick={() => vincularA(r.id)}>{vinculando === r.id ? "Vinculando…" : "Vincular"}</button>
                     </div>
                   ))}
                   {recetasFiltradas.length === 0 && <div style={{ fontSize: 12, color: "#aaa", padding: 8 }}>Sin recetas.</div>}
