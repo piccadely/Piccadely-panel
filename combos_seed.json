@@ -49,7 +49,7 @@
    ]
   },
   {
-   "nombre": "PROMO PICCAINVITADOS COMEN 6",
+   "nombre": "Juntadely Feliz COMEN 6",
    "notas": "(en una Caja Pickapacket -papel Manteca-Servilletas) Son 6 Sándwich de cada sabor",
    "componentes": [
     {
@@ -58,19 +58,24 @@
      "cantidad": 0.5
     },
     {
-     "texto": "COMI CHICA",
+     "texto": "COMILONA CHICA",
      "receta": "Comilona Chica",
      "cantidad": 1
     },
     {
      "texto": "PROMO DIVERTIDA CHICA",
-     "receta_faltante": "Megapromo Divertida Chica",
+     "receta": "Promo Agosto chica",
+     "cantidad": 1
+    },
+    {
+     "texto": "(nota) caja Piccapacket",
+     "codigo": 425,
      "cantidad": 1
     }
    ]
   },
   {
-   "nombre": "PROMO PICCAINVITADOS COMEN 10",
+   "nombre": "Juntadely Feliz COMEN 10",
    "notas": "(en una Caja Juntadely -papel Manteca-Servilletas)",
    "componentes": [
     {
@@ -79,24 +84,29 @@
      "cantidad": 1.0
     },
     {
-     "texto": "COMI CHICA",
+     "texto": "COMILONA CHICA",
      "receta": "Comilona Chica",
      "cantidad": 1
     },
     {
      "texto": "PROMO DIVERTIDA CHICA",
-     "receta_faltante": "Megapromo Divertida Chica",
+     "receta": "Promo Agosto chica",
      "cantidad": 1
     },
     {
      "texto": "ESQUESITOS CHICA",
      "receta": "Esquesitos Chica",
      "cantidad": 1
+    },
+    {
+     "texto": "(nota) caja Juntadely",
+     "codigo": 415,
+     "cantidad": 1
     }
    ]
   },
   {
-   "nombre": "PROMO PICCAINVITADOS COMEN 15",
+   "nombre": "Juntadely Feliz COMEN 15",
    "notas": "(en una Caja Juntadely -papel Manteca-Servilletas)",
    "componentes": [
     {
@@ -105,24 +115,29 @@
      "cantidad": 1.0
     },
     {
-     "texto": "COMI MEDIANA",
+     "texto": "COMIlona MEDIANA",
      "receta": "Comilona Mediana",
      "cantidad": 1
     },
     {
      "texto": "PROMO DIVERTIDA MEDIANA",
-     "receta_faltante": "Megapromo Divertida Mediana",
+     "receta": "Promo Agosto mediana",
      "cantidad": 1
     },
     {
      "texto": "ESQUESITOS MEDIANA",
      "receta": "Esquesitos Mediana",
      "cantidad": 1
+    },
+    {
+     "texto": "(nota) caja Juntadely",
+     "codigo": 415,
+     "cantidad": 1
     }
    ]
   },
   {
-   "nombre": "PROMO PICCAINVITADOS COMEN 24",
+   "nombre": "Juntadely Feliz COMEN 24",
    "notas": "(en dos Cajas Juntadely -papel Manteca-Servilletas)",
    "componentes": [
     {
@@ -131,7 +146,7 @@
      "cantidad": 2.0
     },
     {
-     "texto": "COMI GRANDE",
+     "texto": "COMIlona GRANDE",
      "receta": "Comilona Grande",
      "cantidad": 1
     },
@@ -142,13 +157,18 @@
     },
     {
      "texto": "MEGADIVERTIDA MEDIANA",
-     "receta_faltante": "Megapromo Divertida Mediana",
+     "receta": "Promo Agosto mediana",
      "cantidad": 1
     },
     {
      "texto": "ESQUESITOS MEDIANA",
      "receta": "Esquesitos Mediana",
      "cantidad": 1
+    },
+    {
+     "texto": "(nota) dos cajas Juntadely",
+     "codigo": 415,
+     "cantidad": 2
     }
    ]
   },
@@ -308,8 +328,8 @@
     },
     {
      "texto": "1 Quesos del Gourmet Mediana",
-     "cantidad": 1,
-     "receta": "Quesos del Gourmet Mediana"
+     "receta": "Quesos del Gourmet Mediana",
+     "cantidad": 1
     },
     {
      "texto": "Bolson",
@@ -329,7 +349,7 @@
     },
     {
      "texto": "1 MegaPromo Divertida mediana",
-     "receta_faltante": "Megapromo Divertida Mediana",
+     "receta": "Promo Agosto mediana",
      "cantidad": 1
     },
     {
@@ -370,7 +390,7 @@
     },
     {
      "texto": "1 megadivertida mediana",
-     "receta_faltante": "Megapromo Divertida Mediana",
+     "receta": "Promo Agosto mediana",
      "cantidad": 1
     },
     {
@@ -406,12 +426,12 @@
     },
     {
      "texto": "1 megadivertida Grande",
-     "receta_faltante": "Megapromo Divertida Grande",
+     "receta": "Promo Agosto grande",
      "cantidad": 1
     },
     {
      "texto": "1 megadivertida mediana",
-     "receta_faltante": "Megapromo Divertida Mediana",
+     "receta": "Promo Agosto mediana",
      "cantidad": 1
     },
     {
@@ -447,7 +467,7 @@
     },
     {
      "texto": "1 megadivertida Grande | 1 megadivertida grande",
-     "receta_faltante": "Megapromo Divertida Grande",
+     "receta": "Promo Agosto grande",
      "cantidad": 2
     },
     {
