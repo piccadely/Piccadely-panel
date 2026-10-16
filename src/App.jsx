@@ -7534,6 +7534,12 @@ const [facturasMap, setFacturasMap] = useState({});
       // Autocompletar cliente por email (solo alta manual): datos del último pedido de ese mail.
       const [clienteSugerido, setClienteSugerido] = useState(null);
       const [buscandoCliente, setBuscandoCliente] = useState(false);
+      // Autocompletar cliente por teléfono (solo alta manual): puede haber varios clientes con el mismo número.
+      const [clientesTel, setClientesTel] = useState([]);
+      const [clienteTelIdx, setClienteTelIdx] = useState(0);
+      const [buscandoTel, setBuscandoTel] = useState(false);
+      const timerTel = useRef(null);            // debounce de la búsqueda mientras se tipea
+      const ultimaBusquedaTel = useRef("");     // descarta respuestas viejas si el número cambió
       const [comandasImpresas, setComandasImpresas] = useState({});
       const [sobreError, setSobreError] = useState("");
       // Tandas de reparto (Fase 1)
@@ -8533,13 +8539,60 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
           setBuscandoCliente(false);
         }
       }
-      // Aplica los datos traídos al form (todos quedan editables).
+      // Busca por teléfono (≥ 8 dígitos; el backend normaliza +54, 9, 0 y 15) y ofrece autocompletar.
+      const digitosTel = t => String(t || "").replace(/\D/g, "");
+      async function buscarClientePorTelefono(tel) {
+        const consulta = digitosTel(tel);
+        clearTimeout(timerTel.current);
+        if (consulta.length < 8) { setClientesTel([]); return; }
+        if (consulta === ultimaBusquedaTel.current) return;   // ya buscado (p. ej. debounce y después blur)
+        ultimaBusquedaTel.current = consulta;
+        setBuscandoTel(true);
+        try {
+          const res = await axios.get(`${API}/api/clientes/buscar-telefono`, { params: { telefono: tel } });
+          if (ultimaBusquedaTel.current !== consulta) return;   // llegó tarde: el número ya cambió
+          setClientesTel(res.data?.encontrado ? res.data.clientes : []);
+          setClienteTelIdx(0);
+        } catch (e) {
+          if (ultimaBusquedaTel.current === consulta) setClientesTel([]); // error de red: no molestar, se carga a mano
+        } finally {
+          if (ultimaBusquedaTel.current === consulta) setBuscandoTel(false);
+        }
+      }
+      function cambiarTelefono(v) {
+        setForm(f => ({ ...f, telefono: v }));
+        setClientesTel([]); setBuscandoTel(false);
+        ultimaBusquedaTel.current = "";
+        clearTimeout(timerTel.current);
+        if (digitosTel(v).length >= 8) timerTel.current = setTimeout(() => buscarClientePorTelefono(v), 700);
+      }
+      // Aplica los datos traídos al form SIN pisar lo que el operador ya escribió (todo queda editable).
+      const CAMPOS_CLIENTE = ["cliente", "telefono", "email", "direccion", "entreCalles", "barrio", "zona", "nota"];
+      function completarVacios(d) {
+        setForm(f => {
+          const n = { ...f };
+          for (const k of CAMPOS_CLIENTE) if (!String(f[k] || "").trim() && d[k]) n[k] = d[k];
+          return n;
+        });
+      }
       function traerDatosCliente() {
-        const d = clienteSugerido;
-        if (!d) return;
-        setForm(f => ({ ...f, cliente: d.cliente || "", telefono: d.telefono || "", direccion: d.direccion || "", entreCalles: d.entreCalles || "", barrio: d.barrio || "", zona: d.zona || "", nota: d.nota || "" }));
+        if (!clienteSugerido) return;
+        completarVacios(clienteSugerido);
         setClienteSugerido(null);
       }
+      function traerDatosClienteTel() {
+        const d = clientesTel[clienteTelIdx];
+        if (!d) return;
+        completarVacios(d);
+        setClientesTel([]);
+      }
+      // ¿El email y el teléfono apuntan a clientes distintos? (mismo email o mismo nombre = mismo cliente)
+      const normNombre = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+      const clienteTelSel = clientesTel[clienteTelIdx] || null;
+      const conflictoEmailTel = !!(clienteSugerido && clienteTelSel)
+        && String(clienteTelSel.email || "").toLowerCase().trim() !== String(form.email || "").toLowerCase().trim()
+        && normNombre(clienteSugerido.cliente) !== normNombre(clienteTelSel.cliente);
+      const textoPedidos = n => `${n} ${Number(n) === 1 ? "pedido" : "pedidos"}`;
 
       async function crearPedido() {
         if (!form.cliente || carrito.length === 0) return;
@@ -8569,7 +8622,7 @@ let numeroAsignado = "";
         await axios.post(`${API}/api/estados/${id}`, estadoInicial).catch(console.error);
         setPedidosManuales(prev => [...prev, nuevoPedido]);
         setPedidosLocales(prev => ({ ...prev, [id]: estadoInicial }));
-        setCarrito([]); setForm(FORM_INICIAL); setAreaManual(""); setDescuentoRetiro(false); setEnvioZona(""); setClienteSugerido(null); setPedidoCreado(true);
+        setCarrito([]); setForm(FORM_INICIAL); setAreaManual(""); setDescuentoRetiro(false); setEnvioZona(""); setClienteSugerido(null); setClientesTel([]); ultimaBusquedaTel.current = ""; setPedidoCreado(true);
         setTimeout(() => setPedidoCreado(false), 3000);
       }
 
@@ -10301,7 +10354,27 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                   <div style={s.formCardTitle}>👤 Datos del cliente</div>
                   <div style={s.formGrid}>
                     <div style={s.formBloque}><label style={s.formLabel}>Nombre *</label><input style={s.formInput} value={form.cliente} onChange={e => setForm(f => ({...f, cliente: e.target.value}))} placeholder="Nombre completo" /></div>
-                    <div style={s.formBloque}><label style={s.formLabel}>Teléfono</label><input style={s.formInput} value={form.telefono} onChange={e => setForm(f => ({...f, telefono: e.target.value}))} placeholder="+54 11..." /></div>
+                    <div style={s.formBloque}>
+                      <label style={s.formLabel}>Teléfono</label>
+                      <input style={s.formInput} value={form.telefono} onChange={e => cambiarTelefono(e.target.value)} onBlur={() => buscarClientePorTelefono(form.telefono)} placeholder="+54 11..." />
+                      {buscandoTel && <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>Buscando cliente…</div>}
+                      {clientesTel.length > 0 && (
+                        <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
+                          {clientesTel.length === 1
+                            ? <div style={{ fontSize: 12, color: "#27500a", fontWeight: 600 }}>Cliente encontrado: {clientesTel[0].cliente || "(sin nombre)"} · {textoPedidos(clientesTel[0].pedidos)}</div>
+                            : <>
+                                <div style={{ fontSize: 12, color: "#8a4b00", fontWeight: 600 }}>Hay {clientesTel.length} clientes con este teléfono. Elegí cuál:</div>
+                                <select style={{ ...s.formInput, fontSize: 12, padding: "5px 8px" }} value={clienteTelIdx} onChange={e => setClienteTelIdx(Number(e.target.value))}>
+                                  {clientesTel.map((c, i) => <option key={i} value={i}>{c.cliente || "(sin nombre)"} · {textoPedidos(c.pedidos)}{c.ultimoPedido ? ` · último ${new Date(c.ultimoPedido).toLocaleDateString("es-AR")}` : ""}{c.direccion ? ` · ${c.direccion}` : ""}</option>)}
+                                </select>
+                              </>}
+                          <button type="button" onClick={traerDatosClienteTel}
+                            style={{ fontSize: 12, fontWeight: 600, padding: "5px 10px", borderRadius: 6, border: "1px solid #F68B32", background: "#fff7ef", color: "#8a4b00", cursor: "pointer" }}>
+                            📋 Traer datos de {clienteTelSel?.cliente || "este cliente"} (completa solo lo vacío)
+                          </button>
+                        </div>
+                      )}
+                    </div>
                     <div style={{ ...s.formBloque, gridColumn: "span 2" }}>
                       <label style={s.formLabel}>Email (opcional, se envía confirmación automática)</label>
                       <input type="email" style={s.formInput} value={form.email || ""}
@@ -10310,10 +10383,18 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                         placeholder="cliente@ejemplo.com" />
                       {buscandoCliente && <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>Buscando cliente…</div>}
                       {clienteSugerido && (
-                        <button type="button" onClick={traerDatosCliente}
-                          style={{ marginTop: 6, fontSize: 12, fontWeight: 600, padding: "5px 10px", borderRadius: 6, border: "1px solid #F68B32", background: "#fff7ef", color: "#8a4b00", cursor: "pointer" }}>
-                          📋 Traer datos de {clienteSugerido.cliente || "este cliente"}
-                        </button>
+                        <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
+                          <div style={{ fontSize: 12, color: "#27500a", fontWeight: 600 }}>Cliente encontrado: {clienteSugerido.cliente || "(sin nombre)"} · {textoPedidos(clienteSugerido.pedidos || 1)}</div>
+                          <button type="button" onClick={traerDatosCliente}
+                            style={{ fontSize: 12, fontWeight: 600, padding: "5px 10px", borderRadius: 6, border: "1px solid #F68B32", background: "#fff7ef", color: "#8a4b00", cursor: "pointer" }}>
+                            📋 Traer datos de {clienteSugerido.cliente || "este cliente"} (completa solo lo vacío)
+                          </button>
+                        </div>
+                      )}
+                      {conflictoEmailTel && (
+                        <div style={{ marginTop: 6, fontSize: 12, fontWeight: 600, color: "#c0392b", background: "#fdecea", border: "1px solid #f5b7b1", borderRadius: 6, padding: "6px 10px" }}>
+                          ⚠️ El email y el teléfono son de clientes distintos: {clienteSugerido.cliente || "(sin nombre)"} (por email) y {clienteTelSel.cliente || "(sin nombre)"} (por teléfono). No se completó nada: revisá y elegí de cuál traer los datos.
+                        </div>
                       )}
                     </div>
                     <div style={{ ...s.formBloque, gridColumn: "span 2" }}><label style={s.formLabel}>Dirección</label><input style={s.formInput} value={form.direccion} onChange={e => setForm(f => ({...f, direccion: e.target.value}))} placeholder="Calle y número" /></div>

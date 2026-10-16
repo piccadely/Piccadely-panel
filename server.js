@@ -11,6 +11,7 @@ import { botWhatsappRouter } from "./Routes/botWhatsapp.js";
 import { whatsappWebhookRouter, revisarHuerfanosWhatsApp } from "./Routes/whatsappWebhook.js";
 import { whatsappBandejaRouter } from "./Routes/whatsappBandeja.js";
 import { whatsappAdminRouter } from "./Routes/whatsappAdmin.js";
+import { normalizarTelefonoAR, mismoTelefonoAR } from "./Routes/telefonoAR.js";
 import { autotestR2 } from "./r2Storage.js";
 import { iniciarRetencionWhatsApp } from "./whatsappRetencion.js";
 import { cotizadorRouter, clienteKeyDe } from "./Routes/cotizador.js";
@@ -1838,10 +1839,45 @@ codigoPago: r.codigo_pago || "", esManual: true, esCorporativo: !!r.es_corporati
   } catch (err) { res.status(500).json({ error: "Error trayendo pedidos manuales" }); }
 });
 
-// ─── BUSCAR CLIENTE POR EMAIL (autocompletar alta manual) ────────────
-// Devuelve los datos del cliente del pedido MÁS RECIENTE (manual o TN) con ese email,
-// aplicando los overrides de pedidos_estados. Solo lectura. No incluye CUIT (por decisión).
-app.get("/api/clientes/buscar", async (req, res) => {
+// ─── BUSCAR CLIENTE POR EMAIL O TELÉFONO (autocompletar alta manual) ──
+// Datos del cliente de UN pedido (manual o TN) con los overrides de pedidos_estados
+// (prioridad si no vacíos). Lo usan la búsqueda por email y la búsqueda por teléfono.
+function datosClienteDePedido(canal, p, ov = {}) {
+  let base;
+  if (canal === "manual") {
+    base = {
+      cliente: p.cliente || "", telefono: p.telefono || "", email: p.email || "",
+      direccion: p.direccion || "", entreCalles: p.entre_calles || "",
+      barrio: p.barrio || "", zona: p.zona || "", nota: p.nota || "",
+    };
+  } else {
+    const d = p.data || {};
+    const sa = d.shipping_address || {};
+    const direccion = `${sa.address || ""} ${sa.number || ""}${sa.floor ? ` ${sa.floor}` : ""}`.trim();
+    base = {
+      cliente: d.contact_name || "", telefono: d.contact_phone || p.contact_phone || "", email: d.contact_email || p.contact_email || "",
+      direccion, entreCalles: "", // TN no tiene entre calles
+      barrio: sa.locality || sa.city || "",
+      zona: d.fulfillments?.[0]?.shipping?.option?.name || "",
+      nota: d.note || "",
+    };
+  }
+  const pick = (v, b) => (v !== null && v !== undefined && String(v).trim() !== "") ? v : b;
+  return {
+    cliente: pick(ov.cliente_override, base.cliente),
+    telefono: pick(ov.telefono_override, base.telefono),
+    email: pick(ov.email_override, base.email),
+    direccion: pick(ov.direccion_override, base.direccion),
+    entreCalles: base.entreCalles, // no hay override de entre calles
+    barrio: pick(ov.barrio_override, base.barrio),
+    zona: pick(ov.zona_override, base.zona),
+    nota: pick(ov.nota_override, base.nota),
+  };
+}
+
+// Por email: datos del pedido MÁS RECIENTE (manual o TN) con ese email + cuántos pedidos tiene.
+// Solo lectura, con login (devuelve datos personales). No incluye CUIT (por decisión).
+app.get("/api/clientes/buscar", requireAuth, async (req, res) => {
   const email = String(req.query.email || "").toLowerCase().trim();
   if (!email) return res.status(400).json({ error: "email requerido" });
   try {
@@ -1862,50 +1898,65 @@ app.get("/api/clientes/buscar", async (req, res) => {
     const fMan = man ? new Date(man.created_at).getTime() : -Infinity;
     const fTn = tn ? new Date(tn.tn_created_at).getTime() : -Infinity;
     const usarManual = fMan >= fTn;
+    const pedidoId = usarManual ? man.id : String(tn.id);
 
-    // Datos base según el canal ganador.
-    let base, pedidoId;
-    if (usarManual) {
-      pedidoId = man.id;
-      base = {
-        cliente: man.cliente || "", telefono: man.telefono || "",
-        direccion: man.direccion || "", entreCalles: man.entre_calles || "",
-        barrio: man.barrio || "", zona: man.zona || "", nota: man.nota || "",
-      };
-    } else {
-      pedidoId = String(tn.id);
-      const d = tn.data || {};
-      const sa = d.shipping_address || {};
-      const direccion = `${sa.address || ""} ${sa.number || ""}${sa.floor ? ` ${sa.floor}` : ""}`.trim();
-      base = {
-        cliente: d.contact_name || "", telefono: d.contact_phone || "",
-        direccion, entreCalles: "", // TN no tiene entre calles
-        barrio: sa.locality || sa.city || "",
-        zona: d.fulfillments?.[0]?.shipping?.option?.name || "",
-        nota: d.note || "",
-      };
-    }
-
-    // Overrides de pedidos_estados del pedido ganador (prioridad si no vacíos).
     const ovRes = await pool.query(
       "SELECT cliente_override, telefono_override, direccion_override, barrio_override, zona_override, nota_override FROM pedidos_estados WHERE id = $1",
       [pedidoId]
     );
-    const ov = ovRes.rows[0] || {};
-    const pick = (v, b) => (v !== null && v !== undefined && String(v).trim() !== "") ? v : b;
-
-    res.json({
-      encontrado: true,
-      cliente: pick(ov.cliente_override, base.cliente),
-      telefono: pick(ov.telefono_override, base.telefono),
-      direccion: pick(ov.direccion_override, base.direccion),
-      entreCalles: base.entreCalles, // no hay override de entre calles
-      barrio: pick(ov.barrio_override, base.barrio),
-      zona: pick(ov.zona_override, base.zona),
-      nota: pick(ov.nota_override, base.nota),
-    });
+    const cntRes = await pool.query(
+      "SELECT (SELECT count(*) FROM pedidos_manuales WHERE lower(email) = $1) + (SELECT count(*) FROM pedidos_tn WHERE lower(contact_email) = $1) AS n",
+      [email]
+    );
+    const { email: _email, ...datos } = datosClienteDePedido(usarManual ? "manual" : "tn", usarManual ? man : tn, ovRes.rows[0] || {});
+    res.json({ encontrado: true, ...datos, pedidos: Number(cntRes.rows[0]?.n) || 1 });
   } catch (err) {
     console.error("Error GET /api/clientes/buscar:", err.message);
+    res.status(500).json({ error: "Error buscando cliente" });
+  }
+});
+
+// Por teléfono: compara normalizado (formatos AR: +54, 9, 0, 15; sin código de área → últimos 8)
+// contra los teléfonos de pedidos manuales y de TN, con sus overrides. Agrupa por cliente
+// (nombre normalizado) y de cada uno devuelve los datos del pedido MÁS RECIENTE + cuántos pedidos tiene.
+// Si hay varios clientes distintos con ese teléfono, vienen todos (el más reciente primero).
+app.get("/api/clientes/buscar-telefono", requireAuth, async (req, res) => {
+  const clave = normalizarTelefonoAR(req.query.telefono);
+  if (clave.length < 8) return res.status(400).json({ error: "teléfono incompleto (mínimo 8 dígitos)" });
+  try {
+    // Prefiltro en SQL por los últimos 6 dígitos (no cambian con prefijos); la comparación fina va en JS.
+    const fin6 = clave.slice(-6);
+    const OV = "e.cliente_override, e.telefono_override, e.email_override, e.direccion_override, e.barrio_override, e.zona_override, e.nota_override";
+    const manRes = await pool.query(
+      `SELECT m.id, m.cliente, m.telefono, m.email, m.direccion, m.entre_calles, m.barrio, m.zona, m.nota, m.created_at AS fecha, ${OV}
+         FROM pedidos_manuales m LEFT JOIN pedidos_estados e ON e.id = m.id
+        WHERE right(regexp_replace(COALESCE(NULLIF(trim(e.telefono_override), ''), m.telefono, ''), '\\D', '', 'g'), 6) = $1`,
+      [fin6]
+    );
+    const tnRes = await pool.query(
+      `SELECT t.id, t.data, t.contact_phone, t.contact_email, t.tn_created_at AS fecha, ${OV}
+         FROM pedidos_tn t LEFT JOIN pedidos_estados e ON e.id = t.id::text
+        WHERE right(regexp_replace(COALESCE(NULLIF(trim(e.telefono_override), ''), t.contact_phone, t.data->>'contact_phone', ''), '\\D', '', 'g'), 6) = $1`,
+      [fin6]
+    );
+    const pedidos = [
+      ...manRes.rows.map((r) => ({ fecha: r.fecha, datos: datosClienteDePedido("manual", r, r) })),
+      ...tnRes.rows.map((r) => ({ fecha: r.fecha, datos: datosClienteDePedido("tn", r, r) })),
+    ].filter((p) => mismoTelefonoAR(p.datos.telefono, clave))
+     .sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0));
+
+    // Un cliente = mismo nombre (sin acentos, mayúsculas ni espacios de más); sin nombre → por email.
+    const claveCliente = (d) => String(d.cliente || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim() || String(d.email || "").toLowerCase().trim() || "(sin nombre)";
+    const grupos = new Map();
+    for (const p of pedidos) {
+      const k = claveCliente(p.datos);
+      if (!grupos.has(k)) grupos.set(k, { ...p.datos, pedidos: 0, ultimoPedido: p.fecha });   // el primero es el más reciente
+      grupos.get(k).pedidos++;
+    }
+    const clientes = [...grupos.values()];
+    res.json({ encontrado: clientes.length > 0, clientes });
+  } catch (err) {
+    console.error("Error GET /api/clientes/buscar-telefono:", err.message);
     res.status(500).json({ error: "Error buscando cliente" });
   }
 });
