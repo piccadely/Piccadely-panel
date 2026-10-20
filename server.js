@@ -2043,6 +2043,27 @@ function calcularFechaContable(fecha, provista) {
 }
 // Razón social normalizada para detectar duplicados (minúsculas + espacios colapsados).
 const razonNorm = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+// Comprobante repetido = mismo proveedor + tipo (sin tildes/mayúsculas) + punto de venta + número, normalizados
+// (solo dígitos y sin ceros a la izquierda: "0001-00001234" = "1-1234"). Las anuladas no cuentan (se pueden recargar).
+// Complementa el índice uq_factura_compra_num (que compara el texto tal cual y no incluye el punto de venta).
+const numComprobanteNorm = (s) => { const d = String(s || "").replace(/\D/g, "").replace(/^0+/, ""); return d || String(s || "").trim().toUpperCase(); };
+async function comprobanteCompraRepetido(exec, { proveedorId, tipo, puntoVenta, numero, excluirId = null }) {
+  const r = await exec.query(
+    "SELECT id, tipo_comprobante, punto_venta, numero_comprobante, fecha, estado_pago FROM facturas_compra WHERE proveedor_id = $1 AND estado_pago <> 'anulada' AND ($2::int IS NULL OR id <> $2)",
+    [proveedorId, excluirId]
+  );
+  const t = tipoCompraNorm(tipo).replace(/\s+/g, " ").trim(), pv = numComprobanteNorm(puntoVenta), n = numComprobanteNorm(numero);
+  return r.rows.find(f => tipoCompraNorm(f.tipo_comprobante).replace(/\s+/g, " ").trim() === t
+    && numComprobanteNorm(f.punto_venta) === pv && numComprobanteNorm(f.numero_comprobante) === n) || null;
+}
+// 23505 de los índices únicos de facturas_compra → 409 con mensaje claro (null si es otro índice).
+// uq_factura_compra_num NO cuenta anuladas y NO mira el punto de venta: mismo proveedor + tipo + número (texto tal cual).
+function msgUnicoFacturaCompra(err) {
+  if (err.constraint === "uq_factura_compra_num") return "Ya existe un comprobante de este proveedor con el mismo tipo y número (sin anular). Ese control no distingue el punto de venta: revisá el número o el tipo de comprobante.";
+  if (err.constraint === "uq_factura_compra_orden") return "Esa orden de compra ya tiene una factura cargada (sin anular).";
+  return null;
+}
+const msgComprobanteRepetido = (f) =>`Ya está cargado ${f.tipo_comprobante} ${f.punto_venta ? `${f.punto_venta}-` : ""}${f.numero_comprobante} de este proveedor (fecha ${f.fecha}, ${f.estado_pago}). Revisá el número: no se puede cargar dos veces el mismo comprobante.`;
 
 app.get("/api/compras/proveedores", requireAdmin, async (req, res) => {
   try {
@@ -2361,6 +2382,9 @@ app.post("/api/compras/facturas", requireAdmin, async (req, res) => {
     const snapCuit = prov.rows[0].cuit || null;
     const snapRazon = prov.rows[0].razon_social || null;
 
+    const repetido = await comprobanteCompraRepetido(pool, { proveedorId: b.proveedor_id, tipo: b.tipo_comprobante, puntoVenta: b.punto_venta, numero: b.numero_comprobante });
+    if (repetido) return res.status(409).json({ error: msgComprobanteRepetido(repetido) });
+
     // Factura asociada (NC/ND): vínculo informativo OPCIONAL a otra factura del MISMO proveedor.
     let facturaAsociadaId = null;
     if (b.factura_asociada_id) {
@@ -2415,7 +2439,7 @@ app.post("/api/compras/facturas", requireAdmin, async (req, res) => {
     }
   } catch (err) {
     if (client) await client.query("ROLLBACK").catch(() => {});
-    if (err.code === "23505") return res.status(409).json({ error: "Ya existe una factura con ese número para este proveedor." });
+    if (err.code === "23505") return res.status(409).json({ error: msgUnicoFacturaCompra(err) || "Ya existe una factura con ese número para este proveedor." });
     console.error("Error POST /api/compras/facturas:", err.message);
     res.status(500).json({ error: "Error cargando la factura" });
   } finally {
@@ -2461,6 +2485,11 @@ app.patch("/api/compras/facturas/:id", requireAdmin, async (req, res) => {
       snapCuit = prov.rows[0].cuit || null; snapRazon = prov.rows[0].razon_social || null;
     }
 
+    // Chequeo con los valores FINALES: lo que viene en el body o, si no viene, lo que ya tiene la fila.
+    const final = (campo) => (b[campo] !== undefined && b[campo] !== null) ? b[campo] : antes[campo];
+    const repetido = await comprobanteCompraRepetido(client, { proveedorId: provId, tipo: final("tipo_comprobante"), puntoVenta: final("punto_venta"), numero: final("numero_comprobante"), excluirId: id });
+    if (repetido) throw { _http: 409, msg: msgComprobanteRepetido(repetido) };
+
     // Factura asociada (solo NC/ND): del MISMO proveedor y nunca él mismo. Si cambió el proveedor y la
     // asociada quedó de otro, se limpia con aviso (no bloquea).
     let asociadaId = null;
@@ -2484,7 +2513,8 @@ app.patch("/api/compras/facturas/:id", requireAdmin, async (req, res) => {
 
     const despues = {
       proveedor_id: provId, proveedor_cuit: snapCuit, proveedor_razon_social: snapRazon, categoria_gasto_id: catId,
-      tipo_comprobante: tipoNuevo, punto_venta: b.punto_venta?.trim() || null, numero_comprobante: String(b.numero_comprobante).trim(),
+      // punto_venta: si no viene en el body se conserva el de la fila (mismo valor que usó el chequeo de repetido).
+      tipo_comprobante: tipoNuevo, punto_venta: (b.punto_venta !== undefined && b.punto_venta !== null) ? (String(b.punto_venta).trim() || null) : antes.punto_venta, numero_comprobante: String(b.numero_comprobante).trim(),
       cae: b.cae?.trim() || null, fecha: b.fecha, fecha_contable: fcCalc.fechaContable, factura_asociada_id: asociadaId,
       alicuota_iva: alicDom, neto_gravado: netoGravado, iva: ivaTotal,
       neto_105: n105, iva_105: i105, neto_21: n21, iva_21: i21, neto_27: n27, iva_27: i27,
@@ -2515,7 +2545,7 @@ app.patch("/api/compras/facturas/:id", requireAdmin, async (req, res) => {
   } catch (err) {
     if (client) await client.query("ROLLBACK").catch(() => {});
     if (err && err._http) return res.status(err._http).json({ error: err.msg });
-    if (err.code === "23505") return res.status(409).json({ error: `Ya existe un/a ${String(b.tipo_comprobante).trim()} número ${String(b.numero_comprobante).trim()} cargado/a para este proveedor.` });
+    if (err.code === "23505") return res.status(409).json({ error: msgUnicoFacturaCompra(err) || `Ya existe un/a ${String(b.tipo_comprobante).trim()} número ${String(b.numero_comprobante).trim()} cargado/a para este proveedor.` });
     console.error("Error PATCH /api/compras/facturas:", err.message);
     res.status(500).json({ error: "Error guardando el comprobante" });
   } finally {
