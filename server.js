@@ -2447,12 +2447,21 @@ app.post("/api/compras/facturas", requireAdmin, async (req, res) => {
   }
 });
 
+// Campos que el PATCH exige en el body (la CLAVE presente; null o "" valen como vacío/0). Sin esto, un PATCH
+// parcial pisaba con null/0 lo que no viniera. factura_asociada_id solo se exige para NC/ND.
+const PATCH_FC_REQUERIDOS = ["cae", "fecha_contable", "neto_105", "iva_105", "neto_21", "iva_21", "neto_27", "iva_27",
+  "percep_iva", "percep_iibb_bsas", "percep_iibb_caba", "neto_no_gravado", "exentas", "otros_tributos"];
+
 // Edición completa de facturas / NC / ND (mismo form que la carga). Solo comprobantes 'pendiente':
 // pagada o anulada no se editan. Como el pago es único (no hay parciales), 'pendiente' = sin pagos, así
 // que la clase (Factura/NC/ND) también se puede corregir acá. Todo en una transacción; audita antes→después.
 app.patch("/api/compras/facturas/:id", requireAdmin, async (req, res) => {
-  const b = req.body;
+  const b = req.body || {};
   const id = Number(req.params.id);
+  const tiene = (k) => Object.prototype.hasOwnProperty.call(b, k);
+  const esNotaPatch = esNotaCreditoCompra(b.tipo_comprobante) || esNotaDebitoCompra(b.tipo_comprobante);
+  const faltan = [...PATCH_FC_REQUERIDOS, ...(esNotaPatch ? ["factura_asociada_id"] : [])].filter(k => !tiene(k));
+  if (faltan.length) return res.status(400).json({ error: `Faltan campos en la edición: ${faltan.join(", ")}. Mandá el comprobante completo.`, faltan });
   const errValidacion = validarFacturaCompra(b);
   if (errValidacion) return res.status(400).json({ error: errValidacion });
   const fcCalc = calcularFechaContable(b.fecha, b.fecha_contable);
