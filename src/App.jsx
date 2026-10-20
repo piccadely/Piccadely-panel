@@ -6306,6 +6306,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [modal, setModal] = useState(null);          // null | "nuevo" | "editar"
       const [modoCarga, setModoCarga] = useState("suelta"); // "orden" | "suelta"
       const [editandoId, setEditandoId] = useState(null);
+      const [copiaDe, setCopiaDe] = useState(null);         // "Factura A 0001-00001234" si el alta es un duplicado
+      const numeroRef = useRef(null);
       const [form, setForm] = useState(FC_FORM_VACIO);
       const [facturasProv, setFacturasProv] = useState([]);   // facturas del proveedor elegido (para "factura asociada" de NC/ND)
       const [guardando, setGuardando] = useState(false);
@@ -6371,7 +6373,9 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         setForm(f => ({ ...f, proveedor_id: v, factura_asociada_id: "" }));
       }
 
-      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 3000); }
+      // Cada mensaje cancela el borrado del anterior (si no, un timer viejo borra antes de tiempo el mensaje nuevo, ej. un 409).
+      const timerMensaje = useRef(null);
+      function mostrarMensaje(texto, tipo = "ok") { clearTimeout(timerMensaje.current); setMensaje({ texto, tipo }); timerMensaje.current = setTimeout(() => setMensaje(null), 3000); }
       const setCampo = (k, v) => setForm(f => ({ ...f, [k]: v }));
       // Fecha de contabilización: se sugiere sola al cambiar la fecha (editable). Regla: si la factura es de un
       // mes anterior al actual → HOY; si es del mes actual (o futuro) → igual a la fecha.
@@ -6383,16 +6387,17 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         setForm(f => ({ ...f, [netoKey]: v, [ivaKey]: String(iva) }));
       }
 
-      function abrirSuelta() { setForm({ ...FC_FORM_VACIO, fecha: hoyStr, fecha_contable: hoyStr }); setModoCarga("suelta"); setEditandoId(null); setModal("nuevo"); }
-      function abrirDesdeOrden() { setForm({ ...FC_FORM_VACIO, fecha: hoyStr, fecha_contable: hoyStr }); setModoCarga("orden"); setEditandoId(null); setModal("nuevo"); }
+      function abrirSuelta() { setForm({ ...FC_FORM_VACIO, fecha: hoyStr, fecha_contable: hoyStr }); setModoCarga("suelta"); setEditandoId(null); setCopiaDe(null); setModal("nuevo"); }
+      function abrirDesdeOrden() { setForm({ ...FC_FORM_VACIO, fecha: hoyStr, fecha_contable: hoyStr }); setModoCarga("orden"); setEditandoId(null); setCopiaDe(null); setModal("nuevo"); }
       function elegirOrden(ordenId) {
         const o = ordenesAprob.find(x => String(x.id) === String(ordenId));
         setForm(f => ({ ...f, orden_compra_id: ordenId, proveedor_id: o ? String(o.proveedor_id) : "", categoria_gasto_id: o ? String(o.categoria_gasto_id) : "" }));
       }
-      function abrirEditar(fac) {
+      // Form precargado con un comprobante existente (lo usan Editar y Duplicar).
+      function formDesdeFactura(fac) {
         const clase = esNC(fac.tipo_comprobante) ? "Nota de Crédito" : esND(fac.tipo_comprobante) ? "Nota de Débito" : "Factura";
         const letra = (String(fac.tipo_comprobante || "").trim().slice(-1) || "A").toUpperCase();
-        setForm({
+        return {
           proveedor_id: String(fac.proveedor_id || ""), categoria_gasto_id: String(fac.categoria_gasto_id || ""),
           orden_compra_id: fac.orden_compra_id ? String(fac.orden_compra_id) : "",
           clase, letra: FC_LETRAS.includes(letra) ? letra : "A", factura_asociada_id: fac.factura_asociada_id ? String(fac.factura_asociada_id) : "",
@@ -6404,9 +6409,28 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           neto_27: fac.neto_27 ? String(fac.neto_27) : "", iva_27: fac.iva_27 ? String(fac.iva_27) : "",
           percep_iva: String(fac.percep_iva ?? ""), percep_iibb_bsas: String(fac.percep_iibb_bsas ?? ""), percep_iibb_caba: String(fac.percep_iibb_caba ?? ""),
           neto_no_gravado: String(fac.neto_no_gravado ?? ""), exentas: String(fac.exentas ?? ""), otros_tributos: String(fac.otros_tributos ?? ""), total: String(fac.total ?? ""),
-        });
-        setModoCarga(fac.orden_compra_id ? "orden" : "suelta"); setEditandoId(fac.id); setModal("editar");
+        };
       }
+      function abrirEditar(fac) {
+        setForm(formDesdeFactura(fac));
+        setModoCarga(fac.orden_compra_id ? "orden" : "suelta"); setEditandoId(fac.id); setCopiaDe(null); setModal("editar");
+      }
+      // Duplicar: abre el ALTA (no la edición) con los datos del comprobante. Se resetea lo que identifica a ese
+      // comprobante: número, CAE, fecha (hoy) y fecha contable (regla actual), factura asociada y orden de compra
+      // (la orden ya quedó recibida). Pagos/anulación/auditoría no viajan: el alta nace pendiente. Nada se guarda hasta "Guardar".
+      function abrirDuplicar(fac) {
+        const base = formDesdeFactura(fac);
+        const avisos = [];
+        if (!proveedores.some(p => String(p.id) === base.proveedor_id)) { avisos.push("el proveedor ya no está activo, elegí otro"); base.proveedor_id = ""; }
+        if (!categorias.some(c => String(c.id) === base.categoria_gasto_id)) { avisos.push("la categoría ya no está activa, elegí otra"); base.categoria_gasto_id = ""; }
+        setForm({ ...base, numero_comprobante: "", cae: "", fecha: hoyStr, fecha_contable: sugerirFC(hoyStr), factura_asociada_id: "", orden_compra_id: "" });
+        setModoCarga("suelta"); setEditandoId(null);
+        setCopiaDe(`${fac.tipo_comprobante} ${fac.punto_venta ? `${fac.punto_venta}-` : ""}${fac.numero_comprobante}`);
+        setModal("nuevo");
+        if (avisos.length) mostrarMensaje(`Copia: ${avisos.join("; ")}.`, "error");
+      }
+      // Al abrir una copia, el foco va al número (lo único que hay que completar sí o sí).
+      useEffect(() => { if (modal === "nuevo" && copiaDe) setTimeout(() => numeroRef.current?.focus(), 0); }, [modal, copiaDe]);
 
       async function guardar() {
         if (!form.proveedor_id) { mostrarMensaje("Elegí un proveedor", "error"); return; }
@@ -6437,7 +6461,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           // Refresco sin recargar la página: lista (y sus totales/signos) + órdenes. Cuenta corriente y libro
           // leen siempre de facturas_compra, así que al abrirlos ya muestran lo editado.
           await cargar(); await cargarCombos();
-          setModal(null); setForm(FC_FORM_VACIO); setEditandoId(null);
+          setModal(null); setForm(FC_FORM_VACIO); setEditandoId(null); setCopiaDe(null);
           const ok = modal === "editar" ? `${form.clase} actualizada` : `${form.clase} cargada`;
           if (avisos.length) { setMensaje({ texto: `${ok}. ${avisos.join(" ")}`, tipo: "ok" }); setTimeout(() => setMensaje(null), 7000); }
           else mostrarMensaje(ok);
@@ -6548,6 +6572,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                           {fac.estado_pago === "pagada" && (
                             <span style={{ fontSize: 11, color: "#2a7a4b" }}>{fac.fecha_pago || ""}{fac.caja_origen ? ` · ${fac.caja_origen}` : " · externo"}{fac.medio_pago ? ` · ${fac.medio_pago}` : ""}</span>
                           )}
+                          <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#555", cursor: "pointer" }} title="Abre una factura nueva con estos datos (sin número ni fecha)" onClick={() => abrirDuplicar(fac)}>⧉ Duplicar</button>
                         </div>
                       </div>
                     </div>
@@ -6560,7 +6585,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
             <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }} onClick={() => setModal(null)}>
               <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 560, maxWidth: "100%", maxHeight: "92vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
                 <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 16 }}>
-                  {modal === "editar" ? `Editar ${form.clase === "Factura" ? "factura" : form.clase.toLowerCase()}` : modoCarga === "orden" ? "Cargar factura desde orden" : "Nueva factura suelta"}
+                  {modal === "editar" ? `Editar ${form.clase === "Factura" ? "factura" : form.clase.toLowerCase()}` : copiaDe ? `Nueva factura (copia de ${copiaDe})` : modoCarga === "orden" ? "Cargar factura desde orden" : "Nueva factura suelta"}
                 </div>
                 {/* Mensajes visibles DENTRO del modal (antes quedaban detrás del overlay: errores de guardado, 409, avisos). */}
                 {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 10, fontSize: 12, marginBottom: 12 }}>{mensaje.texto}</div>}
@@ -6613,7 +6638,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                     <input style={inputStyle} value={form.punto_venta} onChange={e => setCampo("punto_venta", e.target.value)} placeholder="0001" />
                   </label>
                   <label style={lbl}>Número *
-                    <input style={inputStyle} value={form.numero_comprobante} onChange={e => setCampo("numero_comprobante", e.target.value)} placeholder="00001234" />
+                    <input ref={numeroRef} style={inputStyle} value={form.numero_comprobante} onChange={e => setCampo("numero_comprobante", e.target.value)} placeholder="00001234" />
                   </label>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
