@@ -2129,7 +2129,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         );
       }
       // Conceptos autogenerados (MISMA lista que el backend) → no editables.
-      const CONCEPTOS_AUTO_PREFIJOS = ["transferencia a", "transferencia desde", "pago factura", "sobre a bandeja", "sobre recibido", "sobre rechazado", "ajuste sobre", "apertura", "reapertura", "cierre", "gasto:", "anulación gasto", "adelanto sueldo:", "anulación adelanto", "pago sueldo:", "anulación pago sueldo"];
+      const CONCEPTOS_AUTO_PREFIJOS = ["transferencia a", "transferencia desde", "pago factura", "sobre a bandeja", "sobre recibido", "sobre rechazado", "ajuste sobre", "apertura", "reapertura", "cierre", "gasto:", "anulación gasto", "adelanto sueldo:", "anulación adelanto", "pago sueldo:", "anulación pago sueldo", "pago a cuenta #", "anulación pago a cuenta #"];
       const esConceptoAuto = (c) => { const s = String(c || "").trim().toLowerCase(); return CONCEPTOS_AUTO_PREFIJOS.some(p => s.startsWith(p)); };
 
       // Filtra movimientos por rango de fecha + palabra en el concepto (sobre la lista ya traída).
@@ -6757,15 +6757,17 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
     }
 
     // ─── COMPRAS — CUENTAS POR PAGAR / CUENTA CORRIENTE (Entrega 4) ────────
-    // Admin + superadmin. Saldo por proveedor + detalle de sus facturas (reusa GET facturas?proveedor).
+    // Admin + superadmin. Saldo por proveedor + detalle de sus facturas y pagos a cuenta.
+    // Saldo negativo = a favor nuestro (pagos a cuenta / NC mayores a lo pendiente).
     function VistaCuentasPorPagar({ usuario, onVolver }) {
-      const [data, setData] = useState(null);          // { proveedores, totalDeuda }
+      const [data, setData] = useState(null);          // { proveedores, totalDeuda, totalAFavor }
       const [loading, setLoading] = useState(true);
       const [expandido, setExpandido] = useState(null); // proveedor_id abierto
-      const [detalle, setDetalle] = useState({});        // proveedor_id → facturas[]
+      const [detalle, setDetalle] = useState({});        // proveedor_id → { facturas[], pagos[] (a cuenta) }
       const [mensaje, setMensaje] = useState(null);
       const [q, setQ] = useState("");
       const [soloConSaldo, setSoloConSaldo] = useState(false);
+      const [exportando, setExportando] = useState(false);
 
       const money = (n) => "$" + Number(n || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const FC_BADGE = { pendiente: { t: "Pendiente", bg: "#fef3c7", c: "#b45309" }, pagada: { t: "Pagada", bg: "#eafaf1", c: "#2a7a4b" }, anulada: { t: "Anulada", bg: "#f3f4f6", c: "#c0392b" } };
@@ -6783,16 +6785,55 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         setExpandido(provId);
         if (!detalle[provId]) {
           try {
-            const res = await axios.get(`${API}/api/compras/facturas`, { params: { proveedor: provId } });
-            setDetalle(prev => ({ ...prev, [provId]: res.data }));
+            const [rf, rp] = await Promise.all([
+              axios.get(`${API}/api/compras/facturas`, { params: { proveedor: provId } }),
+              axios.get(`${API}/api/compras/pagos`, { params: { proveedor: provId, tipo: "a_cuenta" } }),
+            ]);
+            setDetalle(prev => ({ ...prev, [provId]: { facturas: rf.data, pagos: rp.data.pagos } }));
           } catch (err) { /* silencioso; el header ya muestra los totales */ }
         }
+      }
+      // Movimientos del proveedor (facturas + pagos a cuenta), más reciente primero.
+      const movimientosDe = (d) => [
+        ...d.facturas.map(f => ({ clase: "factura", fecha: f.fecha, f })),
+        ...d.pagos.map(p => ({ clase: "a_cuenta", fecha: p.fecha, p })),
+      ].sort((a, b) => String(b.fecha || "").localeCompare(String(a.fecha || "")));
+
+      // Excel de cuenta corriente: hoja de saldos + hoja de movimientos (facturas y pagos a cuenta).
+      async function exportar() {
+        if (!data) return;
+        setExportando(true);
+        try {
+          const [rf, rp] = await Promise.all([axios.get(`${API}/api/compras/facturas`), axios.get(`${API}/api/compras/pagos`, { params: { tipo: "a_cuenta" } })]);
+          const activos = new Set(data.proveedores.map(p => p.id));
+          const saldos = data.proveedores.map(p => ({
+            "Proveedor": p.razon_social, "CUIT": p.cuit || "", "Facturado": Number(p.total_facturado), "Pagado (facturas + a cuenta)": Number(p.total_pagado),
+            "Pagos a cuenta": Number(p.pagos_a_cuenta), "Saldo": Number(p.saldo_pendiente),
+            "Estado": Number(p.saldo_pendiente) > 0 ? "Deuda" : Number(p.saldo_pendiente) < 0 ? "A favor nuestro" : "Saldado",
+            "Facturas pendientes": Number(p.facturas_pendientes),
+          }));
+          const movs = [
+            ...rf.data.filter(f => activos.has(f.proveedor_id)).map(f => ({
+              "Fecha": f.fecha, "Proveedor": f.proveedor_razon_social, "Tipo": f.tipo_comprobante,
+              "Comprobante / concepto": `${f.punto_venta ? `${f.punto_venta}-` : ""}${f.numero_comprobante}`, "Estado": f.estado_pago,
+              "Importe": (esNC(f.tipo_comprobante) ? -1 : 1) * Number(f.total),
+              "Pago": f.estado_pago === "pagada" ? `${f.fecha_pago || ""} ${f.caja_origen ? `desde ${f.caja_origen}` : "externo"}`.trim() : "",
+            })),
+            ...rp.data.pagos.filter(p => activos.has(p.proveedor_id)).map(p => ({
+              "Fecha": p.fecha, "Proveedor": p.proveedor, "Tipo": "Pago a cuenta", "Comprobante / concepto": p.concepto, "Estado": p.estado,
+              "Importe": -Number(p.monto), "Pago": `${p.medio_pago} ${p.caja_origen ? `desde ${p.caja_origen}` : "externo"}`,
+            })),
+          ].sort((a, b) => String(a.Proveedor).localeCompare(String(b.Proveedor)) || String(a.Fecha).localeCompare(String(b.Fecha)));
+          exportarExcel(`cuenta_corriente_proveedores_${new Date().toISOString().slice(0, 10)}.xlsx`, [{ name: "Saldos", data: saldos }, { name: "Movimientos", data: movs }]);
+        } catch (err) { setMensaje(err.response?.data?.error || "Error exportando la cuenta corriente"); }
+        setExportando(false);
       }
 
       const qs = q.trim().toLowerCase();
       const qDigits = q.replace(/\D/g, "");
       const provFiltrados = (data?.proveedores || []).filter(p => {
-        if (soloConSaldo && !(Number(p.saldo_pendiente) > 0)) return false;
+        // "Solo con saldo": deuda y también saldos a favor (se marcan, no se esconden).
+        if (soloConSaldo && Math.abs(Number(p.saldo_pendiente)) < 0.005) return false;
         if (qs) {
           const enNombre = String(p.razon_social || "").toLowerCase().includes(qs);
           const enCuit = qDigits && String(p.cuit || "").replace(/\D/g, "").includes(qDigits);
@@ -6803,15 +6844,24 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
       return (
         <div style={{ padding: 24, maxWidth: 960, margin: "0 auto" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 8 }}>
             <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>💳 Cuentas por pagar</div>
-            <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver al panel</button>
+            <div style={{ display: "flex", gap: 8 }}>
+              {data && <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "1px solid #1d8a4e", background: "#eafaf1", color: "#1d8a4e", cursor: exportando ? "default" : "pointer" }} disabled={exportando} onClick={exportar}>{exportando ? "Exportando…" : "📊 Excel"}</button>}
+              <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver al panel</button>
+            </div>
           </div>
 
           {data && (
-            <div style={{ background: "#c0392b", borderRadius: 10, padding: "14px 18px", marginBottom: 16 }}>
-              <div style={{ fontSize: 11, color: "#f5c6cb", letterSpacing: 0.5 }}>DEUDA TOTAL A PROVEEDORES</div>
-              <div style={{ fontSize: 26, fontWeight: 700, color: "#fff" }}>{money(data.totalDeuda)}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+              <div style={{ background: "#c0392b", borderRadius: 10, padding: "14px 18px" }}>
+                <div style={{ fontSize: 11, color: "#f5c6cb", letterSpacing: 0.5 }}>DEUDA TOTAL A PROVEEDORES</div>
+                <div style={{ fontSize: 26, fontWeight: 700, color: "#fff" }}>{money(data.totalDeuda)}</div>
+              </div>
+              <div style={{ background: "#2a7a4b", borderRadius: 10, padding: "14px 18px" }}>
+                <div style={{ fontSize: 11, color: "#c9ecd6", letterSpacing: 0.5 }}>A FAVOR NUESTRO</div>
+                <div style={{ fontSize: 26, fontWeight: 700, color: "#fff" }}>{money(data.totalAFavor || 0)}</div>
+              </div>
             </div>
           )}
 
@@ -6819,7 +6869,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
             <input style={{ fontSize: 13, padding: "7px 10px", borderRadius: 8, border: "1px solid #ddd", flex: "1 1 240px" }} placeholder="Buscar proveedor por razón social o CUIT…" value={q} onChange={e => setQ(e.target.value)} />
-            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#666", cursor: "pointer" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#666", cursor: "pointer" }} title="Deuda y saldos a favor nuestro">
               <input type="checkbox" checked={soloConSaldo} onChange={e => setSoloConSaldo(e.target.checked)} /> Solo con saldo
             </label>
             {(q || soloConSaldo) && <button style={{ fontSize: 12, padding: "6px 12px", borderRadius: 8, border: "1px solid #c0392b", background: "#fff", color: "#c0392b", cursor: "pointer" }} onClick={() => { setQ(""); setSoloConSaldo(false); }}>✕ Limpiar</button>}
@@ -6829,23 +6879,42 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
             {loading ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>Cargando…</div>
               : !data || data.proveedores.length === 0 ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>No hay proveedores.</div>
               : provFiltrados.length === 0 ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>Ningún proveedor coincide con el filtro.</div>
-              : provFiltrados.map(p => (
+              : provFiltrados.map(p => {
+                const saldo = Number(p.saldo_pendiente);
+                const aFavor = saldo < -0.005;
+                return (
                 <div key={p.id} style={{ borderBottom: "1px solid #f5f5f5" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px", cursor: "pointer", gap: 12 }} onClick={() => toggle(p.id)}>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>{expandido === p.id ? "▾" : "▸"} {p.razon_social}</div>
-                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Facturado {money(p.total_facturado)} · Pagado {money(p.total_pagado)} · {p.facturas_pendientes} pendiente(s)</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>{expandido === p.id ? "▾" : "▸"} {p.razon_social}
+                        {aFavor && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: "#eafaf1", color: "#2a7a4b" }}>A FAVOR NUESTRO</span>}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Facturado {money(p.total_facturado)} · Pagado {money(p.total_pagado)}{Number(p.pagos_a_cuenta) > 0 ? ` (a cuenta ${money(p.pagos_a_cuenta)})` : ""} · {p.facturas_pendientes} pendiente(s)</div>
                     </div>
                     <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                      <div style={{ fontSize: 11, color: "#888" }}>SALDO</div>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: Number(p.saldo_pendiente) > 0 ? "#c0392b" : "#2a7a4b" }}>{money(p.saldo_pendiente)}</div>
+                      <div style={{ fontSize: 11, color: "#888" }}>{aFavor ? "A FAVOR NUESTRO" : "SALDO"}</div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: saldo > 0 ? "#c0392b" : "#2a7a4b" }}>{money(aFavor ? -saldo : saldo)}</div>
                     </div>
                   </div>
                   {expandido === p.id && (
                     <div style={{ padding: "0 12px 12px 24px" }}>
-                      {!detalle[p.id] ? <div style={{ fontSize: 12, color: "#aaa" }}>Cargando facturas…</div>
-                        : detalle[p.id].length === 0 ? <div style={{ fontSize: 12, color: "#aaa" }}>Sin facturas.</div>
-                        : detalle[p.id].map(fac => {
+                      {!detalle[p.id] ? <div style={{ fontSize: 12, color: "#aaa" }}>Cargando movimientos…</div>
+                        : movimientosDe(detalle[p.id]).length === 0 ? <div style={{ fontSize: 12, color: "#aaa" }}>Sin facturas ni pagos a cuenta.</div>
+                        : movimientosDe(detalle[p.id]).map(mv => {
+                          if (mv.clase === "a_cuenta") {
+                            const pg = mv.p;
+                            return (
+                              <div key={`ac-${pg.id}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #f7f7f7", fontSize: 12 }}>
+                                <span style={{ color: "#555" }}>
+                                  <span style={{ marginRight: 6, fontWeight: 700, padding: "1px 7px", borderRadius: 10, background: "#e0f2fe", color: "#0369a1" }}>Pago a cuenta</span>
+                                  {pg.concepto} · {pg.fecha}
+                                  <span style={{ marginLeft: 6, color: "#2a7a4b" }}>{pg.caja_origen ? `desde ${pg.caja_origen}` : "externo"} · {pg.medio_pago}</span>
+                                </span>
+                                <span style={{ fontWeight: 600, color: "#2a7a4b" }}>−{money(pg.monto)}</span>
+                              </div>
+                            );
+                          }
+                          const fac = mv.f;
                           const b = FC_BADGE[fac.estado_pago] || { t: fac.estado_pago, bg: "#eee", c: "#333" };
                           const clB = claseBadge(fac.tipo_comprobante);
                           const nc = esNC(fac.tipo_comprobante);
@@ -6863,8 +6932,206 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
           </div>
+        </div>
+      );
+    }
+
+    // ─── COMPRAS — PAGOS (contra factura + a cuenta) ─────────────────────
+    // Admin + superadmin. Lista unificada de pagos (los de factura salen de facturas_compra; los a cuenta de
+    // pagos_compra). "Pago sin factura" = pago a cuenta / anticipo: mismos orígenes que el pago de factura.
+    // Solo los pagos a cuenta se anulan acá (repone la caja). La imputación contra facturas es un cambio aparte.
+    function VistaPagosCompra({ usuario, onVolver, onIrGastosComunes }) {
+      const hoyStr = (() => { const h = new Date(); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`; })();
+      const [data, setData] = useState({ pagos: [], totalFacturas: 0, totalACuenta: 0 });
+      const [proveedores, setProveedores] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [filtroTipo, setFiltroTipo] = useState("");
+      const [filtroProveedor, setFiltroProveedor] = useState("");
+      const [incluirAnulados, setIncluirAnulados] = useState(false);
+      const [mensaje, setMensaje] = useState(null);
+      const [form, setForm] = useState(null);   // null | datos del pago sin factura
+      const [guardando, setGuardando] = useState(false);
+      const timerMensaje = useRef(null);
+      // Cajas reales: Administración solo si es superadmin (el backend lo valida igual).
+      const CAJAS_PAGO = ["A. Thomas", "French", "Administración", "Fondo Fijo A. Thomas", "Fondo Fijo French"]
+        .filter(c => c !== "Administración" || usuario.rol === "superadmin");
+      const money = (n) => "$" + Number(n || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const TIPO_BADGE = { factura: { t: "Contra factura", bg: "#f3f4f6", c: "#555" }, a_cuenta: { t: "Pago a cuenta", bg: "#e0f2fe", c: "#0369a1" } };
+
+      function mostrarMensaje(texto, tipo = "ok") { clearTimeout(timerMensaje.current); setMensaje({ texto, tipo }); timerMensaje.current = setTimeout(() => setMensaje(null), 4000); }
+      async function cargar() {
+        setLoading(true);
+        try {
+          const params = {};
+          if (filtroTipo) params.tipo = filtroTipo;
+          if (filtroProveedor) params.proveedor = filtroProveedor;
+          if (incluirAnulados) params.incluirAnulados = "1";
+          const r = await axios.get(`${API}/api/compras/pagos`, { params });
+          setData(r.data);
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error cargando pagos", "error"); }
+        setLoading(false);
+      }
+      useEffect(() => { cargar(); }, [filtroTipo, filtroProveedor, incluirAnulados]);
+      useEffect(() => { axios.get(`${API}/api/compras/proveedores`).then(r => setProveedores(r.data)).catch(() => {}); }, []);
+
+      function abrirPagoSinFactura() {
+        setForm({ proveedor_id: filtroProveedor || "", fecha: hoyStr, monto: "", origen: "caja", caja: CAJAS_PAGO[0] || "", medio: "Efectivo", concepto: "", observaciones: "" });
+      }
+      const setCampo = (k, v) => setForm(f => ({ ...f, [k]: v }));
+      async function guardarPago() {
+        if (!form.proveedor_id) { mostrarMensaje("Elegí un proveedor", "error"); return; }
+        if (!(Number(form.monto) > 0)) { mostrarMensaje("El monto debe ser mayor a 0", "error"); return; }
+        if (!form.concepto.trim()) { mostrarMensaje("El concepto es obligatorio", "error"); return; }
+        if (!form.medio.trim()) { mostrarMensaje("Indicá el medio de pago", "error"); return; }
+        if (form.origen === "caja" && !form.caja) { mostrarMensaje("Elegí la caja de origen", "error"); return; }
+        const prov = proveedores.find(p => String(p.id) === String(form.proveedor_id));
+        const origenTxt = form.origen === "caja" ? `caja ${form.caja}` : "externo (no toca caja)";
+        if (!window.confirm(`Pago a cuenta de ${money(form.monto)} a ${prov?.razon_social || "el proveedor"} desde ${origenTxt}. ¿Confirmás?`)) return;
+        setGuardando(true);
+        try {
+          await axios.post(`${API}/api/compras/pagos-a-cuenta`, {
+            proveedor_id: Number(form.proveedor_id), fecha: form.fecha, monto: Number(form.monto), medioPago: form.medio.trim(),
+            cajaOrigen: form.origen === "caja" ? form.caja : null, concepto: form.concepto.trim(), observaciones: form.observaciones.trim() || null,
+            usuario: usuario.nombre_completo,
+          });
+          setForm(null); await cargar(); mostrarMensaje("Pago a cuenta registrado");
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error registrando el pago", "error"); }
+        setGuardando(false);
+      }
+      async function anular(pg) {
+        const motivo = window.prompt(`Motivo de anulación del pago a cuenta #${pg.id} (${pg.proveedor} · ${money(pg.monto)}):${pg.caja_origen ? `\nSe repone ${money(pg.monto)} en la caja ${pg.caja_origen}.` : ""}`);
+        if (motivo === null) return;
+        if (!motivo.trim()) { mostrarMensaje("El motivo es obligatorio", "error"); return; }
+        try { await axios.post(`${API}/api/compras/pagos-a-cuenta/${pg.id}/anular`, { motivo: motivo.trim(), usuario: usuario.nombre_completo }); await cargar(); mostrarMensaje("Pago a cuenta anulado"); }
+        catch (err) { mostrarMensaje(err.response?.data?.error || "Error anulando", "error"); }
+      }
+      function exportar() {
+        exportarExcel(`pagos_compras_${hoyStr}.xlsx`, [{ name: "Pagos", data: data.pagos.map(p => ({
+          "Fecha": p.fecha, "Tipo": p.tipo === "a_cuenta" ? "Pago a cuenta" : "Contra factura", "Proveedor": p.proveedor,
+          "Comprobante / concepto": p.concepto, "Monto": p.monto, "Medio": p.medio_pago, "Origen": p.caja_origen || "Externo",
+          "Estado": p.estado, "Observaciones": p.observaciones || "", "Motivo anulación": p.motivo_anulacion || "", "Usuario": p.usuario || "",
+        })) }]);
+      }
+
+      const inputStyle = { width: "100%", boxSizing: "border-box", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", marginTop: 4 };
+      const lbl = { fontSize: 12, color: "#555", fontWeight: 600, display: "block", marginBottom: 10 };
+      const filtroSel = { fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff" };
+      const cajaMensaje = mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 10, fontSize: 12, marginBottom: 12 }}>{mensaje.texto}</div>;
+
+      return (
+        <div style={{ padding: 24, maxWidth: 1000, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 8, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>💸 Pagos a proveedores</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={{ fontSize: 13, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer" }} onClick={abrirPagoSinFactura}>+ Pago sin factura</button>
+              {data.pagos.length > 0 && <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "1px solid #1d8a4e", background: "#eafaf1", color: "#1d8a4e", cursor: "pointer" }} onClick={exportar}>📊 Excel</button>}
+              <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver al panel</button>
+            </div>
+          </div>
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 12, marginBottom: 16, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#555" }}>Tipo:</span>
+            <select style={filtroSel} value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}>
+              <option value="">Todos</option><option value="factura">Contra factura</option><option value="a_cuenta">Pago a cuenta</option>
+            </select>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#555" }}>Proveedor:</span>
+            <select style={filtroSel} value={filtroProveedor} onChange={e => setFiltroProveedor(e.target.value)}>
+              <option value="">Todos</option>
+              {proveedores.map(p => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
+            </select>
+            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#666", cursor: "pointer" }}>
+              <input type="checkbox" checked={incluirAnulados} onChange={e => setIncluirAnulados(e.target.checked)} /> Incluir anulados
+            </label>
+            <span style={{ marginLeft: "auto", fontSize: 12, color: "#555" }}>Contra factura <b>{money(data.totalFacturas)}</b> · A cuenta <b>{money(data.totalACuenta)}</b></span>
+          </div>
+
+          {!form && cajaMensaje}
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 8 }}>
+            {loading ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>Cargando…</div>
+              : data.pagos.length === 0 ? <div style={{ color: "#aaa", fontSize: 13, padding: 12 }}>No hay pagos para el filtro elegido.</div>
+              : data.pagos.map(pg => {
+                const tb = TIPO_BADGE[pg.tipo] || TIPO_BADGE.factura;
+                const anulado = pg.estado === "anulado";
+                return (
+                  <div key={pg.clave} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, padding: 12, borderBottom: "1px solid #f5f5f5", opacity: anulado ? 0.6 : 1 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#333", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        {pg.proveedor || "— proveedor —"}
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: tb.bg, color: tb.c }}>{tb.t}</span>
+                        {anulado && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: "#f3f4f6", color: "#c0392b" }}>Anulado</span>}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{pg.fecha} · {pg.concepto} · {pg.medio_pago} · {pg.caja_origen ? `desde ${pg.caja_origen}` : "externo"}{pg.usuario ? ` · ${pg.usuario}` : ""}</div>
+                      {pg.observaciones && <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>{pg.observaciones}</div>}
+                      {anulado && pg.motivo_anulacion && <div style={{ fontSize: 11, color: "#c0392b", marginTop: 3 }}>Anulado: {pg.motivo_anulacion}{pg.usuario_anula ? ` (${pg.usuario_anula})` : ""}</div>}
+                    </div>
+                    <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: "#333", marginBottom: 6, textDecoration: anulado ? "line-through" : "none" }}>{money(pg.monto)}</div>
+                      {pg.tipo === "a_cuenta" && !anulado && <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => anular(pg)}>✕ Anular</button>}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+
+          {form && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }} onClick={() => setForm(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 460, maxWidth: "100%", maxHeight: "92vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 4 }}>💸 Pago sin factura (a cuenta)</div>
+                <div style={{ fontSize: 12, color: "#888", marginBottom: 14 }}>
+                  ¿No va a llegar factura? Cargalo en <a href="#" style={{ color: "#F68B32", fontWeight: 600 }} onClick={e => { e.preventDefault(); onIrGastosComunes && onIrGastosComunes(); }}>Gastos comunes</a>.
+                </div>
+                {cajaMensaje}
+                <label style={lbl}>Proveedor *
+                  <select style={inputStyle} value={form.proveedor_id} onChange={e => setCampo("proveedor_id", e.target.value)}>
+                    <option value="">— Elegí proveedor —</option>
+                    {proveedores.map(p => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
+                  </select>
+                </label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <label style={lbl}>Fecha *
+                    <input type="date" style={inputStyle} value={form.fecha} onChange={e => setCampo("fecha", e.target.value)} />
+                  </label>
+                  <label style={lbl}>Monto *
+                    <input type="number" step="0.01" min="0" style={{ ...inputStyle, fontWeight: 700 }} value={form.monto} onChange={e => setCampo("monto", e.target.value)} placeholder="0.00" />
+                  </label>
+                </div>
+                <label style={lbl}>Concepto *
+                  <input style={inputStyle} value={form.concepto} onChange={e => setCampo("concepto", e.target.value)} placeholder='Ej: "Anticipo pedido semana 43"' />
+                </label>
+                <label style={lbl}>Origen de la plata
+                  <select style={inputStyle} value={form.origen} onChange={e => setCampo("origen", e.target.value)}>
+                    <option value="caja">Sale de caja</option>
+                    <option value="externo">Externo (no toca caja)</option>
+                  </select>
+                </label>
+                {form.origen === "caja" && (
+                  <label style={lbl}>Caja de origen *
+                    <select style={inputStyle} value={form.caja} onChange={e => setCampo("caja", e.target.value)}>
+                      <option value="">— Elegí caja —</option>
+                      {CAJAS_PAGO.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </label>
+                )}
+                <label style={lbl}>Medio de pago *
+                  <input style={inputStyle} value={form.medio} onChange={e => setCampo("medio", e.target.value)} placeholder="Efectivo / Transferencia / etc." />
+                </label>
+                <label style={lbl}>Observaciones
+                  <textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={form.observaciones} onChange={e => setCampo("observaciones", e.target.value)} placeholder="Opcional" />
+                </label>
+                <div style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>
+                  Resta del saldo del proveedor en la cuenta corriente{form.origen === "caja" ? ` y sale de la caja ${form.caja || "…"} con fecha de hoy` : " (no impacta caja)"}.
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button style={{ flex: 1, padding: 10, borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#2a7a4b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: guardando ? "default" : "pointer" }} disabled={guardando} onClick={guardarPago}>{guardando ? "Registrando…" : "Registrar pago a cuenta"}</button>
+                  <button style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", fontSize: 13, cursor: "pointer" }} onClick={() => setForm(null)}>Cancelar</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
@@ -8996,6 +9263,7 @@ let numeroAsignado = "";
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("ordenesCompra"); setMenuAbierto(false); }}>📋 Órdenes de compra</button>
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("facturasCompra"); setMenuAbierto(false); }}>🧾 Facturas de compra</button>
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("cuentasPorPagar"); setMenuAbierto(false); }}>💳 Cuentas por pagar</button>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("pagosCompra"); setMenuAbierto(false); }}>💸 Pagos</button>
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("proveedores"); setMenuAbierto(false); }}>🏭 Proveedores</button>
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("categoriasGasto"); setMenuAbierto(false); }}>🏷️ Categorías de gasto</button>
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("gastosComunes"); setMenuAbierto(false); }}>🧾 Gastos comunes</button>
@@ -10162,6 +10430,9 @@ if (vista === "dashboard") {
     }
     if (vista === "cuentasPorPagar") {
       return <div style={s.wrap}>{Header()}<VistaCuentasPorPagar usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "pagosCompra") {
+      return <div style={s.wrap}>{Header()}<VistaPagosCompra usuario={usuario} onVolver={() => setVista("panel")} onIrGastosComunes={() => setVista("gastosComunes")} /></div>;
     }
     if (vista === "proveedores") {
       return <div style={s.wrap}>{Header()}<VistaProveedores onVolver={() => setVista("panel")} /></div>;
