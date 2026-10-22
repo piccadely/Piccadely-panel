@@ -1609,11 +1609,44 @@ const [facturaLabel, setFacturaLabel] = useState(null);
     // ─── LEADS DE REGALOS EMPRESARIALES (public/regalos.html → origen 'regalos') ───
     // Detalle compartido por "Cotizaciones" y "Ventas a realizar". `opciones` = { tipo: "regalos", lineas, entrega, ... }.
     const REGALOS_BADGE = { bg: "#e0f2f1", color: "#0f766e" };   // verde azulado (manual = violeta, formulario = naranja)
-    const esLeadRegalos = (c) => c?.origen === "regalos" || (c?.opciones && !Array.isArray(c.opciones) && c.opciones.tipo === "regalos");
+    const esLeadRegalos = (c) => c?.origen === "regalos" || (c?.opciones && !Array.isArray(c.opciones) && ["regalos", "calendario"].includes(c.opciones.tipo));
+    // Calendario anual (opciones.tipo === "calendario"): varias fechas con precio congelado al día de la propuesta.
+    const esCalendarioRegalos = (c) => !!(c?.opciones && !Array.isArray(c.opciones) && c.opciones.tipo === "calendario");
+    const etiquetaRegalos = (c) => (esCalendarioRegalos(c) ? "Regalos · Calendario anual" : "Regalos");
+    function DetalleCalendario({ c, o }) {
+      const pesos = (n) => "$" + Math.round(Number(n) || 0).toLocaleString("es-AR");
+      const fecha = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "sin fecha");
+      const fechas = [...(o.fechas || [])].sort((a, b) => String(a.fecha || "").localeCompare(String(b.fecha || "")));
+      const entrega = (e = {}) => (e.modo === "varios" ? `cada uno a su casa (${e.nCaba ?? 0} CABA + ${e.nGba ?? 0} GBA)` : `todos a ${e.zona || "—"}${e.direccion ? " · " + e.direccion : ""}`);
+      return (
+        <div style={{ fontSize: 13, color: "#444", background: "#f3faf9", borderRadius: 8, padding: "10px 12px" }}>
+          <div style={{ marginBottom: 6 }}>📅 <b>{o.cantidadFechas ?? fechas.length}</b> fechas · <b>{o.regalos ?? c.personas}</b> regalos en el año</div>
+          {fechas.map((f, k) => (
+            <div key={k} style={{ borderTop: k ? "1px dashed #cfe5e2" : "none", padding: "6px 0" }}>
+              <div style={{ fontWeight: 600 }}>{fecha(f.fecha)} · {f.ocasionTexto || f.ocasion}{f.fechaOcasion ? ` (el día es el ${fecha(f.fechaOcasion)}; entrega adelantada por fin de semana)` : ""} · {f.aQuien} <span style={{ fontWeight: 400, color: "#666" }}>— {f.regalos} regalos · {pesos(f.subtotal)}</span></div>
+              <ul style={{ margin: "2px 0", paddingLeft: 18, color: "#555" }}>
+                {(f.lineas || []).map((l, j) => <li key={j} style={{ fontSize: 12 }}>{l.cantidad}× {l.opcion && !l.digital && l.opcion !== l.nombre ? `${l.opcion} · ` : ""}{l.nombre}{l.variante ? ` (${l.variante})` : ""}{l.extra ? " · bebida" : ""} · {pesos(l.precio)} c/u congelado{l.sinProductoTN ? <span style={{ color: "#b45309" }}> · sin producto en TN</span> : null}</li>)}
+              </ul>
+              <div style={{ fontSize: 12, color: "#666" }}>🚚 {entrega(f.envioDetalle)}</div>
+            </div>
+          ))}
+          <div style={{ fontSize: 12, color: "#555", marginTop: 4 }}>
+            Regalos {pesos(o.subtotalRegalos)}{o.subtotalBebidas ? ` · Bebidas ${pesos(o.subtotalBebidas)}` : ""}{o.descuento ? ` · Descuento anual ${o.tramo?.pct ?? ""}% −${pesos(o.descuento)}` : ""} · Envío no incluido
+          </div>
+          <div style={{ fontWeight: 700, color: REGALOS_BADGE.color, margin: "4px 0" }}>Total anual sin envío {pesos(o.total ?? c.total_elegido)}{o.porRegalo ? ` · ${pesos(o.porRegalo)} por regalo` : ""}</div>
+          <div style={{ fontSize: 12, color: "#555" }}>🔒 Precio congelado al {fecha(o.fechaPropuesta)}{o.condicion ? ` · ${o.condicion}` : ""} · Válida hasta el {fecha(o.validaHasta)}</div>
+          <div style={{ fontSize: 12, color: "#555" }}>
+            💌 {o.tarjeta?.conMensaje ? `Tarjeta con mensaje${o.tarjeta.mensaje ? `: “${o.tarjeta.mensaje}”` : ""}` : "Sin tarjeta con mensaje"}{o.tarjetaPropia ? " · envía su tarjeta personal" : ""}
+          </div>
+          {(o.cuit || o.facturaA) && <div style={{ fontSize: 12, color: "#555" }}>🧾 {o.cuit ? `CUIT ${o.cuit}` : ""}{o.cuit && o.facturaA ? " · " : ""}{o.facturaA ? "Factura A" : ""}</div>}
+        </div>
+      );
+    }
     function DetalleRegalos({ c }) {
       const o = c?.opciones && !Array.isArray(c.opciones) ? c.opciones : null;
       const pesos = (n) => "$" + Math.round(Number(n) || 0).toLocaleString("es-AR");
       if (!o) return <div style={{ fontSize: 12, color: "#999" }}>Sin detalle guardado.</div>;
+      if (o.tipo === "calendario") return <DetalleCalendario c={c} o={o} />;
       const ent = o.entrega || {};
       const entregaTxt = ent.modo === "varios"
         ? `Cada uno a su casa · ${ent.nCaba ?? 0} en CABA + ${ent.nGba ?? 0} en GBA${o.incluyeEnvio === false ? "" : " (envío estimado)"}`
@@ -1701,7 +1734,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
             if (esRegalos) return (
               <div key={c.id} style={{ ...card, borderLeft: "4px solid " + (colorEstado[c.estado] || "#ddd") }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 6, background: REGALOS_BADGE.bg, color: REGALOS_BADGE.color }}>🎁 Regalos empresariales</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 6, background: REGALOS_BADGE.bg, color: REGALOS_BADGE.color }}>{esCalendarioRegalos(c) ? "📅 Regalos · Calendario anual" : "🎁 Regalos empresariales"}</span>
                   <span style={{ fontSize: 12, color: "#999" }}>#{c.id} · {fmtFecha(c.creada_en)} · {c.canal === "whatsapp" ? "📲 WhatsApp" : "📄 Pidió la propuesta"}</span>
                   <select value={c.estado} onChange={e => cambiarEstado(c.id, e.target.value)}
                     style={{ marginLeft: "auto", fontSize: 12, padding: "5px 8px", borderRadius: 6, border: "1px solid #ddd", color: colorEstado[c.estado], fontWeight: 600 }}>
@@ -7705,7 +7738,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                       <div style={{ fontSize: 14, fontWeight: 600, color: "#333", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         {c.cliente_nombre || "Sin nombre"}{c.empresa ? <span style={{ color: "#888", fontWeight: 400 }}>· {c.empresa}</span> : null}
                         {esLeadRegalos(c)
-                          ? <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: REGALOS_BADGE.bg, color: REGALOS_BADGE.color }}>Regalos</span>
+                          ? <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: REGALOS_BADGE.bg, color: REGALOS_BADGE.color }}>{etiquetaRegalos(c)}</span>
                           : <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: c.origen === "manual" ? "#ede9fe" : "#fff4e8", color: c.origen === "manual" ? "#6d28d9" : "#d9701c" }}>{c.origen === "manual" ? "manual" : "formulario"}</span>}
                         {ti && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: ti.bg, color: ti.color }}>{ti.emoji} {ti.label}</span>}
                       </div>
