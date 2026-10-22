@@ -56,6 +56,20 @@
     }
   ],
   "bebidas": { "id": "bebida", "nombre": "Bebidas", "categoria": "bebidas para regalar" },
+  "validez_propuesta_dias": 7,
+  "calendario": {
+    "_comentario": "Modo 'Calendario anual' de regalos.html. Precios congelados al día de la propuesta para todas las fechas (pagando el año por adelantado). fechas_comerciales: fechas EXACTAS por año (Padre = 3er domingo de junio, Madre = 3er domingo de octubre en Argentina); el cotizador ofrece la próxima de cada una dentro de los 12 meses. Sumá años nuevos acá.",
+    "condicion": "Pagando el año por adelantado, te congelamos los precios de hoy para todas las fechas.",
+    "max_fechas": 24,
+    "ocasiones": ["Cumpleaños", "Aniversario laboral", "Día de la Mujer", "Día del Padre", "Día del Amigo", "Día de la Madre", "Fin de año", "Otro"],
+    "fechas_comerciales": [
+      { "ocasion": "Día de la Mujer", "fechas": ["2026-03-08", "2027-03-08", "2028-03-08"] },
+      { "ocasion": "Día del Padre", "fechas": ["2026-06-21", "2027-06-20", "2028-06-18"] },
+      { "ocasion": "Día del Amigo", "fechas": ["2026-07-20", "2027-07-20", "2028-07-20"] },
+      { "ocasion": "Día de la Madre", "fechas": ["2026-10-18", "2027-10-17", "2028-10-15"] },
+      { "ocasion": "Fin de año", "fechas": ["2026-12-15", "2027-12-15", "2028-12-15"] }
+    ]
+  },
   "etiquetas_variantes": {
     "_comentario": "Nombre de variante de TN → nombre que se MUESTRA en el selector de tamaño (sin tildes ni mayúsculas para comparar). El lead y el mail guardan el original.",
     "Extra Grande": "XL"

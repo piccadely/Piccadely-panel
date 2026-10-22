@@ -5,6 +5,8 @@
 //    POST /api/regalos/calcular   → recalcula TODO server-side (precios de TN, descuento, total). El ENVÍO NO SE SUMA:
 //                                   la entrega se guarda solo como dato del lead y las tarifas van aparte, como referencia
 //    POST /api/regalos/propuesta  → recalcula, guarda el lead en `cotizaciones` (origen 'regalos') y avisa por mail
+//    /calcular y /propuesta con { modo: "calendario", fechas: [...] } → Calendario anual: varias fechas, precios de
+//    HOY congelados para todas, descuento por el total de regalos del año (lead con opciones.tipo = "calendario")
 //  Catálogo: Routes/tnCatalogo.js (el mismo caché que el cotizador de eventos). Precio = promocional si
 //  existe y es menor que price (lo que cobra TN en el checkout); si no, price.
 //  Envío: tarifas de referencia de data/localidades_cobertura.json (la misma tabla del bot). NO se suma al total.
@@ -164,10 +166,10 @@ async function catalogoRegalos() {
 // Solo se aceptan variantes de la selección curada (+ bebidas) e ítems virtuales con su regla.
 const entero = (x, max = MAX_CANTIDAD) => { const n = Number(x); return Number.isInteger(n) && n >= 0 && n <= max ? n : null; };
 
-export function calcularRegalos(catalogo, body, tar = tarifas()) {
-  const errores = [];
+// Líneas de un pedido (items del front → precios de TN de HOY). Compartido por el modo simple y el calendario.
+function lineasDe(catalogo, items, errores) {
   const acumulado = new Map();   // variant_id (+ monto si es libre) → { item, precio, cantidad }
-  for (const it of (Array.isArray(body?.items) ? body.items : []).slice(0, 200)) {
+  for (const it of (Array.isArray(items) ? items : []).slice(0, 200)) {
     const id = String(it?.variant_id ?? "");
     const q = entero(it?.cantidad);
     if (!q) continue;
@@ -187,30 +189,35 @@ export function calcularRegalos(catalogo, body, tar = tarifas()) {
     const prev = acumulado.get(clave);
     acumulado.set(clave, { item, precio, cantidad: (prev?.cantidad || 0) + q });
   }
-  const lineas = [...acumulado.values()].map(({ item: i, precio, cantidad }) => ({
+  return [...acumulado.values()].map(({ item: i, precio, cantidad }) => ({
     variant_id: i.variant_id, product_id: i.product_id, opcion: i.opcion, nombre: i.nombre,
     variante: i.montoLibre ? pesos(precio) : i.variante, variante_mostrar: i.montoLibre ? pesos(precio) : (i.variante_mostrar || i.variante), estilo: i.estilo, digital: i.digital, extra: i.extra, foto: i.foto,
     ...(i.sinProductoTN ? { sinProductoTN: true } : {}), ...(i.montoLibre ? { monto: precio } : {}),
     cantidad, precio, precio_antes: i.precio_antes, subtotal: precio * cantidad,
   }));
+}
+// Entrega: SOLO dato para el lead (no suma al total). Las tarifas van aparte, como referencia.
+function entregaDe(e = {}, tar, errores) {
+  const modo = e.modo === "varios" ? "varios" : "uno";
+  if (modo === "uno") {
+    const zona = String(e.zona || "CABA");
+    if (zona !== "CABA" && !tar.porPartido.has(zona)) errores.push(`Zona de entrega no reconocida: ${zona}`);
+    return { modo, zona };
+  }
+  return { modo, nCaba: entero(e.nCaba) ?? 0, nGba: entero(e.nGba) ?? 0 };
+}
+const tramoPara = (regalos) => [...TRAMOS_REGALOS].sort((a, b) => b.min - a.min).find((t) => regalos >= t.min) || null;
+
+export function calcularRegalos(catalogo, body, tar = tarifas()) {
+  const errores = [];
+  const lineas = lineasDe(catalogo, body?.items, errores);
   const regalos = lineas.filter((l) => !l.extra).reduce((a, l) => a + l.cantidad, 0);
   const fisicos = lineas.filter((l) => !l.extra && !l.digital).reduce((a, l) => a + l.cantidad, 0);
   const subtotalRegalos = lineas.filter((l) => !l.extra).reduce((a, l) => a + l.subtotal, 0);
   const subtotalBebidas = lineas.filter((l) => l.extra).reduce((a, l) => a + l.subtotal, 0);
-  const tramo = [...TRAMOS_REGALOS].sort((a, b) => b.min - a.min).find((t) => regalos >= t.min) || null;
+  const tramo = tramoPara(regalos);
   const descuento = tramo ? Math.round((subtotalRegalos + subtotalBebidas) * tramo.pct / 100) : 0;
-
-  // Entrega: SOLO dato para el lead (no suma al total). Las tarifas van aparte, como referencia.
-  const e = body?.entrega || {};
-  const modo = e.modo === "varios" ? "varios" : "uno";
-  let envioDetalle;
-  if (modo === "uno") {
-    const zona = String(e.zona || "CABA");
-    if (zona !== "CABA" && !tar.porPartido.has(zona)) errores.push(`Zona de entrega no reconocida: ${zona}`);
-    envioDetalle = { modo, zona };
-  } else {
-    envioDetalle = { modo, nCaba: entero(e.nCaba) ?? 0, nGba: entero(e.nGba) ?? 0 };
-  }
+  const envioDetalle = entregaDe(body?.entrega || {}, tar, errores);
   const total = subtotalRegalos + subtotalBebidas - descuento;   // sin envío
   const cantidadRegalos = entero(body?.cantidadRegalos) ?? regalos;
   return {
@@ -219,6 +226,90 @@ export function calcularRegalos(catalogo, body, tar = tarifas()) {
     subtotalRegalos, subtotalBebidas, tramo, descuento,
     incluyeEnvio: false, envioDetalle, envioReferencia: tar.referencia, avisoEnvio: TEXTO_SIN_ENVIO,
     total, porRegalo: regalos ? Math.round(total / regalos) : 0,
+    ...(errores.length ? { errores } : {}),
+  };
+}
+
+// ── Calendario anual (modo "calendario") ──
+// Varias fechas en el año, cada una con sus regalos y su entrega. Precios de TN de HOY congelados para TODAS las
+// fechas (pagando el año por adelantado). Descuento por volumen según el TOTAL de regalos del año, sobre el total anual.
+export const hoyAR = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+const esISO = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || "")) && !Number.isNaN(Date.parse(s + "T12:00:00Z")) && new Date(s + "T12:00:00Z").toISOString().slice(0, 10) === s;
+const sumarDias = (iso, n) => new Date(Date.parse(iso + "T12:00:00Z") + n * 864e5).toISOString().slice(0, 10);
+const sumarMeses = (iso, n) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1 + n, 1, 12));
+  const ultimo = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0, 12)).getUTCDate();   // 29/02 → 28/02
+  return new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), Math.min(d, ultimo), 12)).toISOString().slice(0, 10);
+};
+export const ddmm = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+const DIAS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+export const diaSemana = (iso) => DIAS[new Date(iso + "T12:00:00Z").getUTCDay()];
+// Fecha comercial que cae fin de semana → se propone entregar el viernes anterior (sáb −1, dom −2).
+export const entregaHabil = (iso) => { const d = new Date(iso + "T12:00:00Z").getUTCDay(); return d === 6 ? sumarDias(iso, -1) : d === 0 ? sumarDias(iso, -2) : iso; };
+
+// Reglas del calendario para el front (y para validar): ocasiones, rango de fechas, próximas fechas comerciales, validez.
+export function reglasCalendario(hoy = hoyAR(), config = configRegalos()) {
+  const cal = config.calendario || {};
+  const fechaMin = sumarDias(hoy, 2), fechaMax = sumarMeses(hoy, 12);
+  const validezDias = Number(config.validez_propuesta_dias) > 0 ? Number(config.validez_propuesta_dias) : 7;
+  // De cada fecha comercial, la próxima dentro del rango (si no hay ninguna cargada en el rango, no se ofrece).
+  // `fecha` = la de ENTREGA propuesta (si el día cae fin de semana, el viernes anterior); `fechaOcasion` = el día real.
+  const fechasComerciales = (cal.fechas_comerciales || [])
+    .map((fc) => {
+      const real = (fc.fechas || []).filter(esISO).sort().find((f) => { const e = entregaHabil(f); return e >= fechaMin && e <= fechaMax; });
+      return real ? { ocasion: fc.ocasion, fecha: entregaHabil(real), fechaOcasion: real } : null;
+    })
+    .filter(Boolean).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  return {
+    ocasiones: cal.ocasiones || [], fechasComerciales, fechaMin, fechaMax, maxFechas: Number(cal.max_fechas) > 0 ? Number(cal.max_fechas) : 24,
+    condicion: cal.condicion || "", validezDias, fechaPropuesta: hoy, validaHasta: sumarDias(hoy, validezDias),
+  };
+}
+
+export function calcularCalendario(catalogo, body, tar = tarifas(), hoy = hoyAR()) {
+  const reglas = reglasCalendario(hoy);
+  const errores = [];
+  const entrada = Array.isArray(body?.fechas) ? body.fechas : [];
+  if (!entrada.length) errores.push("Sumá al menos una fecha al calendario");
+  if (entrada.length > reglas.maxFechas) errores.push(`Hasta ${reglas.maxFechas} fechas por calendario`);
+  const fechas = entrada.slice(0, reglas.maxFechas).map((f, idx) => {
+    const errs = [];
+    const fecha = esISO(f?.fecha) ? f.fecha : null;
+    if (!fecha || fecha < reglas.fechaMin || fecha > reglas.fechaMax) errs.push(`la fecha tiene que estar entre el ${ddmm(reglas.fechaMin)} y el ${ddmm(reglas.fechaMax)}/${reglas.fechaMax.slice(0, 4)}`);
+    const ocasion = reglas.ocasiones.includes(f?.ocasion) ? f.ocasion : null;
+    const ocasionOtro = ocasion === "Otro" ? String(f?.ocasionOtro || "").trim().slice(0, 60) : "";
+    if (!ocasion) errs.push("elegí la ocasión");
+    else if (ocasion === "Otro" && !ocasionOtro) errs.push("contanos qué ocasión es");
+    // Día real de la ocasión cuando la entrega se adelantó (atajo en fin de semana). Solo informativo.
+    const fechaOcasion = esISO(f?.fechaOcasion) && f.fechaOcasion !== fecha ? f.fechaOcasion : null;
+    const aQuien = String(f?.aQuien || "").trim().slice(0, 80);
+    if (!aQuien) errs.push("indicá a quién va (una persona o un grupo)");
+    const lineas = lineasDe(catalogo, f?.items, errs);
+    const regalos = lineas.filter((l) => !l.extra).reduce((a, l) => a + l.cantidad, 0);
+    if (!regalos) errs.push("sumá al menos un regalo");
+    const envioDetalle = { ...entregaDe(f?.entrega || {}, tar, errs), ...(f?.entrega?.direccion ? { direccion: String(f.entrega.direccion).trim().slice(0, 200) } : {}) };
+    if (envioDetalle.modo === "varios" && envioDetalle.nCaba + envioDetalle.nGba === 0) errs.push("cargá cuántos destinatarios hay en CABA y en GBA");
+    const subtotalRegalos = lineas.filter((l) => !l.extra).reduce((a, l) => a + l.subtotal, 0);
+    const subtotalBebidas = lineas.filter((l) => l.extra).reduce((a, l) => a + l.subtotal, 0);
+    if (errs.length) errores.push(`Fecha ${idx + 1}${fecha ? ` (${ddmm(fecha)})` : ""}: ${errs.join(", ")}`);
+    return {
+      idx, fecha, ...(fechaOcasion ? { fechaOcasion } : {}), ocasion, ocasionOtro, ocasionTexto: ocasion === "Otro" ? ocasionOtro : ocasion, aQuien, lineas, regalos,
+      fisicos: lineas.filter((l) => !l.extra && !l.digital).reduce((a, l) => a + l.cantidad, 0),
+      subtotalRegalos, subtotalBebidas, subtotal: subtotalRegalos + subtotalBebidas, envioDetalle, ...(errs.length ? { errores: errs } : {}),
+    };
+  }).sort((a, b) => String(a.fecha || "9999").localeCompare(String(b.fecha || "9999")) || a.idx - b.idx);
+  const regalos = fechas.reduce((a, f) => a + f.regalos, 0);
+  const subtotalRegalos = fechas.reduce((a, f) => a + f.subtotalRegalos, 0);
+  const subtotalBebidas = fechas.reduce((a, f) => a + f.subtotalBebidas, 0);
+  const tramo = tramoPara(regalos);   // por el TOTAL de regalos del año
+  const descuento = tramo ? Math.round((subtotalRegalos + subtotalBebidas) * tramo.pct / 100) : 0;
+  const total = subtotalRegalos + subtotalBebidas - descuento;   // total anual, sin envío
+  return {
+    modo: "calendario", fechas, cantidadFechas: fechas.length, regalos, subtotalRegalos, subtotalBebidas, tramo, descuento, total,
+    porRegalo: regalos ? Math.round(total / regalos) : 0,
+    precioCongelado: true, condicion: reglas.condicion, fechaPropuesta: reglas.fechaPropuesta, validezDias: reglas.validezDias, validaHasta: reglas.validaHasta,
+    incluyeEnvio: false, envioReferencia: tar.referencia, avisoEnvio: TEXTO_SIN_ENVIO,
     ...(errores.length ? { errores } : {}),
   };
 }
@@ -251,6 +342,45 @@ async function notificarRegalos(mailTransporter, lead) {
     });
   } catch (e) {
     console.error("Regalos: error enviando el mail:", e.message);
+  }
+}
+
+// Mail del calendario anual: línea de tiempo por mes, total anual, condición de pago adelantado y validez.
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+export const mesDe = (iso) => `${MESES[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
+const entregaTexto = (ent) => ent.modo === "uno" ? `todos a ${ent.zona}${ent.direccion ? " · " + ent.direccion : ""}` : `cada uno a su casa (${ent.nCaba} CABA + ${ent.nGba} GBA)`;
+async function notificarCalendario(mailTransporter, lead) {
+  if (!mailTransporter) return;
+  try {
+    const c = lead.calculo;
+    const porMes = new Map();
+    for (const f of c.fechas) { const m = mesDe(f.fecha); if (!porMes.has(m)) porMes.set(m, []); porMes.get(m).push(f); }
+    const linea = (l) => `${l.cantidad}× ${l.opcion && l.opcion !== l.nombre ? esc(l.opcion) + " · " : ""}${esc(l.nombre)}${l.variante ? " (" + esc(l.variante) + ")" : ""} · ${pesos(l.precio)} c/u`;
+    const html = `
+      <h2>📅 Nuevo calendario anual de regalos #${lead.id}</h2>
+      <p><b>${lead.canal === "whatsapp" ? "📲 Cerró por WhatsApp" : "📄 Pidió la propuesta"}</b></p>
+      <p><b>Cliente:</b> ${esc(lead.cliente_nombre)}${lead.empresa ? " · " + esc(lead.empresa) : ""}${lead.cuit ? " · CUIT " + esc(lead.cuit) : ""}${lead.facturaA ? " · <b>Factura A</b>" : ""}<br>
+         <b>Email:</b> ${esc(lead.email)} &nbsp;·&nbsp; <b>Tel:</b> ${esc(lead.telefono || "-")}</p>
+      <p><b>${c.cantidadFechas} fechas · ${c.regalos} regalos en el año</b></p>
+      ${[...porMes].map(([mes, fs]) => `<h3 style="margin:14px 0 4px;text-transform:capitalize">${esc(mes)}</h3>${fs.map((f) => `
+        <p style="margin:4px 0"><b>${ddmm(f.fecha)} · ${esc(f.ocasionTexto)}${f.fechaOcasion ? ` (es el ${diaSemana(f.fechaOcasion)} ${ddmm(f.fechaOcasion)})` : ""} · ${esc(f.aQuien)}</b> — ${f.regalos} regalos · ${pesos(f.subtotal)}<br>
+        <span style="color:#666">Entrega: ${esc(entregaTexto(f.envioDetalle))}</span></p>
+        <ul style="margin:2px 0 8px">${f.lineas.map((l) => `<li>${linea(l)}</li>`).join("")}</ul>`).join("")}`).join("")}
+      <p>Regalos ${pesos(c.subtotalRegalos)}${c.subtotalBebidas ? " · Bebidas " + pesos(c.subtotalBebidas) : ""}${c.descuento ? ` · Descuento por volumen anual ${c.tramo.pct}% −${pesos(c.descuento)}` : ""}<br>
+         <b>Total anual estimado sin envío: ${pesos(c.total)}</b> (${pesos(c.porRegalo)} por regalo)<br>
+         <b>🔒 Precio congelado:</b> ${esc(c.condicion)}<br>
+         Propuesta del ${ddmm(c.fechaPropuesta)}/${c.fechaPropuesta.slice(0, 4)}, válida hasta el ${ddmm(c.validaHasta)}/${c.validaHasta.slice(0, 4)}.<br>
+         <b style="color:#c0392b">${esc(TEXTO_SIN_ENVIO)}</b></p>
+      <p><b>Tarjeta:</b> ${lead.tarjeta?.conMensaje ? `con mensaje: “${esc(lead.tarjeta.mensaje || "")}”` : "sin mensaje"}${lead.tarjetaPropia ? " · <b>envía su tarjeta personal</b>" : ""}</p>
+      <p style="color:#999;font-size:12px">Piccadely · Cotizador de Regalos Empresariales · Calendario anual</p>`;
+    await mailTransporter.sendMail({
+      from: `Piccadely <${process.env.GMAIL_USER}>`,
+      to: "yus@piccadely.com",
+      subject: `📅 Calendario anual de regalos #${lead.id} · ${lead.empresa || lead.cliente_nombre} · ${c.cantidadFechas} fechas · ${c.regalos} regalos · ${pesos(c.total)} sin envío`,
+      html,
+    });
+  } catch (e) {
+    console.error("Regalos: error enviando el mail del calendario:", e.message);
   }
 }
 
@@ -291,6 +421,7 @@ export function regalosRouter(pool, mailTransporter) {
         estilos: cat.estilos.map((e) => ({ ...e, items: itemsV1(e) })),
         tramos: TRAMOS_REGALOS,
         envio: { caba: tar.caba, partidos: tar.partidos, referencia: tar.referencia, aviso: TEXTO_SIN_ENVIO },
+        calendario: reglasCalendario(),   // modo "Calendario anual" (campo nuevo: un front anterior lo ignora)
       });
     } catch (e) {
       console.error("Regalos: error armando el catálogo:", e.message);
@@ -300,12 +431,52 @@ export function regalosRouter(pool, mailTransporter) {
 
   router.post("/calcular", async (req, res) => {
     try {
-      res.json({ version: API_VERSION, ...calcularRegalos(await catalogoRegalos(), req.body || {}) });
+      const b = req.body || {};
+      const cat = await catalogoRegalos();
+      res.json({ version: API_VERSION, ...(b.modo === "calendario" ? calcularCalendario(cat, b) : calcularRegalos(cat, b)) });
     } catch (e) {
       console.error("Regalos: error calculando:", e.message);
       res.status(502).json({ error: "No pudimos calcular la propuesta." });
     }
   });
+
+  // Calendario anual: recalcula todo server-side y guarda cada fecha con sus líneas y el precio unitario CONGELADO.
+  async function guardarCalendario(req, res, b, ip, nombre, email) {
+    const calculo = calcularCalendario(await catalogoRegalos(), b);
+    if (calculo.errores) return res.status(400).json({ error: calculo.errores.join(". ") });
+    const canal = b.canal === "whatsapp" ? "whatsapp" : "solicitar";
+    const corto = (x, n) => (x == null ? null : String(x).trim().slice(0, n) || null);
+    const lead = {
+      cliente_nombre: nombre, email, telefono: corto(b.cliente?.telefono, 40),
+      empresa: corto(b.empresa, 120), cuit: corto(b.cuit, 20), facturaA: !!b.facturaA,
+      tarjeta: { conMensaje: !!b.tarjeta?.conMensaje, mensaje: corto(b.tarjeta?.mensaje, 500) },
+      tarjetaPropia: !!b.tarjetaPropia, canal, calculo,
+    };
+    const opciones = {
+      tipo: "calendario",
+      fechas: calculo.fechas.map(({ idx, errores, ...f }) => f),   // cada fecha: ocasión, a quién, entrega, líneas con `precio` (unitario congelado)
+      cantidadFechas: calculo.cantidadFechas, regalos: calculo.regalos,
+      subtotalRegalos: calculo.subtotalRegalos, subtotalBebidas: calculo.subtotalBebidas, tramo: calculo.tramo, descuento: calculo.descuento,
+      total: calculo.total, porRegalo: calculo.porRegalo,
+      precioCongelado: true, condicion: calculo.condicion, fechaPropuesta: calculo.fechaPropuesta, validezDias: calculo.validezDias, validaHasta: calculo.validaHasta,
+      incluyeEnvio: false, envioReferencia: calculo.envioReferencia,
+      tarjeta: lead.tarjeta, tarjetaPropia: lead.tarjetaPropia, empresa: lead.empresa, cuit: lead.cuit, facturaA: lead.facturaA,
+    };
+    const q = await pool.query(
+      `INSERT INTO cotizaciones
+        (cliente_nombre, empresa, email, telefono, personas, fecha_evento, zona,
+         nivel_elegido, opciones, total_elegido, con_bebidas, canal, estado, cliente_key, origen)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'regalos',$8,$9,$10,$11,'pendiente',$12,'regalos')
+       RETURNING id, creada_en`,
+      [lead.cliente_nombre, lead.empresa, lead.email, lead.telefono, calculo.regalos, calculo.fechas[0]?.fecha || null,
+       `Calendario: ${calculo.cantidadFechas} fecha(s)`, JSON.stringify(opciones), calculo.total, calculo.subtotalBebidas > 0, canal,
+       clienteKeyDe(lead.email, lead.telefono)]
+    );
+    const id = q.rows[0].id;
+    registrarPropuesta(ip);
+    notificarCalendario(mailTransporter, { ...lead, id });
+    return res.json({ ok: true, id, calculo });
+  }
 
   router.post("/propuesta", async (req, res) => {
     const b = req.body || {};
@@ -323,6 +494,7 @@ export function regalosRouter(pool, mailTransporter) {
     const email = String(b.cliente?.email || "").trim().slice(0, 160);
     if (!nombre || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: "Completá tu nombre y un email válido." });
     try {
+      if (b.modo === "calendario") return await guardarCalendario(req, res, b, ip, nombre, email);
       const calculo = calcularRegalos(await catalogoRegalos(), b);
       if (!calculo.lineas.some((l) => !l.extra)) return res.status(400).json({ error: "Sumá al menos un regalo." });
       if (calculo.errores) return res.status(400).json({ error: calculo.errores.join(". ") });

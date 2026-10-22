@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Piccadely · Regalos empresariales</title>
-<meta name="description" content="Armá los regalos de tu empresa con Piccadely: Piccadas, cajas, desayunos y giftcards, con descuento por volumen.">
+<meta name="description" content="Armá los regalos de tu empresa con Piccadely: Piccadas, cajas, desayunos y giftcards, con descuento por volumen. También el calendario anual de regalos con precio congelado.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -52,13 +52,74 @@
 .resumen-var{font-size:13px;font-weight:600;color:var(--ok)}
 .nota-min{font-size:12px;color:var(--tinta-2)}
 .hp{position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden}
+
+/* Accesos arriba del paso 1 */
+.accesos{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:4px 0 22px}
+@media(max-width:620px){.accesos{grid-template-columns:1fr}}
+.acceso{display:flex;gap:12px;align-items:center;text-align:left;border:1.5px solid var(--linea);background:var(--card);border-radius:16px;padding:14px 16px;cursor:pointer;color:var(--tinta);text-decoration:none;font:inherit;min-width:0}
+.acceso:hover{border-color:var(--naranja)}
+.acceso[aria-pressed="true"]{border-color:var(--naranja);background:var(--naranja-suave)}
+.acceso .ico{font-size:26px;flex:none}
+.acceso strong{display:block;font-size:15px;line-height:1.3}
+.acceso small{display:block;color:var(--tinta-2);font-size:13px;margin-top:2px}
+.modo-cal{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border:1.5px solid var(--naranja);background:var(--naranja-suave);border-radius:14px;padding:12px 16px;margin-bottom:6px;font-size:15px}
+.modo-cal button{border:1.5px solid var(--linea);background:var(--card);border-radius:999px;padding:6px 14px;font-weight:600;font-size:14px;cursor:pointer}
+
+/* Paso a paso: activo / completo (plegado con resumen) / bloqueado (apagado con candado) */
+.paso-tit h2:focus{outline:none}
+.paso-tit h2:focus-visible{outline:3px solid var(--naranja);outline-offset:4px;border-radius:6px}
+.candado{margin-left:auto;font-size:18px;display:none;align-self:center}
+.paso[data-estado="bloqueado"]{opacity:.45}
+.paso[data-estado="bloqueado"] .candado{display:inline}
+.paso[data-estado="bloqueado"] .paso-cuerpo,.paso[data-estado="bloqueado"] .paso-resumen,
+.paso[data-estado="completo"] .paso-cuerpo,.paso[data-estado="activo"] .paso-resumen{display:none}
+.paso[data-estado="bloqueado"] .paso-tit,.paso[data-estado="completo"] .paso-tit{margin-bottom:6px}
+.paso[data-estado="completo"] .paso-num{background:var(--ok)}
+.paso[data-estado="bloqueado"] .ayuda,.paso[data-estado="completo"] .ayuda{display:none}
+.paso-resumen{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-left:44px;font-size:15px;color:var(--tinta-2);min-width:0}
+.paso-resumen .resumen-txt{font-weight:600;color:var(--tinta);min-width:0;overflow-wrap:anywhere}
+.editar{border:1.5px solid var(--linea);background:var(--card);border-radius:999px;padding:6px 14px;font-weight:600;font-size:14px;cursor:pointer;flex:none}
+.editar:hover{border-color:var(--naranja)}
+.paso-pie{display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-top:22px;flex-wrap:wrap}
+.paso-pie .falta{font-size:13px;color:var(--tinta-2)}
+.btn-sig{background:var(--tinta);color:var(--fondo);border:0;border-radius:12px;padding:12px 22px;font-weight:700;font-size:15px;cursor:pointer}
+.btn-sig[disabled]{opacity:.35;cursor:not-allowed}
+.aviso-asig{margin-top:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;border-radius:12px;background:var(--fondo-2);font-size:15px}
+.aviso-asig button{border:1.5px solid var(--naranja);background:var(--card);color:var(--tinta);border-radius:999px;padding:7px 14px;font-weight:700;font-size:14px;cursor:pointer}
+.cta-nota{font-size:12px;opacity:.75;margin-top:8px}
+
+/* Calendario anual */
+.atajos{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
+.atajos > span{font-size:14px;color:var(--tinta-2);margin-right:2px}
+.atajo{border:1.5px dashed var(--naranja);background:var(--card);border-radius:999px;padding:7px 13px;font-weight:600;font-size:14px;cursor:pointer;color:var(--tinta)}
+.atajo[disabled]{border-style:solid;border-color:var(--linea);color:var(--tinta-2);cursor:default}
+.cal-fecha{border:1.5px solid var(--linea);border-radius:16px;padding:14px 16px;background:var(--card);margin-bottom:12px}
+.cal-fecha.sel{border-color:var(--naranja)}
+.cal-fecha .cab{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.cal-fecha .tit{font-weight:700;font-size:16px}
+.cal-fecha .det{font-size:14px;color:var(--tinta-2);margin-top:2px}
+.cal-fecha .faltan{font-size:13px;color:var(--error);margin-top:4px}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .cal-fecha .faltan{color:#FFB4A8}}
+.cal-fecha .acc{display:flex;gap:6px;flex:none}
+.cal-fecha .acc button{border:1.5px solid var(--linea);background:var(--card);border-radius:999px;padding:5px 12px;font-weight:600;font-size:13px;cursor:pointer}
+.cal-editor{border-top:1px solid var(--linea);margin-top:14px;padding-top:14px;display:grid;gap:12px}
+.sub-tit{font-size:17px;font-weight:700;margin:10px 0 0}
+.agregar-fecha{border:1.5px dashed var(--linea);background:transparent;border-radius:14px;padding:12px;width:100%;font-weight:700;font-size:15px;cursor:pointer;color:var(--tinta)}
+.agregar-fecha:hover{border-color:var(--naranja)}
+.lineas li.mes{display:block;font-weight:700;text-transform:capitalize;opacity:.7;font-size:12px;letter-spacing:.4px;margin-top:6px}
+.lineas li .cal-l{min-width:0}
+.congelado{margin-top:14px;padding:12px 14px;border-radius:12px;border:1.5px dashed rgba(255,255,255,.35);font-size:13px;line-height:1.45}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .congelado{border-color:rgba(0,0,0,.3)}}
+:root[data-theme="dark"] .congelado{border-color:rgba(0,0,0,.3)}
+.sello{display:inline-block;font-family:"Bricolage Grotesque",sans-serif;font-weight:800;font-size:14px;letter-spacing:.3px;background:var(--naranja);color:#fff;border-radius:999px;padding:4px 12px;margin-bottom:8px}
+.congelado p{margin:4px 0 0}
 </style>
 </head>
 <body>
 
 <div class="aviso-api" id="aviso-api" hidden></div>
 <header>
-  <a class="brand" href="https://piccadely.com"><img src="/Piccadely_Logotipo_Izquierda_Negro.png" alt="Piccadely" width="129" height="38"><small>Regalos empresariales</small></a>
+  <a class="brand" href="https://piccadely.com"><img src="/Piccadely_Logotipo_Izquierda_Negro.png" alt="Piccadely" width="129" height="38"><small>Cotizá tus regalos ahora. Sin intermediarios.</small></a>
   <a class="volver" href="https://piccadely.com">← Volver<span class="volver-extra"> a la web</span></a>
 </header>
 
@@ -68,126 +129,200 @@
 </section>
 
 <main>
-<div>
+<div id="pasos">
 
-  <section class="paso">
-    <div class="paso-tit"><span class="paso-num">1</span><div><h2>¿Cuántos regalos?</h2><p class="ayuda">Mientras más, mejor el precio.</p></div></div>
-    <div class="cantidad-wrap">
-      <div class="cantidad">
-        <button type="button" aria-label="Restar" data-cant="-1">−</button>
-        <input id="cant" type="number" min="1" value="20" aria-label="Cantidad de regalos">
-        <button type="button" aria-label="Sumar" data-cant="1">+</button>
+  <div class="accesos">
+    <button class="acceso" type="button" id="acc-cal" aria-pressed="false"><span class="ico" aria-hidden="true">📅</span><span><strong>Calendarizá tus regalos del año</strong><small>Te mantenemos el precio de hoy para todas las fechas</small></span></button>
+    <a class="acceso" id="acc-esp" href="#" target="_blank" rel="noopener"><span class="ico" aria-hidden="true">💬</span><span><strong>Hablar con un especialista</strong><small>Te ayudamos a armarlo por WhatsApp</small></span></a>
+  </div>
+  <div class="modo-cal" id="modo-cal" hidden>
+    <span>📅 <strong>Calendario anual de regalos</strong> · precios congelados a hoy</span>
+    <button type="button" id="salir-cal">Volver a una sola entrega</button>
+  </div>
+
+  <section class="paso" data-paso="cantidad">
+    <div class="paso-tit"><span class="paso-num">1</span><div><h2 tabindex="-1">¿Cuántos regalos?</h2><p class="ayuda">Mientras más, mejor el precio.</p></div><span class="candado" aria-hidden="true">🔒</span></div>
+    <div class="paso-resumen"><span class="resumen-txt"></span><button class="editar" type="button" data-editar="cantidad">Editar</button></div>
+    <div class="paso-cuerpo">
+      <div class="cantidad-wrap">
+        <div class="cantidad">
+          <button type="button" aria-label="Restar" data-cant="-1">−</button>
+          <input id="cant" type="number" min="1" value="20" aria-label="Cantidad de regalos">
+          <button type="button" aria-label="Sumar" data-cant="1">+</button>
+        </div>
+        <div class="escala" id="escala"></div>
       </div>
-      <div class="escala" id="escala"></div>
+      <div class="paso-pie"><span class="falta"></span><button class="btn-sig" type="button" data-sig="cantidad">Siguiente</button></div>
     </div>
   </section>
 
-  <section class="paso">
-    <div class="paso-tit"><span class="paso-num">2</span><div><h2>¿Qué querés regalar?</h2><p class="ayuda">Podés combinar: por ejemplo, Piccadas medianas para los gerentes y cajas para el resto.</p></div></div>
-    <div id="cat-cargando" class="cargando">Cargando el catálogo…</div>
-    <div id="cat-ok" hidden>
-      <div class="tabs" id="tabs" role="group" aria-label="Estilo de regalo"></div>
-      <div class="presu">
-        <label for="presu">Presupuesto por regalo</label>
-        <select id="presu">
-          <option value="0">Sin tope</option>
-          <option value="40000">Hasta $40.000</option>
-          <option value="70000">Hasta $70.000</option>
-          <option value="110000">Hasta $110.000</option>
-        </select>
+  <section class="paso" data-paso="regalos">
+    <div class="paso-tit"><span class="paso-num">2</span><div><h2 tabindex="-1">¿Qué querés regalar?</h2><p class="ayuda">Podés combinar: por ejemplo, Piccadas medianas para los gerentes y cajas para el resto.</p></div><span class="candado" aria-hidden="true">🔒</span></div>
+    <div class="paso-resumen"><span class="resumen-txt"></span><button class="editar" type="button" data-editar="regalos">Editar</button></div>
+    <div class="paso-cuerpo">
+      <div id="slot-catalogo-simple">
+        <div id="catalogo">
+          <div id="cat-cargando" class="cargando">Cargando el catálogo…</div>
+          <div id="cat-ok" hidden>
+            <div class="tabs" id="tabs" role="group" aria-label="Estilo de regalo"></div>
+            <div class="presu">
+              <label for="presu">Presupuesto por regalo</label>
+              <select id="presu">
+                <option value="0">Sin tope</option>
+                <option value="40000">Hasta $40.000</option>
+                <option value="70000">Hasta $70.000</option>
+                <option value="110000">Hasta $110.000</option>
+              </select>
+            </div>
+            <div id="grilla"></div>
+            <div id="bebidas-wrap" hidden>
+              <h3 style="font-size:20px;margin:28px 0 4px">Sumale una bebida</h3>
+              <p class="ayuda" style="margin:0 0 14px">Opcional. Va junto con los regalos y no cuenta en la cantidad.</p>
+              <div class="grilla" id="bebidas"></div>
+            </div>
+          </div>
+        </div>
       </div>
-      <div id="grilla"></div>
-      <div id="bebidas-wrap" hidden>
-        <h3 style="font-size:20px;margin:28px 0 4px">Sumale una bebida</h3>
-        <p class="ayuda" style="margin:0 0 14px">Opcional. Va junto con los regalos y no cuenta en la cantidad.</p>
-        <div class="grilla" id="bebidas"></div>
+      <div class="aviso-asig" id="aviso-asig" hidden><span id="aviso-asig-txt"></span><button type="button" id="b-ajustar"></button></div>
+      <div class="paso-pie"><span class="falta"></span><button class="btn-sig" type="button" data-sig="regalos">Siguiente</button></div>
+    </div>
+  </section>
+
+  <section class="paso" data-paso="entrega">
+    <div class="paso-tit"><span class="paso-num">3</span><div><h2 tabindex="-1">¿Adónde los mandamos?</h2><p class="ayuda">Las giftcards se envían por mail.</p></div><span class="candado" aria-hidden="true">🔒</span></div>
+    <div class="paso-resumen"><span class="resumen-txt"></span><button class="editar" type="button" data-editar="entrega">Editar</button></div>
+    <div class="paso-cuerpo">
+      <div class="opciones">
+        <label class="opcion"><input type="radio" name="entrega" value="uno" checked><strong>Todos a un mismo lugar</strong><p>La oficina, un evento o un depósito. Un solo envío.</p></label>
+        <label class="opcion"><input type="radio" name="entrega" value="varios"><strong>Cada uno a su casa</strong><p>Nos pasás la lista y entregamos a cada persona.</p></label>
+      </div>
+      <div class="ref-envio" id="ref-envio" hidden>
+        <p class="tarifas" id="tarifas-ref"></p>
+        <p class="aviso-envio" id="aviso-envio"></p>
+      </div>
+
+      <div class="sub" id="sub-uno">
+        <div class="fila">
+          <label class="campo">Zona de entrega
+            <select id="zona-uno"><option value="CABA">CABA</option></select>
+          </label>
+          <label class="campo">Fecha de entrega<input type="date" id="fecha"></label>
+        </div>
+        <label class="campo">Dirección<input type="text" id="dir" placeholder="Av. Siempreviva 742, piso 3" autocomplete="street-address"></label>
+      </div>
+
+      <div class="sub" id="sub-varios" hidden>
+        <div class="fila">
+          <label class="campo">Destinatarios en CABA<input type="number" min="0" id="n-caba" value="0"></label>
+          <label class="campo">Destinatarios en GBA<input type="number" min="0" id="n-gba" value="0"></label>
+        </div>
+        <label class="campo">Fecha de entrega<input type="date" id="fecha-v"></label>
+        <div class="plantilla">
+          <strong>Después nos pasás la lista con este formato</strong> (te mandamos la planilla para completar):
+          <div class="cols"><table>
+            <tr><th>Nombre</th><th>Teléfono</th><th>Dirección</th><th>Entre calles</th><th>Barrio / Partido</th><th>Regalo</th><th>Mensaje de tarjeta</th></tr>
+            <tr><td>Ana López</td><td>11 5555-1234</td><td>Gorriti 4500</td><td>Malabia y Armenia</td><td>Palermo</td><td>Caja de regalo</td><td>¡Gracias por este año!</td></tr>
+          </table></div>
+        </div>
+      </div>
+      <div class="paso-pie"><span class="falta"></span><button class="btn-sig" type="button" data-sig="entrega">Siguiente</button></div>
+    </div>
+  </section>
+
+  <section class="paso" data-paso="fechas" hidden>
+    <div class="paso-tit"><span class="paso-num">1</span><div><h2 tabindex="-1">¿Qué fechas querés cubrir?</h2><p class="ayuda">Sumá cada ocasión del año con sus regalos. Los precios quedan congelados a hoy.</p></div><span class="candado" aria-hidden="true">🔒</span></div>
+    <div class="paso-resumen"><span class="resumen-txt"></span><button class="editar" type="button" data-editar="fechas">Editar</button></div>
+    <div class="paso-cuerpo">
+      <div class="atajos" id="atajos"></div>
+      <div id="cal-lista"></div>
+      <button class="agregar-fecha" type="button" id="cal-agregar">+ Sumar otra fecha</button>
+      <div style="margin-top:16px"><p class="ayuda" style="margin:0 0 8px">Descuento por volumen según el total de regalos del año:</p><div class="escala" id="cal-escala"></div></div>
+      <div class="paso-pie"><span class="falta"></span><button class="btn-sig" type="button" data-sig="fechas">Siguiente</button></div>
+    </div>
+    <div id="cal-editor-holder" hidden>
+      <div class="cal-editor" id="cal-editor">
+        <div class="fila">
+          <label class="campo">Fecha de entrega<input type="date" id="cf-fecha"></label>
+          <label class="campo">Ocasión<select id="cf-ocasion"><option value="">Elegí la ocasión</option></select></label>
+        </div>
+        <p class="ayuda" id="cf-real" hidden style="margin:0"></p>
+        <label class="campo" id="cf-otro-wrap" hidden>¿Qué ocasión es?<input type="text" id="cf-otro" maxlength="60" placeholder="Ej: Lanzamiento de producto"></label>
+        <label class="campo">¿A quién va?<input type="text" id="cf-quien" maxlength="80" placeholder="Ej: Equipo Ventas, Laura Gómez o Todo el equipo"></label>
+        <h3 class="sub-tit">Regalos para esta fecha</h3>
+        <div id="slot-catalogo-cal"></div>
+        <h3 class="sub-tit">Entrega</h3>
+        <div class="opciones">
+          <label class="opcion"><input type="radio" name="cf-entrega" value="uno" checked><strong>Todos a un mismo lugar</strong><p>Un solo envío.</p></label>
+          <label class="opcion"><input type="radio" name="cf-entrega" value="varios"><strong>Cada uno a su casa</strong><p>Entregamos a cada persona.</p></label>
+        </div>
+        <div class="fila" id="cf-uno">
+          <label class="campo">Zona de entrega<select id="cf-zona"><option value="CABA">CABA</option></select></label>
+          <label class="campo">Dirección (opcional)<input type="text" id="cf-dir" placeholder="Av. Siempreviva 742, piso 3"></label>
+        </div>
+        <div class="fila" id="cf-varios" hidden>
+          <label class="campo">Destinatarios en CABA<input type="number" min="0" id="cf-ncaba" value="0"></label>
+          <label class="campo">Destinatarios en GBA<input type="number" min="0" id="cf-ngba" value="0"></label>
+        </div>
+        <div class="paso-pie"><button class="btn-sig" type="button" id="cf-listo">Listo con esta fecha</button></div>
       </div>
     </div>
   </section>
 
-  <section class="paso">
-    <div class="paso-tit"><span class="paso-num">3</span><div><h2>¿Adónde los mandamos?</h2><p class="ayuda">Las giftcards se envían por mail.</p></div></div>
-    <div class="opciones">
-      <label class="opcion"><input type="radio" name="entrega" value="uno" checked><strong>Todos a un mismo lugar</strong><p>La oficina, un evento o un depósito. Un solo envío.</p></label>
-      <label class="opcion"><input type="radio" name="entrega" value="varios"><strong>Cada uno a su casa</strong><p>Nos pasás la lista y entregamos a cada persona.</p></label>
-    </div>
-    <div class="ref-envio" id="ref-envio" hidden>
-      <p class="tarifas" id="tarifas-ref"></p>
-      <p class="aviso-envio" id="aviso-envio"></p>
-    </div>
-
-    <div class="sub" id="sub-uno">
-      <div class="fila">
-        <label class="campo">Zona de entrega
-          <select id="zona-uno"><option value="CABA">CABA</option></select>
-        </label>
-        <label class="campo">Fecha de entrega<input type="date" id="fecha"></label>
+  <section class="paso" data-paso="personalizacion">
+    <div class="paso-tit"><span class="paso-num">4</span><div><h2 tabindex="-1">Que se note que es de ustedes</h2><p class="ayuda">Opcional.</p></div><span class="candado" aria-hidden="true">🔒</span></div>
+    <div class="paso-resumen"><span class="resumen-txt"></span><button class="editar" type="button" data-editar="personalizacion">Editar</button></div>
+    <div class="paso-cuerpo">
+      <div class="sub" style="margin-top:0">
+        <label class="check"><input type="checkbox" id="tarjeta" checked><span><strong>Tarjeta con mensaje</strong> · sin cargo. Un mensaje para todos o uno por persona en la lista.</span></label>
+        <label class="campo" id="msg-wrap">Mensaje para la tarjeta<textarea id="msg" maxlength="500" placeholder="¡Gracias por un gran año! Brindemos por lo que viene."></textarea></label>
+        <label class="check"><input type="checkbox" id="tarjeta-propia"><span><strong>Enviás tu tarjeta personal</strong> · nos acercás tus tarjetas y las sumamos a cada regalo, sin cargo.</span></label>
       </div>
-      <label class="campo">Dirección<input type="text" id="dir" placeholder="Av. Siempreviva 742, piso 3" autocomplete="street-address"></label>
-    </div>
-
-    <div class="sub" id="sub-varios" hidden>
-      <div class="fila">
-        <label class="campo">Destinatarios en CABA<input type="number" min="0" id="n-caba" value="0"></label>
-        <label class="campo">Destinatarios en GBA<input type="number" min="0" id="n-gba" value="0"></label>
-      </div>
-      <label class="campo">Fecha de entrega<input type="date" id="fecha-v"></label>
-      <div class="plantilla">
-        <strong>Después nos pasás la lista con este formato</strong> (te mandamos la planilla para completar):
-        <div class="cols"><table>
-          <tr><th>Nombre</th><th>Teléfono</th><th>Dirección</th><th>Entre calles</th><th>Barrio / Partido</th><th>Regalo</th><th>Mensaje de tarjeta</th></tr>
-          <tr><td>Ana López</td><td>11 5555-1234</td><td>Gorriti 4500</td><td>Malabia y Armenia</td><td>Palermo</td><td>Caja de regalo</td><td>¡Gracias por este año!</td></tr>
-        </table></div>
-      </div>
+      <div class="paso-pie"><button class="btn-sig" type="button" data-sig="personalizacion">Siguiente</button></div>
     </div>
   </section>
 
-  <section class="paso">
-    <div class="paso-tit"><span class="paso-num">4</span><div><h2>Que se note que es de ustedes</h2></div></div>
-    <div class="sub" style="margin-top:0">
-      <label class="check"><input type="checkbox" id="tarjeta" checked><span><strong>Tarjeta con mensaje</strong> · sin cargo. Un mensaje para todos o uno por persona en la lista.</span></label>
-      <label class="campo" id="msg-wrap">Mensaje para la tarjeta<textarea id="msg" maxlength="500" placeholder="¡Gracias por un gran año! Brindemos por lo que viene."></textarea></label>
-      <label class="check"><input type="checkbox" id="tarjeta-propia"><span><strong>Enviás tu tarjeta personal</strong> · nos acercás tus tarjetas y las sumamos a cada regalo, sin cargo.</span></label>
-    </div>
-  </section>
-
-  <section class="paso">
-    <div class="paso-tit"><span class="paso-num">5</span><div><h2>Tus datos</h2><p class="ayuda">Para mandarte la propuesta y la factura.</p></div></div>
-    <div class="sub" style="margin-top:0">
-      <div class="fila">
-        <label class="campo">Empresa<input type="text" id="empresa" autocomplete="organization"></label>
-        <label class="campo">CUIT (opcional)<input type="text" id="cuit" inputmode="numeric"></label>
+  <section class="paso" data-paso="datos">
+    <div class="paso-tit"><span class="paso-num">5</span><div><h2 tabindex="-1">Tus datos</h2><p class="ayuda">Para mandarte la propuesta y la factura.</p></div><span class="candado" aria-hidden="true">🔒</span></div>
+    <div class="paso-cuerpo">
+      <div class="sub" style="margin-top:0">
+        <div class="fila">
+          <label class="campo">Empresa<input type="text" id="empresa" autocomplete="organization"></label>
+          <label class="campo">CUIT (opcional)<input type="text" id="cuit" inputmode="numeric"></label>
+        </div>
+        <div class="fila">
+          <label class="campo">Tu nombre<input type="text" id="nombre" autocomplete="name"></label>
+          <label class="campo">Teléfono<input type="tel" id="tel" autocomplete="tel"></label>
+        </div>
+        <label class="campo">Email<input type="email" id="email" autocomplete="email"></label>
+        <label class="check"><input type="checkbox" id="facA"><span>Necesito Factura A</span></label>
+        <div class="hp" aria-hidden="true"><label>Sitio web<input type="text" id="sitio_web" name="sitio_web" tabindex="-1" autocomplete="off"></label></div>
       </div>
-      <div class="fila">
-        <label class="campo">Tu nombre<input type="text" id="nombre" autocomplete="name"></label>
-        <label class="campo">Teléfono<input type="tel" id="tel" autocomplete="tel"></label>
-      </div>
-      <label class="campo">Email<input type="email" id="email" autocomplete="email"></label>
-      <label class="check"><input type="checkbox" id="facA"><span>Necesito Factura A</span></label>
-      <div class="hp" aria-hidden="true"><label>Sitio web<input type="text" id="sitio_web" name="sitio_web" tabindex="-1" autocomplete="off"></label></div>
+      <p class="ayuda" style="margin-top:14px">Con tu nombre y email se habilitan «Pedir la propuesta» y WhatsApp.</p>
     </div>
   </section>
 
 </div>
 
 <aside aria-live="polite">
-  <h2>Tu propuesta</h2>
+  <h2 id="aside-tit">Tu propuesta</h2>
   <div class="asig" id="asig"></div>
   <ul class="lineas" id="lineas"></ul>
   <div class="tot">
     <div><span>Regalos</span><span id="t-reg">$0</span></div>
     <div id="r-beb" hidden><span>Bebidas</span><span id="t-beb">$0</span></div>
     <div class="desc-vol" id="r-desc" hidden><span id="l-desc">Descuento</span><span id="t-desc">$0</span></div>
-    <div class="grande"><small>Total</small><span id="t-tot">$0</span></div>
+    <div class="grande"><small id="l-tot">Total</small><span id="t-tot">$0</span></div>
     <div class="sin-envio">No incluye costo de envío</div>
     <div class="porreg" id="t-por"></div>
   </div>
+  <div class="congelado" id="cal-extra" hidden></div>
   <div class="calc-estado" id="calc-estado"></div>
   <div class="calc-error" id="calc-error" hidden></div>
   <div class="ctas">
     <button class="btn btn-1" id="b-sol" type="button" disabled>Pedir la propuesta</button>
     <a class="btn btn-2" id="b-wa" href="#" target="_blank" rel="noopener">Cerrar por WhatsApp</a>
   </div>
+  <p class="cta-nota" id="cta-nota"></p>
   <p class="nota">Precio orientativo. Te confirmamos disponibilidad y fecha antes de cobrar.</p>
 </aside>
 </main>
@@ -210,8 +345,28 @@ const WA = "5491162393921";   // WhatsApp corporativo
 const $ = (s) => document.querySelector(s);
 const plata = (n) => "$" + Math.round(Number(n) || 0).toLocaleString("es-AR");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const estado = { cat: null, estilo: null, q: {}, sel: {}, libre: {}, libres: new Set(), calc: null, pedido: 0 };   // libre: giftcard de monto libre (variant_id → { monto, cantidad })
+const ddmm = (iso) => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : "";
+const ddmmaaaa = (iso) => iso ? `${ddmm(iso)}/${iso.slice(0, 4)}` : "";
+const DIAS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+const diaSemana = (iso) => DIAS[new Date(iso + "T12:00:00Z").getUTCDay()];
+// "(es el dom 20/06)" cuando la entrega se adelantó al viernes porque el día cae fin de semana
+const notaDiaReal = (fo) => (fo ? ` (es el ${diaSemana(fo)} ${ddmm(fo)})` : "");
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+const mesDe = (iso) => iso ? `${MESES[+iso.slice(5, 7) - 1]} ${iso.slice(0, 4)}` : "Sin fecha";
+const emailOk = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || "").trim());
+const REDUCIR_MOV = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Estado. Modo "simple" (una entrega) o "calendario" (varias fechas en el año). La selección de regalos (q / libre)
+// es la del modo simple o la de la fecha que se está editando (selActual).
+const estado = {
+  cat: null, estilo: null, q: {}, sel: {}, libre: {}, libres: new Set(), extras: new Set(), estiloDe: new Map(), calc: null, pedido: 0,
+  modo: "simple", wiz: { simple: { activo: "cantidad", conf: new Set() }, calendario: { activo: "fechas", conf: new Set() } },
+  fechas: [], fechaSel: null, uid: 0, calcUids: [], calcError: false, reintentos: 0,
+};
+const PASOS = { simple: ["cantidad", "regalos", "entrega", "personalizacion", "datos"], calendario: ["fechas", "personalizacion", "datos"] };
 const ICONOS = { giftcard: "🎁", desayuno: "🥐", caja: "📦", chica: "🧀", mediana: "🍽️", bebida: "🍷" };
+// Nombres cortos para los resúmenes ("15 Cajas + 5 Piccadas medianas"): [singular, plural]
+const NOMBRES_CORTOS = { giftcard: ["GiftCard", "GiftCards"], desayuno: ["Desayuno", "Desayunos"], caja: ["Caja", "Cajas"], chica: ["Piccada chica", "Piccadas chicas"], mediana: ["Piccada mediana", "Piccadas medianas"] };
 
 // Aviso con la API en uso: SOLO en previews de Vercel y localhost (nunca en el dominio de producción).
 const ES_PREVIEW = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) || /\.vercel\.app$/.test(location.hostname);
@@ -276,19 +431,153 @@ const nombreLinea = (l) => `${l.nombre}${(l.variante_mostrar || l.variante) ? " 
 const tarjetasDe = (e) => (e && e.grupos ? e.grupos : []).flatMap((g) => g.tarjetas);
 const claveSel = (e, t) => `${e.id}:${t.clave}`;
 const varianteSel = (e, t) => t.variantes.find((v) => v.variant_id === estado.sel[claveSel(e, t)]) || t.variantes[0];
-const cantDe = (id) => (estado.libres.has(id) ? (estado.libre[id] && estado.libre[id].cantidad) || 0 : estado.q[id] || 0);
+
+// Selección de regalos activa: la del modo simple o la de la fecha del calendario que se está editando.
+const SIN_SELECCION = { q: {}, libre: {} };
+const fechaActual = () => estado.fechas.find((f) => f.uid === estado.fechaSel) || null;
+const selActual = () => (estado.modo === "calendario" ? fechaActual() || SIN_SELECCION : estado);
+const cantEn = (s, id) => (estado.libres.has(id) ? (s.libre[id] && s.libre[id].cantidad) || 0 : s.q[id] || 0);
+const cantDe = (id) => cantEn(selActual(), id);
 const tieneAlgo = (e) => tarjetasDe(e).some((t) => t.variantes.some((v) => cantDe(v.variant_id) > 0));
 function setCantidad(id, n) {
+  const s = selActual(); if (s === SIN_SELECCION) return;
   n = Math.max(0, n | 0);
-  if (estado.libres.has(id)) estado.libre[id] = { monto: (estado.libre[id] && estado.libre[id].monto) || "", cantidad: n };
-  else estado.q[id] = n;
+  if (estado.libres.has(id)) s.libre[id] = { monto: (s.libre[id] && s.libre[id].monto) || "", cantidad: n };
+  else s.q[id] = n;
+}
+const itemsDe = (s) => [
+  ...Object.entries(s.q).filter(([, q]) => q > 0).map(([variant_id, cantidad]) => ({ variant_id, cantidad })),
+  ...Object.entries(s.libre).filter(([, l]) => l.cantidad > 0 && Number(l.monto) > 0).map(([variant_id, l]) => ({ variant_id, cantidad: l.cantidad, monto: Number(l.monto) })),
+];
+// Conteo local (para habilitar "Siguiente" al instante, sin esperar al cálculo del servidor).
+function contar(s) {
+  const porEstilo = new Map(); let regalos = 0, bebidas = 0;
+  for (const it of itemsDe(s)) {
+    if (estado.extras.has(it.variant_id)) { bebidas += it.cantidad; continue; }
+    regalos += it.cantidad;
+    const e = estado.estiloDe.get(it.variant_id) || "otro";
+    porEstilo.set(e, (porEstilo.get(e) || 0) + it.cantidad);
+  }
+  return { regalos, bebidas, porEstilo };
+}
+// "15 Cajas + 5 Piccadas medianas + 2 bebidas"
+function textoConteo(porEstilo, bebidas) {
+  const orden = estado.cat ? estado.cat.estilos.map((e) => e.id) : [];
+  const partes = [...porEstilo].sort((a, b) => orden.indexOf(a[0]) - orden.indexOf(b[0])).map(([e, n]) => {
+    const [sing, plur] = NOMBRES_CORTOS[e] || [((estado.cat && estado.cat.estilos.find((x) => x.id === e)) || {}).nombre || "Regalos", ((estado.cat && estado.cat.estilos.find((x) => x.id === e)) || {}).nombre || "Regalos"];
+    return `${n} ${n === 1 ? sing : plur}`;
+  });
+  if (bebidas) partes.push(`${bebidas} ${bebidas === 1 ? "bebida" : "bebidas"}`);
+  return partes.join(" + ");
+}
+const resumenRegalos = (s) => { const c = contar(s); return textoConteo(c.porEstilo, c.bebidas); };
+const resumenLineas = (lineas) => {
+  const porEstilo = new Map(); let bebidas = 0;
+  for (const l of lineas || []) { if (l.extra) bebidas += l.cantidad; else porEstilo.set(l.estilo, (porEstilo.get(l.estilo) || 0) + l.cantidad); }
+  return textoConteo(porEstilo, bebidas);
+};
+const cantPedida = () => Math.max(0, parseInt($("#cant").value, 10) || 0);
+
+// ===== Paso a paso =====
+const entregaModo = () => document.querySelector("[name=entrega]:checked").value;
+const ocasionTexto = (f) => (f.ocasion === "Otro" ? f.otro.trim() : f.ocasion);
+function faltasFecha(f) {
+  const cal = estado.cat && estado.cat.calendario; const faltas = [];
+  if (!f.fecha) faltas.push("la fecha");
+  else if (cal && (f.fecha < cal.fechaMin || f.fecha > cal.fechaMax)) faltas.push(`una fecha entre el ${ddmm(cal.fechaMin)} y el ${ddmmaaaa(cal.fechaMax)}`);
+  if (!f.ocasion) faltas.push("la ocasión"); else if (f.ocasion === "Otro" && !f.otro.trim()) faltas.push("qué ocasión es");
+  if (!f.aQuien.trim()) faltas.push("a quién va");
+  if (!contar(f).regalos) faltas.push("al menos un regalo");
+  if (f.entrega.modo === "varios" && (+f.entrega.nCaba || 0) + (+f.entrega.nGba || 0) === 0) faltas.push("los destinatarios de CABA y GBA");
+  return faltas;
+}
+// "" = paso completo; si no, qué falta.
+function faltaEn(p) {
+  switch (p) {
+    case "cantidad": return cantPedida() >= 1 ? "" : "Indicá cuántos regalos.";
+    case "regalos": return contar(estado).regalos >= 1 ? "" : "Sumá al menos un regalo.";
+    case "entrega": return entregaModo() === "uno" ? ($("#zona-uno").value ? "" : "Elegí la zona.") : ((+$("#n-caba").value || 0) + (+$("#n-gba").value || 0) > 0 ? "" : "Cargá cuántos destinatarios hay en CABA y en GBA.");
+    case "personalizacion": return "";
+    case "datos": return $("#nombre").value.trim() && emailOk($("#email").value) ? "" : "Completá tu nombre y un email válido.";
+    case "fechas": {
+      if (!estado.fechas.length) return "Sumá al menos una fecha.";
+      const inc = estado.fechas.filter((f) => faltasFecha(f).length).length;
+      return inc ? `Completá ${inc === 1 ? "1 fecha" : inc + " fechas"} para seguir.` : "";
+    }
+  }
+  return "";
+}
+function resumenPaso(p) {
+  switch (p) {
+    case "cantidad": { const n = cantPedida(); return `${n} ${n === 1 ? "regalo" : "regalos"}`; }
+    case "regalos": return resumenRegalos(estado) || "Sin regalos";
+    case "entrega": {
+      if (entregaModo() === "uno") return `Todos a ${$("#zona-uno").value}${$("#dir").value.trim() ? " · " + $("#dir").value.trim() : ""}`;
+      return `Cada uno a su casa · ${+$("#n-caba").value || 0} en CABA + ${+$("#n-gba").value || 0} en GBA`;
+    }
+    case "personalizacion":
+      return ($("#tarjeta").checked ? ($("#msg").value.trim() ? "Tarjeta con mensaje" : "Tarjeta (sin mensaje escrito)") : "Sin tarjeta") + ($("#tarjeta-propia").checked ? " · con tu tarjeta personal" : "");
+    case "fechas": {
+      const n = estado.fechas.length, r = estado.fechas.reduce((a, f) => a + contar(f).regalos, 0);
+      return `${n} ${n === 1 ? "fecha" : "fechas"} · ${r} regalos en el año`;
+    }
+  }
+  return "";
+}
+function renderPasos() {
+  const lista = PASOS[estado.modo], w = estado.wiz[estado.modo];
+  document.querySelectorAll(".paso[data-paso]").forEach((sec) => {
+    const p = sec.dataset.paso, i = lista.indexOf(p);
+    sec.hidden = i < 0; if (i < 0) return;
+    sec.querySelector(".paso-num").textContent = i + 1;
+    const est = p === w.activo ? "activo" : w.conf.has(p) ? "completo" : "bloqueado";
+    sec.dataset.estado = est;
+    sec.setAttribute("aria-disabled", est === "bloqueado" ? "true" : "false");
+    const res = sec.querySelector(".resumen-txt"); if (res && est === "completo") res.textContent = resumenPaso(p);
+    const sig = sec.querySelector(".btn-sig[data-sig]");
+    if (sig) { const f = faltaEn(p); sig.disabled = !!f; const fl = sec.querySelector(".paso-pie .falta"); if (fl) fl.textContent = f; }
+  });
+  actualizarCTAs();
+}
+function activar(p, mover = true) {
+  estado.wiz[estado.modo].activo = p;
+  renderPasos();
+  if (!mover) return;
+  const sec = document.querySelector(`.paso[data-paso="${p}"]`);
+  sec.scrollIntoView({ behavior: REDUCIR_MOV ? "auto" : "smooth", block: "start" });
+  sec.querySelector("h2").focus({ preventScroll: true });   // foco accesible en el título del paso nuevo
+}
+function avanzar(p) {
+  if (faltaEn(p)) return;
+  const lista = PASOS[estado.modo], w = estado.wiz[estado.modo];
+  w.conf.add(p);
+  const sig = lista.slice(lista.indexOf(p) + 1).find((q) => !w.conf.has(q)) || lista[lista.length - 1];
+  activar(sig);
+}
+// Paso 2: asignados ≠ pedidos → aviso + "Actualizar a N regalos" (ajusta el paso 1 de un clic).
+function renderAvisoAsig() {
+  const n = contar(estado).regalos, pedidos = cantPedida(), box = $("#aviso-asig");
+  box.hidden = !(n > 0 && n !== pedidos);
+  if (box.hidden) return;
+  $("#aviso-asig-txt").textContent = `Elegiste ${n} ${n === 1 ? "regalo" : "regalos"} y en el paso 1 pusiste ${pedidos}.`;
+  $("#b-ajustar").textContent = `Actualizar a ${n} ${n === 1 ? "regalo" : "regalos"}`;
+  $("#b-ajustar").dataset.n = n;
+}
+function alCambiar() {
+  renderPasos(); renderAvisoAsig();
+  if (estado.modo === "calendario") { const f = fechaActual(); if (f) actualizarFechaUI(f); renderEscalaCal(); renderAtajos(); }
 }
 
-// ===== Render =====
+// ===== Render del catálogo =====
 function renderEscala() {
   if (!estado.cat) return;
   const c = +$("#cant").value || 0;
   $("#escala").innerHTML = estado.cat.tramos.map((t) => `<span class="${c >= t.min ? "on" : ""}">${t.min}+ regalos · ${t.pct}% off</span>`).join("");
+}
+function renderEscalaCal() {
+  if (!estado.cat) return;
+  const c = estado.fechas.reduce((a, f) => a + contar(f).regalos, 0);
+  $("#cal-escala").innerHTML = estado.cat.tramos.map((t) => `<span class="${c >= t.min ? "on" : ""}">${t.min}+ regalos en el año · ${t.pct}% off</span>`).join("");
 }
 function renderTabs() {
   const regalos = estado.cat.estilos.filter((e) => !e.extra);
@@ -297,7 +586,8 @@ function renderTabs() {
 }
 function tarjeta(e, t, tope) {
   const v = varianteSel(e, t), id = v.variant_id;
-  const libre = t.montoLibre ? (estado.libre[id] || { monto: "", cantidad: 0 }) : null;
+  const s = selActual();
+  const libre = t.montoLibre ? (s.libre[id] || { monto: "", cantidad: 0 }) : null;
   const q = cantDe(id);
   const algo = t.variantes.some((x) => cantDe(x.variant_id) > 0);
   const precio = libre ? (Number(libre.monto) > 0 ? Number(libre.monto) : null) : v.precio;
@@ -343,18 +633,99 @@ function renderZonas() {
     $("#aviso-envio").innerHTML = corte > 0 ? `<strong>${esc(aviso.slice(0, corte + 1))}</strong> ${esc(aviso.slice(corte + 2))}` : esc(aviso);
     $("#ref-envio").hidden = false;
   }
-  const sel = $("#zona-uno");
-  sel.innerHTML = `<option value="CABA">CABA</option>` + estado.cat.envio.partidos.map((p) => `<option value="${esc(p.partido)}">${esc(p.partido)}</option>`).join("");
+  const opciones = `<option value="CABA">CABA</option>` + estado.cat.envio.partidos.map((p) => `<option value="${esc(p.partido)}">${esc(p.partido)}</option>`).join("");
+  $("#zona-uno").innerHTML = opciones; $("#cf-zona").innerHTML = opciones;
+}
+
+// ===== Calendario anual =====
+function nuevaFecha(datos = {}) {
+  const f = { uid: ++estado.uid, fecha: "", fechaOcasion: "", ocasion: "", otro: "", aQuien: "", q: {}, libre: {}, entrega: { modo: "uno", zona: "CABA", direccion: "", nCaba: 0, nGba: 0 }, ...datos };
+  estado.fechas.push(f); estado.fechaSel = f.uid;
+  return f;
+}
+const fechaVacia = (f) => !f.fecha && !f.ocasion && !f.aQuien.trim() && !contar(f).regalos;
+function subtotalCalc(f) {   // subtotal que devolvió el servidor para esa fecha (por posición al momento del cálculo)
+  const r = estado.calc; if (!r || r.modo !== "calendario") return null;
+  const idx = estado.calcUids.indexOf(f.uid); const sf = idx >= 0 ? r.fechas.find((x) => x.idx === idx) : null;
+  return sf ? sf.subtotal : null;
+}
+function detalleFecha(f) {
+  const reg = resumenRegalos(f), sub = subtotalCalc(f);
+  return [f.aQuien.trim() || "Sin destinatario", reg || "sin regalos", sub ? plata(sub) : ""].filter(Boolean).join(" · ");
+}
+const tituloFecha = (f) => `${f.fecha ? ddmmaaaa(f.fecha) : "Fecha sin elegir"} · ${ocasionTexto(f) || "Ocasión sin elegir"}${notaDiaReal(f.fechaOcasion)}`;
+function actualizarFechaUI(f) {
+  const card = document.querySelector(`.cal-fecha[data-uid="${f.uid}"]`); if (!card) return;
+  card.querySelector(".tit").textContent = tituloFecha(f);
+  card.querySelector(".det").textContent = detalleFecha(f);
+  const faltas = faltasFecha(f);
+  card.querySelector(".faltan").textContent = faltas.length && f.uid !== estado.fechaSel ? `Falta: ${faltas.join(", ")}.` : "";
+}
+function renderAtajos() {
+  const cal = estado.cat && estado.cat.calendario; if (!cal) return;
+  $("#atajos").innerHTML = `<span>Sumá de un clic:</span>` + cal.fechasComerciales.map((fc, i) => {
+    const ya = estado.fechas.some((f) => f.fecha === fc.fecha && f.ocasion === fc.ocasion);
+    return `<button class="atajo" type="button" data-atajo="${i}"${ya ? " disabled" : ""}>${ya ? "✓" : "+"} ${esc(fc.ocasion)} · ${fc.fechaOcasion && fc.fechaOcasion !== fc.fecha ? `${diaSemana(fc.fecha)} ${ddmm(fc.fecha)}${esc(notaDiaReal(fc.fechaOcasion))}` : ddmm(fc.fecha)}</button>`;
+  }).join("");
+}
+const EDITOR_FECHA = document.getElementById("cal-editor");   // referencia fija: se mueve entre tarjetas, nunca se recrea
+function dibujarCalendario() {
+  renderAtajos();
+  $("#cal-editor-holder").appendChild(EDITOR_FECHA);   // sacarlo ANTES de reescribir la lista (si no, se borra con el innerHTML)
+  $("#cal-lista").innerHTML = estado.fechas.map((f) => `
+    <div class="cal-fecha${f.uid === estado.fechaSel ? " sel" : ""}" data-uid="${f.uid}">
+      <div class="cab"><div><div class="tit"></div><div class="det"></div><div class="faltan"></div></div>
+        <div class="acc">${f.uid === estado.fechaSel ? "" : `<button type="button" data-cal-editar="${f.uid}">Editar</button>`}<button type="button" data-cal-quitar="${f.uid}" aria-label="Quitar esta fecha">Quitar</button></div></div>
+      ${f.uid === estado.fechaSel ? `<div class="cal-slot"></div>` : ""}
+    </div>`).join("");
+  estado.fechas.forEach(actualizarFechaUI);
+  const slot = document.querySelector(".cal-slot");
+  if (slot) slot.appendChild(EDITOR_FECHA);
+  const f = fechaActual();
+  if (f) {   // el editor muestra la fecha elegida
+    $("#cf-real").hidden = !f.fechaOcasion;
+    $("#cf-real").textContent = f.fechaOcasion ? `El ${ocasionTexto(f) || "día"} es el ${diaSemana(f.fechaOcasion)} ${ddmmaaaa(f.fechaOcasion)}: proponemos entregar el ${diaSemana(f.fecha || f.fechaOcasion)} ${ddmmaaaa(f.fecha)}, antes del fin de semana. Podés cambiar la fecha.` : "";
+    $("#cf-fecha").value = f.fecha; $("#cf-ocasion").value = f.ocasion; $("#cf-otro").value = f.otro; $("#cf-otro-wrap").hidden = f.ocasion !== "Otro";
+    $("#cf-quien").value = f.aQuien;
+    document.querySelector(`[name=cf-entrega][value="${f.entrega.modo}"]`).checked = true;
+    $("#cf-uno").hidden = f.entrega.modo !== "uno"; $("#cf-varios").hidden = f.entrega.modo !== "varios";
+    $("#cf-zona").value = f.entrega.zona; $("#cf-dir").value = f.entrega.direccion; $("#cf-ncaba").value = f.entrega.nCaba; $("#cf-ngba").value = f.entrega.nGba;
+  }
+  $("#cal-agregar").hidden = estado.fechas.length >= ((estado.cat && estado.cat.calendario && estado.cat.calendario.maxFechas) || 24);
+  renderEscalaCal();
+}
+function elegirFecha(uid) {
+  estado.fechaSel = uid; dibujarCalendario(); dibujar(); renderPasos();
+  const card = document.querySelector(`.cal-fecha[data-uid="${uid}"]`);
+  if (card) card.scrollIntoView({ behavior: REDUCIR_MOV ? "auto" : "smooth", block: "start" });
+}
+// Mueve el bloque del catálogo (tabs + grilla + bebidas) al paso 2 (simple) o al editor de la fecha (calendario).
+function moverCatalogo() { $(estado.modo === "calendario" ? "#slot-catalogo-cal" : "#slot-catalogo-simple").appendChild($("#catalogo")); }
+function setModo(m) {
+  if (estado.modo === m) return;
+  estado.modo = m;
+  if (m === "calendario" && !estado.fechas.length) nuevaFecha();
+  moverCatalogo();
+  $("#acc-cal").setAttribute("aria-pressed", String(m === "calendario"));
+  $("#modo-cal").hidden = m !== "calendario";
+  $("#aside-tit").textContent = m === "calendario" ? "Tu calendario" : "Tu propuesta";
+  dibujarCalendario();
+  if (estado.cat) dibujar();
+  estado.calc = null; limpiarAside();
+  activar(estado.wiz[m].activo);
+  recalcular();
 }
 
 // ===== Cálculo (server-side, con debounce) =====
-const entregaModo = () => document.querySelector("[name=entrega]:checked").value;
+const entregaCal = (f) => (f.entrega.modo === "uno"
+  ? { modo: "uno", zona: f.entrega.zona, direccion: f.entrega.direccion.trim() }
+  : { modo: "varios", nCaba: Math.max(0, +f.entrega.nCaba || 0), nGba: Math.max(0, +f.entrega.nGba || 0) });
 function cuerpo() {
+  if (estado.modo === "calendario") {
+    return { modo: "calendario", fechas: estado.fechas.map((f) => ({ fecha: f.fecha, fechaOcasion: f.fechaOcasion || undefined, ocasion: f.ocasion, ocasionOtro: f.otro.trim(), aQuien: f.aQuien.trim(), items: itemsDe(f), entrega: entregaCal(f) })) };
+  }
   return {
-    items: [
-      ...Object.entries(estado.q).filter(([, q]) => q > 0).map(([variant_id, cantidad]) => ({ variant_id, cantidad })),
-      ...Object.entries(estado.libre).filter(([, l]) => l.cantidad > 0 && Number(l.monto) > 0).map(([variant_id, l]) => ({ variant_id, cantidad: l.cantidad, monto: Number(l.monto) })),
-    ],
+    items: itemsDe(estado),
     cantidadRegalos: Math.max(1, parseInt($("#cant").value, 10) || 1),
     entrega: entregaModo() === "uno"
       ? { modo: "uno", zona: $("#zona-uno").value, direccion: $("#dir").value.trim() }
@@ -366,25 +737,50 @@ function recalcular() {
   clearTimeout(tCalc);
   $("#calc-estado").textContent = "Actualizando…";
   tCalc = setTimeout(async () => {
-    const n = ++estado.pedido;
+    const n = ++estado.pedido, modo = estado.modo, uids = estado.fechas.map((f) => f.uid);
     try {
       const d = await pedirJSON("/api/regalos/calcular", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo()) }, MSG.calcular);
-      if (n !== estado.pedido) return;   // llegó una respuesta vieja
+      if (n !== estado.pedido || modo !== estado.modo) return;   // llegó una respuesta vieja
       if (!VERSIONES_SOPORTADAS.includes(d.version)) throw new FormatoInesperado(`/calcular con version ${JSON.stringify(d.version)} (soportadas: ${VERSIONES_SOPORTADAS.join(", ")})`);
-      estado.calc = d; renderResumen();
+      if (modo === "calendario" && d.modo !== "calendario") {
+        // API todavía sin el calendario (a mitad de un deploy): aviso, sin reintentar el catálogo.
+        console.error("Regalos: la API no devolvió el modo calendario", { api: API, respuesta: d });
+        estado.calc = null; estado.calcError = true; limpiarAside();
+        $("#calc-estado").textContent = ""; $("#calc-error").textContent = MSG.actualizando; $("#calc-error").hidden = false; actualizarCTAs();
+        return;
+      }
+      estado.calc = d; estado.calcUids = uids; estado.calcError = false;
+      renderResumen();
       estado.reintentos = 0;   // catálogo y cálculo OK: se cierra el ciclo de reintentos
       $("#calc-estado").textContent = "";
     } catch (e) {
       if (n !== estado.pedido) return;
-      $("#calc-estado").textContent = "";
-      if (e instanceof FormatoInesperado) { $("#calc-error").textContent = MSG.actualizando; $("#calc-error").hidden = false; $("#b-sol").disabled = true; modoActualizando(e.message); return; }
+      $("#calc-estado").textContent = ""; estado.calcError = true;
+      if (e instanceof FormatoInesperado) { $("#calc-error").textContent = MSG.actualizando; $("#calc-error").hidden = false; actualizarCTAs(); modoActualizando(e.message); return; }
       const err = $("#calc-error"); err.textContent = mensajeCliente(e, MSG.calcular); err.hidden = false;
-      $("#b-sol").disabled = true;
+      actualizarCTAs();
     }
   }, 300);
 }
+function limpiarAside() {
+  $("#asig").className = "asig"; $("#asig").textContent = "";
+  $("#lineas").innerHTML = '<li class="vacio">Todavía no sumaste regalos</li>';
+  $("#t-reg").textContent = plata(0); $("#r-beb").hidden = true; $("#r-desc").hidden = true; $("#t-tot").textContent = plata(0); $("#t-por").textContent = "";
+  $("#cal-extra").hidden = true; $("#calc-error").hidden = true;
+  $("#l-tot").textContent = estado.modo === "calendario" ? "Total anual" : "Total";
+  actualizarCTAs();
+}
+function totalesAside(r, etiquetaDesc) {
+  $("#t-reg").textContent = plata(r.subtotalRegalos);
+  $("#r-beb").hidden = !r.subtotalBebidas; $("#t-beb").textContent = plata(r.subtotalBebidas);
+  $("#r-desc").hidden = !r.descuento; $("#l-desc").textContent = r.tramo ? `${etiquetaDesc} (${r.tramo.pct}%)` : ""; $("#t-desc").textContent = "−" + plata(r.descuento);
+  $("#t-tot").textContent = plata(r.total);
+  $("#t-por").textContent = r.regalos ? `${plata(r.porRegalo)} por regalo` : "";
+}
 function renderResumen() {
   const r = estado.calc; if (!r) return;
+  if (r.modo === "calendario") return renderResumenCal(r);
+  $("#l-tot").textContent = "Total"; $("#cal-extra").hidden = true;
   const a = $("#asig");
   if (!r.regalos) { a.className = "asig"; a.textContent = `Elegí qué mandar para tus ${r.cantidadRegalos} regalos.`; }
   else if (!r.faltan && !r.sobran) { a.className = "asig ok"; a.textContent = `${r.regalos} de ${r.cantidadRegalos} regalos asignados`; }
@@ -392,32 +788,57 @@ function renderResumen() {
   $("#lineas").innerHTML = r.lineas.length
     ? r.lineas.map((l) => `<li><span>${l.cantidad} × ${esc(nombreLinea(l))}</span><span>${plata(l.subtotal)}</span></li>`).join("")
     : '<li class="vacio">Todavía no sumaste regalos</li>';
-  $("#t-reg").textContent = plata(r.subtotalRegalos);
-  $("#r-beb").hidden = !r.subtotalBebidas; $("#t-beb").textContent = plata(r.subtotalBebidas);
-  $("#r-desc").hidden = !r.descuento; $("#l-desc").textContent = r.tramo ? `Descuento por volumen (${r.tramo.pct}%)` : ""; $("#t-desc").textContent = "−" + plata(r.descuento);
-  $("#t-tot").textContent = plata(r.total);
-  $("#t-por").textContent = r.regalos ? `${plata(r.porRegalo)} por regalo` : "";
+  totalesAside(r, "Descuento por volumen");
   const err = $("#calc-error"); err.hidden = !r.errores; err.textContent = r.errores ? r.errores.join(". ") : "";
-  const ok = r.regalos > 0 && !r.errores;
-  $("#b-sol").disabled = !ok;
-  $("#b-wa").style.pointerEvents = ok ? "" : "none"; $("#b-wa").style.opacity = ok ? "" : ".45";
   // pista: autocompletar destinatarios
   const nc = $("#n-caba"), ng = $("#n-gba");
-  if (entregaModo() === "varios" && (+nc.value) + (+ng.value) === 0 && r.fisicos) { nc.value = r.fisicos; recalcular(); }
+  if (entregaModo() === "varios" && (+nc.value) + (+ng.value) === 0 && r.fisicos) { nc.value = r.fisicos; recalcular(); renderPasos(); }
+  actualizarCTAs();
+}
+// Calendario: línea de tiempo por mes con cada fecha y su subtotal, total anual, sello y condición.
+function renderResumenCal(r) {
+  $("#l-tot").textContent = "Total anual";
+  const a = $("#asig");
+  a.className = r.regalos ? "asig ok" : "asig";
+  a.textContent = r.cantidadFechas ? `${r.cantidadFechas} ${r.cantidadFechas === 1 ? "fecha" : "fechas"} · ${r.regalos} regalos en el año` : "Sumá la primera fecha del calendario.";
+  let mes = null; const filas = [];
+  for (const f of r.fechas) {
+    const m = mesDe(f.fecha);
+    if (m !== mes) { filas.push(`<li class="mes">${esc(m)}</li>`); mes = m; }
+    filas.push(`<li><span class="cal-l">${f.fecha ? ddmm(f.fecha) : "—"} · ${esc(f.ocasionTexto || "Sin ocasión")}${esc(notaDiaReal(f.fechaOcasion))}${f.aQuien ? " · " + esc(f.aQuien) : ""}${f.regalos ? ` (${f.regalos})` : ""}</span><span>${plata(f.subtotal)}</span></li>`);
+  }
+  $("#lineas").innerHTML = filas.length ? filas.join("") : '<li class="vacio">Todavía no sumaste fechas</li>';
+  totalesAside(r, "Descuento anual");
+  $("#cal-extra").innerHTML = `<span class="sello">🔒 Precio congelado</span><p>${esc(r.condicion)}</p><p>Propuesta válida hasta el <strong>${ddmm(r.validaHasta)}</strong>.</p>`;
+  $("#cal-extra").hidden = false;
+  // Los faltantes de cada fecha ya se marcan en su tarjeta; acá solo lo que el servidor rechace con todo completo.
+  const err = $("#calc-error"); const mostrar = r.errores && !faltaEn("fechas");
+  err.hidden = !mostrar; err.textContent = mostrar ? r.errores.join(". ") : "";
+  estado.fechas.forEach(actualizarFechaUI);
+  actualizarCTAs();
+}
+// "Pedir la propuesta" y WhatsApp: con el cálculo OK y nombre + email (paso "Tus datos").
+function actualizarCTAs() {
+  const r = estado.calc, datosOk = !faltaEn("datos");
+  const calcOk = !!r && !estado.calcError && !r.errores && (estado.modo === "calendario" ? r.modo === "calendario" && r.cantidadFechas > 0 : r.modo !== "calendario" && r.regalos > 0);
+  const ok = calcOk && datosOk;
+  $("#b-sol").disabled = !ok;
+  $("#b-wa").style.pointerEvents = ok ? "" : "none"; $("#b-wa").style.opacity = ok ? "" : ".45"; $("#b-wa").setAttribute("aria-disabled", String(!ok));
+  $("#cta-nota").textContent = calcOk && !datosOk ? "Completá tu nombre y email en «Tus datos» para pedir la propuesta." : "";
 }
 
 // ===== Propuesta (lead + PDF) y WhatsApp =====
 function datosLead(canal) {
-  const b = cuerpo();
-  return {
-    ...b, canal,
+  const base = {
+    canal,
     cliente: { nombre: $("#nombre").value.trim(), email: $("#email").value.trim(), telefono: $("#tel").value.trim() },
     empresa: $("#empresa").value.trim(), cuit: $("#cuit").value.trim(), facturaA: $("#facA").checked,
-    fecha: (entregaModo() === "uno" ? $("#fecha").value : $("#fecha-v").value) || null,
     tarjeta: { conMensaje: $("#tarjeta").checked, mensaje: $("#tarjeta").checked ? $("#msg").value.trim() : "" },
     tarjetaPropia: $("#tarjeta-propia").checked,
     sitio_web: $("#sitio_web").value,   // honeypot: siempre vacío para una persona
   };
+  if (estado.modo === "calendario") return { ...cuerpo(), ...base };
+  return { ...cuerpo(), ...base, fecha: (entregaModo() === "uno" ? $("#fecha").value : $("#fecha-v").value) || null };
 }
 async function guardarLead(canal) {
   const d = await pedirJSON("/api/regalos/propuesta", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(datosLead(canal)) }, MSG.propuesta);
@@ -425,59 +846,87 @@ async function guardarLead(canal) {
   return d;
 }
 function mensajeWA(r, id) {
-  const entrega = entregaModo() === "uno" ? `Todos a un mismo lugar (${$("#zona-uno").value})` : "Cada uno a su dirección";
   const emp = $("#empresa").value.trim();
+  if (r.modo === "calendario") {
+    return `¡Hola! Quiero cerrar un calendario anual de regalos empresariales${emp ? " para " + emp : ""}.${id ? `\nPropuesta N° *#${id}*` : ""}\n\n` +
+      r.fechas.map((f) => `• ${ddmmaaaa(f.fecha)} · ${f.ocasionTexto}${notaDiaReal(f.fechaOcasion)} · ${f.aQuien}: ${resumenLineas(f.lineas)} · ${plata(f.subtotal)}`).join("\n") +
+      `\n\nTotal anual estimado sin envío: ${plata(r.total)}` + (r.tramo ? ` (con ${r.tramo.pct}% off por volumen anual)` : "") +
+      `\nPrecio congelado: ${r.condicion}\nPropuesta válida hasta el ${ddmm(r.validaHasta)}.` + (r.avisoEnvio ? `\n${r.avisoEnvio}` : "");
+  }
+  const entrega = entregaModo() === "uno" ? `Todos a un mismo lugar (${$("#zona-uno").value})` : "Cada uno a su dirección";
   return `¡Hola! Quiero cotizar regalos empresariales${emp ? " para " + emp : ""}.${id ? `\nPropuesta N° *#${id}*` : ""}\n\n` +
     r.lineas.map((l) => `• ${l.cantidad} × ${nombreLinea(l)}`).join("\n") +
     `\n\nEntrega: ${entrega}\nTotal estimado sin envío: ${plata(r.total)}` + (r.tramo ? ` (con ${r.tramo.pct}% off por volumen)` : "") +
     (r.avisoEnvio ? `\n${r.avisoEnvio}` : "");
 }
+// "Hablar con un especialista": mensaje armado con la empresa y lo que ya haya cargado.
+function mensajeEspecialista() {
+  const emp = $("#empresa").value.trim();
+  let t = `¡Hola! Quiero hablar con un especialista en regalos empresariales${emp ? ` para ${emp}` : ""}.`;
+  if (estado.modo === "calendario") {
+    const conAlgo = estado.fechas.filter((f) => !fechaVacia(f));
+    if (conAlgo.length) t += `\nEstoy armando un calendario anual con ${conAlgo.length} ${conAlgo.length === 1 ? "fecha" : "fechas"}:\n` +
+      conAlgo.map((f) => `• ${f.fecha ? ddmmaaaa(f.fecha) : "fecha a definir"} · ${ocasionTexto(f) || "ocasión a definir"}${f.aQuien.trim() ? " · " + f.aQuien.trim() : ""}${resumenRegalos(f) ? ": " + resumenRegalos(f) : ""}`).join("\n");
+  } else {
+    const c = contar(estado);
+    if (c.regalos) t += `\nYa armé: ${cantPedida()} regalos (${resumenRegalos(estado)}).`;
+    if (estado.wiz.simple.conf.has("entrega")) t += `\nEntrega: ${resumenPaso("entrega")}.`;
+  }
+  return t;
+}
 
 $("#b-sol").addEventListener("click", async () => {
-  if (!$("#nombre").value.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test($("#email").value.trim())) { toast("Completá tu nombre y email en el paso 5", true); $("#nombre").focus(); return; }
+  if (faltaEn("datos")) { toast("Completá tu nombre y email en «Tus datos»", true); return; }
   const b = $("#b-sol"); b.disabled = true; b.textContent = "Generando…";
   try {
     const d = await guardarLead("solicitar");
-    await generarPDF(d.calculo, d.id);
+    if (d.calculo && d.calculo.modo === "calendario") await generarPDFCalendario(d.calculo, d.id); else await generarPDF(d.calculo, d.id);
     toast(`¡Listo! Tu propuesta #${d.id} quedó registrada y te descargamos el PDF. Te contactamos a la brevedad.`);
   } catch (e) { toast(mensajeCliente(e, MSG.propuesta), true); }
-  finally { b.disabled = false; b.textContent = "Pedir la propuesta"; }
+  finally { b.textContent = "Pedir la propuesta"; actualizarCTAs(); }
 });
 
 $("#b-wa").addEventListener("click", async (ev) => {
   ev.preventDefault();
-  const r = estado.calc; if (!r || !r.regalos) return;
+  const r = estado.calc; if (!r || $("#b-sol").disabled) return;
   const ventana = window.open("about:blank", "_blank");   // se abre ya (si no, el navegador la bloquea)
   let id = null;
-  if ($("#nombre").value.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test($("#email").value.trim())) {
-    try { id = (await guardarLead("whatsapp")).id; } catch (_) { /* igual abre WhatsApp */ }
-  }
+  try { id = (await guardarLead("whatsapp")).id; } catch (_) { /* igual abre WhatsApp */ }
   const url = "https://wa.me/" + WA + "?text=" + encodeURIComponent(mensajeWA(r, id));
   if (ventana) ventana.location.href = url; else location.href = url;
 });
+$("#acc-esp").addEventListener("click", () => { $("#acc-esp").href = "https://wa.me/" + WA + "?text=" + encodeURIComponent(mensajeEspecialista()); });
 
-// PDF de la propuesta (mismo armado que el cotizador de eventos: jsPDF + fotos vía /api/cotizador/img)
-async function generarPDF(c, id) {
-  if (!window.jspdf) throw new Error("no cargó el generador de PDF");
-  const urls = [...new Set(c.lineas.map((l) => l.foto).filter(Boolean))];
+// PDF: fotos vía /api/cotizador/img (mismo armado que el cotizador de eventos)
+async function fotosPDF(lineas) {
+  const urls = [...new Set(lineas.map((l) => l.foto).filter(Boolean))];
   const cache = {};
   await Promise.all(urls.map(async (u) => {
     try { const r = await fetch(API + "/api/cotizador/img?u=" + encodeURIComponent(u)); const d = await r.json(); if (d.dataUrl) cache[u] = d.dataUrl; } catch (_) {}
   }));
+  return cache;
+}
+function nuevoPDF(subtitulo, derecha) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const W = 210;
-  const empresa = $("#empresa").value.trim();
   const header = () => {
     doc.setFillColor(246, 139, 50); doc.rect(0, 0, W, 30, "F");
     doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(22);
     doc.text("Piccadely", 15, 16);
     doc.setFont("helvetica", "normal"); doc.setFontSize(11);
-    doc.text("Propuesta de Regalos Empresariales", 15, 23);
-    doc.text(new Date().toLocaleDateString("es-AR") + (id ? `  ·  N° ${id}` : ""), W - 15, 16, { align: "right" });
-    doc.text(`${c.regalos} regalos${empresa ? " · " + empresa : ""}`, W - 15, 23, { align: "right" });
+    doc.text(subtitulo, 15, 23);
+    doc.text(derecha[0], W - 15, 16, { align: "right" });
+    doc.text(derecha[1], W - 15, 23, { align: "right" });
   };
   header();
+  return { doc, W, header };
+}
+async function generarPDF(c, id) {
+  if (!window.jspdf) throw new Error("no cargó el generador de PDF");
+  const cache = await fotosPDF(c.lineas);
+  const empresa = $("#empresa").value.trim();
+  const { doc, W, header } = nuevoPDF("Propuesta de Regalos Empresariales", [new Date().toLocaleDateString("es-AR") + (id ? `  ·  N° ${id}` : ""), `${c.regalos} regalos${empresa ? " · " + empresa : ""}`]);
   let y = 44; doc.setTextColor(43, 32, 24);
   doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.text("Detalle", 15, y); y += 9;
   doc.setFont("helvetica", "normal"); doc.setFontSize(10);
@@ -510,8 +959,7 @@ async function generarPDF(c, id) {
   const ent = c.envioDetalle;
   const notas = [
     ent ? (ent.modo === "uno" ? `Entrega: todos a un mismo lugar (${ent.zona})${$("#dir").value.trim() ? " · " + $("#dir").value.trim() : ""}.` : `Entrega: cada uno a su casa (${ent.nCaba} en CABA, ${ent.nGba} en GBA).`) : "Las giftcards se envían por mail.",
-    $("#tarjeta").checked ? `Tarjeta con mensaje${$("#msg").value.trim() ? ": “" + $("#msg").value.trim() + "”" : ""}.` : "",
-    $("#tarjeta-propia").checked ? "Sumamos tu tarjeta personal a cada regalo." : "",
+    ...notasPersonalizacion(),
   ].filter(Boolean);
   doc.setFontSize(10); doc.setTextColor(43, 32, 24);
   for (const n of notas) { const t = doc.splitTextToSize(n, W - 30); if (y + t.length * 5 > 280) { doc.addPage(); header(); y = 44; } doc.text(t, 15, y); y += t.length * 5 + 2; }
@@ -520,37 +968,136 @@ async function generarPDF(c, id) {
   doc.text("Corporativo: 11 6239-3921 · corporativo@piccadely.com", 15, 291);
   doc.save(`propuesta-regalos-piccadely${id ? "-" + id : ""}.pdf`);
 }
+const notasPersonalizacion = () => [
+  $("#tarjeta").checked ? `Tarjeta con mensaje${$("#msg").value.trim() ? ": “" + $("#msg").value.trim() + "”" : ""}.` : "",
+  $("#tarjeta-propia").checked ? "Sumamos tu tarjeta personal a cada regalo." : "",
+];
+// PDF del calendario: línea de tiempo por mes (cada fecha con sus regalos y subtotal), total anual, condición y validez.
+async function generarPDFCalendario(c, id) {
+  if (!window.jspdf) throw new Error("no cargó el generador de PDF");
+  const empresa = $("#empresa").value.trim();
+  const { doc, W, header } = nuevoPDF("Calendario anual de regalos", [new Date().toLocaleDateString("es-AR") + (id ? `  ·  N° ${id}` : ""), `${c.cantidadFechas} fechas · ${c.regalos} regalos${empresa ? " · " + empresa : ""}`]);
+  let y = 44;
+  const espacio = (h) => { if (y + h > 278) { doc.addPage(); header(); y = 44; } };
+  doc.setTextColor(43, 32, 24);
+  let mes = null;
+  for (const f of c.fechas) {
+    const m = mesDe(f.fecha);
+    if (m !== mes) {
+      espacio(16); mes = m;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(217, 112, 28);
+      doc.text(m.charAt(0).toUpperCase() + m.slice(1), 15, y); y += 7; doc.setTextColor(43, 32, 24);
+    }
+    espacio(12 + f.lineas.length * 6);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(10.5);
+    doc.text(doc.splitTextToSize(`${ddmmaaaa(f.fecha)} · ${f.ocasionTexto}${notaDiaReal(f.fechaOcasion)} · ${f.aQuien}`, 140), 15, y);
+    doc.text(plata(f.subtotal), W - 15, y, { align: "right" }); y += 6;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
+    for (const l of f.lineas) {
+      espacio(6);
+      doc.text(doc.splitTextToSize(`${l.cantidad} x ${nombreLinea(l)}${l.extra ? " · bebida" : ""}`, 120), 20, y);
+      doc.text(`${plata(l.precio)} c/u`, 160, y, { align: "right" }); doc.text(plata(l.subtotal), W - 15, y, { align: "right" }); y += 5.5;
+    }
+    const ent = f.envioDetalle;
+    doc.setTextColor(138, 122, 107);
+    doc.text(ent.modo === "uno" ? `Entrega: todos a ${ent.zona}${ent.direccion ? " · " + ent.direccion : ""}` : `Entrega: cada uno a su casa (${ent.nCaba} CABA, ${ent.nGba} GBA)`, 20, y);
+    doc.setTextColor(43, 32, 24); y += 8;
+  }
+  doc.setDrawColor(236, 226, 212); doc.line(15, y - 3, W - 15, y - 3); y += 4;
+  const fila = (txt, monto, negrita) => {
+    espacio(9);
+    doc.setFont("helvetica", negrita ? "bold" : "normal"); doc.setFontSize(negrita ? 13 : 10);
+    doc.text(txt, 120, y, { align: "right" }); doc.text(monto, W - 15, y, { align: "right" }); y += negrita ? 9 : 7;
+  };
+  fila("Regalos del año", plata(c.subtotalRegalos));
+  if (c.subtotalBebidas) fila("Bebidas", plata(c.subtotalBebidas));
+  if (c.descuento) fila(`Descuento por volumen anual (${c.tramo.pct}%)`, "-" + plata(c.descuento));
+  fila("Total anual estimado sin envío", plata(c.total), true);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.text(`${plata(c.porRegalo)} por regalo`, W - 15, y, { align: "right" }); y += 10;
+  const bloque = (txt, rgb, negrita, tam) => { doc.setFont("helvetica", negrita ? "bold" : "normal"); doc.setFontSize(tam); doc.setTextColor(...rgb); const t = doc.splitTextToSize(txt, W - 30); espacio(t.length * 5.5 + 3); doc.text(t, 15, y); y += t.length * 5.5 + 3; };
+  bloque(`PRECIO CONGELADO. ${c.condicion}`, [217, 112, 28], true, 11);
+  bloque(`Propuesta del ${ddmmaaaa(c.fechaPropuesta)}, válida hasta el ${ddmmaaaa(c.validaHasta)}.`, [43, 32, 24], true, 10);
+  if (c.avisoEnvio) bloque(c.avisoEnvio, [217, 112, 28], true, 10);
+  for (const n of notasPersonalizacion().filter(Boolean)) bloque(n, [43, 32, 24], false, 10);
+  doc.setFontSize(9); doc.setTextColor(138, 122, 107); doc.setFont("helvetica", "normal");
+  doc.text("Te confirmamos disponibilidad de cada fecha antes de cobrar.", 15, 285);
+  doc.text("Corporativo: 11 6239-3921 · corporativo@piccadely.com", 15, 291);
+  doc.save(`calendario-regalos-piccadely${id ? "-" + id : ""}.pdf`);
+}
 
 function toast(m, error) { const t = $("#toast"); t.textContent = m; t.classList.toggle("error", !!error); t.classList.add("show"); clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove("show"), 4500); }
 
 // ===== Eventos =====
 document.addEventListener("click", (e) => {
-  const t = e.target.closest("button"); if (!t || !estado.cat) return;
-  if (t.dataset.cant) { const i = $("#cant"); i.value = Math.max(1, (+i.value || 0) + +t.dataset.cant); renderEscala(); recalcular(); }
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.dataset.sig) { avanzar(t.dataset.sig); return; }
+  if (t.dataset.editar) { activar(t.dataset.editar); return; }
+  if (t.dataset.calEditar) { elegirFecha(+t.dataset.calEditar); return; }
+  if (t.dataset.calQuitar) {
+    const uid = +t.dataset.calQuitar, f = estado.fechas.find((x) => x.uid === uid);
+    if (f && !fechaVacia(f) && !confirm(`¿Quitar ${tituloFecha(f)} del calendario?`)) return;
+    estado.fechas = estado.fechas.filter((x) => x.uid !== uid);
+    if (estado.fechaSel === uid) estado.fechaSel = null;
+    dibujarCalendario(); if (estado.cat) dibujar(); alCambiar(); recalcular(); return;
+  }
+  if (t.dataset.atajo != null && estado.cat) {
+    const fc = estado.cat.calendario.fechasComerciales[+t.dataset.atajo];
+    const f = fechaActual();
+    const datos = { fecha: fc.fecha, ocasion: fc.ocasion, fechaOcasion: fc.fechaOcasion && fc.fechaOcasion !== fc.fecha ? fc.fechaOcasion : "" };
+    if (f && fechaVacia(f)) Object.assign(f, datos); else nuevaFecha(datos);
+    dibujarCalendario(); dibujar(); alCambiar(); recalcular();
+    $("#cf-quien").focus(); return;
+  }
+  if (!estado.cat) return;
+  if (t.dataset.cant) { const i = $("#cant"); i.value = Math.max(1, (+i.value || 0) + +t.dataset.cant); renderEscala(); alCambiar(); recalcular(); }
   if (t.dataset.e) { estado.estilo = t.dataset.e; dibujar(); }
-  if (t.dataset.q) { const id = t.dataset.q; setCantidad(id, cantDe(id) + +t.dataset.d); dibujar(); recalcular(); }
+  if (t.dataset.q) { const id = t.dataset.q; setCantidad(id, cantDe(id) + +t.dataset.d); dibujar(); alCambiar(); recalcular(); }
 });
 document.addEventListener("change", (e) => {
-  if (e.target.dataset.in) { setCantidad(e.target.dataset.in, parseInt(e.target.value, 10) || 0); dibujar(); recalcular(); }
+  if (e.target.dataset.in) { setCantidad(e.target.dataset.in, parseInt(e.target.value, 10) || 0); dibujar(); alCambiar(); recalcular(); }
   if (e.target.dataset.sel) { estado.sel[e.target.dataset.sel] = e.target.value; dibujar(); }
-  if (e.target.dataset.monto) dibujar();
+  if (e.target.dataset.monto) { dibujar(); alCambiar(); }
 });
-$("#cant").addEventListener("input", () => { renderEscala(); recalcular(); });
+$("#cant").addEventListener("input", () => { renderEscala(); alCambiar(); recalcular(); });
+$("#b-ajustar").addEventListener("click", () => { $("#cant").value = +$("#b-ajustar").dataset.n; renderEscala(); alCambiar(); recalcular(); });
 // Monto libre: se guarda y recalcula mientras escribe (sin re-dibujar, para no perder el foco).
 document.addEventListener("input", (e) => {
   const id = e.target.dataset && e.target.dataset.monto; if (!id) return;
+  const s = selActual(); if (s === SIN_SELECCION) return;
   const m = parseInt(e.target.value, 10);
-  estado.libre[id] = { monto: m > 0 ? m : "", cantidad: cantDe(id) || (m > 0 ? 1 : 0) };
+  s.libre[id] = { monto: m > 0 ? m : "", cantidad: cantDe(id) || (m > 0 ? 1 : 0) };
   const p = document.querySelector(`[data-precio="${CSS.escape(id)}"]`); if (p) p.textContent = m > 0 ? plata(m) : "Elegí el monto";
   const qi = document.querySelector(`[data-in="${CSS.escape(id)}"]`); if (qi) qi.value = cantDe(id);
-  recalcular();
+  alCambiar(); recalcular();
 });
 $("#presu").addEventListener("change", () => dibujar());
 document.querySelectorAll("[name=entrega]").forEach((r) => r.addEventListener("change", () => {
-  const v = entregaModo(); $("#sub-uno").hidden = v !== "uno"; $("#sub-varios").hidden = v !== "varios"; recalcular();
+  const v = entregaModo(); $("#sub-uno").hidden = v !== "uno"; $("#sub-varios").hidden = v !== "varios"; alCambiar(); recalcular();
 }));
-["#zona-uno", "#n-caba", "#n-gba"].forEach((s) => $(s).addEventListener("input", recalcular));
-$("#tarjeta").addEventListener("change", () => { $("#msg-wrap").hidden = !$("#tarjeta").checked; });
+["#zona-uno", "#n-caba", "#n-gba", "#dir"].forEach((s) => $(s).addEventListener("input", () => { alCambiar(); recalcular(); }));
+$("#tarjeta").addEventListener("change", () => { $("#msg-wrap").hidden = !$("#tarjeta").checked; renderPasos(); });
+["#msg", "#tarjeta-propia"].forEach((s) => $(s).addEventListener("input", renderPasos));
+["#nombre", "#email"].forEach((s) => $(s).addEventListener("input", renderPasos));
+
+// Modo calendario
+$("#acc-cal").addEventListener("click", () => setModo(estado.modo === "calendario" ? "simple" : "calendario"));
+$("#salir-cal").addEventListener("click", () => setModo("simple"));
+$("#cal-agregar").addEventListener("click", () => { nuevaFecha(); dibujarCalendario(); if (estado.cat) dibujar(); alCambiar(); recalcular(); $("#cf-fecha").focus(); });
+$("#cf-listo").addEventListener("click", () => { const uid = estado.fechaSel; estado.fechaSel = null; dibujarCalendario(); alCambiar(); const c = document.querySelector(`.cal-fecha[data-uid="${uid}"]`); if (c) c.scrollIntoView({ behavior: REDUCIR_MOV ? "auto" : "smooth", block: "nearest" }); });
+const enFecha = (fn) => () => { const f = fechaActual(); if (!f) return; fn(f); actualizarFechaUI(f); alCambiar(); recalcular(); };
+$("#cf-fecha").addEventListener("input", enFecha((f) => { f.fecha = $("#cf-fecha").value; }));
+$("#cf-ocasion").addEventListener("change", enFecha((f) => { f.ocasion = $("#cf-ocasion").value; f.fechaOcasion = ""; $("#cf-real").hidden = true; $("#cf-otro-wrap").hidden = f.ocasion !== "Otro"; }));
+$("#cf-otro").addEventListener("input", enFecha((f) => { f.otro = $("#cf-otro").value; }));
+$("#cf-quien").addEventListener("input", enFecha((f) => { f.aQuien = $("#cf-quien").value; }));
+document.querySelectorAll("[name=cf-entrega]").forEach((r) => r.addEventListener("change", enFecha((f) => {
+  f.entrega.modo = document.querySelector("[name=cf-entrega]:checked").value;
+  $("#cf-uno").hidden = f.entrega.modo !== "uno"; $("#cf-varios").hidden = f.entrega.modo !== "varios";
+  if (f.entrega.modo === "varios" && !(+f.entrega.nCaba || +f.entrega.nGba)) { const n = contar(f).regalos; if (n) { f.entrega.nCaba = n; $("#cf-ncaba").value = n; } }
+})));
+$("#cf-zona").addEventListener("change", enFecha((f) => { f.entrega.zona = $("#cf-zona").value; }));
+$("#cf-dir").addEventListener("input", enFecha((f) => { f.entrega.direccion = $("#cf-dir").value; }));
+$("#cf-ncaba").addEventListener("input", enFecha((f) => { f.entrega.nCaba = Math.max(0, parseInt($("#cf-ncaba").value, 10) || 0); }));
+$("#cf-ngba").addEventListener("input", enFecha((f) => { f.entrega.nGba = Math.max(0, parseInt($("#cf-ngba").value, 10) || 0); }));
 
 // fecha mínima: pasado mañana
 const min = new Date(Date.now() + 2 * 864e5).toISOString().slice(0, 10);
@@ -573,7 +1120,6 @@ function dibujar() {
 }
 // Formato/versión que este front no entiende, o error al dibujar: mensaje + reintento a los 30 s (máx. 3).
 let tReintento = null;
-estado.reintentos = 0;
 function modoActualizando(detalle, error) {
   console.error("Regalos: catálogo no disponible en el formato esperado", { api: API, detalle, intento: estado.reintentos, error });
   $("#cat-ok").hidden = true; $("#cat-cargando").hidden = false; $("#b-sol").disabled = true;
@@ -591,17 +1137,29 @@ async function cargarCatalogo() {
     const d = await pedirJSON("/api/regalos/catalogo", undefined, MSG.catalogo);
     validarCatalogo(d);
     estado.cat = d;
-    estado.libres = new Set(d.estilos.flatMap((e) => tarjetasDe(e)).filter((t) => t.montoLibre).map((t) => t.variantes[0].variant_id));
+    const todas = d.estilos.flatMap((e) => tarjetasDe(e).map((t) => [e, t]));
+    estado.libres = new Set(todas.filter(([, t]) => t.montoLibre).map(([, t]) => t.variantes[0].variant_id));
+    estado.extras = new Set(todas.filter(([e]) => e.extra).flatMap(([, t]) => t.variantes.map((v) => v.variant_id)));
+    estado.estiloDe = new Map(todas.flatMap(([e, t]) => t.variantes.map((v) => [v.variant_id, e.id])));
+    // Calendario: solo si la API ya lo ofrece (un backend anterior no lo manda → el acceso queda oculto).
+    $("#acc-cal").hidden = !d.calendario;
+    if (d.calendario) {
+      $("#cf-ocasion").innerHTML = `<option value="">Elegí la ocasión</option>` + d.calendario.ocasiones.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("");
+      $("#cf-fecha").min = d.calendario.fechaMin; $("#cf-fecha").max = d.calendario.fechaMax;
+    }
     const conItems = d.estilos.filter((e) => !e.extra && tarjetasDe(e).length);
     if (!estado.estilo || !conItems.some((e) => e.id === estado.estilo)) estado.estilo = (conItems.find((e) => e.id === "caja") || conItems[0] || d.estilos[0]).id;
     renderZonas(); renderEscala(); renderTabs(); renderGrilla();
+    if (estado.modo === "calendario") dibujarCalendario();
     $("#cat-cargando").hidden = true; $("#cat-ok").hidden = false;
+    alCambiar();
     recalcular();   // los reintentos vuelven a 0 recién cuando /calcular también responde bien
   } catch (e) {
     if (e instanceof ErrorAmable) { $("#cat-cargando").hidden = false; $("#cat-ok").hidden = true; $("#cat-cargando").textContent = e.message; return; }
     modoActualizando(e instanceof FormatoInesperado ? e.message : `error al preparar el catálogo: ${e && e.message}`, e);
   }
 }
+renderPasos();
 cargarCatalogo();
 </script>
 </body>
