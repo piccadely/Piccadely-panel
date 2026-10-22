@@ -60,7 +60,7 @@
   "calendario": {
     "_comentario": "Modo 'Calendario anual' de regalos.html. Precios congelados al día de la propuesta para todas las fechas (pagando el año por adelantado). fechas_comerciales: fechas EXACTAS por año (Padre = 3er domingo de junio, Madre = 3er domingo de octubre en Argentina); el cotizador ofrece la próxima de cada una dentro de los 12 meses. Sumá años nuevos acá.",
     "condicion": "Pagando el año por adelantado, te congelamos los precios de hoy para todas las fechas.",
-    "max_fechas": 24,
+    "max_fechas": 200,
     "ocasiones": ["Cumpleaños", "Aniversario laboral", "Día de la Mujer", "Día del Padre", "Día del Amigo", "Día de la Madre", "Fin de año", "Otro"],
     "fechas_comerciales": [
       { "ocasion": "Día de la Mujer", "fechas": ["2026-03-08", "2027-03-08", "2028-03-08"] },
