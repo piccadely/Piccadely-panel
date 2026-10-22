@@ -284,6 +284,10 @@ export function calcularCalendario(catalogo, body, tar = tarifas(), hoy = hoyAR(
     // Día real de la ocasión cuando la entrega se adelantó (atajo en fin de semana). Solo informativo.
     const fechaOcasion = esISO(f?.fechaOcasion) && f.fechaOcasion !== fecha ? f.fechaOcasion : null;
     const aQuien = String(f?.aQuien || "").trim().slice(0, 80);
+    // Carga masiva de cumpleaños: solo lo que cargó el cliente (nombre + dd/mm). La dirección, si la cargó, va en la entrega.
+    const cumpleaneros = (Array.isArray(f?.cumpleaneros) ? f.cumpleaneros : []).slice(0, 300)
+      .map((c) => ({ nombre: String(c?.nombre || "").trim().slice(0, 80), cumple: /^\d{2}\/\d{2}$/.test(String(c?.cumple || "")) ? c.cumple : null }))
+      .filter((c) => c.nombre);
     if (!aQuien) errs.push("indicá a quién va (una persona o un grupo)");
     const lineas = lineasDe(catalogo, f?.items, errs);
     const regalos = lineas.filter((l) => !l.extra).reduce((a, l) => a + l.cantidad, 0);
@@ -294,7 +298,7 @@ export function calcularCalendario(catalogo, body, tar = tarifas(), hoy = hoyAR(
     const subtotalBebidas = lineas.filter((l) => l.extra).reduce((a, l) => a + l.subtotal, 0);
     if (errs.length) errores.push(`Fecha ${idx + 1}${fecha ? ` (${ddmm(fecha)})` : ""}: ${errs.join(", ")}`);
     return {
-      idx, fecha, ...(fechaOcasion ? { fechaOcasion } : {}), ocasion, ocasionOtro, ocasionTexto: ocasion === "Otro" ? ocasionOtro : ocasion, aQuien, lineas, regalos,
+      idx, fecha, ...(fechaOcasion ? { fechaOcasion } : {}), ocasion, ocasionOtro, ocasionTexto: ocasion === "Otro" ? ocasionOtro : ocasion, aQuien, ...(cumpleaneros.length ? { cumpleaneros } : {}), lineas, regalos,
       fisicos: lineas.filter((l) => !l.extra && !l.digital).reduce((a, l) => a + l.cantidad, 0),
       subtotalRegalos, subtotalBebidas, subtotal: subtotalRegalos + subtotalBebidas, envioDetalle, ...(errs.length ? { errores: errs } : {}),
     };
@@ -332,7 +336,7 @@ async function notificarRegalos(mailTransporter, lead) {
       <p>Regalos ${pesos(c.subtotalRegalos)}${c.subtotalBebidas ? " · Bebidas " + pesos(c.subtotalBebidas) : ""}${c.descuento ? ` · Descuento ${c.tramo.pct}% −${pesos(c.descuento)}` : ""}<br>
          <b>Total estimado sin envío: ${pesos(c.total)}</b> (${pesos(c.porRegalo)} por regalo)<br>
          <b style="color:#c0392b">${esc(TEXTO_SIN_ENVIO)}</b></p>
-      <p><b>Tarjeta:</b> ${lead.tarjeta?.conMensaje ? `con mensaje: “${esc(lead.tarjeta.mensaje || "")}”` : "sin mensaje"}${lead.tarjetaPropia ? " · <b>envía su tarjeta personal</b>" : ""}</p>
+      <p><b>Tarjeta:</b> ${lead.tarjeta?.conMensaje ? `con mensaje: “${esc(lead.tarjeta.mensaje || "")}”` : "sin mensaje"}${lead.tarjetaPropia ? " · <b>Tarjeta personal: imprimir diseño del cliente</b>" : ""}</p>
       <p style="color:#999;font-size:12px">Piccadely · Cotizador de Regalos Empresariales</p>`;
     await mailTransporter.sendMail({
       from: `Piccadely <${process.env.GMAIL_USER}>`,
@@ -364,14 +368,14 @@ async function notificarCalendario(mailTransporter, lead) {
       <p><b>${c.cantidadFechas} fechas · ${c.regalos} regalos en el año</b></p>
       ${[...porMes].map(([mes, fs]) => `<h3 style="margin:14px 0 4px;text-transform:capitalize">${esc(mes)}</h3>${fs.map((f) => `
         <p style="margin:4px 0"><b>${ddmm(f.fecha)} · ${esc(f.ocasionTexto)}${f.fechaOcasion ? ` (es el ${diaSemana(f.fechaOcasion)} ${ddmm(f.fechaOcasion)})` : ""} · ${esc(f.aQuien)}</b> — ${f.regalos} regalos · ${pesos(f.subtotal)}<br>
-        <span style="color:#666">Entrega: ${esc(entregaTexto(f.envioDetalle))}</span></p>
+        <span style="color:#666">Entrega: ${esc(entregaTexto(f.envioDetalle))}</span>${f.cumpleaneros ? `<br><span style="color:#666">🎂 Cumpleañeros: ${f.cumpleaneros.map((c) => `${esc(c.nombre)}${c.cumple ? ` (${c.cumple})` : ""}`).join(", ")}</span>` : ""}</p>
         <ul style="margin:2px 0 8px">${f.lineas.map((l) => `<li>${linea(l)}</li>`).join("")}</ul>`).join("")}`).join("")}
       <p>Regalos ${pesos(c.subtotalRegalos)}${c.subtotalBebidas ? " · Bebidas " + pesos(c.subtotalBebidas) : ""}${c.descuento ? ` · Descuento por volumen anual ${c.tramo.pct}% −${pesos(c.descuento)}` : ""}<br>
          <b>Total anual estimado sin envío: ${pesos(c.total)}</b> (${pesos(c.porRegalo)} por regalo)<br>
          <b>🔒 Precio congelado:</b> ${esc(c.condicion)}<br>
          Propuesta del ${ddmm(c.fechaPropuesta)}/${c.fechaPropuesta.slice(0, 4)}, válida hasta el ${ddmm(c.validaHasta)}/${c.validaHasta.slice(0, 4)}.<br>
          <b style="color:#c0392b">${esc(TEXTO_SIN_ENVIO)}</b></p>
-      <p><b>Tarjeta:</b> ${lead.tarjeta?.conMensaje ? `con mensaje: “${esc(lead.tarjeta.mensaje || "")}”` : "sin mensaje"}${lead.tarjetaPropia ? " · <b>envía su tarjeta personal</b>" : ""}</p>
+      <p><b>Tarjeta:</b> ${lead.tarjeta?.conMensaje ? `con mensaje: “${esc(lead.tarjeta.mensaje || "")}”` : "sin mensaje"}${lead.tarjetaPropia ? " · <b>Tarjeta personal: imprimir diseño del cliente</b>" : ""}</p>
       <p style="color:#999;font-size:12px">Piccadely · Cotizador de Regalos Empresariales · Calendario anual</p>`;
     await mailTransporter.sendMail({
       from: `Piccadely <${process.env.GMAIL_USER}>`,

@@ -1628,6 +1628,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
                 {(f.lineas || []).map((l, j) => <li key={j} style={{ fontSize: 12 }}>{l.cantidad}× {l.opcion && !l.digital && l.opcion !== l.nombre ? `${l.opcion} · ` : ""}{l.nombre}{l.variante ? ` (${l.variante})` : ""}{l.extra ? " · bebida" : ""} · {pesos(l.precio)} c/u congelado{l.sinProductoTN ? <span style={{ color: "#b45309" }}> · sin producto en TN</span> : null}</li>)}
               </ul>
               <div style={{ fontSize: 12, color: "#666" }}>🚚 {entrega(f.envioDetalle)}</div>
+              {f.cumpleaneros?.length > 0 && <div style={{ fontSize: 12, color: "#666" }}>🎂 {f.cumpleaneros.map((x) => `${x.nombre}${x.cumple ? ` (${x.cumple})` : ""}`).join(", ")}</div>}
             </div>
           ))}
           <div style={{ fontSize: 12, color: "#555", marginTop: 4 }}>
@@ -1636,7 +1637,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
           <div style={{ fontWeight: 700, color: REGALOS_BADGE.color, margin: "4px 0" }}>Total anual sin envío {pesos(o.total ?? c.total_elegido)}{o.porRegalo ? ` · ${pesos(o.porRegalo)} por regalo` : ""}</div>
           <div style={{ fontSize: 12, color: "#555" }}>🔒 Precio congelado al {fecha(o.fechaPropuesta)}{o.condicion ? ` · ${o.condicion}` : ""} · Válida hasta el {fecha(o.validaHasta)}</div>
           <div style={{ fontSize: 12, color: "#555" }}>
-            💌 {o.tarjeta?.conMensaje ? `Tarjeta con mensaje${o.tarjeta.mensaje ? `: “${o.tarjeta.mensaje}”` : ""}` : "Sin tarjeta con mensaje"}{o.tarjetaPropia ? " · envía su tarjeta personal" : ""}
+            💌 {o.tarjeta?.conMensaje ? `Tarjeta con mensaje${o.tarjeta.mensaje ? `: “${o.tarjeta.mensaje}”` : ""}` : "Sin tarjeta con mensaje"}{o.tarjetaPropia ? " · Tarjeta personal: imprimir diseño del cliente" : ""}
           </div>
           {(o.cuit || o.facturaA) && <div style={{ fontSize: 12, color: "#555" }}>🧾 {o.cuit ? `CUIT ${o.cuit}` : ""}{o.cuit && o.facturaA ? " · " : ""}{o.facturaA ? "Factura A" : ""}</div>}
         </div>
@@ -1664,7 +1665,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
           <div style={{ fontWeight: 700, color: REGALOS_BADGE.color, margin: "4px 0" }}>Total{o.incluyeEnvio === false ? " sin envío" : ""} {pesos(o.total ?? c.total_elegido)}{o.porRegalo ? ` · ${pesos(o.porRegalo)} por regalo` : ""}</div>
           <div style={{ fontSize: 12, color: "#555" }}>🚚 {entregaTxt}</div>
           <div style={{ fontSize: 12, color: "#555" }}>
-            💌 {o.tarjeta?.conMensaje ? `Tarjeta con mensaje${o.tarjeta.mensaje ? `: “${o.tarjeta.mensaje}”` : ""}` : "Sin tarjeta con mensaje"}{o.tarjetaPropia ? " · envía su tarjeta personal" : ""}
+            💌 {o.tarjeta?.conMensaje ? `Tarjeta con mensaje${o.tarjeta.mensaje ? `: “${o.tarjeta.mensaje}”` : ""}` : "Sin tarjeta con mensaje"}{o.tarjetaPropia ? " · Tarjeta personal: imprimir diseño del cliente" : ""}
           </div>
           {(o.cuit || o.facturaA) && <div style={{ fontSize: 12, color: "#555" }}>🧾 {o.cuit ? `CUIT ${o.cuit}` : ""}{o.cuit && o.facturaA ? " · " : ""}{o.facturaA ? "Factura A" : ""}</div>}
         </div>
