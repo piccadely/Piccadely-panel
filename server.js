@@ -476,6 +476,29 @@ async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_mov_tesoreria_cuenta_fecha ON movimientos_tesoreria (cuenta_id, fecha);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_mov_tesoreria_origen ON movimientos_tesoreria (origen_tipo, origen_id);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_mov_tesoreria_transferencia ON movimientos_tesoreria (transferencia_id) WHERE transferencia_id IS NOT NULL;`);
+  // TESORERÍA Entrega B1: una cuenta como origen de pagos de compras y gastos comunes (caja O cuenta, nunca las dos).
+  await pool.query(`ALTER TABLE pagos_compra ADD COLUMN IF NOT EXISTS cuenta_id INTEGER REFERENCES cuentas_tesoreria(id);`);
+  await pool.query(`ALTER TABLE gastos_comunes ADD COLUMN IF NOT EXISTS cuenta_id INTEGER REFERENCES cuentas_tesoreria(id);`);
+  await pool.query(`DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pagos_compra_un_origen_chk') THEN
+      ALTER TABLE pagos_compra ADD CONSTRAINT pagos_compra_un_origen_chk CHECK (caja_origen IS NULL OR cuenta_id IS NULL);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'gastos_comunes_un_origen_chk') THEN
+      ALTER TABLE gastos_comunes ADD CONSTRAINT gastos_comunes_un_origen_chk CHECK (caja_origen IS NULL OR cuenta_id IS NULL);
+    END IF;
+  END $$;`);
+  // El pago de factura es total: un solo pago ACTIVO por factura.
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS ux_pagos_compra_factura_activo ON pagos_compra (factura_id) WHERE tipo = 'factura' AND estado = 'activo';`);
+  // Backfill idempotente: cada factura 'pagada' sin su fila en pagos_compra → fila tipo 'factura' con los datos del pago
+  // que guardaba facturas_compra (desde acá el listado de pagos y la cuenta corriente leen solo pagos_compra).
+  await pool.query(`INSERT INTO pagos_compra (tipo, proveedor_id, factura_id, fecha, monto, medio_pago, caja_origen, concepto, usuario)
+    SELECT 'factura', fc.proveedor_id, fc.id, COALESCE(NULLIF(btrim(fc.fecha_pago), ''), fc.fecha), fc.total,
+           COALESCE(NULLIF(btrim(fc.medio_pago), ''), 'Sin dato'), NULLIF(btrim(fc.caja_origen), ''),
+           btrim(fc.tipo_comprobante || ' ' || COALESCE(NULLIF(btrim(fc.punto_venta), '') || '-', '') || COALESCE(fc.numero_comprobante, '')),
+           fc.usuario_paga
+    FROM facturas_compra fc
+    WHERE fc.estado_pago = 'pagada' AND fc.proveedor_id IS NOT NULL AND fc.total > 0
+      AND NOT EXISTS (SELECT 1 FROM pagos_compra pc WHERE pc.tipo = 'factura' AND pc.factura_id = fc.id AND pc.estado = 'activo');`);
   // STOCK DE INSUMOS Fase 1 (NUEVO, separado del tablero de cocina/stock_lotes). Stock = Σ movimientos por insumo+local.
   await pool.query(`CREATE TABLE IF NOT EXISTS insumos (
     id SERIAL PRIMARY KEY,
@@ -2396,8 +2419,13 @@ app.get("/api/compras/facturas", requireAdmin, async (req, res) => {
   const { estado_pago, proveedor, q } = req.query;
   try {
     const params = [];
-    let sql = `SELECT fc.*, c.nombre AS categoria_nombre, oc.descripcion AS orden_descripcion
+    // pago_id / pago_cuenta: el pago ACTIVO de la factura (para anularlo y mostrar "desde <cuenta>").
+    let sql = `SELECT fc.*, c.nombre AS categoria_nombre, oc.descripcion AS orden_descripcion, pa.id AS pago_id, pa.cuenta_nombre AS pago_cuenta
                FROM facturas_compra fc
+               LEFT JOIN LATERAL (
+                 SELECT pc.id, ct.nombre AS cuenta_nombre FROM pagos_compra pc LEFT JOIN cuentas_tesoreria ct ON ct.id = pc.cuenta_id
+                 WHERE pc.factura_id = fc.id AND pc.tipo = 'factura' AND pc.estado = 'activo' LIMIT 1
+               ) pa ON true
                LEFT JOIN categorias_gasto c ON c.id = fc.categoria_gasto_id
                LEFT JOIN ordenes_compra oc ON oc.id = fc.orden_compra_id
                WHERE 1=1`;
@@ -2648,90 +2676,110 @@ app.post("/api/compras/facturas/:id/anular", requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ─── COMPRAS — PAGOS (Entrega 4) ────────────────────────────────────────
-// Pago TOTAL de una factura 'pendiente' → 'pagada'. Origen: externo (caja_origen NULL, no toca
-// caja) o "sale de caja" (SALIDA en caja_origen + pago, atómico como la transferencia).
-// Las CAJAS reales válidas son las mismas que CAJAS_TRANSFERIBLES (definida más abajo, se accede
-// en request-time). Administración solo la puede usar superadmin (bloqueaCajaAdmin).
+// ─── COMPRAS — PAGOS (Entrega 4 + Tesorería B1) ────────────────────────
+// Todo pago de compras queda en pagos_compra: tipo 'factura' (pago TOTAL de una factura) o 'a_cuenta' (sin factura).
+// Origen de la plata: externo (no toca nada), caja (SALIDA con fecha de hoy) o cuenta de tesorería (egreso con la fecha
+// del pago, vía registrarMovimientoCuenta). Nunca caja y cuenta a la vez. Las CAJAS válidas son CAJAS_TRANSFERIBLES
+// (definida más abajo, se accede en request-time); Administración solo superadmin (bloqueaCajaAdmin).
+// Lee y valida el origen del body. Si algo no va, ya respondió (400/403) y devuelve null.
+function leerOrigenPago(req, res, cajaOrigen, cuentaId) {
+  const caja = cajaOrigen && String(cajaOrigen).trim() !== "" ? String(cajaOrigen).trim() : null;
+  const cuenta = cuentaId !== undefined && cuentaId !== null && String(cuentaId).trim() !== "" ? Number(cuentaId) : null;
+  if (caja && cuenta !== null) { res.status(400).json({ error: "Elegí un solo origen: caja o cuenta." }); return null; }
+  if (cuenta !== null && !(Number.isInteger(cuenta) && cuenta > 0)) { res.status(400).json({ error: "Cuenta de origen inválida." }); return null; }
+  if (caja) {
+    if (!CAJAS_TRANSFERIBLES.includes(caja)) { res.status(400).json({ error: "Caja de origen inválida." }); return null; }
+    if (bloqueaCajaAdmin(req, res, caja)) return null;   // Administración solo superadmin
+  }
+  return { caja, cuentaId: cuenta };
+}
+// Errores de pagos/gastos: los de tesorería (cuenta inactiva, fecha anterior al saldo inicial, conciliado) traen su status.
+function responderErrorPago(res, e, generico, ruta) {
+  if (e instanceof ErrorTesoreria) return res.status(e.status).json({ error: e.message });
+  if (e && e.code === "23505") return res.status(409).json({ error: "La factura ya tiene un pago activo." });
+  if (e && e.code === "23503") return res.status(400).json({ error: "La cuenta de origen no existe." });   // FK cuenta_id (lo demás se valida antes)
+  console.error(`Error ${ruta}:`, e && e.message);
+  return res.status(500).json({ error: generico });
+}
+const comprobanteCompraTxt = (f) => `${f.tipo_comprobante} ${f.punto_venta ? `${f.punto_venta}-` : ""}${f.numero_comprobante || ""}`.trim();
+
+// Pago TOTAL de una factura 'pendiente' → 'pagada'. Fila 'factura' en pagos_compra + salida de caja o egreso en la cuenta
+// + columnas de facturas_compra (fecha_pago/medio_pago/caja_origen/usuario_paga, como antes). Atómico, FOR UPDATE de la factura.
 app.post("/api/compras/facturas/:id/pagar", requireAdmin, async (req, res) => {
-  const { medioPago, cajaOrigen, fechaPago, usuario } = req.body;
+  const { medioPago, cajaOrigen, cuentaId, fechaPago } = req.body || {};
   if (!medioPago || !String(medioPago).trim()) return res.status(400).json({ error: "El medio de pago es obligatorio." });
-  // Una nota de crédito NO se paga (es un crédito, resta del saldo). Facturas y ND sí.
-  const tipoRow = await pool.query("SELECT tipo_comprobante FROM facturas_compra WHERE id=$1", [req.params.id]);
-  if (tipoRow.rows.length === 0) return res.status(404).json({ error: "Factura no encontrada." });
-  if (esNotaCreditoCompra(tipoRow.rows[0].tipo_comprobante)) return res.status(400).json({ error: "Una nota de crédito no se paga." });
   const fPago = fechaPago && esFechaISO(fechaPago) ? fechaPago : fechaArgentinaISO();
-  const desdeCaja = cajaOrigen && String(cajaOrigen).trim() !== "";
-  if (desdeCaja) {
-    if (!CAJAS_TRANSFERIBLES.includes(cajaOrigen)) return res.status(400).json({ error: "Caja de origen inválida." });
-    if (bloqueaCajaAdmin(req, res, cajaOrigen)) return;   // Administración solo superadmin
-  }
-
-  // Pago EXTERNO: no toca caja, solo marca pagada (guard atómico en el WHERE).
-  if (!desdeCaja) {
-    try {
-      const r = await pool.query(
-        "UPDATE facturas_compra SET estado_pago='pagada', fecha_pago=$1, medio_pago=$2, caja_origen=NULL, usuario_paga=$3 WHERE id=$4 AND estado_pago='pendiente' RETURNING id, total",
-        [fPago, String(medioPago).trim(), usuario || null, req.params.id]
-      );
-      if (r.rows.length === 0) return res.status(409).json({ error: "La factura no está pendiente (no se puede pagar)." });
-      res.json({ ok: true });
-      registrarAuditoria(usuario, "factura_compra_pago", "factura_compra", req.params.id, { medioPago, cajaOrigen: null, total: Number(r.rows[0].total), fecha: fPago });
-    } catch (err) { res.status(500).json({ error: err.message }); }
-    return;
-  }
-
-  // Pago DESDE CAJA: transacción atómica (SALIDA en la caja + factura pagada, todo o nada).
-  let client;
+  const origen = leerOrigenPago(req, res, cajaOrigen, cuentaId);
+  if (!origen) return;
+  const medio = String(medioPago).trim();
+  const quien = req.user?.nombre_completo || null;   // de la SESIÓN, nunca del body
+  let client, pagoId, total;
   try {
     client = await pool.connect();
     await client.query("BEGIN");
     const sel = await client.query(
-      "SELECT estado_pago, total, proveedor_razon_social, numero_comprobante FROM facturas_compra WHERE id=$1 FOR UPDATE",
+      "SELECT id, estado_pago, tipo_comprobante, total, proveedor_id, proveedor_razon_social, punto_venta, numero_comprobante FROM facturas_compra WHERE id = $1 FOR UPDATE",
       [req.params.id]
     );
     const f = sel.rows[0];
-    if (!f) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Factura no encontrada." }); }
-    if (f.estado_pago !== "pendiente") { await client.query("ROLLBACK"); return res.status(409).json({ error: "La factura no está pendiente (no se puede pagar)." }); }
-    const total = Number(f.total);
+    if (!f) throw new ErrorTesoreria(404, "Factura no encontrada.");
+    // Una nota de crédito NO se paga (es un crédito, resta del saldo). Facturas y ND sí.
+    if (esNotaCreditoCompra(f.tipo_comprobante)) throw new ErrorTesoreria(400, "Una nota de crédito no se paga.");
+    if (f.estado_pago !== "pendiente") throw new ErrorTesoreria(409, "La factura no está pendiente (no se puede pagar).");
+    if (!f.proveedor_id) throw new ErrorTesoreria(400, "La factura no tiene proveedor asignado.");
+    total = Number(f.total);
+    if (!(total > 0)) throw new ErrorTesoreria(400, "La factura tiene total 0: no hay nada que pagar.");
     const concepto = `Pago factura ${f.proveedor_razon_social || "proveedor"}${f.numero_comprobante ? ` ${f.numero_comprobante}` : ""}`;
-    await client.query(
-      "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'salida',$2,$3,$4)",
-      [cajaOrigen, concepto, -Math.abs(total), fechaArgentinaISO()]   // HOY para caer en el día abierto de la caja
+    const ins = await client.query(
+      `INSERT INTO pagos_compra (tipo, proveedor_id, factura_id, fecha, monto, medio_pago, caja_origen, cuenta_id, concepto, usuario)
+       VALUES ('factura',$1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      [f.proveedor_id, f.id, fPago, total, medio, origen.caja, origen.cuentaId, comprobanteCompraTxt(f), quien]
     );
+    pagoId = ins.rows[0].id;
+    if (origen.caja) {
+      const mov = await client.query(
+        "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'salida',$2,$3,$4) RETURNING id",
+        [origen.caja, concepto, -Math.abs(total), fechaArgentinaISO()]   // HOY para caer en el día abierto de la caja
+      );
+      await client.query("UPDATE pagos_compra SET caja_movimiento_id = $1 WHERE id = $2", [mov.rows[0].id, pagoId]);
+    }
+    if (origen.cuentaId) {
+      await registrarMovimientoCuenta(client, { cuentaId: origen.cuentaId, fecha: fPago, tipo: "egreso", monto: total, concepto, origenTipo: "pago_factura", origenId: pagoId, usuario: quien });
+    }
     await client.query(
       "UPDATE facturas_compra SET estado_pago='pagada', fecha_pago=$1, medio_pago=$2, caja_origen=$3, usuario_paga=$4 WHERE id=$5",
-      [fPago, String(medioPago).trim(), cajaOrigen, usuario || null, req.params.id]
+      [fPago, medio, origen.caja, quien, f.id]
     );
     await client.query("COMMIT");
   } catch (e) {
     if (client) await client.query("ROLLBACK").catch(() => {});
-    console.error("Error /api/compras/facturas/:id/pagar:", e.message);
-    return res.status(500).json({ error: "Error registrando el pago" });
+    return responderErrorPago(res, e, "Error registrando el pago", "/api/compras/facturas/:id/pagar");
   } finally {
     if (client) client.release();
   }
-  res.json({ ok: true });
-  registrarAuditoria(usuario, "factura_compra_pago", "factura_compra", req.params.id, { medioPago, cajaOrigen, fecha: fPago });
+  res.json({ ok: true, pago_id: pagoId });
+  registrarAuditoria(quien, "factura_compra_pago", "factura_compra", req.params.id, { pago_id: pagoId, medioPago: medio, cajaOrigen: origen.caja, cuentaId: origen.cuentaId, total, fecha: fPago });
 });
 
 // Cuenta corriente: saldo por proveedor (anuladas excluidas de todo).
 app.get("/api/compras/cuenta-corriente", requireAdmin, async (req, res) => {
   try {
-    // Saldo con signo: facturas + ND 'pendiente' SUMAN; NC 'no anulada' RESTAN (la NC no se paga,
-    // resta por existir). total_facturado/total_pagado también netean las NC para que cierre.
-    // Pagos a cuenta (pagos_compra 'a_cuenta' activos) RESTAN del saldo y suman a lo pagado.
+    // Saldo con signo: facturas + ND 'pendiente' SUMAN; NC 'no anulada' RESTAN (la NC no se paga, resta por existir).
+    // Pagos a cuenta (pagos_compra 'a_cuenta' activos) RESTAN del saldo. Los pagos de FACTURA no restan: ya están
+    // reflejados en que la factura dejó de estar 'pendiente' (restarlos sería contarlos dos veces).
+    // total_pagado = Σ pagos_compra activos (factura + a cuenta): una sola fuente, sin sumar también facturas_compra.
     // Saldo negativo = a favor nuestro (le pagamos de más / por adelantado).
     const result = await pool.query(`
-      WITH ac AS (
-        SELECT proveedor_id, SUM(monto) AS total FROM pagos_compra
-        WHERE tipo = 'a_cuenta' AND estado = 'activo' GROUP BY proveedor_id
+      WITH pg AS (
+        SELECT proveedor_id,
+          SUM(monto) FILTER (WHERE tipo = 'a_cuenta') AS a_cuenta,
+          SUM(monto) FILTER (WHERE tipo = 'factura') AS facturas
+        FROM pagos_compra WHERE estado = 'activo' GROUP BY proveedor_id
       ), fac AS (
         SELECT p.id, p.razon_social, p.cuit,
           COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago <> 'anulada' AND NOT (${SQL_FC_ES_NC})), 0)
             - COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago <> 'anulada' AND ${SQL_FC_ES_NC}), 0)
             AS total_facturado,
-          COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago = 'pagada'), 0) AS pagado_facturas,
           COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago = 'pendiente' AND NOT (${SQL_FC_ES_NC})), 0)
             - COALESCE(SUM(fc.total) FILTER (WHERE fc.estado_pago <> 'anulada' AND ${SQL_FC_ES_NC}), 0)
             AS saldo_facturas,
@@ -2742,10 +2790,10 @@ app.get("/api/compras/cuenta-corriente", requireAdmin, async (req, res) => {
         GROUP BY p.id, p.razon_social, p.cuit
       )
       SELECT fac.id, fac.razon_social, fac.cuit, fac.total_facturado, fac.facturas_pendientes,
-        COALESCE(ac.total, 0) AS pagos_a_cuenta,
-        fac.pagado_facturas + COALESCE(ac.total, 0) AS total_pagado,
-        fac.saldo_facturas - COALESCE(ac.total, 0) AS saldo_pendiente
-      FROM fac LEFT JOIN ac ON ac.proveedor_id = fac.id
+        COALESCE(pg.a_cuenta, 0) AS pagos_a_cuenta,
+        COALESCE(pg.facturas, 0) + COALESCE(pg.a_cuenta, 0) AS total_pagado,
+        fac.saldo_facturas - COALESCE(pg.a_cuenta, 0) AS saldo_pendiente
+      FROM fac LEFT JOIN pg ON pg.proveedor_id = fac.id
       ORDER BY saldo_pendiente DESC, fac.razon_social ASC
     `);
     // Deuda total = solo saldos positivos; "a favor nuestro" = saldos negativos (en positivo), por separado.
@@ -2756,39 +2804,30 @@ app.get("/api/compras/cuenta-corriente", requireAdmin, async (req, res) => {
 });
 
 // ─── COMPRAS — PAGOS A CUENTA (sin factura) + listado de pagos ─────────
-// Listado unificado: pagos de FACTURA (columnas de facturas_compra, estado 'pagada') + pagos A CUENTA
-// (pagos_compra). Filtros: tipo (factura|a_cuenta), proveedor, desde/hasta (fecha del pago), incluirAnulados.
+// Listado: SOLO pagos_compra (factura + a cuenta). Filtros: tipo (factura|a_cuenta), proveedor, desde/hasta (fecha del
+// pago), incluirAnulados. `id` es el id del PAGO (para anular); `factura_id`, el de la factura si es de factura.
 app.get("/api/compras/pagos", requireAdmin, async (req, res) => {
   const { tipo, proveedor, desde, hasta, incluirAnulados } = req.query;
   if ((desde && !esFechaISO(desde)) || (hasta && !esFechaISO(hasta))) return res.status(400).json({ error: "Fechas inválidas (YYYY-MM-DD)." });
   try {
-    const pagos = [];
-    if (tipo !== "a_cuenta") {
-      const params = []; let sql = `SELECT id, proveedor_id, proveedor_razon_social, fecha_pago, total, medio_pago, caja_origen, usuario_paga,
-                                     tipo_comprobante, punto_venta, numero_comprobante FROM facturas_compra WHERE estado_pago = 'pagada'`;
-      if (proveedor) { params.push(proveedor); sql += ` AND proveedor_id = $${params.length}`; }
-      if (desde) { params.push(desde); sql += ` AND fecha_pago >= $${params.length}`; }
-      if (hasta) { params.push(hasta); sql += ` AND fecha_pago <= $${params.length}`; }
-      for (const f of (await pool.query(sql, params)).rows) pagos.push({
-        clave: `factura-${f.id}`, tipo: "factura", id: f.id, factura_id: f.id, proveedor_id: f.proveedor_id, proveedor: f.proveedor_razon_social,
-        fecha: f.fecha_pago, monto: Number(f.total), medio_pago: f.medio_pago, caja_origen: f.caja_origen, usuario: f.usuario_paga,
-        concepto: `${f.tipo_comprobante} ${f.punto_venta ? `${f.punto_venta}-` : ""}${f.numero_comprobante}`, observaciones: null, estado: "activo",
-      });
-    }
-    if (tipo !== "factura") {
-      const params = []; let sql = `SELECT pc.*, p.razon_social FROM pagos_compra pc JOIN proveedores p ON p.id = pc.proveedor_id WHERE pc.tipo = 'a_cuenta'`;
-      if (incluirAnulados !== "1") sql += " AND pc.estado = 'activo'";
-      if (proveedor) { params.push(proveedor); sql += ` AND pc.proveedor_id = $${params.length}`; }
-      if (desde) { params.push(desde); sql += ` AND pc.fecha >= $${params.length}`; }
-      if (hasta) { params.push(hasta); sql += ` AND pc.fecha <= $${params.length}`; }
-      for (const p of (await pool.query(sql, params)).rows) pagos.push({
-        clave: `a_cuenta-${p.id}`, tipo: "a_cuenta", id: p.id, factura_id: null, proveedor_id: p.proveedor_id, proveedor: p.razon_social,
-        fecha: p.fecha, monto: Number(p.monto), medio_pago: p.medio_pago, caja_origen: p.caja_origen, usuario: p.usuario,
-        concepto: p.concepto, observaciones: p.observaciones, estado: p.estado, motivo_anulacion: p.motivo_anulacion,
-        usuario_anula: p.usuario_anula, anulado_at: p.anulado_at,
-      });
-    }
-    pagos.sort((a, b) => String(b.fecha || "").localeCompare(String(a.fecha || "")) || b.id - a.id);
+    const params = [];
+    let sql = `SELECT pc.*, p.razon_social, ct.nombre AS cuenta_nombre
+               FROM pagos_compra pc
+               JOIN proveedores p ON p.id = pc.proveedor_id
+               LEFT JOIN cuentas_tesoreria ct ON ct.id = pc.cuenta_id
+               WHERE 1=1`;
+    if (tipo === "factura" || tipo === "a_cuenta") { params.push(tipo); sql += ` AND pc.tipo = $${params.length}`; }
+    if (incluirAnulados !== "1") sql += " AND pc.estado = 'activo'";
+    if (proveedor) { params.push(proveedor); sql += ` AND pc.proveedor_id = $${params.length}`; }
+    if (desde) { params.push(desde); sql += ` AND pc.fecha >= $${params.length}`; }
+    if (hasta) { params.push(hasta); sql += ` AND pc.fecha <= $${params.length}`; }
+    sql += " ORDER BY pc.fecha DESC, pc.id DESC";
+    const pagos = (await pool.query(sql, params)).rows.map((p) => ({
+      clave: `${p.tipo}-${p.id}`, tipo: p.tipo, id: p.id, factura_id: p.factura_id, proveedor_id: p.proveedor_id, proveedor: p.razon_social,
+      fecha: p.fecha, monto: Number(p.monto), medio_pago: p.medio_pago, caja_origen: p.caja_origen, cuenta_id: p.cuenta_id, cuenta_nombre: p.cuenta_nombre,
+      usuario: p.usuario, concepto: p.concepto, observaciones: p.observaciones, estado: p.estado, motivo_anulacion: p.motivo_anulacion,
+      usuario_anula: p.usuario_anula, anulado_at: p.anulado_at,
+    }));
     const activos = pagos.filter(p => p.estado === "activo");
     res.json({
       pagos,
@@ -2798,21 +2837,18 @@ app.get("/api/compras/pagos", requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Pago a cuenta (sin factura) a un proveedor ACTIVO. Mismos orígenes que el pago de factura: externo o una caja
-// (Administración solo superadmin). Atómico: el pago y la salida de caja en la misma transacción.
+// Pago a cuenta (sin factura) a un proveedor ACTIVO. Mismos orígenes que el pago de factura: externo, caja o cuenta.
+// Atómico: el pago y la salida de caja / el egreso en la cuenta en la misma transacción.
 app.post("/api/compras/pagos-a-cuenta", requireAdmin, async (req, res) => {
-  const { proveedor_id, fecha, monto, medioPago, cajaOrigen, concepto, observaciones } = req.body || {};
+  const { proveedor_id, fecha, monto, medioPago, cajaOrigen, cuentaId, concepto, observaciones } = req.body || {};
   const m = Number(monto);
   if (!proveedor_id) return res.status(400).json({ error: "El proveedor es obligatorio." });
   if (!Number.isFinite(m) || m <= 0) return res.status(400).json({ error: "El monto debe ser mayor a 0." });
   if (!esFechaISO(fecha)) return res.status(400).json({ error: "Fecha inválida (formato YYYY-MM-DD)." });
   if (!medioPago || !String(medioPago).trim()) return res.status(400).json({ error: "El medio de pago es obligatorio." });
   if (!concepto || !String(concepto).trim()) return res.status(400).json({ error: "El concepto es obligatorio (ej. \"Anticipo pedido semana 43\")." });
-  const desdeCaja = cajaOrigen && String(cajaOrigen).trim() !== "";
-  if (desdeCaja) {
-    if (!CAJAS_TRANSFERIBLES.includes(cajaOrigen)) return res.status(400).json({ error: "Caja de origen inválida." });
-    if (bloqueaCajaAdmin(req, res, cajaOrigen)) return;   // Administración solo superadmin
-  }
+  const origen = leerOrigenPago(req, res, cajaOrigen, cuentaId);
+  if (!origen) return;
   const conc = String(concepto).trim(), obs = observaciones && String(observaciones).trim() ? String(observaciones).trim() : null;
   const quien = req.user?.nombre_completo || null;   // de la SESIÓN, nunca del body
   let client;
@@ -2820,73 +2856,94 @@ app.post("/api/compras/pagos-a-cuenta", requireAdmin, async (req, res) => {
     client = await pool.connect();
     await client.query("BEGIN");
     const prov = await client.query("SELECT id, razon_social FROM proveedores WHERE id = $1 AND activo = true", [proveedor_id]);
-    if (prov.rows.length === 0) { await client.query("ROLLBACK"); return res.status(400).json({ error: "Proveedor inválido o dado de baja." }); }
+    if (prov.rows.length === 0) throw new ErrorTesoreria(400, "Proveedor inválido o dado de baja.");
     const ins = await client.query(
-      `INSERT INTO pagos_compra (tipo, proveedor_id, fecha, monto, medio_pago, caja_origen, concepto, observaciones, usuario)
-       VALUES ('a_cuenta',$1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-      [proveedor_id, fecha, m, String(medioPago).trim(), desdeCaja ? cajaOrigen : null, conc, obs, quien]
+      `INSERT INTO pagos_compra (tipo, proveedor_id, fecha, monto, medio_pago, caja_origen, cuenta_id, concepto, observaciones, usuario)
+       VALUES ('a_cuenta',$1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      [proveedor_id, fecha, m, String(medioPago).trim(), origen.caja, origen.cuentaId, conc, obs, quien]
     );
     const id = ins.rows[0].id;
-    if (desdeCaja) {
+    const movConcepto = `Pago a cuenta #${id}: ${prov.rows[0].razon_social} - ${conc}`;
+    if (origen.caja) {
       const mov = await client.query(
         "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'salida',$2,$3,$4) RETURNING id",
-        [cajaOrigen, `Pago a cuenta #${id}: ${prov.rows[0].razon_social} - ${conc}`, -Math.abs(m), fechaArgentinaISO()]   // HOY: cae en el día abierto
+        [origen.caja, movConcepto, -Math.abs(m), fechaArgentinaISO()]   // HOY: cae en el día abierto
       );
       await client.query("UPDATE pagos_compra SET caja_movimiento_id = $1 WHERE id = $2", [mov.rows[0].id, id]);
     }
+    if (origen.cuentaId) {
+      await registrarMovimientoCuenta(client, { cuentaId: origen.cuentaId, fecha, tipo: "egreso", monto: m, concepto: movConcepto, origenTipo: "pago_a_cuenta", origenId: id, usuario: quien });
+    }
     await client.query("COMMIT");
     res.json({ ok: true, id });
-    registrarAuditoria(quien, "pago_a_cuenta_crear", "pago_compra", id, { proveedor_id: Number(proveedor_id), monto: m, cajaOrigen: desdeCaja ? cajaOrigen : null, concepto: conc });
+    registrarAuditoria(quien, "pago_a_cuenta_crear", "pago_compra", id, { proveedor_id: Number(proveedor_id), monto: m, cajaOrigen: origen.caja, cuentaId: origen.cuentaId, concepto: conc });
   } catch (e) {
     if (client) await client.query("ROLLBACK").catch(() => {});
-    console.error("Error POST /api/compras/pagos-a-cuenta:", e.message);
-    res.status(500).json({ error: "Error registrando el pago a cuenta" });
+    responderErrorPago(res, e, "Error registrando el pago a cuenta", "POST /api/compras/pagos-a-cuenta");
   } finally { if (client) client.release(); }
 });
 
-// Anular un pago a cuenta (mismo criterio que gastos comunes): motivo obligatorio; si salió de caja se repone
-// con una ENTRADA "Anulación pago a cuenta #id" con fecha de hoy. Transacción + FOR UPDATE + guard anti-doble.
-// Solo pagos a cuenta (los de factura no se anulan acá).
-app.post("/api/compras/pagos-a-cuenta/:id/anular", requireAdmin, async (req, res) => {
-  const { motivo } = req.body || {};
-  if (!motivo || !String(motivo).trim()) return res.status(400).json({ error: "El motivo de anulación es obligatorio." });
+// Anular un pago de compras (a cuenta o de factura). Motivo obligatorio; transacción + FOR UPDATE + guard anti-doble.
+// - Caja: se repone con una ENTRADA "Anulación pago a cuenta #id" / "Anulación pago factura #id" (hoy). También en
+//   los pagos viejos copiados por la migración (sin caja_movimiento_id).
+// - Cuenta: se anula su movimiento en Tesorería; si está conciliado → 409 (hay que desconciliarlo primero).
+// - Factura: vuelve a 'pendiente' y se limpian fecha_pago/medio_pago/caja_origen/usuario_paga.
+async function anularPagoCompra(req, res) {
+  const motivo = String((req.body || {}).motivo || "").trim();
+  if (!motivo) return res.status(400).json({ error: "El motivo de anulación es obligatorio." });
   const quien = req.user?.nombre_completo || null;   // de la SESIÓN, nunca del body
-  let client;
+  let client, pg;
   try {
     client = await pool.connect();
     await client.query("BEGIN");
     const sel = await client.query(
-      "SELECT pc.id, pc.tipo, pc.monto, pc.caja_origen, pc.estado, pc.concepto, p.razon_social FROM pagos_compra pc JOIN proveedores p ON p.id = pc.proveedor_id WHERE pc.id = $1 FOR UPDATE OF pc",
+      `SELECT pc.id, pc.tipo, pc.factura_id, pc.monto, pc.caja_origen, pc.cuenta_id, pc.estado, pc.concepto, p.razon_social
+       FROM pagos_compra pc JOIN proveedores p ON p.id = pc.proveedor_id WHERE pc.id = $1 FOR UPDATE OF pc`,
       [req.params.id]
     );
-    const pg = sel.rows[0];
-    if (!pg) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Pago no encontrado." }); }
-    if (pg.tipo !== "a_cuenta") { await client.query("ROLLBACK"); return res.status(400).json({ error: "Solo se pueden anular pagos a cuenta." }); }
-    if (pg.estado !== "activo") { await client.query("ROLLBACK"); return res.status(409).json({ error: "El pago a cuenta ya está anulado." }); }
+    pg = sel.rows[0];
+    if (!pg) throw new ErrorTesoreria(404, "Pago no encontrado.");
+    if (pg.estado !== "activo") throw new ErrorTesoreria(409, "El pago ya está anulado.");
+    if (pg.tipo === "factura") {
+      const fac = await client.query("SELECT estado_pago FROM facturas_compra WHERE id = $1 FOR UPDATE", [pg.factura_id]);
+      if (!fac.rows[0] || fac.rows[0].estado_pago !== "pagada") throw new ErrorTesoreria(409, "La factura de este pago no figura como pagada: revisala antes de anular.");
+    }
+    if (pg.cuenta_id) await anularMovimientoPorOrigen(client, pg.tipo === "factura" ? "pago_factura" : "pago_a_cuenta", pg.id, motivo, quien);
     let movAnulId = null;
     if (pg.caja_origen) {
       if (bloqueaCajaAdmin(req, res, pg.caja_origen)) { await client.query("ROLLBACK"); return; }
+      const concepto = pg.tipo === "factura"
+        ? `Anulación pago factura #${pg.id}: ${pg.razon_social} ${pg.concepto || ""}`.trim()
+        : `Anulación pago a cuenta #${pg.id}: ${pg.razon_social} - ${pg.concepto}`;
       const mov = await client.query(
         "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'entrada',$2,$3,$4) RETURNING id",
-        [pg.caja_origen, `Anulación pago a cuenta #${pg.id}: ${pg.razon_social} - ${pg.concepto}`, Math.abs(Number(pg.monto)), fechaArgentinaISO()]
+        [pg.caja_origen, concepto, Math.abs(Number(pg.monto)), fechaArgentinaISO()]
       );
       movAnulId = mov.rows[0].id;
     }
     const up = await client.query(
       `UPDATE pagos_compra SET estado = 'anulado', motivo_anulacion = $1, usuario_anula = $2, anulado_at = NOW(), caja_movimiento_anulacion_id = $3
        WHERE id = $4 AND estado = 'activo' RETURNING id`,
-      [String(motivo).trim(), quien, movAnulId, pg.id]
+      [motivo, quien, movAnulId, pg.id]
     );
-    if (up.rows.length === 0) { await client.query("ROLLBACK"); return res.status(409).json({ error: "El pago a cuenta ya está anulado." }); }
+    if (up.rows.length === 0) throw new ErrorTesoreria(409, "El pago ya está anulado.");
+    if (pg.tipo === "factura") {
+      await client.query(
+        "UPDATE facturas_compra SET estado_pago = 'pendiente', fecha_pago = NULL, medio_pago = NULL, caja_origen = NULL, usuario_paga = NULL WHERE id = $1 AND estado_pago = 'pagada'",
+        [pg.factura_id]
+      );
+    }
     await client.query("COMMIT");
-    res.json({ ok: true });
-    registrarAuditoria(quien, "pago_a_cuenta_anular", "pago_compra", pg.id, { motivo: String(motivo).trim(), cajaOrigen: pg.caja_origen || null, monto: Number(pg.monto) });
   } catch (e) {
     if (client) await client.query("ROLLBACK").catch(() => {});
-    console.error("Error anular pago a cuenta:", e.message);
-    res.status(500).json({ error: "Error anulando el pago a cuenta" });
+    return responderErrorPago(res, e, "Error anulando el pago", "anular pago de compras");
   } finally { if (client) client.release(); }
-});
+  res.json({ ok: true });
+  registrarAuditoria(quien, pg.tipo === "factura" ? "pago_factura_anular" : "pago_a_cuenta_anular", "pago_compra", pg.id,
+    { motivo, tipo: pg.tipo, factura_id: pg.factura_id, cajaOrigen: pg.caja_origen || null, cuentaId: pg.cuenta_id || null, monto: Number(pg.monto) });
+}
+app.post("/api/compras/pagos/:id/anular", requireAdmin, anularPagoCompra);
+app.post("/api/compras/pagos-a-cuenta/:id/anular", requireAdmin, anularPagoCompra);   // ruta anterior (front viejo a mitad de un deploy)
 
 // ─── CLIENTES (CRM simple, agregado de pedidos) ─────────────────────────
 // Admin + superadmin. Agrupa pedidos TN + manuales por cliente único (email si hay, si no teléfono
@@ -3054,14 +3111,16 @@ app.get("/api/gastos-comunes", requireAdmin, async (req, res) => {
   const { desde, hasta, categoria, origen, incluirAnulados } = req.query;
   try {
     const params = [];
-    let sql = `SELECT g.*, c.nombre AS categoria_nombre, c.es_retiro
-               FROM gastos_comunes g JOIN categorias_gasto_comun c ON c.id = g.categoria_id WHERE 1=1`;
+    let sql = `SELECT g.*, c.nombre AS categoria_nombre, c.es_retiro, ct.nombre AS cuenta_nombre
+               FROM gastos_comunes g JOIN categorias_gasto_comun c ON c.id = g.categoria_id
+               LEFT JOIN cuentas_tesoreria ct ON ct.id = g.cuenta_id WHERE 1=1`;
     if (incluirAnulados !== "1") sql += " AND g.estado <> 'anulado'";
     if (desde) { params.push(desde); sql += ` AND g.fecha >= $${params.length}`; }
     if (hasta) { params.push(hasta); sql += ` AND g.fecha <= $${params.length}`; }
     if (categoria) { params.push(categoria); sql += ` AND g.categoria_id = $${params.length}`; }
-    if (origen === "externo") sql += " AND g.caja_origen IS NULL";
+    if (origen === "externo") sql += " AND g.caja_origen IS NULL AND g.cuenta_id IS NULL";
     else if (origen === "caja") sql += " AND g.caja_origen IS NOT NULL";
+    else if (origen === "cuenta") sql += " AND g.cuenta_id IS NOT NULL";
     sql += " ORDER BY g.fecha DESC, g.id DESC";
     const { rows } = await pool.query(sql, params);
     const activos = rows.filter(r => r.estado === "activo");
@@ -3073,67 +3132,76 @@ app.get("/api/gastos-comunes", requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Origen: externo (solo el gasto), caja (salida con fecha de hoy) o cuenta de tesorería (egreso con la fecha del gasto).
 app.post("/api/gastos-comunes", requireAdmin, async (req, res) => {
-  const { fecha, descripcion, monto, categoria_id, cajaOrigen, usuario } = req.body;
+  const { fecha, descripcion, monto, categoria_id, cajaOrigen, cuentaId } = req.body || {};
   if (!descripcion || !String(descripcion).trim()) return res.status(400).json({ error: "La descripción es obligatoria." });
   const m = Number(monto);
   if (!Number.isFinite(m) || m <= 0) return res.status(400).json({ error: "El monto debe ser mayor a 0." });
   if (!esFechaISO(fecha)) return res.status(400).json({ error: "Fecha inválida (formato YYYY-MM-DD)." });
-  const desdeCaja = cajaOrigen && String(cajaOrigen).trim() !== "";
+  const origen = leerOrigenPago(req, res, cajaOrigen, cuentaId);   // caja inválida / Administración sin superadmin / las dos
+  if (!origen) return;
+  const usuario = req.user?.nombre_completo || null;   // de la SESIÓN, nunca del body
   try {
     const cat = await pool.query("SELECT id, nombre FROM categorias_gasto_comun WHERE id = $1 AND activo = true", [categoria_id]);
     if (cat.rows.length === 0) return res.status(400).json({ error: "Categoría inválida." });
     const catNombre = cat.rows[0].nombre;
     const desc = String(descripcion).trim();
 
-    // Externo: solo el gasto, sin tocar caja.
-    if (!desdeCaja) {
+    // Externo: solo el gasto, sin tocar caja ni cuenta.
+    if (!origen.caja && !origen.cuentaId) {
       const r = await pool.query(
         "INSERT INTO gastos_comunes (fecha, descripcion, monto, categoria_id, caja_origen, usuario) VALUES ($1,$2,$3,$4,NULL,$5) RETURNING id",
-        [fecha, desc, m, categoria_id, usuario || null]
+        [fecha, desc, m, categoria_id, usuario]
       );
       res.json({ ok: true, id: r.rows[0].id });
       registrarAuditoria(usuario, "gasto_comun_crear", "gasto", r.rows[0].id, { monto: m, categoria: catNombre, externo: true });
       return;
     }
 
-    // Sale de caja: validar caja + permiso Administración.
-    if (!CAJAS_TRANSFERIBLES.includes(cajaOrigen)) return res.status(400).json({ error: "Caja de origen inválida." });
-    if (bloqueaCajaAdmin(req, res, cajaOrigen)) return;
+    // Sale de caja o de una cuenta: transacción atómica (el gasto + la salida / el egreso, todo o nada).
     let client;
     try {
       client = await pool.connect();
       await client.query("BEGIN");
-      const mov = await client.query(
-        "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'salida',$2,$3,$4) RETURNING id",
-        [cajaOrigen, `Gasto: ${catNombre} - ${desc}`, -Math.abs(m), fechaArgentinaISO()]   // HOY: cae en el día abierto
-      );
+      let movId = null;
+      if (origen.caja) {
+        const mov = await client.query(
+          "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'salida',$2,$3,$4) RETURNING id",
+          [origen.caja, `Gasto: ${catNombre} - ${desc}`, -Math.abs(m), fechaArgentinaISO()]   // HOY: cae en el día abierto
+        );
+        movId = mov.rows[0].id;
+      }
       const g = await client.query(
-        "INSERT INTO gastos_comunes (fecha, descripcion, monto, categoria_id, caja_origen, caja_movimiento_id, usuario) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
-        [fecha, desc, m, categoria_id, cajaOrigen, mov.rows[0].id, usuario || null]
+        "INSERT INTO gastos_comunes (fecha, descripcion, monto, categoria_id, caja_origen, caja_movimiento_id, cuenta_id, usuario) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id",
+        [fecha, desc, m, categoria_id, origen.caja, movId, origen.cuentaId, usuario]
       );
+      if (origen.cuentaId) {
+        await registrarMovimientoCuenta(client, { cuentaId: origen.cuentaId, fecha, tipo: "egreso", monto: m, concepto: `Gasto: ${catNombre} - ${desc}`, origenTipo: "gasto_comun", origenId: g.rows[0].id, usuario });
+      }
       await client.query("COMMIT");
       res.json({ ok: true, id: g.rows[0].id });
-      registrarAuditoria(usuario, "gasto_comun_crear", "gasto", g.rows[0].id, { monto: m, categoria: catNombre, cajaOrigen });
+      registrarAuditoria(usuario, "gasto_comun_crear", "gasto", g.rows[0].id, { monto: m, categoria: catNombre, cajaOrigen: origen.caja, cuentaId: origen.cuentaId });
     } catch (e) {
       if (client) await client.query("ROLLBACK").catch(() => {});
-      console.error("Error POST /api/gastos-comunes (caja):", e.message);
-      return res.status(500).json({ error: "Error registrando el gasto" });
+      return responderErrorPago(res, e, "Error registrando el gasto", "POST /api/gastos-comunes");
     } finally { if (client) client.release(); }
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post("/api/gastos-comunes/:id/anular", requireAdmin, async (req, res) => {
-  const { motivo, usuario } = req.body;
+  const { motivo } = req.body || {};
   if (!motivo || !String(motivo).trim()) return res.status(400).json({ error: "El motivo de anulación es obligatorio." });
+  const usuario = req.user?.nombre_completo || null;   // de la SESIÓN, nunca del body
   let client;
   try {
     client = await pool.connect();
     await client.query("BEGIN");
-    const sel = await client.query("SELECT id, descripcion, monto, caja_origen, estado FROM gastos_comunes WHERE id = $1 FOR UPDATE", [req.params.id]);
+    const sel = await client.query("SELECT id, descripcion, monto, caja_origen, cuenta_id, estado FROM gastos_comunes WHERE id = $1 FOR UPDATE", [req.params.id]);
     const g = sel.rows[0];
     if (!g) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Gasto no encontrado." }); }
     if (g.estado !== "activo") { await client.query("ROLLBACK"); return res.status(409).json({ error: "El gasto ya está anulado." }); }
+    if (g.cuenta_id) await anularMovimientoPorOrigen(client, "gasto_comun", g.id, String(motivo).trim(), usuario);   // conciliado → 409
     if (g.caja_origen) {
       if (bloqueaCajaAdmin(req, res, g.caja_origen)) { await client.query("ROLLBACK"); return; }
       await client.query(
@@ -3147,8 +3215,7 @@ app.post("/api/gastos-comunes/:id/anular", requireAdmin, async (req, res) => {
     registrarAuditoria(usuario, "gasto_comun_anular", "gasto", req.params.id, { motivo: String(motivo).trim() });
   } catch (e) {
     if (client) await client.query("ROLLBACK").catch(() => {});
-    console.error("Error anular gasto:", e.message);
-    return res.status(500).json({ error: "Error anulando el gasto" });
+    return responderErrorPago(res, e, "Error anulando el gasto", "anular gasto");
   } finally { if (client) client.release(); }
 });
 
@@ -3598,7 +3665,7 @@ async function anularMovimientoPorOrigen(client, origenTipo, origenId, motivo, u
     "SELECT id, conciliado FROM movimientos_tesoreria WHERE origen_tipo = $1 AND origen_id = $2 AND estado = 'activo' FOR UPDATE",
     [origenTipo, origenId]
   );
-  if (sel.rows.some((x) => x.conciliado)) throw new ErrorTesoreria(409, "El movimiento en la cuenta ya está conciliado: desconcilialo en Tesorería antes de anular.");
+  if (sel.rows.some((x) => x.conciliado)) throw new ErrorTesoreria(409, "El movimiento en la cuenta está conciliado: desconciliá el movimiento en Tesorería primero.");
   if (sel.rows.length === 0) return 0;
   await client.query(
     "UPDATE movimientos_tesoreria SET estado = 'anulado', motivo_anulacion = $1, usuario_anula = $2, anulado_at = NOW() WHERE id = ANY($3::int[])",
@@ -3608,6 +3675,13 @@ async function anularMovimientoPorOrigen(client, origenTipo, origenId, motivo, u
 }
 
 // --- Cuentas ---
+// Para elegir la cuenta de origen de un pago (admin y superadmin): SOLO id, nombre y tipo de las activas, sin saldos.
+app.get("/api/tesoreria/cuentas-activas", requireAdmin, async (req, res) => {
+  try {
+    const r = await pool.query("SELECT id, nombre, tipo FROM cuentas_tesoreria WHERE activa ORDER BY nombre");
+    res.json(r.rows);
+  } catch (e) { responderErrorTesoreria(res, e, "Error trayendo las cuentas"); }
+});
 app.get("/api/tesoreria/cuentas", soloSuperadmin, async (req, res) => {
   try {
     const r = await pool.query(`${SQL_CUENTAS_TES} ${req.query.incluirInactivas === "1" ? "" : "WHERE c.activa"} GROUP BY c.id ORDER BY c.activa DESC, c.nombre`);
@@ -5084,6 +5158,7 @@ const CONCEPTOS_AUTO_PREFIJOS = [
   "pago sueldo:", "anulación pago sueldo",
   "pago a cuenta #", "anulación pago a cuenta #",   // con "#": "Pago a cuenta de la luz" (manual) sigue editable
   "depósito a cuenta #", "anulación depósito a cuenta #", "retiro de cuenta #", "anulación retiro de cuenta #",   // tesorería ↔ caja
+  "anulación pago factura #",
 ];
 // Comparación sin tildes ni mayúsculas ("Deposito a cuenta #3" también es automático).
 const sinTildesConcepto = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
