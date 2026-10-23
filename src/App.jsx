@@ -2163,8 +2163,9 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         );
       }
       // Conceptos autogenerados (MISMA lista que el backend) → no editables.
-      const CONCEPTOS_AUTO_PREFIJOS = ["transferencia a", "transferencia desde", "pago factura", "sobre a bandeja", "sobre recibido", "sobre rechazado", "ajuste sobre", "apertura", "reapertura", "cierre", "gasto:", "anulación gasto", "adelanto sueldo:", "anulación adelanto", "pago sueldo:", "anulación pago sueldo", "pago a cuenta #", "anulación pago a cuenta #"];
-      const esConceptoAuto = (c) => { const s = String(c || "").trim().toLowerCase(); return CONCEPTOS_AUTO_PREFIJOS.some(p => s.startsWith(p)); };
+      const CONCEPTOS_AUTO_PREFIJOS = ["transferencia a", "transferencia desde", "pago factura", "sobre a bandeja", "sobre recibido", "sobre rechazado", "ajuste sobre", "apertura", "reapertura", "cierre", "gasto:", "anulación gasto", "adelanto sueldo:", "anulación adelanto", "pago sueldo:", "anulación pago sueldo", "pago a cuenta #", "anulación pago a cuenta #", "depósito a cuenta #", "anulación depósito a cuenta #", "retiro de cuenta #", "anulación retiro de cuenta #"];
+      const sinTildesConcepto = (c) => String(c || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();   // sin tildes, como el backend
+      const esConceptoAuto = (c) => { const s = sinTildesConcepto(c); return CONCEPTOS_AUTO_PREFIJOS.some(p => s.startsWith(sinTildesConcepto(p))); };
 
       // Filtra movimientos por rango de fecha + palabra en el concepto (sobre la lista ya traída).
       function filtrarMovs(movs) {
@@ -3110,6 +3111,482 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
                   <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} disabled={guardando} onClick={() => setModal(false)}>Cancelar</button>
                   <button style={{ fontSize: 13, fontWeight: 600, padding: "8px 18px", borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#F68B32", color: "#fff", cursor: guardando ? "default" : "pointer" }} disabled={guardando} onClick={guardar}>{guardando ? "Guardando…" : "Registrar gasto"}</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─── TESORERÍA — Entrega A (cuentas bancarias / billeteras, movimientos, conciliación) ─────
+    // SOLO superadmin (gate en el menú + VISTAS_SOLO_SUPERADMIN + backend). Saldos calculados en el backend.
+    // Un movimiento conciliado no se edita ni se anula (primero se desconcilia). Los que vienen de pagos
+    // (Entrega B) se ven acá pero se anulan desde su pago.
+    function VistaTesoreria({ onVolver }) {
+      const hoyStr = (() => { const h = new Date(); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`; })();
+      const money = (n) => (Number(n) < 0 ? "−$" : "$") + Math.abs(Number(n || 0)).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const CAJAS_TES = ["A. Thomas", "French", "Administración", "Fondo Fijo A. Thomas", "Fondo Fijo French"];
+      const ORIGEN_LABEL = { manual: "Manual", transferencia: "Transferencia", pago_factura: "Pago de factura", pago_a_cuenta: "Pago a cuenta", pago_sueldo: "Pago de sueldo", adelanto: "Adelanto", adicional: "Adicional", gasto_comun: "Gasto común" };
+      const inputSt = { width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" };
+      const labelSt = { fontSize: 12, color: "#888", display: "block", marginBottom: 4 };
+      const btnSt = (color, bg) => ({ fontSize: 12, fontWeight: 600, padding: "7px 12px", borderRadius: 8, border: `1px solid ${color}`, background: bg, color, cursor: "pointer" });
+      const miniBtn = (color, bg) => ({ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: `1px solid ${color}`, background: bg, color, cursor: "pointer" });
+
+      const [cuentas, setCuentas] = useState([]);
+      const [verInactivas, setVerInactivas] = useState(false);
+      const [loading, setLoading] = useState(true);
+      const [mensaje, setMensaje] = useState(null);
+      const [sel, setSel] = useState(null);
+      const [det, setDet] = useState({ cuenta: null, movimientos: [] });
+      const [loadingDet, setLoadingDet] = useState(false);
+      const [fDesde, setFDesde] = useState("");
+      const [fHasta, setFHasta] = useState("");
+      const [soloSin, setSoloSin] = useState(false);
+      const [incluirAnulados, setIncluirAnulados] = useState(false);
+      const [marcados, setMarcados] = useState([]);
+      const [extracto, setExtracto] = useState("");
+      const [modalCuenta, setModalCuenta] = useState(null);
+      const [modalMov, setModalMov] = useState(null);
+      const [modalTransf, setModalTransf] = useState(null);
+      const [guardando, setGuardando] = useState(false);
+
+      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 4000); }
+      const errorDe = (err, def) => err.response?.data?.error || def;
+
+      async function cargarCuentas() {
+        setLoading(true);
+        try {
+          const res = await axios.get(`${API}/api/tesoreria/cuentas`, { params: verInactivas ? { incluirInactivas: "1" } : {} });
+          setCuentas(res.data);
+          setSel(s => (s && res.data.some(c => c.id === s) ? s : (res.data.find(c => c.activa) || res.data[0] || {}).id || null));
+        } catch (err) { mostrarMensaje(errorDe(err, "Error cargando las cuentas"), "error"); }
+        setLoading(false);
+      }
+      async function cargarDetalle() {
+        if (!sel) { setDet({ cuenta: null, movimientos: [] }); return; }
+        setLoadingDet(true);
+        try {
+          const params = {};
+          if (fDesde) params.desde = fDesde;
+          if (fHasta) params.hasta = fHasta;
+          if (soloSin) params.soloSinConciliar = "1";
+          if (incluirAnulados) params.incluirAnulados = "1";
+          const res = await axios.get(`${API}/api/tesoreria/cuentas/${sel}/movimientos`, { params });
+          setDet(res.data);
+        } catch (err) { mostrarMensaje(errorDe(err, "Error cargando los movimientos"), "error"); }
+        setMarcados([]);
+        setLoadingDet(false);
+      }
+      useEffect(() => { cargarCuentas(); }, [verInactivas]);
+      useEffect(() => { cargarDetalle(); }, [sel, fDesde, fHasta, soloSin, incluirAnulados]);
+      useEffect(() => { setExtracto(""); }, [sel]);
+      const refrescar = () => Promise.all([cargarCuentas(), cargarDetalle()]);
+
+      // ── Cuentas ──
+      function abrirNuevaCuenta() { setModalCuenta({ nombre: "", tipo: "banco", saldo_inicial: "0", fecha_saldo_inicial: hoyStr, notas: "" }); }
+      function abrirEditarCuenta(c) {
+        setModalCuenta({ id: c.id, nombre: c.nombre, tipo: c.tipo, saldo_inicial: String(c.saldo_inicial), fecha_saldo_inicial: c.fecha_saldo_inicial, notas: c.notas || "", bloqueaSaldo: c.conciliados > 0 });
+      }
+      async function guardarCuenta() {
+        const f = modalCuenta;
+        if (!f.nombre.trim()) { mostrarMensaje("El nombre es obligatorio", "error"); return; }
+        if (!f.fecha_saldo_inicial) { mostrarMensaje("Indicá la fecha del saldo inicial", "error"); return; }
+        if (!Number.isFinite(Number(f.saldo_inicial))) { mostrarMensaje("Saldo inicial inválido", "error"); return; }
+        setGuardando(true);
+        try {
+          const body = { nombre: f.nombre.trim(), notas: f.notas.trim(), ...(f.bloqueaSaldo ? {} : { saldo_inicial: Number(f.saldo_inicial), fecha_saldo_inicial: f.fecha_saldo_inicial }) };
+          if (f.id) await axios.patch(`${API}/api/tesoreria/cuentas/${f.id}`, body);
+          else { const r = await axios.post(`${API}/api/tesoreria/cuentas`, { ...body, tipo: f.tipo }); setSel(r.data.id); }
+          setModalCuenta(null); await refrescar(); mostrarMensaje(f.id ? "Cuenta actualizada" : "Cuenta creada");
+        } catch (err) { mostrarMensaje(errorDe(err, "Error guardando la cuenta"), "error"); }
+        setGuardando(false);
+      }
+      async function desactivar(c) {
+        if (!window.confirm(`¿Desactivar la cuenta ${c.nombre}? No se borra: deja de aparecer para cargar movimientos.`)) return;
+        try { await axios.post(`${API}/api/tesoreria/cuentas/${c.id}/desactivar`); await refrescar(); mostrarMensaje("Cuenta desactivada"); }
+        catch (err) { mostrarMensaje(errorDe(err, "Error desactivando la cuenta"), "error"); }
+      }
+      async function activar(c) {
+        try { await axios.post(`${API}/api/tesoreria/cuentas/${c.id}/activar`); await refrescar(); mostrarMensaje("Cuenta activada"); }
+        catch (err) { mostrarMensaje(errorDe(err, "Error activando la cuenta"), "error"); }
+      }
+
+      // ── Movimientos manuales ──
+      function abrirNuevoMov(tipo) { setModalMov({ tipo, fecha: hoyStr, monto: "", concepto: "" }); }
+      function abrirEditarMov(m) { setModalMov({ id: m.id, tipo: m.tipo, fecha: m.fecha, monto: String(m.monto), concepto: m.concepto }); }
+      async function guardarMov() {
+        const f = modalMov;
+        if (!f.fecha) { mostrarMensaje("Indicá la fecha", "error"); return; }
+        if (!(Number(f.monto) > 0)) { mostrarMensaje("El monto debe ser mayor a 0", "error"); return; }
+        if (!f.concepto.trim()) { mostrarMensaje("El concepto es obligatorio", "error"); return; }
+        setGuardando(true);
+        try {
+          const body = { tipo: f.tipo, fecha: f.fecha, monto: Number(f.monto), concepto: f.concepto.trim() };
+          if (f.id) await axios.patch(`${API}/api/tesoreria/movimientos/${f.id}`, body);
+          else await axios.post(`${API}/api/tesoreria/movimientos`, { ...body, cuenta_id: sel });
+          setModalMov(null); await refrescar(); mostrarMensaje(f.id ? "Movimiento actualizado" : (f.tipo === "ingreso" ? "Ingreso registrado" : "Egreso registrado"));
+        } catch (err) { mostrarMensaje(errorDe(err, "Error guardando el movimiento"), "error"); }
+        setGuardando(false);
+      }
+      async function anularMov(m) {
+        const motivo = window.prompt(`Anular "${m.concepto}" (${money(m.monto)}).\nMotivo de anulación:`);
+        if (motivo === null) return;
+        if (!motivo.trim()) { mostrarMensaje("El motivo es obligatorio", "error"); return; }
+        try { await axios.post(`${API}/api/tesoreria/movimientos/${m.id}/anular`, { motivo: motivo.trim() }); await refrescar(); mostrarMensaje("Movimiento anulado"); }
+        catch (err) { mostrarMensaje(errorDe(err, "Error anulando el movimiento"), "error"); }
+      }
+
+      // ── Transferencias ──
+      function abrirTransf() {
+        const otra = cuentas.find(c => c.activa && c.id !== sel);
+        setModalTransf({ modo: "cuentas", cuenta_origen_id: sel || "", cuenta_destino_id: otra ? otra.id : "", cuenta_id: sel || "", caja: "", fecha: hoyStr, monto: "", concepto: "" });
+      }
+      async function guardarTransf() {
+        const f = modalTransf;
+        if (!(Number(f.monto) > 0)) { mostrarMensaje("El monto debe ser mayor a 0", "error"); return; }
+        if (!f.fecha) { mostrarMensaje("Indicá la fecha", "error"); return; }
+        if (f.modo === "cuentas" && (!f.cuenta_origen_id || !f.cuenta_destino_id)) { mostrarMensaje("Elegí la cuenta de origen y la de destino", "error"); return; }
+        if (f.modo === "cuentas" && Number(f.cuenta_origen_id) === Number(f.cuenta_destino_id)) { mostrarMensaje("El origen y el destino no pueden ser la misma cuenta", "error"); return; }
+        if (f.modo !== "cuentas" && (!f.cuenta_id || !f.caja)) { mostrarMensaje("Elegí la cuenta y la caja", "error"); return; }
+        setGuardando(true);
+        try {
+          await axios.post(`${API}/api/tesoreria/transferencias`, {
+            modo: f.modo, fecha: f.fecha, monto: Number(f.monto), concepto: f.concepto.trim(),
+            ...(f.modo === "cuentas" ? { cuenta_origen_id: Number(f.cuenta_origen_id), cuenta_destino_id: Number(f.cuenta_destino_id) } : { cuenta_id: Number(f.cuenta_id), caja: f.caja }),
+          });
+          setModalTransf(null); await refrescar(); mostrarMensaje("Transferencia registrada");
+        } catch (err) { mostrarMensaje(errorDe(err, "Error registrando la transferencia"), "error"); }
+        setGuardando(false);
+      }
+      async function anularTransf(m) {
+        const motivo = window.prompt(`Anular la transferencia #${m.transferencia_id} (${money(m.monto)}).\nSe anulan las dos patas${m.contraparte_tipo === "caja" ? ` y se repone la caja ${m.contraparte}` : ""}.\nMotivo de anulación:`);
+        if (motivo === null) return;
+        if (!motivo.trim()) { mostrarMensaje("El motivo es obligatorio", "error"); return; }
+        try { await axios.post(`${API}/api/tesoreria/transferencias/${m.transferencia_id}/anular`, { motivo: motivo.trim() }); await refrescar(); mostrarMensaje("Transferencia anulada"); }
+        catch (err) { mostrarMensaje(errorDe(err, "Error anulando la transferencia"), "error"); }
+      }
+
+      // ── Conciliación ──
+      async function conciliar(ids, valor) {
+        if (!ids.length) return;
+        try {
+          const r = await axios.post(`${API}/api/tesoreria/conciliar`, { ids, conciliado: valor });
+          await refrescar();
+          mostrarMensaje(`${r.data.actualizados} ${r.data.actualizados === 1 ? "movimiento" : "movimientos"} ${valor ? "conciliado" : "desconciliado"}${r.data.actualizados === 1 ? "" : "s"}`);
+        } catch (err) { mostrarMensaje(errorDe(err, "Error actualizando la conciliación"), "error"); }
+      }
+      const toggleMarcado = (id) => setMarcados(ms => (ms.includes(id) ? ms.filter(x => x !== id) : [...ms, id]));
+
+      function exportar() {
+        const c = det.cuenta; if (!c) return;
+        const datos = det.movimientos.map(m => ({
+          "Fecha": m.fecha, "Concepto": m.concepto, "Origen": ORIGEN_LABEL[m.origen_tipo] || m.origen_tipo, "Contraparte": m.contraparte || "",
+          "Ingreso": m.tipo === "ingreso" ? m.monto : "", "Egreso": m.tipo === "egreso" ? m.monto : "", "Saldo": m.saldo_acumulado ?? "",
+          "Conciliado": m.conciliado ? "Sí" : "No", "Conciliado por": m.conciliado_por || "", "Estado": m.estado, "Motivo anulación": m.motivo_anulacion || "", "Usuario": m.usuario || "",
+        }));
+        const tag = (fDesde || fHasta) ? `${fDesde || "inicio"}_${fHasta || "hoy"}` : "todos";
+        const hoja = c.nombre.replace(/[[\]:*?/\\]/g, " ").slice(0, 31) || "Movimientos";
+        exportarExcel(`tesoreria_${c.nombre.replace(/[^\w-]+/g, "_")}_${tag}.xlsx`, [{ name: hoja, data: datos }]);
+      }
+
+      const c = det.cuenta;
+      const visiblesMarcables = det.movimientos.filter(m => m.estado === "activo").map(m => m.id);
+      const todosMarcados = visiblesMarcables.length > 0 && visiblesMarcables.every(id => marcados.includes(id));
+      const diferencia = extracto !== "" && Number.isFinite(Number(extracto)) && c ? Number(extracto) - c.saldo_conciliado : null;
+      const activas = cuentas.filter(x => x.activa);
+      const cols = "28px 92px minmax(220px,1fr) 115px 115px 120px 105px 150px";
+
+      return (
+        <div style={{ padding: 24, maxWidth: 1150, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>🏦 Tesorería</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#666", cursor: "pointer" }}>
+                <input type="checkbox" checked={verInactivas} onChange={e => setVerInactivas(e.target.checked)} /> Ver inactivas
+              </label>
+              <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 16px", borderRadius: 8, border: "none", background: "#F68B32", color: "#fff", cursor: "pointer" }} onClick={abrirNuevaCuenta}>+ Nueva cuenta</button>
+              <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver</button>
+            </div>
+          </div>
+
+          {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>}
+
+          {/* Tarjetas por cuenta */}
+          {loading && cuentas.length === 0 ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+            : cuentas.length === 0 ? (
+              <div style={{ background: "#fff", border: "1px dashed #ddd", borderRadius: 10, padding: 24, color: "#888", fontSize: 13, textAlign: "center" }}>
+                Todavía no hay cuentas. Cargá tus bancos y billeteras (Mercado Pago, etc.) con su saldo inicial para empezar.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12, marginBottom: 20 }}>
+                {cuentas.map(x => (
+                  <div key={x.id} onClick={() => setSel(x.id)} style={{ background: "#fff", border: `${x.id === sel ? 2 : 1}px solid ${x.id === sel ? "#F68B32" : "#eee"}`, borderRadius: 10, padding: "14px 16px", cursor: "pointer", opacity: x.activa ? 1 : 0.6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.tipo === "banco" ? "🏦" : "📱"} {x.nombre}</div>
+                      {!x.activa && <span style={{ fontSize: 9, fontWeight: 600, color: "#888", background: "#f0f0f0", borderRadius: 4, padding: "1px 5px" }}>INACTIVA</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 8 }}>Saldo según sistema</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 20, fontWeight: 700, color: x.descubierto ? "#c0392b" : "#333" }}>{money(x.saldo_sistema)}</span>
+                      {x.descubierto && <span style={{ fontSize: 9, fontWeight: 700, color: "#c0392b", background: "#fdecea", borderRadius: 4, padding: "2px 6px" }}>DESCUBIERTO</span>}
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#666", marginTop: 6 }}>
+                      <span>Conciliado</span><b style={{ color: "#1d8a4e" }}>{money(x.saldo_conciliado)}</b>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#666", marginTop: 2 }}>
+                      <span>Sin conciliar ({x.sin_conciliar})</span><b style={{ color: x.sin_conciliar ? "#b45309" : "#999" }}>{money(x.monto_sin_conciliar)}</b>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+          {/* Detalle de la cuenta elegida */}
+          {c && (
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#333" }}>{c.tipo === "banco" ? "🏦" : "📱"} {c.nombre}</div>
+                  <div style={{ fontSize: 12, color: "#888" }}>{c.tipo === "banco" ? "Banco" : "Billetera"} · saldo inicial {money(c.saldo_inicial)} al {c.fecha_saldo_inicial}{c.notas ? ` · ${c.notas}` : ""}</div>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {c.activa && <button style={btnSt("#1d8a4e", "#eafaf1")} onClick={() => abrirNuevoMov("ingreso")}>+ Nuevo ingreso</button>}
+                  {c.activa && <button style={btnSt("#c0392b", "#fdecea")} onClick={() => abrirNuevoMov("egreso")}>− Nuevo egreso</button>}
+                  {c.activa && <button style={btnSt("#2563eb", "#eff6ff")} onClick={abrirTransf}>⇄ Transferencia</button>}
+                  <button style={btnSt("#555", "#fff")} onClick={() => abrirEditarCuenta(c)}>✏️ Editar cuenta</button>
+                  {c.activa ? <button style={btnSt("#888", "#fff")} onClick={() => desactivar(c)}>Desactivar</button> : <button style={btnSt("#1d8a4e", "#fff")} onClick={() => activar(c)}>Activar</button>}
+                  {det.movimientos.length > 0 && <button style={btnSt("#1d8a4e", "#eafaf1")} onClick={exportar}>📊 Excel</button>}
+                </div>
+              </div>
+
+              {/* Conciliación contra el extracto */}
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", background: "#fafaf8", border: "1px solid #eee", borderRadius: 8, padding: "10px 12px", marginBottom: 12, fontSize: 13 }}>
+                <span>Saldo conciliado: <b style={{ color: "#1d8a4e" }}>{money(c.saldo_conciliado)}</b></span>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, color: "#666" }}>
+                  Saldo según extracto
+                  <input type="number" step="0.01" style={{ width: 140, fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={extracto} onChange={e => setExtracto(e.target.value)} placeholder="0.00" />
+                </label>
+                {diferencia !== null && (Math.abs(diferencia) < 0.01
+                  ? <span style={{ color: "#1d8a4e", fontWeight: 700 }}>✓ Cuadra con el extracto</span>
+                  : <span style={{ color: "#c0392b", fontWeight: 700 }}>Diferencia: {money(diferencia)}</span>)}
+              </div>
+
+              {/* Filtros */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
+                <input type="date" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={fDesde} onChange={e => setFDesde(e.target.value)} />
+                <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
+                <input type="date" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={fHasta} onChange={e => setFHasta(e.target.value)} />
+                <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#666", cursor: "pointer" }}>
+                  <input type="checkbox" checked={soloSin} onChange={e => setSoloSin(e.target.checked)} /> Solo sin conciliar
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#666", cursor: "pointer" }}>
+                  <input type="checkbox" checked={incluirAnulados} onChange={e => setIncluirAnulados(e.target.checked)} /> Incluir anulados
+                </label>
+                {(fDesde || fHasta || soloSin || incluirAnulados) && <button style={miniBtn("#c0392b", "#fff")} onClick={() => { setFDesde(""); setFHasta(""); setSoloSin(false); setIncluirAnulados(false); }}>✕ Limpiar</button>}
+              </div>
+
+              {marcados.length > 0 && (
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10, fontSize: 12, color: "#555" }}>
+                  <b>{marcados.length} {marcados.length === 1 ? "elegido" : "elegidos"}</b>
+                  <button style={btnSt("#1d8a4e", "#eafaf1")} onClick={() => conciliar(marcados, true)}>✓ Conciliar</button>
+                  <button style={btnSt("#b45309", "#fff7ed")} onClick={() => conciliar(marcados, false)}>Desconciliar</button>
+                  <button style={btnSt("#888", "#fff")} onClick={() => setMarcados([])}>Limpiar selección</button>
+                </div>
+              )}
+
+              {/* Movimientos */}
+              <div style={{ overflowX: "auto", border: "1px solid #eee", borderRadius: 8 }}>
+                <div style={{ minWidth: 960 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: cols, gap: 8, padding: "9px 12px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase", alignItems: "center" }}>
+                    <input type="checkbox" aria-label="Elegir todos" checked={todosMarcados} onChange={e => setMarcados(e.target.checked ? visiblesMarcables : [])} />
+                    <div>Fecha</div><div>Concepto</div><div style={{ textAlign: "right" }}>Ingreso</div><div style={{ textAlign: "right" }}>Egreso</div><div style={{ textAlign: "right" }}>Saldo</div><div>Conciliado</div><div></div>
+                  </div>
+                  {loadingDet ? <div style={{ padding: 16, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+                    : det.movimientos.length === 0 ? <div style={{ padding: 16, color: "#aaa", fontSize: 13 }}>No hay movimientos para los filtros elegidos.</div>
+                    : det.movimientos.map(m => {
+                      const anulado = m.estado === "anulado";
+                      return (
+                        <div key={m.id} style={{ display: "grid", gridTemplateColumns: cols, gap: 8, padding: "9px 12px", borderBottom: "1px solid #f5f5f5", fontSize: 13, alignItems: "center", opacity: anulado ? 0.55 : 1, background: marcados.includes(m.id) ? "#fff8f1" : "transparent" }}>
+                          <input type="checkbox" aria-label={`Elegir ${m.concepto}`} disabled={anulado} checked={marcados.includes(m.id)} onChange={() => toggleMarcado(m.id)} />
+                          <div style={{ color: "#666" }}>{m.fecha}</div>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ color: "#333", textDecoration: anulado ? "line-through" : "none" }}>{m.concepto}</div>
+                            <div style={{ fontSize: 11, color: "#999" }}>
+                              {ORIGEN_LABEL[m.origen_tipo] || m.origen_tipo}{m.transferencia_id ? ` #${m.transferencia_id}` : ""}{m.contraparte ? ` · ${m.contraparte_tipo === "caja" ? "caja " : ""}${m.contraparte}` : ""}{m.usuario ? ` · ${m.usuario}` : ""}
+                            </div>
+                            {anulado && <div style={{ fontSize: 11, color: "#c0392b" }}>Anulado{m.motivo_anulacion ? `: ${m.motivo_anulacion}` : ""}</div>}
+                          </div>
+                          <div style={{ textAlign: "right", fontWeight: 600, color: "#1d8a4e" }}>{m.tipo === "ingreso" ? money(m.monto) : ""}</div>
+                          <div style={{ textAlign: "right", fontWeight: 600, color: "#c0392b" }}>{m.tipo === "egreso" ? money(m.monto) : ""}</div>
+                          <div style={{ textAlign: "right", color: m.saldo_acumulado < 0 ? "#c0392b" : "#333" }}>{m.saldo_acumulado === null ? "—" : money(m.saldo_acumulado)}</div>
+                          <div>
+                            {!anulado && (m.conciliado
+                              ? <button style={miniBtn("#1d8a4e", "#eafaf1")} title={`${m.conciliado_por || ""} · ${m.conciliado_at ? new Date(m.conciliado_at).toLocaleString("es-AR") : ""} — clic para desconciliar`} onClick={() => conciliar([m.id], false)}>✓ Conciliado</button>
+                              : <button style={miniBtn("#999", "#fff")} title="Clic para conciliar" onClick={() => conciliar([m.id], true)}>Pendiente</button>)}
+                          </div>
+                          <div style={{ display: "flex", gap: 4, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                            {m.editable && <button style={miniBtn("#555", "#fff")} onClick={() => abrirEditarMov(m)}>Editar</button>}
+                            {m.editable && <button style={miniBtn("#c0392b", "#fdecea")} onClick={() => anularMov(m)}>Anular</button>}
+                            {m.origen_tipo === "transferencia" && !anulado && !m.conciliado && <button style={miniBtn("#c0392b", "#fdecea")} onClick={() => anularTransf(m)}>Anular transf.</button>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal cuenta */}
+          {modalCuenta && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => !guardando && setModalCuenta(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 16 }}>{modalCuenta.id ? "Editar cuenta" : "Nueva cuenta"}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div>
+                    <label style={labelSt}>Nombre</label>
+                    <input style={inputSt} placeholder="Ej. Galicia CC, Mercado Pago" value={modalCuenta.nombre} onChange={e => setModalCuenta(f => ({ ...f, nombre: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label style={labelSt}>Tipo</label>
+                    <select style={inputSt} value={modalCuenta.tipo} disabled={!!modalCuenta.id} onChange={e => setModalCuenta(f => ({ ...f, tipo: e.target.value }))}>
+                      <option value="banco">Banco</option>
+                      <option value="billetera">Billetera</option>
+                    </select>
+                  </div>
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={labelSt}>Saldo inicial</label>
+                      <input type="number" step="0.01" style={inputSt} disabled={modalCuenta.bloqueaSaldo} value={modalCuenta.saldo_inicial} onChange={e => setModalCuenta(f => ({ ...f, saldo_inicial: e.target.value }))} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={labelSt}>Al día</label>
+                      <input type="date" style={inputSt} disabled={modalCuenta.bloqueaSaldo} value={modalCuenta.fecha_saldo_inicial} onChange={e => setModalCuenta(f => ({ ...f, fecha_saldo_inicial: e.target.value }))} />
+                    </div>
+                  </div>
+                  {modalCuenta.bloqueaSaldo && <div style={{ fontSize: 11, color: "#999", marginTop: -6 }}>La cuenta tiene movimientos conciliados: el saldo inicial y su fecha ya no se cambian.</div>}
+                  <div>
+                    <label style={labelSt}>Notas (opcional)</label>
+                    <input style={inputSt} placeholder="CBU, alias, titular…" value={modalCuenta.notas} onChange={e => setModalCuenta(f => ({ ...f, notas: e.target.value }))} />
+                  </div>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+                  <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} disabled={guardando} onClick={() => setModalCuenta(null)}>Cancelar</button>
+                  <button style={{ fontSize: 13, fontWeight: 600, padding: "8px 18px", borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#F68B32", color: "#fff", cursor: guardando ? "default" : "pointer" }} disabled={guardando} onClick={guardarCuenta}>{guardando ? "Guardando…" : "Guardar"}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal movimiento manual */}
+          {modalMov && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => !guardando && setModalMov(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 4 }}>{modalMov.id ? "Editar movimiento" : modalMov.tipo === "ingreso" ? "Nuevo ingreso" : "Nuevo egreso"}</div>
+                <div style={{ fontSize: 12, color: "#888", marginBottom: 16 }}>{c ? c.nombre : ""}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {modalMov.id && (
+                    <div>
+                      <label style={labelSt}>Tipo</label>
+                      <select style={inputSt} value={modalMov.tipo} onChange={e => setModalMov(f => ({ ...f, tipo: e.target.value }))}>
+                        <option value="ingreso">Ingreso</option>
+                        <option value="egreso">Egreso</option>
+                      </select>
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={labelSt}>Fecha (la del banco)</label>
+                      <input type="date" style={inputSt} value={modalMov.fecha} onChange={e => setModalMov(f => ({ ...f, fecha: e.target.value }))} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={labelSt}>Monto</label>
+                      <input type="number" min="0" step="0.01" style={inputSt} placeholder="0.00" value={modalMov.monto} onChange={e => setModalMov(f => ({ ...f, monto: e.target.value }))} />
+                    </div>
+                  </div>
+                  <div>
+                    <label style={labelSt}>Concepto</label>
+                    <input style={inputSt} placeholder={modalMov.tipo === "ingreso" ? "Ej. Liquidación Mercado Pago, cobro corporativo…" : "Ej. Comisión bancaria, impuesto débitos y créditos…"} value={modalMov.concepto} onChange={e => setModalMov(f => ({ ...f, concepto: e.target.value }))} />
+                  </div>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+                  <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} disabled={guardando} onClick={() => setModalMov(null)}>Cancelar</button>
+                  <button style={{ fontSize: 13, fontWeight: 600, padding: "8px 18px", borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#F68B32", color: "#fff", cursor: guardando ? "default" : "pointer" }} disabled={guardando} onClick={guardarMov}>{guardando ? "Guardando…" : "Guardar"}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal transferencia */}
+          {modalTransf && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => !guardando && setModalTransf(null)}>
+              <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 16 }}>Transferencia</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div>
+                    <label style={labelSt}>Tipo</label>
+                    <select style={inputSt} value={modalTransf.modo} onChange={e => setModalTransf(f => ({ ...f, modo: e.target.value }))}>
+                      <option value="cuentas">Entre cuentas</option>
+                      <option value="deposito">Depositar efectivo de una caja en la cuenta</option>
+                      <option value="retiro">Retirar de la cuenta a una caja</option>
+                    </select>
+                  </div>
+                  {modalTransf.modo === "cuentas" ? (
+                    <div style={{ display: "flex", gap: 12 }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={labelSt}>Desde la cuenta</label>
+                        <select style={inputSt} value={modalTransf.cuenta_origen_id} onChange={e => setModalTransf(f => ({ ...f, cuenta_origen_id: e.target.value }))}>
+                          <option value="">Elegir…</option>
+                          {activas.map(x => <option key={x.id} value={x.id}>{x.nombre}</option>)}
+                        </select>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={labelSt}>A la cuenta</label>
+                        <select style={inputSt} value={modalTransf.cuenta_destino_id} onChange={e => setModalTransf(f => ({ ...f, cuenta_destino_id: e.target.value }))}>
+                          <option value="">Elegir…</option>
+                          {activas.map(x => <option key={x.id} value={x.id}>{x.nombre}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", gap: 12 }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={labelSt}>{modalTransf.modo === "deposito" ? "Desde la caja" : "A la caja"}</label>
+                        <select style={inputSt} value={modalTransf.caja} onChange={e => setModalTransf(f => ({ ...f, caja: e.target.value }))}>
+                          <option value="">Elegir caja…</option>
+                          {CAJAS_TES.map(x => <option key={x} value={x}>{x}</option>)}
+                        </select>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={labelSt}>{modalTransf.modo === "deposito" ? "A la cuenta" : "Desde la cuenta"}</label>
+                        <select style={inputSt} value={modalTransf.cuenta_id} onChange={e => setModalTransf(f => ({ ...f, cuenta_id: e.target.value }))}>
+                          <option value="">Elegir…</option>
+                          {activas.map(x => <option key={x.id} value={x.id}>{x.nombre}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={labelSt}>Fecha en la cuenta</label>
+                      <input type="date" style={inputSt} value={modalTransf.fecha} onChange={e => setModalTransf(f => ({ ...f, fecha: e.target.value }))} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={labelSt}>Monto</label>
+                      <input type="number" min="0" step="0.01" style={inputSt} placeholder="0.00" value={modalTransf.monto} onChange={e => setModalTransf(f => ({ ...f, monto: e.target.value }))} />
+                    </div>
+                  </div>
+                  <div>
+                    <label style={labelSt}>Concepto (opcional)</label>
+                    <input style={inputSt} placeholder="Ej. Depósito recaudación del fin de semana" value={modalTransf.concepto} onChange={e => setModalTransf(f => ({ ...f, concepto: e.target.value }))} />
+                  </div>
+                  {modalTransf.modo !== "cuentas" && <div style={{ fontSize: 11, color: "#999" }}>En la caja se registra con fecha de hoy (cae en el día abierto); en la cuenta, con la fecha elegida.</div>}
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+                  <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} disabled={guardando} onClick={() => setModalTransf(null)}>Cancelar</button>
+                  <button style={{ fontSize: 13, fontWeight: 600, padding: "8px 18px", borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#F68B32", color: "#fff", cursor: guardando ? "default" : "pointer" }} disabled={guardando} onClick={guardarTransf}>{guardando ? "Guardando…" : "Registrar transferencia"}</button>
                 </div>
               </div>
             </div>
@@ -9223,6 +9700,7 @@ let numeroAsignado = "";
                         <>
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("usuarios"); setMenuAbierto(false); }}>👥 Usuarios</button>
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("repartidores"); setMenuAbierto(false); }}>🚚 Repartidores</button>
+                          {esSuperadmin && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("tesoreria"); setMenuAbierto(false); }}>🏦 Tesorería</button>}
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={async () => {
                             setMenuAbierto(false);
                             if (!window.confirm("¿Resincronizar TODOS los pedidos desde Tienda Nube? Puede tardar 1-2 minutos.")) return;
@@ -9373,7 +9851,7 @@ let numeroAsignado = "";
       }
 
       // Guard superadmin-only (módulo Contable). Mismo patrón que el admin, pero exige superadmin.
-      const VISTAS_SOLO_SUPERADMIN = ["libroVentas", "libroCompras", "empleados", "liquidaciones", "novedadesRRHH", "reporteRRHH"];
+      const VISTAS_SOLO_SUPERADMIN = ["libroVentas", "libroCompras", "empleados", "liquidaciones", "novedadesRRHH", "reporteRRHH", "tesoreria"];
       if (VISTAS_SOLO_SUPERADMIN.includes(vista) && !esSuperadmin) {
         return (
           <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: "system-ui, sans-serif", background: "#f7f7f5", padding: 24, textAlign: "center" }}>
@@ -10473,6 +10951,9 @@ if (vista === "dashboard") {
     }
     if (vista === "categoriasGasto") {
       return <div style={s.wrap}>{Header()}<VistaCategoriasGasto onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "tesoreria") {
+      return <div style={s.wrap}>{Header()}<VistaTesoreria onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "gastosComunes") {
       return <div style={s.wrap}>{Header()}<VistaGastosComunes usuario={usuario} onVolver={() => setVista("panel")} /></div>;

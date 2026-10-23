@@ -433,6 +433,49 @@ async function initDB() {
     motivo_anulacion TEXT, usuario TEXT,
     created_at TIMESTAMP DEFAULT NOW()
   );`);
+  // TESORERÍA Entrega A: cuentas bancarias / billeteras + movimientos + conciliación. Saldos calculados, no guardados.
+  // Nombre único sin mayúsculas ni tildes (índice por expresión; translate/lower/btrim son IMMUTABLE).
+  await pool.query(`CREATE TABLE IF NOT EXISTS cuentas_tesoreria (
+    id SERIAL PRIMARY KEY,
+    nombre TEXT NOT NULL CHECK (btrim(nombre) <> ''),
+    tipo TEXT NOT NULL CHECK (tipo IN ('banco','billetera')),
+    saldo_inicial NUMERIC NOT NULL DEFAULT 0,
+    fecha_saldo_inicial DATE NOT NULL,
+    activa BOOLEAN NOT NULL DEFAULT true,
+    notas TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+  );`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS ux_cuentas_tesoreria_nombre ON cuentas_tesoreria
+    (lower(translate(btrim(nombre), 'ÁÀÄÂÉÈËÊÍÌÏÎÓÒÖÔÚÙÜÛÑáàäâéèëêíìïîóòöôúùüûñ', 'AAAAEEEEIIIIOOOOUUUUNaaaaeeeeiiiioooouuuun')));`);
+  // transferencia_id agrupa las dos patas de una transferencia (cuenta↔cuenta o cuenta↔caja).
+  await pool.query(`CREATE SEQUENCE IF NOT EXISTS transferencias_tesoreria_seq;`);
+  // origen_tipo ya admite los orígenes de la Entrega B (pagos/sueldos/gastos), así no hace falta otra migración.
+  await pool.query(`CREATE TABLE IF NOT EXISTS movimientos_tesoreria (
+    id SERIAL PRIMARY KEY,
+    cuenta_id INTEGER NOT NULL REFERENCES cuentas_tesoreria(id),
+    fecha DATE NOT NULL,
+    tipo TEXT NOT NULL CHECK (tipo IN ('ingreso','egreso')),
+    monto NUMERIC NOT NULL CHECK (monto > 0),
+    concepto TEXT NOT NULL CHECK (btrim(concepto) <> ''),
+    origen_tipo TEXT NOT NULL DEFAULT 'manual' CHECK (origen_tipo IN ('manual','transferencia','pago_factura','pago_a_cuenta','pago_sueldo','adelanto','adicional','gasto_comun')),
+    origen_id INTEGER,
+    transferencia_id INTEGER,
+    conciliado BOOLEAN NOT NULL DEFAULT false,
+    conciliado_at TIMESTAMP,
+    conciliado_por TEXT,
+    estado TEXT NOT NULL DEFAULT 'activo' CHECK (estado IN ('activo','anulado')),
+    motivo_anulacion TEXT,
+    usuario TEXT,
+    usuario_anula TEXT,
+    anulado_at TIMESTAMP,
+    caja_movimiento_id INTEGER,
+    created_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT movimientos_tesoreria_transf_chk CHECK ((origen_tipo = 'transferencia') = (transferencia_id IS NOT NULL)),
+    CONSTRAINT movimientos_tesoreria_conciliado_chk CHECK (NOT (conciliado AND estado = 'anulado'))
+  );`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_mov_tesoreria_cuenta_fecha ON movimientos_tesoreria (cuenta_id, fecha);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_mov_tesoreria_origen ON movimientos_tesoreria (origen_tipo, origen_id);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_mov_tesoreria_transferencia ON movimientos_tesoreria (transferencia_id) WHERE transferencia_id IS NOT NULL;`);
   // STOCK DE INSUMOS Fase 1 (NUEVO, separado del tablero de cocina/stock_lotes). Stock = Σ movimientos por insumo+local.
   await pool.query(`CREATE TABLE IF NOT EXISTS insumos (
     id SERIAL PRIMARY KEY,
@@ -3483,6 +3526,406 @@ app.get("/api/rrhh/reporte", soloSuperadmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── TESORERÍA — Entrega A (cuentas bancarias / billeteras, movimientos, conciliación) — SOLO superadmin ─
+// Saldo según sistema = saldo_inicial + Σ ingresos − Σ egresos (activos, fecha >= fecha_saldo_inicial).
+// Saldo conciliado = lo mismo, solo con los conciliados. Se permite saldo negativo (descubierto).
+// fecha = la del banco (elegible). Las patas de CAJA de una transferencia van con fecha HOY, como el resto.
+// Un movimiento conciliado no se edita ni se anula: primero se desconcilia. Los de pagos/sueldos/gastos
+// (Entrega B) se crean y anulan desde su pago con registrarMovimientoCuenta / anularMovimientoPorOrigen.
+const TIPOS_CUENTA_TESORERIA = ["banco", "billetera"];
+const ORIGENES_TESORERIA = ["manual", "transferencia", "pago_factura", "pago_a_cuenta", "pago_sueldo", "adelanto", "adicional", "gasto_comun"];
+const normTesoreria = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+const limpiarTexto = (s) => String(s || "").replace(/\s+/g, " ").trim();
+const montoTesoreria = (x) => { const n = Number(x); return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null; };
+// Error con status HTTP: los helpers lo tiran dentro de la transacción del que llama.
+class ErrorTesoreria extends Error { constructor(status, mensaje) { super(mensaje); this.status = status; } }
+const responderErrorTesoreria = (res, e, generico) => {
+  if (e instanceof ErrorTesoreria) return res.status(e.status).json({ error: e.message });
+  if (e && e.code === "23505") return res.status(409).json({ error: "Ya existe una cuenta con ese nombre." });
+  console.error(`Tesorería: ${generico}:`, e && e.message);
+  return res.status(500).json({ error: generico });
+};
+// Suma con signo de un movimiento (ingreso +, egreso −). En SQL y en JS.
+const SQL_SIGNO_TES = "(CASE WHEN m.tipo = 'ingreso' THEN m.monto ELSE -m.monto END)";
+const SQL_CUENTAS_TES = `
+  SELECT c.id, c.nombre, c.tipo, c.saldo_inicial, c.fecha_saldo_inicial::text AS fecha_saldo_inicial, c.activa, c.notas, c.created_at,
+    c.saldo_inicial + COALESCE(SUM(${SQL_SIGNO_TES}) FILTER (WHERE m.estado = 'activo' AND m.fecha >= c.fecha_saldo_inicial), 0) AS saldo_sistema,
+    c.saldo_inicial + COALESCE(SUM(${SQL_SIGNO_TES}) FILTER (WHERE m.estado = 'activo' AND m.conciliado AND m.fecha >= c.fecha_saldo_inicial), 0) AS saldo_conciliado,
+    COUNT(m.id) FILTER (WHERE m.estado = 'activo' AND NOT m.conciliado AND m.fecha >= c.fecha_saldo_inicial) AS sin_conciliar,
+    COALESCE(SUM(${SQL_SIGNO_TES}) FILTER (WHERE m.estado = 'activo' AND NOT m.conciliado AND m.fecha >= c.fecha_saldo_inicial), 0) AS monto_sin_conciliar,
+    COUNT(m.id) FILTER (WHERE m.estado = 'activo' AND m.conciliado) AS conciliados,
+    COUNT(m.id) FILTER (WHERE m.estado = 'activo') AS movimientos_activos
+  FROM cuentas_tesoreria c LEFT JOIN movimientos_tesoreria m ON m.cuenta_id = c.id`;
+const cuentaTesDeFila = (r) => ({
+  ...r, saldo_inicial: Number(r.saldo_inicial), saldo_sistema: Number(r.saldo_sistema), saldo_conciliado: Number(r.saldo_conciliado),
+  sin_conciliar: Number(r.sin_conciliar), monto_sin_conciliar: Number(r.monto_sin_conciliar), conciliados: Number(r.conciliados),
+  movimientos_activos: Number(r.movimientos_activos), descubierto: Number(r.saldo_sistema) < -0.005,
+});
+async function cuentaTesoreriaConSaldos(db, id) {
+  const r = await db.query(`${SQL_CUENTAS_TES} WHERE c.id = $1 GROUP BY c.id`, [id]);
+  return r.rows[0] ? cuentaTesDeFila(r.rows[0]) : null;
+}
+
+// HELPER (Entrega B): registra un movimiento en una cuenta DENTRO de la transacción del que llama (client con BEGIN).
+// Valida cuenta activa (la bloquea FOR UPDATE para que no se desactive en el medio), fecha, tipo, monto y concepto.
+// Tira ErrorTesoreria (status 400/404) si algo no va: el que llama hace ROLLBACK.
+async function registrarMovimientoCuenta(client, { cuentaId, fecha, tipo, monto, concepto, origenTipo = "manual", origenId = null, usuario = null, transferenciaId = null, cajaMovimientoId = null }) {
+  if (!ORIGENES_TESORERIA.includes(origenTipo)) throw new ErrorTesoreria(400, "Origen de movimiento inválido.");
+  if (!["ingreso", "egreso"].includes(tipo)) throw new ErrorTesoreria(400, "Tipo de movimiento inválido (ingreso / egreso).");
+  const m = montoTesoreria(monto);
+  if (!m) throw new ErrorTesoreria(400, "El monto debe ser mayor a 0.");
+  if (!esFechaISO(fecha)) throw new ErrorTesoreria(400, "Fecha inválida (formato YYYY-MM-DD).");
+  const conc = limpiarTexto(concepto);
+  if (!conc) throw new ErrorTesoreria(400, "El concepto es obligatorio.");
+  const cta = await client.query("SELECT id, nombre, activa, fecha_saldo_inicial::text AS fecha_saldo_inicial FROM cuentas_tesoreria WHERE id = $1 FOR UPDATE", [cuentaId]);
+  const c = cta.rows[0];
+  if (!c) throw new ErrorTesoreria(404, "Cuenta no encontrada.");
+  if (!c.activa) throw new ErrorTesoreria(400, `La cuenta ${c.nombre} está desactivada.`);
+  if (fecha < c.fecha_saldo_inicial) throw new ErrorTesoreria(400, `La fecha es anterior al saldo inicial de ${c.nombre} (${c.fecha_saldo_inicial}).`);
+  const r = await client.query(
+    `INSERT INTO movimientos_tesoreria (cuenta_id, fecha, tipo, monto, concepto, origen_tipo, origen_id, transferencia_id, caja_movimiento_id, usuario)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+    [cuentaId, fecha, tipo, m, conc, origenTipo, origenId, transferenciaId, cajaMovimientoId, usuario]
+  );
+  return { id: r.rows[0].id, cuenta: c.nombre, monto: m };
+}
+// HELPER (Entrega B): anula los movimientos activos de un origen (p. ej. 'pago_sueldo', 42) DENTRO de la transacción
+// del que llama. Si alguno está conciliado tira 409 (hay que desconciliarlo antes). Devuelve cuántos anuló.
+// Manuales y transferencias NO pasan por acá: tienen sus propios endpoints.
+async function anularMovimientoPorOrigen(client, origenTipo, origenId, motivo, usuario = null) {
+  if (!ORIGENES_TESORERIA.includes(origenTipo) || ["manual", "transferencia"].includes(origenTipo)) throw new ErrorTesoreria(400, "Origen inválido para anular por origen.");
+  const sel = await client.query(
+    "SELECT id, conciliado FROM movimientos_tesoreria WHERE origen_tipo = $1 AND origen_id = $2 AND estado = 'activo' FOR UPDATE",
+    [origenTipo, origenId]
+  );
+  if (sel.rows.some((x) => x.conciliado)) throw new ErrorTesoreria(409, "El movimiento en la cuenta ya está conciliado: desconcilialo en Tesorería antes de anular.");
+  if (sel.rows.length === 0) return 0;
+  await client.query(
+    "UPDATE movimientos_tesoreria SET estado = 'anulado', motivo_anulacion = $1, usuario_anula = $2, anulado_at = NOW() WHERE id = ANY($3::int[])",
+    [limpiarTexto(motivo) || "Anulado desde su origen", usuario, sel.rows.map((x) => x.id)]
+  );
+  return sel.rows.length;
+}
+
+// --- Cuentas ---
+app.get("/api/tesoreria/cuentas", soloSuperadmin, async (req, res) => {
+  try {
+    const r = await pool.query(`${SQL_CUENTAS_TES} ${req.query.incluirInactivas === "1" ? "" : "WHERE c.activa"} GROUP BY c.id ORDER BY c.activa DESC, c.nombre`);
+    res.json(r.rows.map(cuentaTesDeFila));
+  } catch (e) { responderErrorTesoreria(res, e, "Error trayendo las cuentas"); }
+});
+// Valida nombre/tipo/saldo inicial para alta y edición. Devuelve los valores limpios o tira ErrorTesoreria.
+async function validarCuentaTesoreria(b, idActual = null) {
+  const nombre = limpiarTexto(b.nombre);
+  if (!nombre) throw new ErrorTesoreria(400, "El nombre es obligatorio.");
+  if (nombre.length > 80) throw new ErrorTesoreria(400, "El nombre es demasiado largo (máximo 80).");
+  const otras = await pool.query("SELECT id, nombre FROM cuentas_tesoreria WHERE id <> COALESCE($1, -1)", [idActual]);
+  const igual = otras.rows.find((c) => normTesoreria(c.nombre) === normTesoreria(nombre));
+  if (igual) throw new ErrorTesoreria(409, `Ya existe la cuenta "${igual.nombre}".`);
+  return nombre;
+}
+app.post("/api/tesoreria/cuentas", soloSuperadmin, async (req, res) => {
+  const b = req.body || {};
+  const quien = req.user?.nombre_completo || null;
+  try {
+    const nombre = await validarCuentaTesoreria(b);
+    if (!TIPOS_CUENTA_TESORERIA.includes(b.tipo)) throw new ErrorTesoreria(400, "Tipo de cuenta inválido (banco / billetera).");
+    const saldo = Number(b.saldo_inicial || 0);
+    if (!Number.isFinite(saldo)) throw new ErrorTesoreria(400, "Saldo inicial inválido.");
+    if (!esFechaISO(b.fecha_saldo_inicial)) throw new ErrorTesoreria(400, "La fecha del saldo inicial es obligatoria (YYYY-MM-DD).");
+    const r = await pool.query(
+      "INSERT INTO cuentas_tesoreria (nombre, tipo, saldo_inicial, fecha_saldo_inicial, notas) VALUES ($1,$2,$3,$4,$5) RETURNING id",
+      [nombre, b.tipo, Math.round(saldo * 100) / 100, b.fecha_saldo_inicial, limpiarTexto(b.notas) || null]
+    );
+    res.json({ ok: true, id: r.rows[0].id });
+    registrarAuditoria(quien, "tesoreria_cuenta_crear", "cuenta_tesoreria", r.rows[0].id, { nombre, tipo: b.tipo, saldo_inicial: saldo, fecha_saldo_inicial: b.fecha_saldo_inicial });
+  } catch (e) { responderErrorTesoreria(res, e, "Error creando la cuenta"); }
+});
+// Edición: nombre y notas siempre; saldo inicial y su fecha solo si la cuenta no tiene movimientos conciliados.
+app.patch("/api/tesoreria/cuentas/:id", soloSuperadmin, async (req, res) => {
+  const b = req.body || {};
+  const quien = req.user?.nombre_completo || null;
+  let client;
+  try {
+    const nombre = await validarCuentaTesoreria(b, Number(req.params.id));
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const sel = await client.query("SELECT id, nombre, saldo_inicial, fecha_saldo_inicial::text AS fecha_saldo_inicial FROM cuentas_tesoreria WHERE id = $1 FOR UPDATE", [req.params.id]);
+    const c = sel.rows[0];
+    if (!c) throw new ErrorTesoreria(404, "Cuenta no encontrada.");
+    const saldo = b.saldo_inicial === undefined ? Number(c.saldo_inicial) : Number(b.saldo_inicial);
+    const fechaSaldo = b.fecha_saldo_inicial === undefined ? c.fecha_saldo_inicial : b.fecha_saldo_inicial;
+    if (!Number.isFinite(saldo)) throw new ErrorTesoreria(400, "Saldo inicial inválido.");
+    if (!esFechaISO(fechaSaldo)) throw new ErrorTesoreria(400, "Fecha del saldo inicial inválida (YYYY-MM-DD).");
+    const cambiaSaldo = Math.abs(saldo - Number(c.saldo_inicial)) > 0.004 || fechaSaldo !== c.fecha_saldo_inicial;
+    if (cambiaSaldo) {
+      const conc = await client.query("SELECT COUNT(*)::int AS n FROM movimientos_tesoreria WHERE cuenta_id = $1 AND conciliado", [c.id]);
+      if (conc.rows[0].n > 0) throw new ErrorTesoreria(409, "La cuenta tiene movimientos conciliados: el saldo inicial y su fecha ya no se pueden cambiar.");
+      const antes = await client.query("SELECT COUNT(*)::int AS n FROM movimientos_tesoreria WHERE cuenta_id = $1 AND estado = 'activo' AND fecha < $2", [c.id, fechaSaldo]);
+      if (antes.rows[0].n > 0) throw new ErrorTesoreria(409, `Hay ${antes.rows[0].n} movimiento(s) anteriores a ${fechaSaldo}: quedarían fuera del saldo.`);
+    }
+    await client.query("UPDATE cuentas_tesoreria SET nombre = $1, notas = $2, saldo_inicial = $3, fecha_saldo_inicial = $4 WHERE id = $5",
+      [nombre, limpiarTexto(b.notas) || null, Math.round(saldo * 100) / 100, fechaSaldo, c.id]);
+    await client.query("COMMIT");
+    res.json({ ok: true });
+    registrarAuditoria(quien, "tesoreria_cuenta_editar", "cuenta_tesoreria", c.id, { nombre_anterior: c.nombre, nombre, ...(cambiaSaldo ? { saldo_inicial: saldo, fecha_saldo_inicial: fechaSaldo } : {}) });
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    responderErrorTesoreria(res, e, "Error editando la cuenta");
+  } finally { if (client) client.release(); }
+});
+// Desactivar (no se borra): solo con saldo según sistema en 0.
+app.post("/api/tesoreria/cuentas/:id/desactivar", soloSuperadmin, async (req, res) => {
+  const quien = req.user?.nombre_completo || null;
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const lock = await client.query("SELECT id FROM cuentas_tesoreria WHERE id = $1 FOR UPDATE", [req.params.id]);
+    if (!lock.rows[0]) throw new ErrorTesoreria(404, "Cuenta no encontrada.");
+    const c = await cuentaTesoreriaConSaldos(client, req.params.id);
+    if (!c.activa) throw new ErrorTesoreria(409, "La cuenta ya está desactivada.");
+    if (Math.abs(c.saldo_sistema) > 0.004) throw new ErrorTesoreria(409, `No se puede desactivar: el saldo según sistema es $${c.saldo_sistema.toFixed(2)} (tiene que ser 0).`);
+    await client.query("UPDATE cuentas_tesoreria SET activa = false WHERE id = $1", [c.id]);
+    await client.query("COMMIT");
+    res.json({ ok: true });
+    registrarAuditoria(quien, "tesoreria_cuenta_desactivar", "cuenta_tesoreria", c.id, { nombre: c.nombre });
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    responderErrorTesoreria(res, e, "Error desactivando la cuenta");
+  } finally { if (client) client.release(); }
+});
+app.post("/api/tesoreria/cuentas/:id/activar", soloSuperadmin, async (req, res) => {
+  const quien = req.user?.nombre_completo || null;
+  try {
+    const r = await pool.query("UPDATE cuentas_tesoreria SET activa = true WHERE id = $1 AND NOT activa RETURNING nombre", [req.params.id]);
+    if (r.rows.length === 0) return res.status(404).json({ error: "Cuenta no encontrada o ya activa." });
+    res.json({ ok: true });
+    registrarAuditoria(quien, "tesoreria_cuenta_activar", "cuenta_tesoreria", req.params.id, { nombre: r.rows[0].nombre });
+  } catch (e) { responderErrorTesoreria(res, e, "Error activando la cuenta"); }
+});
+
+// --- Movimientos de una cuenta (con saldo acumulado y la contraparte de las transferencias) ---
+app.get("/api/tesoreria/cuentas/:id/movimientos", soloSuperadmin, async (req, res) => {
+  const { desde, hasta, soloSinConciliar, incluirAnulados } = req.query;
+  if ((desde && !esFechaISO(desde)) || (hasta && !esFechaISO(hasta))) return res.status(400).json({ error: "Fechas inválidas (YYYY-MM-DD)." });
+  try {
+    const cuenta = await cuentaTesoreriaConSaldos(pool, req.params.id);
+    if (!cuenta) return res.status(404).json({ error: "Cuenta no encontrada." });
+    const r = await pool.query(
+      `SELECT m.id, m.cuenta_id, m.fecha::text AS fecha, m.tipo, m.monto, m.concepto, m.origen_tipo, m.origen_id, m.transferencia_id,
+              m.conciliado, m.conciliado_at, m.conciliado_por, m.estado, m.motivo_anulacion, m.usuario, m.usuario_anula, m.anulado_at,
+              m.caja_movimiento_id, m.created_at,
+              COALESCE(oc.nombre, cm.local) AS contraparte, CASE WHEN oc.id IS NOT NULL THEN 'cuenta' WHEN cm.id IS NOT NULL THEN 'caja' END AS contraparte_tipo
+       FROM movimientos_tesoreria m
+       LEFT JOIN movimientos_tesoreria o ON o.transferencia_id = m.transferencia_id AND o.id <> m.id
+       LEFT JOIN cuentas_tesoreria oc ON oc.id = o.cuenta_id
+       LEFT JOIN caja_movimientos cm ON cm.id = m.caja_movimiento_id
+       WHERE m.cuenta_id = $1 ORDER BY m.fecha ASC, m.id ASC`, [cuenta.id]);
+    // Saldo acumulado sobre TODOS los activos desde el saldo inicial (no depende de los filtros).
+    let acum = cuenta.saldo_inicial;
+    const todos = r.rows.map((m) => {
+      const monto = Number(m.monto), suma = m.estado === "activo" && m.fecha >= cuenta.fecha_saldo_inicial;
+      if (suma) acum += m.tipo === "ingreso" ? monto : -monto;
+      return { ...m, monto, saldo_acumulado: suma ? Math.round(acum * 100) / 100 : null, editable: m.origen_tipo === "manual" && m.estado === "activo" && !m.conciliado };
+    });
+    const movimientos = todos.filter((m) => (incluirAnulados === "1" || m.estado === "activo")
+      && (soloSinConciliar !== "1" || (!m.conciliado && m.estado === "activo"))
+      && (!desde || m.fecha >= desde) && (!hasta || m.fecha <= hasta)).reverse();   // más nuevos arriba
+    res.json({ cuenta, movimientos });
+  } catch (e) { responderErrorTesoreria(res, e, "Error trayendo los movimientos"); }
+});
+
+// --- Movimientos manuales (cobros, depósitos, liquidaciones de MP/TN, comisiones, impuestos del banco) ---
+app.post("/api/tesoreria/movimientos", soloSuperadmin, async (req, res) => {
+  const b = req.body || {};
+  const quien = req.user?.nombre_completo || null;
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const mov = await registrarMovimientoCuenta(client, { cuentaId: b.cuenta_id, fecha: b.fecha, tipo: b.tipo, monto: b.monto, concepto: b.concepto, origenTipo: "manual", usuario: quien });
+    await client.query("COMMIT");
+    res.json({ ok: true, id: mov.id });
+    registrarAuditoria(quien, "tesoreria_movimiento_crear", "movimiento_tesoreria", mov.id, { cuenta: mov.cuenta, tipo: b.tipo, monto: mov.monto, fecha: b.fecha });
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    responderErrorTesoreria(res, e, "Error registrando el movimiento");
+  } finally { if (client) client.release(); }
+});
+// Lock + chequeos comunes para editar / anular un movimiento manual.
+async function movimientoManualEditable(client, id, accion) {
+  const sel = await client.query(
+    `SELECT m.id, m.cuenta_id, m.fecha::text AS fecha, m.tipo, m.monto, m.concepto, m.origen_tipo, m.estado, m.conciliado,
+            c.nombre AS cuenta, c.fecha_saldo_inicial::text AS fecha_saldo_inicial
+     FROM movimientos_tesoreria m JOIN cuentas_tesoreria c ON c.id = m.cuenta_id WHERE m.id = $1 FOR UPDATE OF m`, [id]);
+  const m = sel.rows[0];
+  if (!m) throw new ErrorTesoreria(404, "Movimiento no encontrado.");
+  if (m.estado !== "activo") throw new ErrorTesoreria(409, "El movimiento está anulado.");
+  if (m.conciliado) throw new ErrorTesoreria(409, `El movimiento está conciliado: desconcilialo para ${accion}lo.`);
+  if (m.origen_tipo === "transferencia") throw new ErrorTesoreria(409, `Es una pata de una transferencia: ${accion === "anular" ? "anulá la transferencia completa" : "anulala y cargala de nuevo"}.`);
+  if (m.origen_tipo !== "manual") throw new ErrorTesoreria(409, `Este movimiento viene de un ${m.origen_tipo.replace(/_/g, " ")}: se ${accion === "anular" ? "anula" : "corrige"} desde ese pago.`);
+  return m;
+}
+app.patch("/api/tesoreria/movimientos/:id", soloSuperadmin, async (req, res) => {
+  const b = req.body || {};
+  const quien = req.user?.nombre_completo || null;
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const m = await movimientoManualEditable(client, req.params.id, "editar");
+    const tipo = b.tipo ?? m.tipo, fecha = b.fecha ?? m.fecha, concepto = limpiarTexto(b.concepto ?? m.concepto), monto = montoTesoreria(b.monto ?? m.monto);
+    if (!["ingreso", "egreso"].includes(tipo)) throw new ErrorTesoreria(400, "Tipo de movimiento inválido (ingreso / egreso).");
+    if (!monto) throw new ErrorTesoreria(400, "El monto debe ser mayor a 0.");
+    if (!esFechaISO(fecha)) throw new ErrorTesoreria(400, "Fecha inválida (formato YYYY-MM-DD).");
+    if (fecha < m.fecha_saldo_inicial) throw new ErrorTesoreria(400, `La fecha es anterior al saldo inicial de ${m.cuenta} (${m.fecha_saldo_inicial}).`);
+    if (!concepto) throw new ErrorTesoreria(400, "El concepto es obligatorio.");
+    await client.query("UPDATE movimientos_tesoreria SET tipo = $1, fecha = $2, monto = $3, concepto = $4 WHERE id = $5", [tipo, fecha, monto, concepto, m.id]);
+    await client.query("COMMIT");
+    res.json({ ok: true });
+    registrarAuditoria(quien, "tesoreria_movimiento_editar", "movimiento_tesoreria", m.id, {
+      cuenta: m.cuenta, antes: { tipo: m.tipo, fecha: m.fecha, monto: Number(m.monto), concepto: m.concepto }, despues: { tipo, fecha, monto, concepto },
+    });
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    responderErrorTesoreria(res, e, "Error editando el movimiento");
+  } finally { if (client) client.release(); }
+});
+app.post("/api/tesoreria/movimientos/:id/anular", soloSuperadmin, async (req, res) => {
+  const motivo = limpiarTexto((req.body || {}).motivo);
+  const quien = req.user?.nombre_completo || null;
+  if (!motivo) return res.status(400).json({ error: "El motivo de anulación es obligatorio." });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const m = await movimientoManualEditable(client, req.params.id, "anular");
+    await client.query("UPDATE movimientos_tesoreria SET estado = 'anulado', motivo_anulacion = $1, usuario_anula = $2, anulado_at = NOW() WHERE id = $3", [motivo, quien, m.id]);
+    await client.query("COMMIT");
+    res.json({ ok: true });
+    registrarAuditoria(quien, "tesoreria_movimiento_anular", "movimiento_tesoreria", m.id, { cuenta: m.cuenta, tipo: m.tipo, monto: Number(m.monto), motivo });
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    responderErrorTesoreria(res, e, "Error anulando el movimiento");
+  } finally { if (client) client.release(); }
+});
+
+// --- Transferencias (atómicas) ---
+// modo 'cuentas': egreso en cuenta origen + ingreso en cuenta destino.
+// modo 'deposito': salida de una caja (hoy) + ingreso en la cuenta (fecha elegida).
+// modo 'retiro': egreso de la cuenta (fecha elegida) + entrada en una caja (hoy).
+// Las dos patas comparten transferencia_id; los conceptos de caja llevan "#<transferencia_id>" (no editables en Caja).
+app.post("/api/tesoreria/transferencias", soloSuperadmin, async (req, res) => {
+  const b = req.body || {};
+  const quien = req.user?.nombre_completo || null;
+  const monto = montoTesoreria(b.monto);
+  const nota = limpiarTexto(b.concepto);
+  if (!["cuentas", "deposito", "retiro"].includes(b.modo)) return res.status(400).json({ error: "Tipo de transferencia inválido." });
+  if (!monto) return res.status(400).json({ error: "El monto debe ser mayor a 0." });
+  if (!esFechaISO(b.fecha)) return res.status(400).json({ error: "Fecha inválida (formato YYYY-MM-DD)." });
+  if (b.modo !== "cuentas") {
+    if (!CAJAS_TRANSFERIBLES.includes(b.caja)) return res.status(400).json({ error: "Caja inválida." });
+    if (bloqueaCajaAdmin(req, res, b.caja)) return;   // Administración solo superadmin
+  }
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const tid = Number((await client.query("SELECT nextval('transferencias_tesoreria_seq') AS id")).rows[0].id);
+    const nombreDe = async (id) => { const r = await client.query("SELECT nombre FROM cuentas_tesoreria WHERE id = $1", [id]); if (!r.rows[0]) throw new ErrorTesoreria(404, "Cuenta no encontrada."); return r.rows[0].nombre; };
+    const comun = { fecha: b.fecha, monto, origenTipo: "transferencia", usuario: quien, transferenciaId: tid };
+    const conNota = (t) => (nota ? `${t}: ${nota}` : t);
+    const detalle = { modo: b.modo, monto, fecha: b.fecha, transferencia_id: tid };
+    if (b.modo === "cuentas") {
+      const o = Number(b.cuenta_origen_id), d = Number(b.cuenta_destino_id);
+      if (!o || !d) throw new ErrorTesoreria(400, "Elegí la cuenta de origen y la de destino.");
+      if (o === d) throw new ErrorTesoreria(400, "El origen y el destino no pueden ser la misma cuenta.");
+      // Lock en orden de id (evita deadlocks entre dos transferencias cruzadas).
+      await client.query("SELECT id FROM cuentas_tesoreria WHERE id = ANY($1::int[]) ORDER BY id FOR UPDATE", [[o, d]]);
+      const nO = await nombreDe(o), nD = await nombreDe(d);
+      await registrarMovimientoCuenta(client, { ...comun, cuentaId: o, tipo: "egreso", concepto: conNota(`Transferencia a ${nD}`) });
+      await registrarMovimientoCuenta(client, { ...comun, cuentaId: d, tipo: "ingreso", concepto: conNota(`Transferencia desde ${nO}`) });
+      Object.assign(detalle, { origen: nO, destino: nD });
+    } else {
+      const cId = Number(b.cuenta_id);
+      if (!cId) throw new ErrorTesoreria(400, "Elegí la cuenta.");
+      const nC = await nombreDe(cId);
+      const deposito = b.modo === "deposito";
+      const mov = await client.query(
+        "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,$2,$3,$4,$5) RETURNING id",
+        [b.caja, deposito ? "salida" : "entrada", conNota(`${deposito ? "Depósito a cuenta" : "Retiro de cuenta"} #${tid}: ${nC}`), deposito ? -monto : monto, fechaArgentinaISO()]   // HOY: cae en el día abierto
+      );
+      await registrarMovimientoCuenta(client, {
+        ...comun, cuentaId: cId, tipo: deposito ? "ingreso" : "egreso", cajaMovimientoId: mov.rows[0].id,
+        concepto: conNota(deposito ? `Depósito desde caja ${b.caja}` : `Retiro a caja ${b.caja}`),
+      });
+      Object.assign(detalle, { cuenta: nC, caja: b.caja });
+    }
+    await client.query("COMMIT");
+    res.json({ ok: true, transferencia_id: tid });
+    registrarAuditoria(quien, "tesoreria_transferencia_crear", "transferencia_tesoreria", tid, detalle);
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    responderErrorTesoreria(res, e, "Error registrando la transferencia");
+  } finally { if (client) client.release(); }
+});
+// Anula las dos patas (y repone la caja si había) en la misma transacción. No si alguna está conciliada.
+app.post("/api/tesoreria/transferencias/:tid/anular", soloSuperadmin, async (req, res) => {
+  const motivo = limpiarTexto((req.body || {}).motivo);
+  const quien = req.user?.nombre_completo || null;
+  if (!motivo) return res.status(400).json({ error: "El motivo de anulación es obligatorio." });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const sel = await client.query(
+      `SELECT m.id, m.tipo, m.monto, m.estado, m.conciliado, m.caja_movimiento_id, c.nombre AS cuenta
+       FROM movimientos_tesoreria m JOIN cuentas_tesoreria c ON c.id = m.cuenta_id
+       WHERE m.transferencia_id = $1 ORDER BY m.id FOR UPDATE OF m`, [req.params.tid]);
+    const patas = sel.rows;
+    if (patas.length === 0) throw new ErrorTesoreria(404, "Transferencia no encontrada.");
+    if (patas.some((p) => p.estado !== "activo")) throw new ErrorTesoreria(409, "La transferencia ya está anulada.");
+    if (patas.some((p) => p.conciliado)) throw new ErrorTesoreria(409, "Una de las patas está conciliada: desconciliala antes de anular.");
+    for (const p of patas.filter((x) => x.caja_movimiento_id)) {
+      const cm = (await client.query("SELECT id, local, tipo FROM caja_movimientos WHERE id = $1", [p.caja_movimiento_id])).rows[0];
+      if (!cm) continue;
+      if (bloqueaCajaAdmin(req, res, cm.local)) { await client.query("ROLLBACK"); return; }
+      const fueDeposito = cm.tipo === "salida", m = Math.abs(Number(p.monto));
+      await client.query(
+        "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,$2,$3,$4,$5)",
+        [cm.local, fueDeposito ? "entrada" : "salida", `Anulación ${fueDeposito ? "depósito a cuenta" : "retiro de cuenta"} #${req.params.tid}: ${p.cuenta}`, fueDeposito ? m : -m, fechaArgentinaISO()]
+      );
+    }
+    await client.query("UPDATE movimientos_tesoreria SET estado = 'anulado', motivo_anulacion = $1, usuario_anula = $2, anulado_at = NOW() WHERE transferencia_id = $3",
+      [motivo, quien, req.params.tid]);
+    await client.query("COMMIT");
+    res.json({ ok: true });
+    registrarAuditoria(quien, "tesoreria_transferencia_anular", "transferencia_tesoreria", req.params.tid, { motivo, patas: patas.map((p) => ({ id: p.id, cuenta: p.cuenta, tipo: p.tipo, monto: Number(p.monto) })) });
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    responderErrorTesoreria(res, e, "Error anulando la transferencia");
+  } finally { if (client) client.release(); }
+});
+
+// --- Conciliación: marcar / desmarcar uno o varios (solo activos) ---
+app.post("/api/tesoreria/conciliar", soloSuperadmin, async (req, res) => {
+  const b = req.body || {};
+  const quien = req.user?.nombre_completo || null;
+  const ids = Array.isArray(b.ids) ? [...new Set(b.ids.map(Number).filter((x) => Number.isInteger(x) && x > 0))] : [];
+  if (ids.length === 0) return res.status(400).json({ error: "Elegí al menos un movimiento." });
+  if (typeof b.conciliado !== "boolean") return res.status(400).json({ error: "Falta indicar si se concilia o se desconcilia." });
+  try {
+    const r = await pool.query(
+      `UPDATE movimientos_tesoreria SET conciliado = $1, conciliado_at = CASE WHEN $1 THEN NOW() END, conciliado_por = CASE WHEN $1 THEN $2 END
+       WHERE id = ANY($3::int[]) AND estado = 'activo' AND conciliado <> $1 RETURNING id`,
+      [b.conciliado, quien, ids]
+    );
+    res.json({ ok: true, actualizados: r.rows.length });
+    if (r.rows.length) registrarAuditoria(quien, b.conciliado ? "tesoreria_conciliar" : "tesoreria_desconciliar", "movimiento_tesoreria", r.rows.map((x) => x.id).join(","), { cantidad: r.rows.length });
+  } catch (e) { responderErrorTesoreria(res, e, "Error actualizando la conciliación"); }
+});
+
 // ─── STOCK DE INSUMOS — Fase 1 ─────────────────────────────────────────
 // Módulo NUEVO, separado del tablero de cocina (stock_lotes / /api/stock). Namespaceado en /api/insumos
 // para no colisionar con el GET /api/stock existente. Stock actual = Σ movimientos (con signo) por insumo+local.
@@ -4640,10 +5083,13 @@ const CONCEPTOS_AUTO_PREFIJOS = [
   "adelanto sueldo:", "anulación adelanto",
   "pago sueldo:", "anulación pago sueldo",
   "pago a cuenta #", "anulación pago a cuenta #",   // con "#": "Pago a cuenta de la luz" (manual) sigue editable
+  "depósito a cuenta #", "anulación depósito a cuenta #", "retiro de cuenta #", "anulación retiro de cuenta #",   // tesorería ↔ caja
 ];
+// Comparación sin tildes ni mayúsculas ("Deposito a cuenta #3" también es automático).
+const sinTildesConcepto = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 function esConceptoAutogenerado(concepto) {
-  const c = String(concepto || "").trim().toLowerCase();
-  return CONCEPTOS_AUTO_PREFIJOS.some(p => c.startsWith(p));
+  const c = sinTildesConcepto(concepto);
+  return CONCEPTOS_AUTO_PREFIJOS.some(p => c.startsWith(sinTildesConcepto(p)));
 }
 
 // Editar SOLO el concepto de un movimiento MANUAL (nunca monto/tipo/fecha/local). Los autogenerados
