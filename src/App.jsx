@@ -2163,7 +2163,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         );
       }
       // Conceptos autogenerados (MISMA lista que el backend) → no editables.
-      const CONCEPTOS_AUTO_PREFIJOS = ["transferencia a", "transferencia desde", "pago factura", "sobre a bandeja", "sobre recibido", "sobre rechazado", "ajuste sobre", "apertura", "reapertura", "cierre", "gasto:", "anulación gasto", "adelanto sueldo:", "anulación adelanto", "pago sueldo:", "anulación pago sueldo", "pago a cuenta #", "anulación pago a cuenta #", "depósito a cuenta #", "anulación depósito a cuenta #", "retiro de cuenta #", "anulación retiro de cuenta #"];
+      const CONCEPTOS_AUTO_PREFIJOS = ["transferencia a", "transferencia desde", "pago factura", "sobre a bandeja", "sobre recibido", "sobre rechazado", "ajuste sobre", "apertura", "reapertura", "cierre", "gasto:", "anulación gasto", "adelanto sueldo:", "anulación adelanto", "pago sueldo:", "anulación pago sueldo", "pago a cuenta #", "anulación pago a cuenta #", "depósito a cuenta #", "anulación depósito a cuenta #", "retiro de cuenta #", "anulación retiro de cuenta #", "anulación pago factura #"];
       const sinTildesConcepto = (c) => String(c || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();   // sin tildes, como el backend
       const esConceptoAuto = (c) => { const s = sinTildesConcepto(c); return CONCEPTOS_AUTO_PREFIJOS.some(p => s.startsWith(sinTildesConcepto(p))); };
 
@@ -2878,8 +2878,9 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
     }
 
     // ─── GASTOS COMUNES — REGISTRO Y LISTADO ──────────────────────────────
-    // Gastos sin factura de proveedor. Externo (no toca caja) o "sale de caja" (salida atómica en caja_movimientos).
-    // Administración solo superadmin (mismo criterio que Compras/pago). Anular repone en caja si salió de caja.
+    // Gastos sin factura de proveedor. Externo (no toca caja), "sale de caja" (salida atómica en caja_movimientos) o
+    // "sale de una cuenta" (egreso en Tesorería con la fecha del gasto). Administración solo superadmin (mismo criterio
+    // que Compras/pago). Anular repone en caja si salió de caja, o anula el egreso de la cuenta.
     function VistaGastosComunes({ usuario, onVolver }) {
       const hoyStr = (() => { const h = new Date(); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`; })();
       const money = (n) => "$" + Number(n || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -2898,10 +2899,12 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [incluirAnulados, setIncluirAnulados] = useState(false);
       // Alta
       const [modal, setModal] = useState(false);
-      const [form, setForm] = useState({ fecha: hoyStr, descripcion: "", monto: "", categoria_id: "", origen: "externo", cajaOrigen: "" });
+      const [form, setForm] = useState({ fecha: hoyStr, descripcion: "", monto: "", categoria_id: "", origen: "externo", cajaOrigen: "", cuentaId: "" });
       const [guardando, setGuardando] = useState(false);
+      const [cuentas, setCuentas] = useState([]);   // cuentas de tesorería activas (id, nombre, tipo)
 
       function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 3500); }
+      const origenGasto = (g) => g.caja_origen || g.cuenta_nombre || "Externo";
       const setCampo = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
       async function cargar() {
@@ -2923,15 +2926,17 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         catch (err) { /* el form lo avisa */ }
       }
       useEffect(() => { cargarCategorias(); }, []);
+      useEffect(() => { axios.get(`${API}/api/tesoreria/cuentas-activas`).then(r => setCuentas(r.data)).catch(() => {}); }, []);
       useEffect(() => { cargar(); }, [fDesde, fHasta, fCategoria, fOrigen, incluirAnulados]);
 
-      function abrirNuevo() { setForm({ fecha: hoyStr, descripcion: "", monto: "", categoria_id: "", origen: "externo", cajaOrigen: "" }); setModal(true); }
+      function abrirNuevo() { setForm({ fecha: hoyStr, descripcion: "", monto: "", categoria_id: "", origen: "externo", cajaOrigen: "", cuentaId: "" }); setModal(true); }
 
       async function guardar() {
         if (!form.descripcion.trim()) { mostrarMensaje("La descripción es obligatoria", "error"); return; }
         if (!(Number(form.monto) > 0)) { mostrarMensaje("El monto debe ser mayor a 0", "error"); return; }
         if (!form.categoria_id) { mostrarMensaje("Elegí una categoría", "error"); return; }
         if (form.origen === "caja" && !form.cajaOrigen) { mostrarMensaje("Elegí de qué caja sale", "error"); return; }
+        if (form.origen === "cuenta" && !form.cuentaId) { mostrarMensaje("Elegí de qué cuenta sale", "error"); return; }
         setGuardando(true);
         try {
           await axios.post(`${API}/api/gastos-comunes`, {
@@ -2940,7 +2945,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
             monto: Number(form.monto),
             categoria_id: Number(form.categoria_id),
             cajaOrigen: form.origen === "caja" ? form.cajaOrigen : "",
-            usuario: usuario.nombre_completo,
+            cuentaId: form.origen === "cuenta" ? Number(form.cuentaId) : null,
           });
           setModal(false); await cargar(); mostrarMensaje("Gasto registrado");
         } catch (err) { mostrarMensaje(err.response?.data?.error || "Error registrando el gasto", "error"); }
@@ -2948,12 +2953,12 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       }
 
       async function anular(g) {
-        const motivo = window.prompt(`Anular gasto "${g.descripcion}" (${money(g.monto)}).\nMotivo de anulación:`);
+        const motivo = window.prompt(`Anular gasto "${g.descripcion}" (${money(g.monto)}).${g.cuenta_nombre ? `\nSe anula el egreso en la cuenta ${g.cuenta_nombre}.` : ""}\nMotivo de anulación:`);
         if (motivo === null) return;
         if (!motivo.trim()) { mostrarMensaje("El motivo es obligatorio", "error"); return; }
         try {
-          await axios.post(`${API}/api/gastos-comunes/${g.id}/anular`, { motivo: motivo.trim(), usuario: usuario.nombre_completo });
-          await cargar(); mostrarMensaje("Gasto anulado" + (g.caja_origen ? " (repuesto en caja)" : ""));
+          await axios.post(`${API}/api/gastos-comunes/${g.id}/anular`, { motivo: motivo.trim() });
+          await cargar(); mostrarMensaje("Gasto anulado" + (g.caja_origen ? " (repuesto en caja)" : g.cuenta_nombre ? " (anulado también en la cuenta)" : ""));
         } catch (err) { mostrarMensaje(err.response?.data?.error || "Error anulando", "error"); }
       }
 
@@ -2961,7 +2966,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         const datos = data.gastos.map(g => ({
           "Fecha": g.fecha, "Descripción": g.descripcion, "Categoría": g.categoria_nombre,
           "Tipo": g.es_retiro ? "Retiro" : "Gasto", "Monto": Number(g.monto),
-          "Origen": g.caja_origen || "Externo", "Usuario": g.usuario || "", "Estado": g.estado,
+          "Origen": origenGasto(g), "Usuario": g.usuario || "", "Estado": g.estado,
           "Motivo anulación": g.motivo_anulacion || "",
         }));
         const tag = (fDesde || fHasta) ? `${fDesde || "inicio"}_${fHasta || "hoy"}` : "todos";
@@ -3020,6 +3025,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               <option value="">Todos los orígenes</option>
               <option value="externo">Externo</option>
               <option value="caja">Sale de caja</option>
+              <option value="cuenta">Sale de una cuenta</option>
             </select>
             <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#666", cursor: "pointer" }}>
               <input type="checkbox" checked={incluirAnulados} onChange={e => setIncluirAnulados(e.target.checked)} /> Incluir anulados
@@ -3048,7 +3054,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                       {g.es_retiro && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 600, color: "#8e44ad", background: "#f3e8fb", borderRadius: 4, padding: "1px 5px" }}>RETIRO</span>}
                     </div>
                     <div style={{ textAlign: "right", fontWeight: 600, color: g.es_retiro ? "#8e44ad" : "#c0392b" }}>{money(g.monto)}</div>
-                    <div style={{ color: "#666", fontSize: 12 }}>{g.caja_origen || "Externo"}</div>
+                    <div style={{ color: "#666", fontSize: 12 }}>{origenGasto(g)}</div>
                     <div style={{ color: "#999", fontSize: 12 }}>{g.usuario || "—"}</div>
                     <div style={{ textAlign: "right" }}>
                       {!anulado && <button style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => anular(g)}>Anular</button>}
@@ -3088,10 +3094,21 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                   <div>
                     <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Origen del dinero</label>
                     <select style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={form.origen} onChange={e => setCampo("origen", e.target.value)}>
-                      <option value="externo">Externo (no toca caja)</option>
+                      <option value="externo">Externo (no toca caja ni cuenta)</option>
                       <option value="caja">Sale de caja</option>
+                      <option value="cuenta">Sale de una cuenta (banco / billetera)</option>
                     </select>
                   </div>
+                  {form.origen === "cuenta" && (
+                    <div>
+                      <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Cuenta</label>
+                      <select style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={form.cuentaId} onChange={e => setCampo("cuentaId", e.target.value)}>
+                        <option value="">Elegir cuenta…</option>
+                        {cuentas.map(c => <option key={c.id} value={c.id}>{c.tipo === "banco" ? "🏦" : "📱"} {c.nombre}</option>)}
+                      </select>
+                      <div style={{ fontSize: 11, color: "#999", marginTop: 4 }}>{cuentas.length ? "Registra un egreso en la cuenta con la fecha del gasto." : "No hay cuentas activas: se cargan en Administración → Tesorería."}</div>
+                    </div>
+                  )}
                   {form.origen === "caja" && (
                     <div>
                       <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Caja</label>
@@ -3104,7 +3121,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                   )}
                   {Number(form.monto) > 0 && (
                     <div style={{ background: "#fafaf8", border: "1px solid #eee", borderRadius: 8, padding: "10px 12px", fontSize: 12, color: "#555" }}>
-                      Se registrará un gasto de <b>{money(form.monto)}</b>{form.origen === "caja" && form.cajaOrigen ? <> con salida de <b>{form.cajaOrigen}</b></> : <> (externo, sin afectar caja)</>}.
+                      Se registrará un gasto de <b>{money(form.monto)}</b>{form.origen === "caja" && form.cajaOrigen ? <> con salida de <b>{form.cajaOrigen}</b></> : form.origen === "cuenta" && form.cuentaId ? <> con egreso en <b>{(cuentas.find(c => String(c.id) === String(form.cuentaId)) || {}).nombre}</b></> : form.origen === "externo" ? <> (externo, sin afectar caja ni cuenta)</> : null}.
                     </div>
                   )}
                 </div>
@@ -6825,8 +6842,10 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [mensaje, setMensaje] = useState(null);
       // Pago (Entrega 4)
       const [pagando, setPagando] = useState(null);        // factura en pago | null
-      const [pagoOrigen, setPagoOrigen] = useState("caja"); // "caja" | "externo"
+      const [pagoOrigen, setPagoOrigen] = useState("externo"); // "externo" | "caja" | "cuenta"
       const [pagoCaja, setPagoCaja] = useState("");
+      const [pagoCuenta, setPagoCuenta] = useState("");
+      const [cuentasPago, setCuentasPago] = useState([]);   // cuentas de tesorería activas (id, nombre, tipo)
       const [pagoMedio, setPagoMedio] = useState("Efectivo");
       const [pagoFecha, setPagoFecha] = useState("");
       // Cajas reales para pagar desde caja: Administración solo si es superadmin (= criterio localesPermitidos).
@@ -6866,6 +6885,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         } catch (err) { /* combos vacíos → el form lo avisa */ }
       }
       useEffect(() => { cargarCombos(); }, []);
+      useEffect(() => { axios.get(`${API}/api/tesoreria/cuentas-activas`).then(r => setCuentasPago(r.data)).catch(() => {}); }, []);
       useEffect(() => { const t = setTimeout(cargar, busqueda ? 300 : 0); return () => clearTimeout(t); }, [filtroEstado, filtroProveedor, busqueda]);
       // Facturas del proveedor elegido, solo cuando el modal está abierto y la clase es NC/ND
       // (para el select "factura asociada"). Se excluyen NC/ND de la lista (se asocia a una FACTURA).
@@ -6986,20 +7006,24 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         try { await axios.post(`${API}/api/compras/facturas/${fac.id}/anular`, { motivo, usuario: usuario.nombre_completo }); await cargar(); mostrarMensaje("Factura anulada"); }
         catch (err) { mostrarMensaje(err.response?.data?.error || "Error anulando", "error"); }
       }
-      function abrirPago(fac) { setPagando(fac); setPagoOrigen("caja"); setPagoCaja(CAJAS_PAGO[0] || ""); setPagoMedio("Efectivo"); setPagoFecha(hoyStr); }
+      // El origen arranca SIEMPRE en "Externo". Con "Cuenta", el medio pasa a "Transferencia" (editable).
+      function abrirPago(fac) { setPagando(fac); setPagoOrigen("externo"); setPagoCaja(""); setPagoCuenta(""); setPagoMedio("Efectivo"); setPagoFecha(hoyStr); }
+      function cambiarOrigenPago(o) { setPagoOrigen(o); if (o === "cuenta") setPagoMedio("Transferencia"); }
+      const nombreCuentaPago = (id) => (cuentasPago.find(c => String(c.id) === String(id)) || {}).nombre || "…";
       async function confirmarPago() {
         if (!pagando) return;
         if (!pagoMedio.trim()) { mostrarMensaje("Indicá el medio de pago", "error"); return; }
         if (pagoOrigen === "caja" && !pagoCaja) { mostrarMensaje("Elegí la caja de origen", "error"); return; }
-        const origenTxt = pagoOrigen === "caja" ? `caja ${pagoCaja}` : "externo (no toca caja)";
+        if (pagoOrigen === "cuenta" && !pagoCuenta) { mostrarMensaje("Elegí la cuenta de origen", "error"); return; }
+        const origenTxt = pagoOrigen === "caja" ? `caja ${pagoCaja}` : pagoOrigen === "cuenta" ? `la cuenta ${nombreCuentaPago(pagoCuenta)}` : "externo (no toca caja)";
         if (!window.confirm(`Pagar ${money(pagando.total)} a ${pagando.proveedor_razon_social} desde ${origenTxt}. ¿Confirmás?`)) return;
         setGuardando(true);
         try {
           await axios.post(`${API}/api/compras/facturas/${pagando.id}/pagar`, {
             medioPago: pagoMedio.trim(),
             cajaOrigen: pagoOrigen === "caja" ? pagoCaja : null,
+            cuentaId: pagoOrigen === "cuenta" ? Number(pagoCuenta) : null,
             fechaPago: pagoFecha,
-            usuario: usuario.nombre_completo,
           });
           setPagando(null);
           await cargar();
@@ -7081,7 +7105,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                             </>
                           )}
                           {fac.estado_pago === "pagada" && (
-                            <span style={{ fontSize: 11, color: "#2a7a4b" }}>{fac.fecha_pago || ""}{fac.caja_origen ? ` · ${fac.caja_origen}` : " · externo"}{fac.medio_pago ? ` · ${fac.medio_pago}` : ""}</span>
+                            <span style={{ fontSize: 11, color: "#2a7a4b" }}>{fac.fecha_pago || ""}{fac.caja_origen ? ` · ${fac.caja_origen}` : fac.pago_cuenta ? ` · ${fac.pago_cuenta}` : " · externo"}{fac.medio_pago ? ` · ${fac.medio_pago}` : ""}</span>
                           )}
                           <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#555", cursor: "pointer" }} title="Abre una factura nueva con estos datos (sin número ni fecha)" onClick={() => abrirDuplicar(fac)}>⧉ Duplicar</button>
                         </div>
@@ -7234,9 +7258,10 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                 <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 6 }}>💵 Registrar pago</div>
                 <div style={{ fontSize: 13, color: "#555", marginBottom: 16 }}>{pagando.proveedor_razon_social} · {pagando.tipo_comprobante} {pagando.numero_comprobante} · <b>{money(pagando.total)}</b></div>
                 <label style={lbl}>Origen de la plata
-                  <select style={inputStyle} value={pagoOrigen} onChange={e => setPagoOrigen(e.target.value)}>
+                  <select style={inputStyle} value={pagoOrigen} onChange={e => cambiarOrigenPago(e.target.value)}>
+                    <option value="externo">Externo (no toca caja ni cuenta)</option>
                     <option value="caja">Sale de caja</option>
-                    <option value="externo">Externo (no toca caja)</option>
+                    <option value="cuenta">Sale de una cuenta (banco / billetera)</option>
                   </select>
                 </label>
                 {pagoOrigen === "caja" && (
@@ -7247,6 +7272,15 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                     </select>
                   </label>
                 )}
+                {pagoOrigen === "cuenta" && (
+                  <label style={lbl}>Cuenta de origen *
+                    <select style={inputStyle} value={pagoCuenta} onChange={e => setPagoCuenta(e.target.value)}>
+                      <option value="">— Elegí cuenta —</option>
+                      {cuentasPago.map(c => <option key={c.id} value={c.id}>{c.tipo === "banco" ? "🏦" : "📱"} {c.nombre}</option>)}
+                    </select>
+                    {cuentasPago.length === 0 && <span style={{ display: "block", fontSize: 11, color: "#999", fontWeight: 400, marginTop: 4 }}>No hay cuentas activas: se cargan en Administración → Tesorería.</span>}
+                  </label>
+                )}
                 <label style={lbl}>Medio de pago *
                   <input style={inputStyle} value={pagoMedio} onChange={e => setPagoMedio(e.target.value)} placeholder="Efectivo / Transferencia / etc." />
                 </label>
@@ -7254,7 +7288,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                   <input type="date" style={inputStyle} value={pagoFecha} onChange={e => setPagoFecha(e.target.value)} />
                 </label>
                 <div style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>
-                  Vas a pagar <b>{money(pagando.total)}</b> a {pagando.proveedor_razon_social} desde {pagoOrigen === "caja" ? `la caja ${pagoCaja || "…"}` : "un origen externo (no impacta caja)"}.
+                  Vas a pagar <b>{money(pagando.total)}</b> a {pagando.proveedor_razon_social} desde {pagoOrigen === "caja" ? `la caja ${pagoCaja || "…"} (salida con fecha de hoy)` : pagoOrigen === "cuenta" ? `la cuenta ${nombreCuentaPago(pagoCuenta)} (egreso con la fecha de pago)` : "un origen externo (no impacta caja ni cuenta)"}.
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button style={{ flex: 1, padding: 10, borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#2a7a4b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: guardando ? "default" : "pointer" }} disabled={guardando} onClick={confirmarPago}>{guardando ? "Registrando…" : "Confirmar pago"}</button>
@@ -7328,11 +7362,11 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               "Fecha": f.fecha, "Proveedor": f.proveedor_razon_social, "Tipo": f.tipo_comprobante,
               "Comprobante / concepto": `${f.punto_venta ? `${f.punto_venta}-` : ""}${f.numero_comprobante}`, "Estado": f.estado_pago,
               "Importe": (esNC(f.tipo_comprobante) ? -1 : 1) * Number(f.total),
-              "Pago": f.estado_pago === "pagada" ? `${f.fecha_pago || ""} ${f.caja_origen ? `desde ${f.caja_origen}` : "externo"}`.trim() : "",
+              "Pago": f.estado_pago === "pagada" ? `${f.fecha_pago || ""} ${f.caja_origen ? `desde ${f.caja_origen}` : f.pago_cuenta ? `desde ${f.pago_cuenta}` : "externo"}`.trim() : "",
             })),
             ...rp.data.pagos.filter(p => activos.has(p.proveedor_id)).map(p => ({
               "Fecha": p.fecha, "Proveedor": p.proveedor, "Tipo": "Pago a cuenta", "Comprobante / concepto": p.concepto, "Estado": p.estado,
-              "Importe": -Number(p.monto), "Pago": `${p.medio_pago} ${p.caja_origen ? `desde ${p.caja_origen}` : "externo"}`,
+              "Importe": -Number(p.monto), "Pago": `${p.medio_pago} ${p.caja_origen ? `desde ${p.caja_origen}` : p.cuenta_nombre ? `desde ${p.cuenta_nombre}` : "externo"}`,
             })),
           ].sort((a, b) => String(a.Proveedor).localeCompare(String(b.Proveedor)) || String(a.Fecha).localeCompare(String(b.Fecha)));
           exportarExcel(`cuenta_corriente_proveedores_${new Date().toISOString().slice(0, 10)}.xlsx`, [{ name: "Saldos", data: saldos }, { name: "Movimientos", data: movs }]);
@@ -7419,7 +7453,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                                 <span style={{ color: "#555" }}>
                                   <span style={{ marginRight: 6, fontWeight: 700, padding: "1px 7px", borderRadius: 10, background: "#e0f2fe", color: "#0369a1" }}>Pago a cuenta</span>
                                   {pg.concepto} · {pg.fecha}
-                                  <span style={{ marginLeft: 6, color: "#2a7a4b" }}>{pg.caja_origen ? `desde ${pg.caja_origen}` : "externo"} · {pg.medio_pago}</span>
+                                  <span style={{ marginLeft: 6, color: "#2a7a4b" }}>{pg.caja_origen ? `desde ${pg.caja_origen}` : pg.cuenta_nombre ? `desde ${pg.cuenta_nombre}` : "externo"} · {pg.medio_pago}</span>
                                 </span>
                                 <span style={{ fontWeight: 600, color: "#2a7a4b" }}>−{money(pg.monto)}</span>
                               </div>
@@ -7434,7 +7468,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                               <span style={{ color: "#555" }}>{fac.tipo_comprobante} {fac.numero_comprobante} · {fac.fecha}
                                 {clB && <span style={{ marginLeft: 6, fontWeight: 700, padding: "1px 7px", borderRadius: 10, background: clB.bg, color: clB.c }}>{clB.t}</span>}
                                 <span style={{ marginLeft: 8, fontWeight: 700, padding: "1px 7px", borderRadius: 10, background: b.bg, color: b.c }}>{b.t}</span>
-                                {fac.estado_pago === "pagada" && <span style={{ marginLeft: 6, color: "#2a7a4b" }}>{fac.caja_origen ? `desde ${fac.caja_origen}` : "externo"}{fac.fecha_pago ? ` · ${fac.fecha_pago}` : ""}</span>}
+                                {fac.estado_pago === "pagada" && <span style={{ marginLeft: 6, color: "#2a7a4b" }}>{fac.caja_origen ? `desde ${fac.caja_origen}` : fac.pago_cuenta ? `desde ${fac.pago_cuenta}` : "externo"}{fac.fecha_pago ? ` · ${fac.fecha_pago}` : ""}</span>}
                               </span>
                               <span style={{ fontWeight: 600, color: nc ? "#c0392b" : "#333" }}>{nc ? "−" : ""}{money(fac.total)}</span>
                             </div>
@@ -7451,9 +7485,9 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
     }
 
     // ─── COMPRAS — PAGOS (contra factura + a cuenta) ─────────────────────
-    // Admin + superadmin. Lista unificada de pagos (los de factura salen de facturas_compra; los a cuenta de
-    // pagos_compra). "Pago sin factura" = pago a cuenta / anticipo: mismos orígenes que el pago de factura.
-    // Solo los pagos a cuenta se anulan acá (repone la caja). La imputación contra facturas es un cambio aparte.
+    // Admin + superadmin. Lista de pagos_compra (de factura y a cuenta). "Pago sin factura" = pago a cuenta / anticipo:
+    // mismos orígenes que el pago de factura (externo, caja o cuenta de tesorería). Anular repone la caja o anula el
+    // movimiento de la cuenta; si era de factura, la factura vuelve a pendiente. La imputación contra facturas es aparte.
     function VistaPagosCompra({ usuario, onVolver, onIrGastosComunes }) {
       const hoyStr = (() => { const h = new Date(); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`; })();
       const [data, setData] = useState({ pagos: [], totalFacturas: 0, totalACuenta: 0 });
@@ -7465,6 +7499,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [mensaje, setMensaje] = useState(null);
       const [form, setForm] = useState(null);   // null | datos del pago sin factura
       const [guardando, setGuardando] = useState(false);
+      const [cuentas, setCuentas] = useState([]);   // cuentas de tesorería activas (id, nombre, tipo)
       const timerMensaje = useRef(null);
       // Cajas reales: Administración solo si es superadmin (el backend lo valida igual).
       const CAJAS_PAGO = ["A. Thomas", "French", "Administración", "Fondo Fijo A. Thomas", "Fondo Fijo French"]
@@ -7487,42 +7522,53 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       }
       useEffect(() => { cargar(); }, [filtroTipo, filtroProveedor, incluirAnulados]);
       useEffect(() => { axios.get(`${API}/api/compras/proveedores`).then(r => setProveedores(r.data)).catch(() => {}); }, []);
+      useEffect(() => { axios.get(`${API}/api/tesoreria/cuentas-activas`).then(r => setCuentas(r.data)).catch(() => {}); }, []);
+      const origenTxt = (p) => (p.caja_origen ? `desde ${p.caja_origen}` : p.cuenta_nombre ? `desde ${p.cuenta_nombre}` : "externo");
+      const nombreCuenta = (id) => (cuentas.find(c => String(c.id) === String(id)) || {}).nombre || "…";
 
+      // El origen arranca SIEMPRE en "Externo". Con "Cuenta", el medio pasa a "Transferencia" (editable).
       function abrirPagoSinFactura() {
-        setForm({ proveedor_id: filtroProveedor || "", fecha: hoyStr, monto: "", origen: "caja", caja: CAJAS_PAGO[0] || "", medio: "Efectivo", concepto: "", observaciones: "" });
+        setForm({ proveedor_id: filtroProveedor || "", fecha: hoyStr, monto: "", origen: "externo", caja: "", cuenta_id: "", medio: "Efectivo", concepto: "", observaciones: "" });
       }
       const setCampo = (k, v) => setForm(f => ({ ...f, [k]: v }));
+      const cambiarOrigen = (o) => setForm(f => ({ ...f, origen: o, ...(o === "cuenta" ? { medio: "Transferencia" } : {}) }));
       async function guardarPago() {
         if (!form.proveedor_id) { mostrarMensaje("Elegí un proveedor", "error"); return; }
         if (!(Number(form.monto) > 0)) { mostrarMensaje("El monto debe ser mayor a 0", "error"); return; }
         if (!form.concepto.trim()) { mostrarMensaje("El concepto es obligatorio", "error"); return; }
         if (!form.medio.trim()) { mostrarMensaje("Indicá el medio de pago", "error"); return; }
         if (form.origen === "caja" && !form.caja) { mostrarMensaje("Elegí la caja de origen", "error"); return; }
+        if (form.origen === "cuenta" && !form.cuenta_id) { mostrarMensaje("Elegí la cuenta de origen", "error"); return; }
         const prov = proveedores.find(p => String(p.id) === String(form.proveedor_id));
-        const origenTxt = form.origen === "caja" ? `caja ${form.caja}` : "externo (no toca caja)";
-        if (!window.confirm(`Pago a cuenta de ${money(form.monto)} a ${prov?.razon_social || "el proveedor"} desde ${origenTxt}. ¿Confirmás?`)) return;
+        const desde = form.origen === "caja" ? `caja ${form.caja}` : form.origen === "cuenta" ? `la cuenta ${nombreCuenta(form.cuenta_id)}` : "externo (no toca caja ni cuenta)";
+        if (!window.confirm(`Pago a cuenta de ${money(form.monto)} a ${prov?.razon_social || "el proveedor"} desde ${desde}. ¿Confirmás?`)) return;
         setGuardando(true);
         try {
           await axios.post(`${API}/api/compras/pagos-a-cuenta`, {
             proveedor_id: Number(form.proveedor_id), fecha: form.fecha, monto: Number(form.monto), medioPago: form.medio.trim(),
-            cajaOrigen: form.origen === "caja" ? form.caja : null, concepto: form.concepto.trim(), observaciones: form.observaciones.trim() || null,
-            usuario: usuario.nombre_completo,
+            cajaOrigen: form.origen === "caja" ? form.caja : null, cuentaId: form.origen === "cuenta" ? Number(form.cuenta_id) : null,
+            concepto: form.concepto.trim(), observaciones: form.observaciones.trim() || null,
           });
           setForm(null); await cargar(); mostrarMensaje("Pago a cuenta registrado");
         } catch (err) { mostrarMensaje(err.response?.data?.error || "Error registrando el pago", "error"); }
         setGuardando(false);
       }
       async function anular(pg) {
-        const motivo = window.prompt(`Motivo de anulación del pago a cuenta #${pg.id} (${pg.proveedor} · ${money(pg.monto)}):${pg.caja_origen ? `\nSe repone ${money(pg.monto)} en la caja ${pg.caja_origen}.` : ""}`);
+        const efectos = [
+          pg.caja_origen ? `Se repone ${money(pg.monto)} en la caja ${pg.caja_origen}.` : "",
+          pg.cuenta_nombre ? `Se anula el egreso en la cuenta ${pg.cuenta_nombre}.` : "",
+          pg.tipo === "factura" ? `La factura ${pg.concepto} vuelve a pendiente.` : "",
+        ].filter(Boolean).join("\n");
+        const motivo = window.prompt(`Motivo de anulación del pago ${pg.tipo === "factura" ? "de factura" : "a cuenta"} #${pg.id} (${pg.proveedor} · ${money(pg.monto)}):${efectos ? `\n${efectos}` : ""}`);
         if (motivo === null) return;
         if (!motivo.trim()) { mostrarMensaje("El motivo es obligatorio", "error"); return; }
-        try { await axios.post(`${API}/api/compras/pagos-a-cuenta/${pg.id}/anular`, { motivo: motivo.trim(), usuario: usuario.nombre_completo }); await cargar(); mostrarMensaje("Pago a cuenta anulado"); }
+        try { await axios.post(`${API}/api/compras/pagos/${pg.id}/anular`, { motivo: motivo.trim() }); await cargar(); mostrarMensaje(pg.tipo === "factura" ? "Pago anulado: la factura volvió a pendiente" : "Pago a cuenta anulado"); }
         catch (err) { mostrarMensaje(err.response?.data?.error || "Error anulando", "error"); }
       }
       function exportar() {
         exportarExcel(`pagos_compras_${hoyStr}.xlsx`, [{ name: "Pagos", data: data.pagos.map(p => ({
           "Fecha": p.fecha, "Tipo": p.tipo === "a_cuenta" ? "Pago a cuenta" : "Contra factura", "Proveedor": p.proveedor,
-          "Comprobante / concepto": p.concepto, "Monto": p.monto, "Medio": p.medio_pago, "Origen": p.caja_origen || "Externo",
+          "Comprobante / concepto": p.concepto, "Monto": p.monto, "Medio": p.medio_pago, "Origen": p.caja_origen || p.cuenta_nombre || "Externo",
           "Estado": p.estado, "Observaciones": p.observaciones || "", "Motivo anulación": p.motivo_anulacion || "", "Usuario": p.usuario || "",
         })) }]);
       }
@@ -7575,13 +7621,13 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                         <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: tb.bg, color: tb.c }}>{tb.t}</span>
                         {anulado && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: "#f3f4f6", color: "#c0392b" }}>Anulado</span>}
                       </div>
-                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{pg.fecha} · {pg.concepto} · {pg.medio_pago} · {pg.caja_origen ? `desde ${pg.caja_origen}` : "externo"}{pg.usuario ? ` · ${pg.usuario}` : ""}</div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{pg.fecha} · {pg.concepto} · {pg.medio_pago} · {origenTxt(pg)}{pg.usuario ? ` · ${pg.usuario}` : ""}</div>
                       {pg.observaciones && <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>{pg.observaciones}</div>}
                       {anulado && pg.motivo_anulacion && <div style={{ fontSize: 11, color: "#c0392b", marginTop: 3 }}>Anulado: {pg.motivo_anulacion}{pg.usuario_anula ? ` (${pg.usuario_anula})` : ""}</div>}
                     </div>
                     <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                       <div style={{ fontSize: 15, fontWeight: 700, color: "#333", marginBottom: 6, textDecoration: anulado ? "line-through" : "none" }}>{money(pg.monto)}</div>
-                      {pg.tipo === "a_cuenta" && !anulado && <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => anular(pg)}>✕ Anular</button>}
+                      {!anulado && <button style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => anular(pg)}>✕ Anular</button>}
                     </div>
                   </div>
                 );
@@ -7614,9 +7660,10 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                   <input style={inputStyle} value={form.concepto} onChange={e => setCampo("concepto", e.target.value)} placeholder='Ej: "Anticipo pedido semana 43"' />
                 </label>
                 <label style={lbl}>Origen de la plata
-                  <select style={inputStyle} value={form.origen} onChange={e => setCampo("origen", e.target.value)}>
+                  <select style={inputStyle} value={form.origen} onChange={e => cambiarOrigen(e.target.value)}>
+                    <option value="externo">Externo (no toca caja ni cuenta)</option>
                     <option value="caja">Sale de caja</option>
-                    <option value="externo">Externo (no toca caja)</option>
+                    <option value="cuenta">Sale de una cuenta (banco / billetera)</option>
                   </select>
                 </label>
                 {form.origen === "caja" && (
@@ -7627,6 +7674,15 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                     </select>
                   </label>
                 )}
+                {form.origen === "cuenta" && (
+                  <label style={lbl}>Cuenta de origen *
+                    <select style={inputStyle} value={form.cuenta_id} onChange={e => setCampo("cuenta_id", e.target.value)}>
+                      <option value="">— Elegí cuenta —</option>
+                      {cuentas.map(c => <option key={c.id} value={c.id}>{c.tipo === "banco" ? "🏦" : "📱"} {c.nombre}</option>)}
+                    </select>
+                    {cuentas.length === 0 && <span style={{ display: "block", fontSize: 11, color: "#999", fontWeight: 400, marginTop: 4 }}>No hay cuentas activas: se cargan en Administración → Tesorería.</span>}
+                  </label>
+                )}
                 <label style={lbl}>Medio de pago *
                   <input style={inputStyle} value={form.medio} onChange={e => setCampo("medio", e.target.value)} placeholder="Efectivo / Transferencia / etc." />
                 </label>
@@ -7634,7 +7690,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                   <textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={form.observaciones} onChange={e => setCampo("observaciones", e.target.value)} placeholder="Opcional" />
                 </label>
                 <div style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>
-                  Resta del saldo del proveedor en la cuenta corriente{form.origen === "caja" ? ` y sale de la caja ${form.caja || "…"} con fecha de hoy` : " (no impacta caja)"}.
+                  Resta del saldo del proveedor en la cuenta corriente{form.origen === "caja" ? ` y sale de la caja ${form.caja || "…"} con fecha de hoy` : form.origen === "cuenta" ? ` y sale de la cuenta ${nombreCuenta(form.cuenta_id)} con la fecha del pago` : " (no impacta caja ni cuenta)"}.
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button style={{ flex: 1, padding: 10, borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#2a7a4b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: guardando ? "default" : "pointer" }} disabled={guardando} onClick={guardarPago}>{guardando ? "Registrando…" : "Registrar pago a cuenta"}</button>
