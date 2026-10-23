@@ -72,6 +72,9 @@ main.cot-form{padding-bottom:8px}
 .btn-3{background:var(--card);color:var(--tinta);border:1.5px solid var(--linea);padding:12px 18px}
 .btn-3:hover{border-color:var(--naranja)}
 footer{text-align:center;color:var(--tinta-2);font-size:13px;padding:24px 16px calc(40px + env(safe-area-inset-bottom,0px))}
+/* Logo: respeta su proporción (PNG 600×177). Alto fijo y ancho automático; align-self evita que el .brand
+   (flex en columna, de piccadely-ui.css) lo estire al ancho del texto de abajo. */
+.brand img{height:38px;width:auto;max-width:none;object-fit:contain;align-self:flex-start}
 </style>
 </head>
 <body>

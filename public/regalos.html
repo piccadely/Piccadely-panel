@@ -53,6 +53,14 @@
 .nota-min{font-size:12px;color:var(--tinta-2)}
 .hp{position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden}
 
+/* Logo: respeta su proporción (PNG 600×177). Alto fijo y ancho automático; align-self evita que el .brand
+   (flex en columna, de piccadely-ui.css) lo estire al ancho de la caja. */
+.brand img{height:38px;width:auto;max-width:none;object-fit:contain;align-self:flex-start}
+/* Lema debajo del título: misma familia que el h1, semibold, color de acento (más chico que el título). */
+.hero .lema{font-family:"Bricolage Grotesque",Figtree,system-ui,sans-serif;font-weight:600;font-size:clamp(18px,2.4vw,22px);line-height:1.3;color:var(--naranja-hondo);max-width:none;margin:14px 0 0;text-wrap:balance}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .hero .lema{color:var(--naranja)}}
+:root[data-theme="dark"] .hero .lema{color:var(--naranja)}
+
 /* Accesos arriba del paso 1 */
 .accesos{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:4px 0 22px}
 @media(max-width:620px){.accesos{grid-template-columns:1fr}}
@@ -161,13 +169,14 @@
 
 <div class="aviso-api" id="aviso-api" hidden></div>
 <header>
-  <a class="brand" href="https://piccadely.com"><img src="/Piccadely_Logotipo_Izquierda_Negro.png" alt="Piccadely" width="129" height="38"><small>Cotizá tus regalos ahora. Sin intermediarios.</small></a>
+  <a class="brand" href="https://piccadely.com"><img src="/Piccadely_Logotipo_Izquierda_Negro.png" alt="Piccadely" width="129" height="38"></a>
   <a class="volver" href="https://piccadely.com">← Volver<span class="volver-extra"> a la web</span></a>
 </header>
 
 <section class="hero">
   <h1>Regalos que se piccan en equipo</h1>
   <p>Armá los regalos de tu empresa en un par de minutos: elegí cuántos, qué mandar y adónde. Te llega la propuesta lista para pasar a aprobación.</p>
+  <p class="lema">Cotizá tus regalos ahora. Sin intermediarios.</p>
 </section>
 
 <main>
