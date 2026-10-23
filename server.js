@@ -3326,12 +3326,23 @@ app.get("/api/rrhh/liquidaciones", soloSuperadmin, async (req, res) => {
          WHERE p.liquidacion_id = ANY($1) ORDER BY p.fecha DESC, p.id DESC`, [ids]);
       for (const p of pg.rows) (pagosPorLiq[p.liquidacion_id] = pagosPorLiq[p.liquidacion_id] || []).push({ ...p, forma: formaPagoSueldo(p) });
     }
+    // Adicionales del período (hora extra / bono / otro activos, por la fecha de la novedad): SOLO informativo,
+    // no tocan el neto ni el saldo de la liquidación del estudio.
+    const adicionales = {};
+    if (rows.length > 0) {
+      const ad = await pool.query(
+        `SELECT empleado_id, substring(fecha, 1, 7) AS mes, SUM(monto) AS total FROM novedades_empleado
+         WHERE tipo IN ('hora_extra','bono','otro') AND estado = 'activo' AND empleado_id = ANY($1) GROUP BY 1, 2`,
+        [[...new Set(rows.map(r => r.empleado_id))]]);
+      for (const a of ad.rows) adicionales[`${a.empleado_id}|${a.mes}`] = Number(a.total);
+    }
     const enriquecidas = rows.map(l => {
       const pagos = pagosPorLiq[l.id] || [];
       const pagado = pagos.filter(p => p.estado === "activo").reduce((a, p) => a + Number(p.monto), 0);
       const saldo = Number(l.neto) - pagado;
       const { banco, efectivo } = desgloseFormas(pagos);
-      return { ...l, pagos, pagado, saldo, estado_pago: estadoPagoDe(l.neto, pagado), pagado_banco: banco, pagado_efectivo: efectivo };
+      return { ...l, pagos, pagado, saldo, estado_pago: estadoPagoDe(l.neto, pagado), pagado_banco: banco, pagado_efectivo: efectivo,
+        adicionales_periodo: adicionales[`${l.empleado_id}|${l.periodo}`] || 0 };
     });
     res.json(enriquecidas);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -3495,8 +3506,14 @@ app.post("/api/rrhh/pagos/:id/anular", soloSuperadmin, async (req, res) => {
 });
 
 // --- Novedades (adelantos/extras/bonos/descuentos) ---
+// Con PAGO (origen externo / caja / cuenta + medio): adelanto y los ADICIONALES fuera del recibo (hora_extra, bono, otro).
+// "descuento" es solo registro. Los adicionales NO tocan la liquidación del estudio ni su saldo; sí suman al costo de
+// personal. Los registros viejos sin origen se ven como "Externo".
+const TIPOS_ADICIONAL = ["hora_extra", "bono", "otro"];
+const TIPOS_CON_PAGO = ["adelanto", ...TIPOS_ADICIONAL];
+const ETIQUETA_NOVEDAD = { adelanto: "Adelanto", hora_extra: "Hora extra", bono: "Bono", descuento: "Descuento", otro: "Otro" };
 app.get("/api/rrhh/novedades", soloSuperadmin, async (req, res) => {
-  const { empleado, periodo, incluirAnulados } = req.query;
+  const { empleado, periodo, incluirAnulados, tipo, origen } = req.query;
   try {
     const params = [];
     let sql = `SELECT n.*, e.nombre AS empleado_nombre, ct.nombre AS cuenta_nombre FROM novedades_empleado n
@@ -3504,13 +3521,17 @@ app.get("/api/rrhh/novedades", soloSuperadmin, async (req, res) => {
     if (incluirAnulados !== "1") sql += " AND n.estado <> 'anulado'";
     if (empleado) { params.push(empleado); sql += ` AND n.empleado_id = $${params.length}`; }
     if (esPeriodoYM(periodo)) { params.push(periodo + "-01", periodo + "-31"); sql += ` AND n.fecha >= $${params.length - 1} AND n.fecha <= $${params.length}`; }
+    if (TIPOS_NOVEDAD.includes(tipo)) { params.push(tipo); sql += ` AND n.tipo = $${params.length}`; }
+    // Origen: solo las novedades con pago (el descuento no tiene origen).
+    if (origen === "externo") sql += ` AND n.tipo <> 'descuento' AND n.caja_origen IS NULL AND n.cuenta_id IS NULL`;
+    else if (origen === "caja") sql += " AND n.caja_origen IS NOT NULL";
+    else if (origen === "cuenta") sql += " AND n.cuenta_id IS NOT NULL";
     sql += " ORDER BY n.fecha DESC, n.id DESC";
     const { rows } = await pool.query(sql, params);
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-// Solo un ADELANTO mueve plata: externo, caja (salida hoy) o cuenta (egreso con la fecha del adelanto); guarda su medio
-// de pago. El resto de los tipos no toca caja ni cuenta (el origen se ignora, como antes).
+// Atómico: la novedad + la salida de caja (hoy) o el egreso en la cuenta (fecha de la novedad), todo o nada.
 app.post("/api/rrhh/novedades", soloSuperadmin, async (req, res) => {
   const b = req.body || {};
   const empId = Number(b.empleado_id);
@@ -3519,10 +3540,10 @@ app.post("/api/rrhh/novedades", soloSuperadmin, async (req, res) => {
   if (!esFechaISO(b.fecha)) return res.status(400).json({ error: "Fecha inválida (YYYY-MM-DD)." });
   const m = Number(b.monto);
   if (!Number.isFinite(m) || m <= 0) return res.status(400).json({ error: "El monto debe ser mayor a 0." });
-  const esAdelanto = b.tipo === "adelanto";
-  const origen = esAdelanto ? leerOrigenPago(req, res, b.cajaOrigen, b.cuentaId) : { caja: null, cuentaId: null };
+  const conPago = TIPOS_CON_PAGO.includes(b.tipo), esAdicional = TIPOS_ADICIONAL.includes(b.tipo);
+  const origen = conPago ? leerOrigenPago(req, res, b.cajaOrigen, b.cuentaId) : { caja: null, cuentaId: null };   // descuento: el origen se ignora
   if (!origen) return;
-  const medio = esAdelanto
+  const medio = conPago
     ? (b.medioPago && String(b.medioPago).trim() ? String(b.medioPago).trim() : origen.caja ? "Efectivo" : origen.cuentaId ? "Transferencia" : null)
     : null;
   const quien = req.user?.nombre_completo || null;   // de la SESIÓN, nunca del body
@@ -3533,31 +3554,35 @@ app.post("/api/rrhh/novedades", soloSuperadmin, async (req, res) => {
     const emp = await client.query("SELECT nombre FROM empleados WHERE id = $1", [empId]);
     if (emp.rows.length === 0) throw new ErrorTesoreria(400, "Empleado inválido.");
     const nombre = emp.rows[0].nombre;
-    let movId = null;
+    const n = await client.query(
+      `INSERT INTO novedades_empleado (empleado_id, tipo, fecha, monto, concepto, caja_origen, cuenta_id, medio_pago, usuario)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      [empId, b.tipo, b.fecha, m, b.concepto || null, origen.caja, origen.cuentaId, medio, quien]
+    );
+    const id = n.rows[0].id;
+    // Adelanto: concepto de siempre. Adicional: prefijo fijo + "#id" (no editable en Caja).
+    const concepto = esAdicional ? `Pago adicional #${id}: ${nombre} (${ETIQUETA_NOVEDAD[b.tipo]})` : `Adelanto sueldo: ${nombre}`;
     if (origen.caja) {
       const mov = await client.query(
         "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'salida',$2,$3,$4) RETURNING id",
-        [origen.caja, `Adelanto sueldo: ${nombre}`, -Math.abs(m), fechaArgentinaISO()]   // HOY: cae en el día abierto
+        [origen.caja, concepto, -Math.abs(m), fechaArgentinaISO()]   // HOY: cae en el día abierto
       );
-      movId = mov.rows[0].id;
+      await client.query("UPDATE novedades_empleado SET caja_movimiento_id = $1 WHERE id = $2", [mov.rows[0].id, id]);
     }
-    const n = await client.query(
-      `INSERT INTO novedades_empleado (empleado_id, tipo, fecha, monto, concepto, caja_origen, caja_movimiento_id, cuenta_id, medio_pago, usuario)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
-      [empId, b.tipo, b.fecha, m, b.concepto || null, origen.caja, movId, origen.cuentaId, medio, quien]
-    );
     if (origen.cuentaId) {
-      await registrarMovimientoCuenta(client, { cuentaId: origen.cuentaId, fecha: b.fecha, tipo: "egreso", monto: m, concepto: `Adelanto sueldo: ${nombre}`, origenTipo: "adelanto", origenId: n.rows[0].id, usuario: quien });
+      await registrarMovimientoCuenta(client, { cuentaId: origen.cuentaId, fecha: b.fecha, tipo: "egreso", monto: m, concepto, origenTipo: esAdicional ? "adicional" : "adelanto", origenId: id, usuario: quien });
     }
     await client.query("COMMIT");
-    res.json({ ok: true, id: n.rows[0].id });
-    registrarAuditoria(quien, "novedad_crear", "novedad", n.rows[0].id, { empleado_id: empId, empleado: nombre, tipo: b.tipo, monto: m,
-      ...(esAdelanto ? { cajaOrigen: origen.caja, cuentaId: origen.cuentaId, medioPago: medio } : {}) });
+    res.json({ ok: true, id });
+    registrarAuditoria(quien, "novedad_crear", "novedad", id, { empleado_id: empId, empleado: nombre, tipo: b.tipo, monto: m,
+      ...(conPago ? { cajaOrigen: origen.caja, cuentaId: origen.cuentaId, medioPago: medio } : {}) });
   } catch (e) {
     if (client) await client.query("ROLLBACK").catch(() => {});
     return responderErrorPago(res, e, "Error registrando la novedad", "POST /api/rrhh/novedades");
   } finally { if (client) client.release(); }
 });
+// Anular (motivo obligatorio): desde caja repone con una ENTRADA (y guarda su id); desde cuenta anula el egreso
+// (conciliado → 409). Un descuento o un registro sin origen solo se marca anulado.
 app.post("/api/rrhh/novedades/:id/anular", soloSuperadmin, async (req, res) => {
   const motivo = String((req.body || {}).motivo || "").trim();
   if (!motivo) return res.status(400).json({ error: "El motivo de anulación es obligatorio." });
@@ -3567,25 +3592,26 @@ app.post("/api/rrhh/novedades/:id/anular", soloSuperadmin, async (req, res) => {
     client = await pool.connect();
     await client.query("BEGIN");
     const sel = await client.query(
-      `SELECT n.id, n.monto, n.caja_origen, n.cuenta_id, n.estado, e.nombre AS empleado_nombre
+      `SELECT n.id, n.tipo, n.monto, n.caja_origen, n.cuenta_id, n.estado, e.nombre AS empleado_nombre
        FROM novedades_empleado n JOIN empleados e ON e.id = n.empleado_id WHERE n.id = $1 FOR UPDATE OF n`, [req.params.id]);
     const n = sel.rows[0];
     if (!n) throw new ErrorTesoreria(404, "Novedad no encontrada.");
     if (n.estado !== "activo") throw new ErrorTesoreria(409, "La novedad ya está anulada.");
-    if (n.cuenta_id) await anularMovimientoPorOrigen(client, "adelanto", n.id, motivo, quien);
+    const esAdicional = TIPOS_ADICIONAL.includes(n.tipo);
+    if (n.cuenta_id) await anularMovimientoPorOrigen(client, esAdicional ? "adicional" : "adelanto", n.id, motivo, quien);
     let movAnulId = null;
     if (n.caja_origen) {
       if (bloqueaCajaAdmin(req, res, n.caja_origen)) { await client.query("ROLLBACK"); return; }
       const mov = await client.query(
         "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'entrada',$2,$3,$4) RETURNING id",
-        [n.caja_origen, `Anulación adelanto #${n.id}: ${n.empleado_nombre}`, Math.abs(Number(n.monto)), fechaArgentinaISO()]
+        [n.caja_origen, esAdicional ? `Anulación pago adicional #${n.id}: ${n.empleado_nombre}` : `Anulación adelanto #${n.id}: ${n.empleado_nombre}`, Math.abs(Number(n.monto)), fechaArgentinaISO()]
       );
       movAnulId = mov.rows[0].id;
     }
     await client.query("UPDATE novedades_empleado SET estado='anulado', motivo_anulacion=$1, caja_movimiento_anulacion_id=$2 WHERE id=$3", [motivo, movAnulId, n.id]);
     await client.query("COMMIT");
     res.json({ ok: true });
-    registrarAuditoria(quien, "novedad_anular", "novedad", n.id, { motivo, cajaOrigen: n.caja_origen || null, cuentaId: n.cuenta_id || null });
+    registrarAuditoria(quien, "novedad_anular", "novedad", n.id, { motivo, tipo: n.tipo, cajaOrigen: n.caja_origen || null, cuentaId: n.cuenta_id || null });
   } catch (e) {
     if (client) await client.query("ROLLBACK").catch(() => {});
     return responderErrorPago(res, e, "Error anulando la novedad", "anular novedad");
@@ -3593,6 +3619,8 @@ app.post("/api/rrhh/novedades/:id/anular", soloSuperadmin, async (req, res) => {
 });
 
 // --- Reporte de costo de personal ---
+// Costo = bruto + no remunerativo + contribuciones de la liquidación + ADICIONALES fuera del recibo (hora_extra, bono,
+// otro activos, por la fecha de la novedad). Banco / efectivo: desglose informativo de los pagos de sueldo.
 app.get("/api/rrhh/reporte", soloSuperadmin, async (req, res) => {
   const { desde, hasta, local } = req.query;
   try {
@@ -3604,7 +3632,7 @@ app.get("/api/rrhh/reporte", soloSuperadmin, async (req, res) => {
     if (local) { params.push(local); sql += ` AND e.local = $${params.length}`; }
     const { rows } = await pool.query(sql, params);
     const costoDe = (r) => Number(r.bruto) + Number(r.no_remunerativo) + Number(r.contribuciones);
-    const nuevoEmp = (id, nombre, loc) => ({ empleado_id: id, empleado: nombre, local: loc, costo: 0, adelantos: 0, banco: 0, efectivo: 0 });
+    const nuevoEmp = (id, nombre, loc) => ({ empleado_id: id, empleado: nombre, local: loc, costo: 0, adicionales: 0, adelantos: 0, banco: 0, efectivo: 0 });
     let total = 0;
     const porMes = {}, porLocal = {}, porEmpleado = {}, netoMes = {};
     for (const r of rows) {
@@ -3616,20 +3644,26 @@ app.get("/api/rrhh/reporte", soloSuperadmin, async (req, res) => {
       if (!porEmpleado[r.empleado_id]) porEmpleado[r.empleado_id] = nuevoEmp(r.empleado_id, r.empleado_nombre, r.empleado_local);
       porEmpleado[r.empleado_id].costo += c;
     }
-    // Adelantos activos del período por empleado.
+    // Adelantos y adicionales activos del período por empleado (por la fecha de la novedad).
     const paramsA = [];
-    let sqlA = `SELECT n.empleado_id, n.monto, e.nombre AS empleado_nombre, e.local AS empleado_local
+    let sqlA = `SELECT n.empleado_id, n.tipo, n.fecha, n.monto, e.nombre AS empleado_nombre, e.local AS empleado_local
                 FROM novedades_empleado n JOIN empleados e ON e.id = n.empleado_id
-                WHERE n.tipo='adelanto' AND n.estado='activo'`;
+                WHERE n.tipo IN ('adelanto','hora_extra','bono','otro') AND n.estado='activo'`;
     if (esPeriodoYM(desde)) { paramsA.push(desde + "-01"); sqlA += ` AND n.fecha >= $${paramsA.length}`; }
     if (esPeriodoYM(hasta)) { paramsA.push(hasta + "-31"); sqlA += ` AND n.fecha <= $${paramsA.length}`; }
     if (local) { paramsA.push(local); sqlA += ` AND e.local = $${paramsA.length}`; }
-    const adel = await pool.query(sqlA, paramsA);
-    let totalAdelantos = 0;
-    for (const a of adel.rows) {
-      totalAdelantos += Number(a.monto);
+    const nov = await pool.query(sqlA, paramsA);
+    let totalAdelantos = 0, totalAdicionales = 0;
+    for (const a of nov.rows) {
+      const monto = Number(a.monto);
       if (!porEmpleado[a.empleado_id]) porEmpleado[a.empleado_id] = nuevoEmp(a.empleado_id, a.empleado_nombre, a.empleado_local);
-      porEmpleado[a.empleado_id].adelantos += Number(a.monto);
+      if (a.tipo === "adelanto") { totalAdelantos += monto; porEmpleado[a.empleado_id].adelantos += monto; continue; }
+      // Adicional: suma al costo (total, mes de la novedad y local).
+      totalAdicionales += monto; total += monto;
+      porEmpleado[a.empleado_id].adicionales += monto;
+      const mes = String(a.fecha).slice(0, 7), loc = a.empleado_local || "(sin local)";
+      porMes[mes] = (porMes[mes] || 0) + monto;
+      porLocal[loc] = (porLocal[loc] || 0) + monto;
     }
     // Pagado y pendiente por mes (sobre el neto de las liquidaciones del período) + desglose banco / efectivo
     // (informativo: el costo no cambia).
@@ -3653,8 +3687,8 @@ app.get("/api/rrhh/reporte", soloSuperadmin, async (req, res) => {
     }
     const totalNeto = Object.values(netoMes).reduce((a, v) => a + v, 0);
     res.json({
-      total, totalAdelantos, porMes, porLocal,
-      porEmpleado: Object.values(porEmpleado).sort((x, y) => y.costo - x.costo),
+      total, totalAdelantos, totalAdicionales, porMes, porLocal,
+      porEmpleado: Object.values(porEmpleado).sort((x, y) => (y.costo + y.adicionales) - (x.costo + x.adicionales)),
       porMesPago, totalNeto, totalPagado, totalPendiente: totalNeto - totalPagado, totalBanco, totalEfectivo,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -5226,6 +5260,7 @@ const CONCEPTOS_AUTO_PREFIJOS = [
   "pago a cuenta #", "anulación pago a cuenta #",   // con "#": "Pago a cuenta de la luz" (manual) sigue editable
   "depósito a cuenta #", "anulación depósito a cuenta #", "retiro de cuenta #", "anulación retiro de cuenta #",   // tesorería ↔ caja
   "anulación pago factura #",
+  "pago adicional #", "anulación pago adicional #",   // RRHH: hora extra / bono / otro fuera del recibo
 ];
 // Comparación sin tildes ni mayúsculas ("Deposito a cuenta #3" también es automático).
 const sinTildesConcepto = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();

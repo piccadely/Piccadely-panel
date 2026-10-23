@@ -2163,7 +2163,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         );
       }
       // Conceptos autogenerados (MISMA lista que el backend) → no editables.
-      const CONCEPTOS_AUTO_PREFIJOS = ["transferencia a", "transferencia desde", "pago factura", "sobre a bandeja", "sobre recibido", "sobre rechazado", "ajuste sobre", "apertura", "reapertura", "cierre", "gasto:", "anulación gasto", "adelanto sueldo:", "anulación adelanto", "pago sueldo:", "anulación pago sueldo", "pago a cuenta #", "anulación pago a cuenta #", "depósito a cuenta #", "anulación depósito a cuenta #", "retiro de cuenta #", "anulación retiro de cuenta #", "anulación pago factura #"];
+      const CONCEPTOS_AUTO_PREFIJOS = ["transferencia a", "transferencia desde", "pago factura", "sobre a bandeja", "sobre recibido", "sobre rechazado", "ajuste sobre", "apertura", "reapertura", "cierre", "gasto:", "anulación gasto", "adelanto sueldo:", "anulación adelanto", "pago sueldo:", "anulación pago sueldo", "pago a cuenta #", "anulación pago a cuenta #", "depósito a cuenta #", "anulación depósito a cuenta #", "retiro de cuenta #", "anulación retiro de cuenta #", "anulación pago factura #", "pago adicional #", "anulación pago adicional #"];
       const sinTildesConcepto = (c) => String(c || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();   // sin tildes, como el backend
       const esConceptoAuto = (c) => { const s = sinTildesConcepto(c); return CONCEPTOS_AUTO_PREFIJOS.some(p => s.startsWith(sinTildesConcepto(p))); };
 
@@ -3616,6 +3616,10 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
     // SOLO superadmin (gate en el menú + guard VISTAS_SOLO_SUPERADMIN + backend). No calcula sueldos.
     const RRHH_LOCALES = ["A. Thomas", "French", "Administración"];
     const RRHH_TIPO_LABEL = { adelanto: "Adelanto", hora_extra: "Hora extra", bono: "Bono", descuento: "Descuento", otro: "Otro" };
+    // Con pago (origen + medio): adelanto y adicionales fuera del recibo. El descuento es solo registro.
+    const RRHH_TIPOS_CON_PAGO = ["adelanto", "hora_extra", "bono", "otro"];
+    // Origen de una novedad: los registros viejos sin origen se ven como "Externo"; el descuento no tiene.
+    const rrhhOrigenNovedad = (n) => (RRHH_TIPOS_CON_PAGO.includes(n.tipo) ? (n.caja_origen || n.cuenta_nombre || "Externo") : "Solo registro");
     const rrhhMoney = (n) => "$" + Number(n || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const rrhhMesActual = (() => { const h = new Date(); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}`; })();
     const rrhhHoy = (() => { const h = new Date(); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`; })();
@@ -3917,6 +3921,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           "Bruto": Number(l.bruto), "No remunerativo": Number(l.no_remunerativo), "Deducciones": Number(l.deducciones), "Neto": Number(l.neto),
           "Contribuciones": Number(l.contribuciones), "Costo": Number(l.bruto) + Number(l.no_remunerativo) + Number(l.contribuciones),
           "Pagado": Number(l.pagado), "Banco": Number(l.pagado_banco || 0), "Efectivo": Number(l.pagado_efectivo || 0), "Saldo": Number(l.saldo),
+          "Adicionales del período (informativo)": Number(l.adicionales_periodo || 0),
           "Estado": (RRHH_ESTADO_PAGO[l.estado_pago] || {}).label || l.estado_pago,
         }));
         exportarExcel(`liquidaciones_${periodo}.xlsx`, [{ name: "Liquidaciones", data: datos }]);
@@ -3991,6 +3996,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                             {e.nombre}
                             {!cierra && <div style={{ fontSize: 10, color: "#c0392b" }}>⚠️ neto no cierra</div>}
                             {liq && Number(liq.pagado) > 0 && <div style={{ fontSize: 10, color: "#888", fontWeight: 400 }}>Banco {rrhhMoney(liq.pagado_banco)} · Efectivo {rrhhMoney(liq.pagado_efectivo)}</div>}
+                            {liq && Number(liq.adicionales_periodo) > 0 && <div style={{ fontSize: 10, color: "#8e44ad", fontWeight: 400 }} title="Hora extra, bono y otros fuera del recibo. No cambian el neto ni el saldo.">Adicionales del período {rrhhMoney(liq.adicionales_periodo)}</div>}
                           </div>
                           <input type="number" step="0.01" style={inpN} value={r.bruto} onChange={ev => setRow(e.id, "bruto", ev.target.value)} />
                           <input type="number" step="0.01" style={inpN} value={r.no_remunerativo} onChange={ev => setRow(e.id, "no_remunerativo", ev.target.value)} />
@@ -4176,6 +4182,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [periodo, setPeriodo] = useState(rrhhMesActual);
       const [novedades, setNovedades] = useState([]);
       const [incluirAnulados, setIncluirAnulados] = useState(false);
+      const [fTipo, setFTipo] = useState("");
+      const [fOrigen, setFOrigen] = useState("");
       const [loading, setLoading] = useState(true);
       const [mensaje, setMensaje] = useState(null);
       const [modal, setModal] = useState(false);
@@ -4200,6 +4208,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           if (empleadoSel) params.empleado = empleadoSel;
           if (periodo) params.periodo = periodo;
           if (incluirAnulados) params.incluirAnulados = "1";
+          if (fTipo) params.tipo = fTipo;
+          if (fOrigen) params.origen = fOrigen;
           const r = await axios.get(`${API}/api/rrhh/novedades`, { params });
           setNovedades(r.data);
         } catch (err) { mostrarMensaje(err.response?.data?.error || "Error cargando novedades", "error"); }
@@ -4207,24 +4217,24 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       }
       useEffect(() => { cargarEmpleados(); }, []);
       useEffect(() => { axios.get(`${API}/api/tesoreria/cuentas-activas`).then(r => setCuentas(r.data)).catch(() => {}); }, []);
-      useEffect(() => { cargar(); }, [empleadoSel, periodo, incluirAnulados]);
+      useEffect(() => { cargar(); }, [empleadoSel, periodo, incluirAnulados, fTipo, fOrigen]);
 
       function abrirNueva() { setForm(formVacio()); setModal(true); }
 
       async function guardar() {
         if (!form.empleado_id) { mostrarMensaje("Elegí un empleado", "error"); return; }
         if (!(Number(form.monto) > 0)) { mostrarMensaje("El monto debe ser mayor a 0", "error"); return; }
-        const adelanto = form.tipo === "adelanto";
-        if (adelanto && form.origen === "caja" && !form.cajaOrigen) { mostrarMensaje("Elegí de qué caja sale", "error"); return; }
-        if (adelanto && form.origen === "cuenta" && !form.cuentaId) { mostrarMensaje("Elegí de qué cuenta sale", "error"); return; }
+        const conPago = RRHH_TIPOS_CON_PAGO.includes(form.tipo);
+        if (conPago && form.origen === "caja" && !form.cajaOrigen) { mostrarMensaje("Elegí de qué caja sale", "error"); return; }
+        if (conPago && form.origen === "cuenta" && !form.cuentaId) { mostrarMensaje("Elegí de qué cuenta sale", "error"); return; }
         setGuardando(true);
         try {
           await axios.post(`${API}/api/rrhh/novedades`, {
             empleado_id: Number(form.empleado_id), tipo: form.tipo, fecha: form.fecha,
             monto: Number(form.monto), concepto: form.concepto.trim() || null,
-            cajaOrigen: (adelanto && form.origen === "caja") ? form.cajaOrigen : "",
-            cuentaId: (adelanto && form.origen === "cuenta") ? Number(form.cuentaId) : null,
-            medioPago: adelanto ? form.medioPago : null,
+            cajaOrigen: (conPago && form.origen === "caja") ? form.cajaOrigen : "",
+            cuentaId: (conPago && form.origen === "cuenta") ? Number(form.cuentaId) : null,
+            medioPago: conPago ? form.medioPago : null,
           });
           setModal(false); await cargar(); mostrarMensaje("Novedad registrada");
         } catch (err) { mostrarMensaje(err.response?.data?.error || "Error registrando", "error"); }
@@ -4244,7 +4254,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       function exportar() {
         const datos = novedades.map(n => ({
           "Fecha": n.fecha, "Empleado": n.empleado_nombre, "Tipo": RRHH_TIPO_LABEL[n.tipo] || n.tipo,
-          "Monto": Number(n.monto), "Concepto": n.concepto || "", "Origen": n.tipo === "adelanto" ? rrhhOrigenTxt(n) : "—", "Medio": n.medio_pago || "",
+          "Monto": Number(n.monto), "Concepto": n.concepto || "", "Origen": rrhhOrigenNovedad(n), "Medio": n.medio_pago || "",
           "Estado": n.estado, "Usuario": n.usuario || "", "Motivo anulación": n.motivo_anulacion || "",
         }));
         exportarExcel(`novedades_rrhh_${periodo || "todos"}.xlsx`, [{ name: "Novedades", data: datos }]);
@@ -4277,6 +4287,16 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
             <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#666", cursor: "pointer" }}>
               <input type="checkbox" checked={incluirAnulados} onChange={e => setIncluirAnulados(e.target.checked)} /> Incluir anuladas
             </label>
+            <select style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={fTipo} onChange={e => setFTipo(e.target.value)}>
+              <option value="">Todos los tipos</option>
+              {Object.entries(RRHH_TIPO_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+            <select style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={fOrigen} onChange={e => setFOrigen(e.target.value)}>
+              <option value="">Todos los orígenes</option>
+              <option value="externo">Externo</option>
+              <option value="caja">Sale de caja</option>
+              <option value="cuenta">Sale de una cuenta</option>
+            </select>
             <div style={{ marginLeft: "auto", fontSize: 13, color: "#555" }}>Total activas del período: <b style={{ color: "#333" }}>{rrhhMoney(totalActivas)}</b></div>
           </div>
 
@@ -4298,7 +4318,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                     <div style={{ color: "#555" }}>{RRHH_TIPO_LABEL[n.tipo] || n.tipo}</div>
                     <div style={{ textAlign: "right", fontWeight: 600, color: "#333" }}>{rrhhMoney(n.monto)}</div>
                     <div style={{ color: "#666", fontSize: 12 }}>{n.concepto || "—"}</div>
-                    <div style={{ color: "#666", fontSize: 12 }}>{n.tipo === "adelanto" ? rrhhOrigenTxt(n) : "—"}{n.medio_pago && <div style={{ fontSize: 11, color: "#999" }}>{n.medio_pago}</div>}</div>
+                    <div style={{ color: "#666", fontSize: 12 }}>{rrhhOrigenNovedad(n)}{n.medio_pago && <div style={{ fontSize: 11, color: "#999" }}>{n.medio_pago}</div>}</div>
                     <div style={{ textAlign: "right" }}>
                       {!anulado && <button style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => anular(n)}>Anular</button>}
                     </div>
@@ -4339,8 +4359,10 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                     <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Concepto (opcional)</label>
                     <input style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={form.concepto} onChange={e => setCampo("concepto", e.target.value)} />
                   </div>
-                  {form.tipo === "adelanto" && (
+                  {form.tipo === "descuento" && <div style={{ fontSize: 11, color: "#999" }}>El descuento es solo registro: no mueve caja ni cuenta.</div>}
+                  {RRHH_TIPOS_CON_PAGO.includes(form.tipo) && (
                     <div>
+                      {form.tipo !== "adelanto" && <div style={{ fontSize: 11, color: "#999", marginBottom: 8 }}>Adicional fuera del recibo: se registra su pago; no cambia la liquidación del estudio y suma al costo de personal.</div>}
                       <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Origen del dinero</label>
                       <select style={rrhhInp} value={form.origen} onChange={e => cambiarOrigen(e.target.value)}>
                         <option value="externo">Externo (no toca caja ni cuenta)</option>
@@ -4407,7 +4429,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       useEffect(() => { cargar(); }, [desde, hasta, local]);
 
       function exportar() {
-        const emp = data.porEmpleado.map(e => ({ "Empleado": e.empleado, "Local": e.local || "", "Costo laboral": Number(e.costo), "Adelantos": Number(e.adelantos), "Sueldo pagado por banco": Number(e.banco || 0), "Sueldo pagado en efectivo": Number(e.efectivo || 0) }));
+        const emp = data.porEmpleado.map(e => ({ "Empleado": e.empleado, "Local": e.local || "", "Costo liquidación": Number(e.costo), "Adicionales": Number(e.adicionales || 0), "Costo laboral": Number(e.costo) + Number(e.adicionales || 0), "Adelantos": Number(e.adelantos), "Sueldo pagado por banco": Number(e.banco || 0), "Sueldo pagado en efectivo": Number(e.efectivo || 0) }));
         const mes = Object.entries(data.porMes).sort().map(([m, v]) => ({ "Mes": m, "Costo laboral": Number(v), "Neto a pagar": Number(data.porMesPago?.[m]?.neto || 0), "Pagado": Number(data.porMesPago?.[m]?.pagado || 0), "Pendiente": Number(data.porMesPago?.[m]?.pendiente || 0) }));
         const loc = Object.entries(data.porLocal).map(([l, v]) => ({ "Local": l, "Costo laboral": Number(v) }));
         exportarExcel(`costo_personal_${desde}_${hasta}.xlsx`, [
@@ -4445,7 +4467,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
             <div style={{ flex: "1 1 220px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "14px 18px" }}>
               <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5 }}>Costo laboral total</div>
               <div style={{ fontSize: 22, fontWeight: 700, color: "#c0392b" }}>{rrhhMoney(data.total)}</div>
-              <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>bruto + no remunerativo + contribuciones</div>
+              <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>bruto + no remunerativo + contribuciones{Number(data.totalAdicionales) > 0 ? <> + adicionales {rrhhMoney(data.totalAdicionales)}</> : ""}</div>
             </div>
             <div style={{ flex: "1 1 220px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "14px 18px" }}>
               <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5 }}>Adelantos del período</div>
@@ -4491,17 +4513,18 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
           <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
             <div style={{ overflowX: "auto" }}>
-              <div style={{ minWidth: 760 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 140px 120px 120px 120px", gap: 8, padding: "10px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>
-                  <div>Empleado</div><div>Local</div><div style={{ textAlign: "right" }}>Costo laboral</div><div style={{ textAlign: "right" }}>Adelantos</div><div style={{ textAlign: "right" }}>Banco</div><div style={{ textAlign: "right" }}>Efectivo</div>
+              <div style={{ minWidth: 880 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 140px 120px 120px 120px 120px", gap: 8, padding: "10px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>
+                  <div>Empleado</div><div>Local</div><div style={{ textAlign: "right" }}>Costo laboral</div><div style={{ textAlign: "right" }}>Adicionales</div><div style={{ textAlign: "right" }}>Adelantos</div><div style={{ textAlign: "right" }}>Banco</div><div style={{ textAlign: "right" }}>Efectivo</div>
                 </div>
                 {loading ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>Cargando…</div>
                   : data.porEmpleado.length === 0 ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>No hay datos para el período elegido.</div>
                   : data.porEmpleado.map(e => (
-                    <div key={e.empleado_id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 140px 120px 120px 120px", gap: 8, padding: "10px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, alignItems: "center" }}>
+                    <div key={e.empleado_id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 140px 120px 120px 120px 120px", gap: 8, padding: "10px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, alignItems: "center" }}>
                       <div style={{ color: "#333", fontWeight: 500 }}>{e.empleado}</div>
                       <div style={{ color: "#666" }}>{e.local || "—"}</div>
-                      <div style={{ textAlign: "right", fontWeight: 600, color: "#333" }}>{rrhhMoney(e.costo)}</div>
+                      <div style={{ textAlign: "right", fontWeight: 600, color: "#333" }} title={e.adicionales ? `Liquidación ${rrhhMoney(e.costo)} + adicionales ${rrhhMoney(e.adicionales)}` : undefined}>{rrhhMoney(Number(e.costo) + Number(e.adicionales || 0))}</div>
+                      <div style={{ textAlign: "right", color: "#c2410c" }}>{rrhhMoney(e.adicionales || 0)}</div>
                       <div style={{ textAlign: "right", color: "#8e44ad" }}>{rrhhMoney(e.adelantos)}</div>
                       <div style={{ textAlign: "right", color: "#2563eb" }}>{rrhhMoney(e.banco || 0)}</div>
                       <div style={{ textAlign: "right", color: "#1d8a4e" }}>{rrhhMoney(e.efectivo || 0)}</div>
