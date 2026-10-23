@@ -17,7 +17,7 @@ import { iniciarRetencionWhatsApp } from "./whatsappRetencion.js";
 import { cotizadorRouter, clienteKeyDe } from "./Routes/cotizador.js";
 import { regalosRouter } from "./Routes/regalos.js";
 import { createRequire } from "module";
-import { normalizarProducto, calcularEnvioTN, esExcluidoProduccion, claveProducto } from "./productos-normalizacion.js"; // clave canónica + costo de envío TN + filtros de producción, compartidos con el front
+import { normalizarProducto, calcularEnvioTN, esExcluidoProduccion, esBasuraVenta, claveProducto } from "./productos-normalizacion.js"; // clave canónica + costo de envío TN + filtros de producción, compartidos con el front
 const requireCJS = createRequire(import.meta.url); // server.js es ESM; require solo para el JSON de polígonos
 const { Pool } = pg;
 
@@ -359,6 +359,24 @@ async function initDB() {
   await pool.query(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS origen TEXT DEFAULT 'formulario';`);
   // Backfill de cliente_key (idempotente): email lower+trim, o teléfono solo dígitos.
   await pool.query(`UPDATE cotizaciones SET cliente_key = COALESCE(NULLIF(lower(trim(email)),''), NULLIF(regexp_replace(COALESCE(telefono,''),'\\D','','g'),'')) WHERE cliente_key IS NULL;`);
+  // CRM Entrega 1: notas y seguimiento por cliente (cliente_key = misma clave que /api/clientes). No se borran: se anulan.
+  await pool.query(`CREATE TABLE IF NOT EXISTS clientes_notas (
+    id SERIAL PRIMARY KEY,
+    cliente_key TEXT NOT NULL CHECK (btrim(cliente_key) <> ''),
+    tipo TEXT NOT NULL DEFAULT 'nota' CHECK (tipo IN ('nota','llamada','whatsapp','mail','reunion')),
+    texto TEXT NOT NULL CHECK (btrim(texto) <> ''),
+    proximo_contacto DATE,
+    hecho BOOLEAN NOT NULL DEFAULT false,
+    hecho_at TIMESTAMP,
+    hecho_por TEXT,
+    estado TEXT NOT NULL DEFAULT 'activo' CHECK (estado IN ('activo','anulado')),
+    usuario TEXT,
+    usuario_anula TEXT,
+    anulado_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW()
+  );`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_clientes_notas_cliente ON clientes_notas (cliente_key);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_clientes_notas_proximo ON clientes_notas (proximo_contacto) WHERE proximo_contacto IS NOT NULL;`);
   // Gastos comunes (gastos sin factura de proveedor). Separado de Compras.
   await pool.query(`CREATE TABLE IF NOT EXISTS categorias_gasto_comun (
     id SERIAL PRIMARY KEY,
@@ -942,6 +960,100 @@ app.get("/api/orders", async (req, res) => {
 // A diferencia de /api/orders (ventana de 7 días para el panel operativo),
 // este endpoint lee TODA la base y porta la misma lógica de procesamiento
 // del front (useMemo pedidosProcesados) para que un pedido dé idéntico acá.
+// Un pedido "como lo ve el panel" (overrides de pedidos_estados y pedidos_productos aplicados). COMPARTIDO por el
+// reporte de pedidos y la ficha de cliente: misma precedencia que el front (override > TN / manual).
+// est = estadoPedidoDeFila(fila de pedidos_estados) o {}; ov = { productos, total_num } de pedidos_productos o undefined.
+const estadoPedidoDeFila = (r) => ({
+  estado: r.estado, repartidor: r.repartidor, tabManual: r.tab_manual,
+  fechaManual: r.fecha_manual, franjaManual: r.franja_manual, cobrar: r.cobrar,
+  clienteOverride: r.cliente_override, telefonoOverride: r.telefono_override,
+  direccionOverride: r.direccion_override, barrioOverride: r.barrio_override,
+  zonaOverride: r.zona_override, medioPagoOverride: r.medio_pago_override,
+  notaOverride: r.nota_override, emailOverride: r.email_override,
+  codigoPagoOverride: r.codigo_pago_override, medioPagoOtroOverride: r.medio_pago_otro_override,
+  motivoAnulacion: r.motivo_anulacion || null,
+});
+function filaPedidoTN(p, est, ov) {
+  const estado = est.estado || "Por empaquetar";
+  const { fecha, franja } = parsearFranjaBackend(p.owner_note);
+  const tabActual = est.tabManual || clasificarPedidoBackend(p);
+  const totalNum = ov ? Number(ov.total_num) : Number(p.total);
+  const codigoPago = est.codigoPagoOverride
+    ? est.codigoPagoOverride
+    : (p.gateway_id ? String(p.gateway_id) : (p.transactions?.[0]?.id ? String(p.transactions[0].id) : ""));
+  // Envío TN como ítem "Envío" (misma fórmula compartida que el front). Consistente en
+  // Finalizados/Ventas/Reservas. El total (p.total) ya incluye el envío.
+  const envioTN = calcularEnvioTN(p);
+  const lineasTN = (p.products || []).map(pr => `${pr.name} x${pr.quantity}`);
+  if (envioTN > 0) lineasTN.push("Envío x1");
+  return {
+    id: String(p.id), numero: `#${p.number}`,
+    cliente: est.clienteOverride || p.contact_name || "",
+    telefono: est.telefonoOverride || p.contact_phone || "",
+    productos: ov ? ov.productos : lineasTN.join(", "),
+    totalNum,
+    total: `$${totalNum.toLocaleString("es-AR")}`,
+    medioPago: est.medioPagoOverride || medioPagoLabelBackend(p.gateway),
+    medioPagoOtro: est.medioPagoOtroOverride || "",
+    codigoPago,
+    repartidor: est.repartidor || "Sin asignar",
+    estado,
+    local: localLabelBackend(tabActual),
+    tabActual,
+    zona: est.zonaOverride || p.fulfillments?.[0]?.shipping?.option?.name || "Sin zona",
+    fechaDisplay: est.fechaManual || fecha,
+    franjaDisplay: est.franjaManual || franja || "Sin franja",
+    esManual: false, esCorporativo: false, motivoAnulacion: est.motivoAnulacion || null,
+    cobrar: !!est.cobrar,
+    pago: p.payment_status === "paid" ? "Pagado" : "Pendiente",
+    direccion: est.direccionOverride || `${p.shipping_address?.address || ""} ${p.shipping_address?.number || ""}${p.shipping_address?.floor ? ` ${p.shipping_address.floor}` : ""}`.trim(),
+    barrio: est.barrioOverride || p.shipping_address?.locality || p.shipping_address?.city || "",
+    entreCalles: "",
+    email: (est.emailOverride !== undefined && est.emailOverride !== null) ? est.emailOverride : (p.contact_email || ""),
+    nota: (est.notaOverride !== undefined && est.notaOverride !== null) ? est.notaOverride : (p.note || ""),
+    transaccionMP: p.gateway_id || p.transactions?.[0]?.id || null,
+    // Cupón de descuento TN (aditivo; para mostrarlo también en Finalizados).
+    cuponCodigo: p.coupon?.[0]?.code || null,
+    cuponTipo: p.coupon?.[0]?.type || null,
+    descuentoMonto: parseFloat(p.discount_coupon || p.discount || 0) || 0,
+  };
+}
+function filaPedidoManual(r, est, ov) {
+  const tabActual = est.tabManual || r.tab_actual;
+  const totalNum = ov ? Number(ov.total_num) : Number(r.total_num);
+  return {
+    id: r.id, numero: r.numero,
+    cliente: est.clienteOverride || r.cliente || "",
+    telefono: est.telefonoOverride || r.telefono || "",
+    productos: ov ? ov.productos : r.productos,
+    totalNum,
+    total: ov ? `$${totalNum.toLocaleString("es-AR")}` : r.total,
+    medioPago: est.medioPagoOverride || r.medio_pago,
+    medioPagoOtro: est.medioPagoOtroOverride || "",
+    codigoPago: est.codigoPagoOverride ? est.codigoPagoOverride : (r.codigo_pago || ""),
+    repartidor: est.repartidor || "Sin asignar",
+    estado: est.estado || "Por empaquetar",
+    local: localLabelBackend(tabActual),
+    tabActual,
+    zona: est.zonaOverride || r.zona || "",
+    fechaDisplay: est.fechaManual || r.fecha,
+    franjaDisplay: est.franjaManual || r.franja || "Sin franja",
+    esManual: true, esCorporativo: !!r.es_corporativo, motivoAnulacion: est.motivoAnulacion || null,
+    cobrar: (est.cobrar !== undefined && est.cobrar !== null) ? !!est.cobrar : !!r.cobrar,
+    pago: r.pago,
+    direccion: est.direccionOverride || r.direccion || "",
+    barrio: est.barrioOverride || r.barrio || "",
+    entreCalles: r.entre_calles || "",
+    email: (est.emailOverride !== undefined && est.emailOverride !== null) ? est.emailOverride : (r.email || ""),
+    nota: (est.notaOverride !== undefined && est.notaOverride !== null) ? est.notaOverride : (r.nota || ""),
+    transaccionMP: null,
+    // Manuales no tienen cupón de TN.
+    cuponCodigo: null,
+    cuponTipo: null,
+    descuentoMonto: 0,
+  };
+}
+
 async function handlerReportePedidos(req, res) {
   const { desde, hasta } = req.query;
   const re = /^\d{4}-\d{2}-\d{2}$/;
@@ -959,18 +1071,7 @@ async function handlerReportePedidos(req, res) {
     // Estados (incluye overrides de datos) — keyed por id (texto)
     const estadosRes = await pool.query("SELECT * FROM pedidos_estados");
     const estadosMap = {};
-    estadosRes.rows.forEach(r => {
-      estadosMap[r.id] = {
-        estado: r.estado, repartidor: r.repartidor, tabManual: r.tab_manual,
-        fechaManual: r.fecha_manual, franjaManual: r.franja_manual, cobrar: r.cobrar,
-        clienteOverride: r.cliente_override, telefonoOverride: r.telefono_override,
-        direccionOverride: r.direccion_override, barrioOverride: r.barrio_override,
-        zonaOverride: r.zona_override, medioPagoOverride: r.medio_pago_override,
-        notaOverride: r.nota_override, emailOverride: r.email_override,
-        codigoPagoOverride: r.codigo_pago_override, medioPagoOtroOverride: r.medio_pago_otro_override,
-        motivoAnulacion: r.motivo_anulacion || null,
-      };
-    });
+    estadosRes.rows.forEach(r => { estadosMap[r.id] = estadoPedidoDeFila(r); });
     // Overrides de productos/total
     const overridesRes = await pool.query("SELECT * FROM pedidos_productos");
     const overridesMap = {};
@@ -990,100 +1091,19 @@ async function handlerReportePedidos(req, res) {
 
     for (const row of tnRes.rows) {
       const p = row.data;
-      const est = estadosMap[String(p.id)] || {};
-      const estado = est.estado || "Por empaquetar";
-      if (!incluirActivos && estado !== "Entregado" && estado !== "Anulado") continue;
-      const { fecha, franja } = parsearFranjaBackend(p.owner_note);
-      const fechaDisplay = est.fechaManual || fecha;
-      if (!fechaDisplay || fechaDisplay < desde || fechaDisplay > hasta) continue;
-      const tabAuto = clasificarPedidoBackend(p);
-      const tabActual = est.tabManual || tabAuto;
-      const ov = overridesMap[String(p.id)];
-      const totalNum = ov ? Number(ov.total_num) : Number(p.total);
-      const codigoPago = est.codigoPagoOverride
-        ? est.codigoPagoOverride
-        : (p.gateway_id ? String(p.gateway_id) : (p.transactions?.[0]?.id ? String(p.transactions[0].id) : ""));
-      // Envío TN como ítem "Envío" (misma fórmula compartida que el front). Consistente en
-      // Finalizados/Ventas/Reservas. El total (p.total) ya incluye el envío.
-      const envioTN = calcularEnvioTN(p);
-      const lineasTN = (p.products || []).map(pr => `${pr.name} x${pr.quantity}`);
-      if (envioTN > 0) lineasTN.push("Envío x1");
-      resultado.push({
-        id: String(p.id), numero: `#${p.number}`,
-        cliente: est.clienteOverride || p.contact_name || "",
-        telefono: est.telefonoOverride || p.contact_phone || "",
-        productos: ov ? ov.productos : lineasTN.join(", "),
-        totalNum,
-        total: `$${totalNum.toLocaleString("es-AR")}`,
-        medioPago: est.medioPagoOverride || medioPagoLabelBackend(p.gateway),
-        medioPagoOtro: est.medioPagoOtroOverride || "",
-        codigoPago,
-        repartidor: est.repartidor || "Sin asignar",
-        estado,
-        local: localLabelBackend(tabActual),
-        tabActual,
-        zona: est.zonaOverride || p.fulfillments?.[0]?.shipping?.option?.name || "Sin zona",
-        fechaDisplay,
-        franjaDisplay: est.franjaManual || franja || "Sin franja",
-        esManual: false, esCorporativo: false, motivoAnulacion: est.motivoAnulacion || null,
-        cobrar: !!est.cobrar,
-        pago: p.payment_status === "paid" ? "Pagado" : "Pendiente",
-        direccion: est.direccionOverride || `${p.shipping_address?.address || ""} ${p.shipping_address?.number || ""}${p.shipping_address?.floor ? ` ${p.shipping_address.floor}` : ""}`.trim(),
-        barrio: est.barrioOverride || p.shipping_address?.locality || p.shipping_address?.city || "",
-        entreCalles: "",
-        email: (est.emailOverride !== undefined && est.emailOverride !== null) ? est.emailOverride : (p.contact_email || ""),
-        nota: (est.notaOverride !== undefined && est.notaOverride !== null) ? est.notaOverride : (p.note || ""),
-        transaccionMP: p.gateway_id || p.transactions?.[0]?.id || null,
-        // Cupón de descuento TN (aditivo; para mostrarlo también en Finalizados).
-        cuponCodigo: p.coupon?.[0]?.code || null,
-        cuponTipo: p.coupon?.[0]?.type || null,
-        descuentoMonto: parseFloat(p.discount_coupon || p.discount || 0) || 0,
-      });
+      const fila = filaPedidoTN(p, estadosMap[String(p.id)] || {}, overridesMap[String(p.id)]);
+      if (!incluirActivos && fila.estado !== "Entregado" && fila.estado !== "Anulado") continue;
+      if (!fila.fechaDisplay || fila.fechaDisplay < desde || fila.fechaDisplay > hasta) continue;
+      resultado.push(fila);
     }
 
     // Manuales — son livianos; se traen todos y se filtran por fechaDisplay.
     const manualesRes = await pool.query("SELECT * FROM pedidos_manuales ORDER BY created_at DESC");
     for (const r of manualesRes.rows) {
-      const est = estadosMap[r.id] || {};
-      const estado = est.estado || "Por empaquetar";
-      if (!incluirActivos && estado !== "Entregado" && estado !== "Anulado") continue;
-      const fechaDisplay = est.fechaManual || r.fecha;
-      if (!fechaDisplay || fechaDisplay < desde || fechaDisplay > hasta) continue;
-      const tabActual = est.tabManual || r.tab_actual;
-      const ov = overridesMap[r.id];
-      const totalNum = ov ? Number(ov.total_num) : Number(r.total_num);
-      const codigoPago = est.codigoPagoOverride ? est.codigoPagoOverride : (r.codigo_pago || "");
-      resultado.push({
-        id: r.id, numero: r.numero,
-        cliente: est.clienteOverride || r.cliente || "",
-        telefono: est.telefonoOverride || r.telefono || "",
-        productos: ov ? ov.productos : r.productos,
-        totalNum,
-        total: ov ? `$${totalNum.toLocaleString("es-AR")}` : r.total,
-        medioPago: est.medioPagoOverride || r.medio_pago,
-        medioPagoOtro: est.medioPagoOtroOverride || "",
-        codigoPago,
-        repartidor: est.repartidor || "Sin asignar",
-        estado,
-        local: localLabelBackend(tabActual),
-        tabActual,
-        zona: est.zonaOverride || r.zona || "",
-        fechaDisplay,
-        franjaDisplay: est.franjaManual || r.franja || "Sin franja",
-        esManual: true, esCorporativo: !!r.es_corporativo, motivoAnulacion: est.motivoAnulacion || null,
-        cobrar: (est.cobrar !== undefined && est.cobrar !== null) ? !!est.cobrar : !!r.cobrar,
-        pago: r.pago,
-        direccion: est.direccionOverride || r.direccion || "",
-        barrio: est.barrioOverride || r.barrio || "",
-        entreCalles: r.entre_calles || "",
-        email: (est.emailOverride !== undefined && est.emailOverride !== null) ? est.emailOverride : (r.email || ""),
-        nota: (est.notaOverride !== undefined && est.notaOverride !== null) ? est.notaOverride : (r.nota || ""),
-        transaccionMP: null,
-        // Manuales no tienen cupón de TN.
-        cuponCodigo: null,
-        cuponTipo: null,
-        descuentoMonto: 0,
-      });
+      const fila = filaPedidoManual(r, estadosMap[r.id] || {}, overridesMap[r.id]);
+      if (!incluirActivos && fila.estado !== "Entregado" && fila.estado !== "Anulado") continue;
+      if (!fila.fechaDisplay || fila.fechaDisplay < desde || fila.fechaDisplay > hasta) continue;
+      resultado.push(fila);
     }
 
     res.json(resultado);
@@ -2963,33 +2983,21 @@ app.post("/api/compras/pagos-a-cuenta/:id/anular", requireAdmin, anularPagoCompr
 // ─── CLIENTES (CRM simple, agregado de pedidos) ─────────────────────────
 // Admin + superadmin. Agrupa pedidos TN + manuales por cliente único (email si hay, si no teléfono
 // normalizado). Métricas sobre ENTREGADOS. Corporativo = pedido manual con es_corporativo=true O
-// alguna Factura A asociada. Todo en SQL (volumen chico); solo LEE.
-app.get("/api/clientes", requireAdmin, async (req, res) => {
-  const { tipo, buscar, orden, temperatura } = req.query;
-  // ORDER BY con whitelist (nunca interpolar input crudo).
-  const ORDENES = {
-    total: "total_gastado DESC NULLS LAST",
-    ultima: "ultima_compra DESC NULLS LAST",
-    cantidad: "cantidad_compras DESC",
-    nombre: "lower(nombre) ASC",
-  };
-  const orderBy = ORDENES[orden] || ORDENES.total;
-  const params = [];
-  let filtroTipo = "";
-  if (tipo === "corporativos") filtroTipo = "AND es_corporativo = true";
-  else if (tipo === "particulares") filtroTipo = "AND es_corporativo = false";
-  let filtroBuscar = "";
-  if (buscar && String(buscar).trim()) {
-    params.push(`%${String(buscar).trim()}%`);
-    filtroBuscar = `AND (nombre ILIKE $${params.length} OR email ILIKE $${params.length} OR telefono ILIKE $${params.length})`;
-  }
-  try {
-    const sql = `
+// alguna Factura A asociada. Todo en SQL (volumen chico).
+// cliente_key = email (lower+trim) o, si no hay, teléfono (solo dígitos). MISMA fórmula que clienteKeyDe
+// (Routes/cotizador.js) y que el backfill de cotizaciones.cliente_key.
+const SQL_KEY_TN = `COALESCE(NULLIF(lower(trim(COALESCE(e.email_override, t.data->>'contact_email',''))),''),
+                   NULLIF(regexp_replace(COALESCE(e.telefono_override, t.data->>'contact_phone',''),'\\D','','g'),''))`;
+const SQL_KEY_MANUAL = `COALESCE(NULLIF(lower(trim(COALESCE(e.email_override, m.email,''))),''),
+                   NULLIF(regexp_replace(COALESCE(e.telefono_override, m.telefono,''),'\\D','','g'),''))`;
+// Base de clientes: datos, métricas y temperatura. COMPARTIDA por /api/clientes, la ficha y los seguimientos.
+// filtroAgg filtra antes de agrupar (p. ej. por cliente_key); conCompras = solo clientes con algún entregado.
+function sqlClientes({ filtroAgg = "", conCompras = true, filtroFinal = "", orderBy = "" } = {}) {
+  return `
       WITH base AS (
         -- Tienda Nube (TN no persiste flag corporativo; solo por Factura A)
         SELECT
-          COALESCE(NULLIF(lower(trim(COALESCE(e.email_override, t.data->>'contact_email',''))),''),
-                   NULLIF(regexp_replace(COALESCE(e.telefono_override, t.data->>'contact_phone',''),'\\D','','g'),'')) AS cliente_key,
+          ${SQL_KEY_TN} AS cliente_key,
           COALESCE(e.cliente_override, t.data->>'contact_name','')                                   AS nombre,
           lower(trim(COALESCE(e.email_override, t.data->>'contact_email','')))                       AS email,
           regexp_replace(COALESCE(e.telefono_override, t.data->>'contact_phone',''),'\\D','','g')     AS telefono,
@@ -3006,8 +3014,7 @@ app.get("/api/clientes", requireAdmin, async (req, res) => {
         UNION ALL
         -- Manuales
         SELECT
-          COALESCE(NULLIF(lower(trim(COALESCE(e.email_override, m.email,''))),''),
-                   NULLIF(regexp_replace(COALESCE(e.telefono_override, m.telefono,''),'\\D','','g'),'')) AS cliente_key,
+          ${SQL_KEY_MANUAL} AS cliente_key,
           COALESCE(e.cliente_override, m.cliente,'')                                                  AS nombre,
           lower(trim(COALESCE(e.email_override, m.email,'')))                                         AS email,
           regexp_replace(COALESCE(e.telefono_override, m.telefono,''),'\\D','','g')                   AS telefono,
@@ -3036,25 +3043,47 @@ app.get("/api/clientes", requireAdmin, async (req, res) => {
           max(fecha) FILTER (WHERE entregado)                               AS ultima_compra,
           bool_or(es_corp_pedido)                                           AS es_corporativo
         FROM base
-        WHERE cliente_key IS NOT NULL
+        WHERE cliente_key IS NOT NULL ${filtroAgg}
         GROUP BY cliente_key
-        HAVING count(*) FILTER (WHERE entregado) > 0
+        ${conCompras ? "HAVING count(*) FILTER (WHERE entregado) > 0" : ""}
       )
       SELECT cliente_key, nombre, email, telefono, direccion, zona,
              cantidad_compras, total_gastado, primera_compra, ultima_compra, es_corporativo,
              ROUND(total_gastado / NULLIF(cantidad_compras,0), 2) AS ticket_promedio,
              ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date - ultima_compra::date) AS dias_desde_ultima,
              CASE
+               WHEN ultima_compra IS NULL THEN NULL
                WHEN ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date - ultima_compra::date) <= 30  THEN 'caliente'
                WHEN ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date - ultima_compra::date) <= 180 THEN 'tibio'
                WHEN ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date - ultima_compra::date) <= 365 THEN 'frio'
                ELSE 'dormido'
              END AS temperatura
       FROM agg
-      WHERE 1=1 ${filtroTipo} ${filtroBuscar}
-      ORDER BY ${orderBy}
+      WHERE 1=1 ${filtroFinal}
+      ${orderBy ? `ORDER BY ${orderBy}` : ""}
     `;
-    const { rows } = await pool.query(sql, params);
+}
+app.get("/api/clientes", requireAdmin, async (req, res) => {
+  const { tipo, buscar, orden, temperatura } = req.query;
+  // ORDER BY con whitelist (nunca interpolar input crudo).
+  const ORDENES = {
+    total: "total_gastado DESC NULLS LAST",
+    ultima: "ultima_compra DESC NULLS LAST",
+    cantidad: "cantidad_compras DESC",
+    nombre: "lower(nombre) ASC",
+  };
+  const orderBy = ORDENES[orden] || ORDENES.total;
+  const params = [];
+  let filtroTipo = "";
+  if (tipo === "corporativos") filtroTipo = "AND es_corporativo = true";
+  else if (tipo === "particulares") filtroTipo = "AND es_corporativo = false";
+  let filtroBuscar = "";
+  if (buscar && String(buscar).trim()) {
+    params.push(`%${String(buscar).trim()}%`);
+    filtroBuscar = `AND (nombre ILIKE $${params.length} OR email ILIKE $${params.length} OR telefono ILIKE $${params.length})`;
+  }
+  try {
+    const { rows } = await pool.query(sqlClientes({ filtroFinal: `${filtroTipo} ${filtroBuscar}`, orderBy }), params);
     // Resumen sobre TODO el set (tipo/búsqueda aplicados, temperatura NO) para que los contadores
     // por temperatura se mantengan al filtrar por una. La lista sí se filtra por temperatura.
     const totalClientes = rows.length;
@@ -3071,6 +3100,157 @@ app.get("/api/clientes", requireAdmin, async (req, res) => {
     console.error("Error /api/clientes:", err.message);
     res.status(500).json({ error: "Error generando la base de clientes" });
   }
+});
+
+// ─── CRM Entrega 1: FICHA DE CLIENTE + NOTAS Y SEGUIMIENTO — admin + superadmin ─
+const TIPOS_NOTA_CLIENTE = ["nota", "llamada", "whatsapp", "mail", "reunion"];
+// La clave llega tal cual la arma el sistema (email en minúsculas o solo dígitos): se limpia igual que clienteKeyDe.
+const claveClienteDeQuery = (k) => { const s = String(k || "").trim(); return s.includes("@") ? s.toLowerCase() : (s.replace(/\D/g, "") || null); };
+
+// Ficha: datos + métricas + temperatura (misma consulta que /api/clientes), "qué compra siempre", todos sus pedidos
+// (TN + manuales, con overrides, también anulados), sus oportunidades y sus notas.
+app.get("/api/clientes/ficha", requireAdmin, async (req, res) => {
+  const key = claveClienteDeQuery(req.query.key);
+  if (!key) return res.status(400).json({ error: "Falta el cliente (key)." });
+  try {
+    const cli = (await pool.query(sqlClientes({ filtroAgg: "AND cliente_key = $1", conCompras: false }), [key])).rows[0] || null;
+    // Pedidos del cliente (todos los estados), armados con las mismas funciones que el reporte de pedidos.
+    const tn = await pool.query(`SELECT t.data FROM pedidos_tn t LEFT JOIN pedidos_estados e ON e.id = t.id::text WHERE ${SQL_KEY_TN} = $1`, [key]);
+    const man = await pool.query(`SELECT m.* FROM pedidos_manuales m LEFT JOIN pedidos_estados e ON e.id = m.id WHERE ${SQL_KEY_MANUAL} = $1`, [key]);
+    const ids = [...tn.rows.map((r) => String(r.data.id)), ...man.rows.map((r) => r.id)];
+    const estados = {}, overrides = {};
+    if (ids.length) {
+      for (const r of (await pool.query("SELECT * FROM pedidos_estados WHERE id = ANY($1)", [ids])).rows) estados[r.id] = estadoPedidoDeFila(r);
+      for (const r of (await pool.query("SELECT pedido_id, productos, total_num FROM pedidos_productos WHERE pedido_id = ANY($1)", [ids])).rows) overrides[r.pedido_id] = { productos: r.productos, total_num: Number(r.total_num) };
+    }
+    const creado = {};
+    for (const r of tn.rows) creado[String(r.data.id)] = r.data.created_at || "";
+    for (const r of man.rows) creado[r.id] = r.created_at ? new Date(r.created_at).toISOString() : "";
+    const pedidos = [
+      ...tn.rows.map((r) => filaPedidoTN(r.data, estados[String(r.data.id)] || {}, overrides[String(r.data.id)])),
+      ...man.rows.map((r) => filaPedidoManual(r, estados[r.id] || {}, overrides[r.id])),
+    ].map((p) => ({
+      id: p.id, numero: p.numero, fecha: p.fechaDisplay || String(creado[p.id] || "").slice(0, 10), local: p.local, estado: p.estado,
+      medioPago: p.medioPago || "", total: p.totalNum, productos: p.productos || "", esManual: p.esManual, motivoAnulacion: p.motivoAnulacion,
+    })).sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)) || String(creado[b.id]).localeCompare(String(creado[a.id])));
+    // "Qué compra siempre": MISMA normalización que el reporte de productos vendidos (normalizarProducto + sin
+    // envíos/medios de pago ni basura), sobre los pedidos no anulados. Por cantidad y por cantidad de pedidos.
+    const prod = {};
+    for (const p of pedidos.filter((x) => x.estado !== "Anulado")) {
+      const enEste = new Set();
+      for (const item of String(p.productos).split(", ")) {
+        const m = item.match(/^(.+) x(\d+)$/);
+        if (!m) continue;
+        const nombre = normalizarProducto(m[1].trim());
+        if (esExcluidoProduccion(nombre) || esBasuraVenta(nombre)) continue;
+        prod[nombre] = prod[nombre] || { nombre, cantidad: 0, veces: 0 };
+        prod[nombre].cantidad += Number(m[2]);
+        if (!enEste.has(nombre)) { prod[nombre].veces += 1; enEste.add(nombre); }
+      }
+    }
+    const lista = Object.values(prod);
+    const porCantidad = [...lista].sort((a, b) => b.cantidad - a.cantidad || b.veces - a.veces || a.nombre.localeCompare(b.nombre)).slice(0, 10);
+    const porVeces = [...lista].sort((a, b) => b.veces - a.veces || b.cantidad - a.cantidad || a.nombre.localeCompare(b.nombre)).slice(0, 10);
+    const oportunidades = (await pool.query(
+      `SELECT id, estado AS etapa, total_elegido AS monto, creada_en AS fecha, fecha_evento, origen, canal, cliente_nombre, empresa, email, telefono, motivo_perdida
+       FROM cotizaciones WHERE cliente_key = $1 ORDER BY creada_en DESC`, [key])).rows.map((o) => ({ ...o, monto: o.monto === null ? null : Number(o.monto) }));
+    const notas = (await pool.query(
+      `SELECT id, tipo, texto, proximo_contacto::text AS proximo_contacto, hecho, hecho_at, hecho_por, estado, usuario, usuario_anula, anulado_at, created_at
+       FROM clientes_notas WHERE cliente_key = $1 ORDER BY created_at DESC, id DESC`, [key])).rows;
+    if (!cli && !pedidos.length && !oportunidades.length && !notas.length) return res.status(404).json({ error: "Cliente no encontrado." });
+    // Sin pedidos (p. ej. un lead de Ventas a realizar): los datos salen de su oportunidad más reciente.
+    const op = oportunidades[0];
+    const datos = cli
+      ? { nombre: cli.nombre, email: cli.email, telefono: cli.telefono, direccion: cli.direccion, zona: cli.zona, es_corporativo: !!cli.es_corporativo }
+      : { nombre: op?.cliente_nombre || "", email: op?.email ? String(op.email).trim().toLowerCase() : null, telefono: op?.telefono ? String(op.telefono).replace(/\D/g, "") : null, direccion: "", zona: "", es_corporativo: false };
+    const metricas = cli
+      ? { cantidad_compras: Number(cli.cantidad_compras), total_gastado: Number(cli.total_gastado), ticket_promedio: cli.ticket_promedio === null ? null : Number(cli.ticket_promedio),
+          primera_compra: cli.primera_compra, ultima_compra: cli.ultima_compra, dias_desde_ultima: cli.dias_desde_ultima === null ? null : Number(cli.dias_desde_ultima) }
+      : { cantidad_compras: 0, total_gastado: 0, ticket_promedio: null, primera_compra: null, ultima_compra: null, dias_desde_ultima: null };
+    res.json({ cliente_key: key, datos, metricas, temperatura: cli ? cli.temperatura : null, compraSiempre: { porCantidad, porVeces }, pedidos, oportunidades, notas });
+  } catch (err) {
+    console.error("Error /api/clientes/ficha:", err.message);
+    res.status(500).json({ error: "Error armando la ficha del cliente" });
+  }
+});
+
+// Notas y seguimiento (no se borran: se anulan). Solo el autor o un superadmin pueden anular.
+app.post("/api/clientes/notas", requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  const key = claveClienteDeQuery(b.cliente_key);
+  const tipo = b.tipo || "nota";
+  const texto = String(b.texto || "").trim();
+  const proximo = b.proximo_contacto ? String(b.proximo_contacto) : null;
+  if (!key) return res.status(400).json({ error: "Falta el cliente." });
+  if (!TIPOS_NOTA_CLIENTE.includes(tipo)) return res.status(400).json({ error: "Tipo de nota inválido." });
+  if (!texto) return res.status(400).json({ error: "El texto es obligatorio." });
+  if (proximo && !esFechaISO(proximo)) return res.status(400).json({ error: "Próximo contacto inválido (YYYY-MM-DD)." });
+  const quien = req.user?.nombre_completo || null;   // de la SESIÓN, nunca del body
+  try {
+    const r = await pool.query(
+      "INSERT INTO clientes_notas (cliente_key, tipo, texto, proximo_contacto, usuario) VALUES ($1,$2,$3,$4,$5) RETURNING id",
+      [key, tipo, texto, proximo, quien]
+    );
+    res.json({ ok: true, id: r.rows[0].id });
+    registrarAuditoria(quien, "cliente_nota_crear", "cliente_nota", r.rows[0].id, { cliente_key: key, tipo, proximo_contacto: proximo });
+  } catch (err) { console.error("Error POST /api/clientes/notas:", err.message); res.status(500).json({ error: "Error guardando la nota" }); }
+});
+// Marcar (o desmarcar) un seguimiento como hecho.
+app.post("/api/clientes/notas/:id/hecho", requireAdmin, async (req, res) => {
+  const hecho = (req.body || {}).hecho !== false;
+  const quien = req.user?.nombre_completo || null;
+  try {
+    const r = await pool.query(
+      `UPDATE clientes_notas SET hecho = $1, hecho_at = CASE WHEN $1 THEN NOW() END, hecho_por = CASE WHEN $1 THEN $2 END
+       WHERE id = $3 AND estado = 'activo' RETURNING id, cliente_key`, [hecho, quien, req.params.id]);
+    if (r.rows.length === 0) return res.status(404).json({ error: "Nota no encontrada o anulada." });
+    res.json({ ok: true });
+    registrarAuditoria(quien, hecho ? "cliente_seguimiento_hecho" : "cliente_seguimiento_pendiente", "cliente_nota", req.params.id, { cliente_key: r.rows[0].cliente_key });
+  } catch (err) { console.error("Error hecho nota:", err.message); res.status(500).json({ error: "Error actualizando el seguimiento" }); }
+});
+app.post("/api/clientes/notas/:id/anular", requireAdmin, async (req, res) => {
+  const quien = req.user?.nombre_completo || null;
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const n = (await client.query("SELECT id, cliente_key, usuario, estado FROM clientes_notas WHERE id = $1 FOR UPDATE", [req.params.id])).rows[0];
+    if (!n) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Nota no encontrada." }); }
+    if (n.estado !== "activo") { await client.query("ROLLBACK"); return res.status(409).json({ error: "La nota ya está anulada." }); }
+    if (req.user?.rol !== "superadmin" && n.usuario !== quien) { await client.query("ROLLBACK"); return res.status(403).json({ error: "Solo quien escribió la nota (o un superadmin) puede anularla." }); }
+    await client.query("UPDATE clientes_notas SET estado = 'anulado', usuario_anula = $1, anulado_at = NOW() WHERE id = $2", [quien, n.id]);
+    await client.query("COMMIT");
+    res.json({ ok: true });
+    registrarAuditoria(quien, "cliente_nota_anular", "cliente_nota", n.id, { cliente_key: n.cliente_key, autor: n.usuario });
+  } catch (err) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    console.error("Error anular nota:", err.message); res.status(500).json({ error: "Error anulando la nota" });
+  } finally { if (client) client.release(); }
+});
+// Seguimientos pendientes: próximo contacto sin hacer (notas activas), por fecha (vencidos y de hoy primero).
+app.get("/api/clientes/seguimientos", requireAdmin, async (req, res) => {
+  try {
+    const hoy = fechaArgentinaISO();
+    const { rows } = await pool.query(
+      `SELECT id, cliente_key, tipo, texto, proximo_contacto::text AS proximo_contacto, usuario, created_at FROM clientes_notas
+       WHERE estado = 'activo' AND NOT hecho AND proximo_contacto IS NOT NULL ORDER BY proximo_contacto ASC, id ASC`);
+    // Nombre / contacto: de la base de clientes (misma consulta) o, si no tiene pedidos, de su oportunidad más reciente.
+    const keys = [...new Set(rows.map((r) => r.cliente_key))];
+    const info = {};
+    if (keys.length) {
+      for (const c of (await pool.query(sqlClientes({ filtroAgg: "AND cliente_key = ANY($1)", conCompras: false }), [keys])).rows) info[c.cliente_key] = { nombre: c.nombre, telefono: c.telefono, email: c.email };
+      const faltan = keys.filter((k) => !info[k]);
+      if (faltan.length) {
+        for (const o of (await pool.query("SELECT DISTINCT ON (cliente_key) cliente_key, cliente_nombre, telefono, email FROM cotizaciones WHERE cliente_key = ANY($1) ORDER BY cliente_key, creada_en DESC", [faltan])).rows) {
+          info[o.cliente_key] = { nombre: o.cliente_nombre, telefono: o.telefono, email: o.email };
+        }
+      }
+    }
+    res.json(rows.map((r) => ({
+      ...r, nombre: info[r.cliente_key]?.nombre || r.cliente_key, telefono: info[r.cliente_key]?.telefono || null, email: info[r.cliente_key]?.email || null,
+      vencido: r.proximo_contacto < hoy, es_hoy: r.proximo_contacto === hoy,
+    })));
+  } catch (err) { console.error("Error /api/clientes/seguimientos:", err.message); res.status(500).json({ error: "Error trayendo los seguimientos" }); }
 });
 
 // Alta MANUAL de oportunidad (pipeline "Ventas a realizar"). Reusa la tabla cotizaciones con

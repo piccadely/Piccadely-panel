@@ -8166,7 +8166,208 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       frio:     { label: "Frío",     emoji: "🔵", color: "#1d4ed8", bg: "#dbeafe" },
       dormido:  { label: "Dormido",  emoji: "⚫", color: "#555",    bg: "#f3f4f6" },
     };
-    function VistaClientes({ onVolver }) {
+    // ─── CRM Entrega 1: FICHA DE CLIENTE (modal) ─────────────────────────
+    // Se abre desde Clientes (fila o seguimiento) y desde las tarjetas de Ventas a realizar. Lee /api/clientes/ficha.
+    // Notas: solo el autor o un superadmin ven "Anular" (el backend lo valida igual).
+    const NOTA_TIPOS = { nota: { label: "Nota", icono: "📝" }, llamada: { label: "Llamada", icono: "📞" }, whatsapp: { label: "WhatsApp", icono: "💬" }, mail: { label: "Mail", icono: "✉️" }, reunion: { label: "Reunión", icono: "🤝" } };
+    const linkWhatsApp = (t) => { const d = String(t || "").replace(/\D/g, ""); if (!d) return null; const full = d.length <= 10 ? "549" + d : (d.startsWith("54") ? d : "54" + d); return "https://wa.me/" + full; };
+    const hoyISO = () => { const h = new Date(); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`; };
+    function FichaCliente({ clienteKey, usuario, onCerrar, onCambio }) {
+      const [data, setData] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState("");
+      const [abiertos, setAbiertos] = useState({});   // pedido id → productos visibles
+      const [form, setForm] = useState({ tipo: "nota", texto: "", proximo_contacto: "" });
+      const [guardando, setGuardando] = useState(false);
+      const [mensaje, setMensaje] = useState(null);
+      const [verAnuladas, setVerAnuladas] = useState(false);
+      const money = (n) => "$" + Number(n || 0).toLocaleString("es-AR", { maximumFractionDigits: 2 });
+      const fmtFecha = (d) => (d ? new Date(d).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }) : "—");
+      const fmtISO = (s) => (s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}` : "—");
+
+      async function cargar() {
+        setLoading(true); setError("");
+        try { const r = await axios.get(`${API}/api/clientes/ficha`, { params: { key: clienteKey } }); setData(r.data); }
+        catch (err) { setError(err.response?.data?.error || "No se pudo cargar la ficha"); }
+        setLoading(false);
+      }
+      useEffect(() => { cargar(); }, [clienteKey]);
+      function avisar(t, tipo = "ok") { setMensaje({ t, tipo }); setTimeout(() => setMensaje(null), 3500); }
+
+      async function guardarNota() {
+        if (!form.texto.trim()) { avisar("Escribí la nota", "error"); return; }
+        setGuardando(true);
+        try {
+          await axios.post(`${API}/api/clientes/notas`, { cliente_key: clienteKey, tipo: form.tipo, texto: form.texto.trim(), proximo_contacto: form.proximo_contacto || null });
+          setForm({ tipo: "nota", texto: "", proximo_contacto: "" }); await cargar(); onCambio && onCambio(); avisar("Nota guardada");
+        } catch (err) { avisar(err.response?.data?.error || "Error guardando la nota", "error"); }
+        setGuardando(false);
+      }
+      async function marcarHecho(n, hecho) {
+        try { await axios.post(`${API}/api/clientes/notas/${n.id}/hecho`, { hecho }); await cargar(); onCambio && onCambio(); }
+        catch (err) { avisar(err.response?.data?.error || "Error actualizando", "error"); }
+      }
+      async function anularNota(n) {
+        if (!window.confirm("¿Anular esta nota? Queda en el historial, tachada.")) return;
+        try { await axios.post(`${API}/api/clientes/notas/${n.id}/anular`); await cargar(); onCambio && onCambio(); avisar("Nota anulada"); }
+        catch (err) { avisar(err.response?.data?.error || "Error anulando", "error"); }
+      }
+
+      const d = data?.datos || {}, m = data?.metricas || {};
+      const ti = data?.temperatura ? TEMP_INFO[data.temperatura] : null;
+      const wa = linkWhatsApp(d.telefono);
+      const hoy = hoyISO();
+      const notas = (data?.notas || []).filter(n => verAnuladas || n.estado === "activo");
+      const caja = { background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 14, marginBottom: 12 };
+      const tit = { fontSize: 13, fontWeight: 700, color: "#333", marginBottom: 8 };
+      const inp = { fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" };
+      const etapa = (k) => OPP_ETAPAS.find(e => e.key === (k || "pendiente")) || { label: k, color: "#888" };
+
+      return (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", justifyContent: "flex-end" }} onClick={onCerrar}>
+          <div style={{ background: "#f7f7f5", width: "100%", maxWidth: 860, height: "100%", overflowY: "auto", padding: 20, boxSizing: "border-box" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>{d.nombre || clienteKey}</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+                  {ti && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: ti.bg, color: ti.color }}>{ti.emoji} {ti.label}</span>}
+                  {!ti && data && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: "#f3f4f6", color: "#555" }}>Sin compras entregadas</span>}
+                  {d.es_corporativo && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: "#ede9fe", color: "#6d28d9" }}>Corporativo</span>}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                {wa && <a href={wa} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, fontWeight: 600, padding: "7px 12px", borderRadius: 8, background: "#25D366", color: "#fff", textDecoration: "none" }}>💬 WhatsApp</a>}
+                {d.email && <a href={`mailto:${d.email}`} style={{ fontSize: 12, fontWeight: 600, padding: "7px 12px", borderRadius: 8, background: "#2563eb", color: "#fff", textDecoration: "none" }}>✉️ Mail</a>}
+                <button style={{ fontSize: 13, padding: "6px 12px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onCerrar}>✕</button>
+              </div>
+            </div>
+            {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 12 }}>{mensaje.t}</div>}
+            {loading && !data ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando…</div>
+              : error ? <div style={{ color: "#c0392b", fontSize: 13 }}>{error}</div>
+              : data && (
+                <>
+                  {/* Datos + métricas */}
+                  <div style={caja}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "6px 16px", fontSize: 12, color: "#555", marginBottom: 10 }}>
+                      <div>✉️ {d.email || "—"}</div><div>📱 {d.telefono || "—"}</div>
+                      <div>📍 {d.direccion || "—"}</div><div>🗺️ {d.zona || "—"}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                      {[["Compras", m.cantidad_compras], ["Total gastado", money(m.total_gastado)], ["Ticket promedio", m.ticket_promedio === null ? "—" : money(m.ticket_promedio)],
+                        ["Última compra", m.ultima_compra ? `${fmtFecha(m.ultima_compra)} (hace ${m.dias_desde_ultima} d)` : "—"], ["Primera compra", fmtFecha(m.primera_compra)]].map(([k, v]) => (
+                        <div key={k} style={{ flex: "1 1 130px", background: "#fafaf8", borderRadius: 8, padding: "8px 10px" }}>
+                          <div style={{ fontSize: 10, color: "#999", textTransform: "uppercase" }}>{k}</div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: "#333" }}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Compra siempre */}
+                  <div style={caja}>
+                    <div style={tit}>🛒 Compra siempre</div>
+                    {data.compraSiempre.porCantidad.length === 0 ? <div style={{ fontSize: 12, color: "#aaa" }}>Sin productos todavía.</div> : (
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+                        {[["Por cantidad", data.compraSiempre.porCantidad, (p) => `${p.cantidad} u.`], ["Por cantidad de pedidos", data.compraSiempre.porVeces, (p) => `${p.veces} ${p.veces === 1 ? "pedido" : "pedidos"}`]].map(([t, lista, val]) => (
+                          <div key={t}>
+                            <div style={{ fontSize: 11, color: "#999", textTransform: "uppercase", marginBottom: 4 }}>{t}</div>
+                            {lista.slice(0, 5).map((p, i) => (
+                              <div key={p.nombre} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12, padding: "3px 0", borderBottom: "1px solid #f5f5f5" }}>
+                                <span style={{ color: "#333" }}>{i + 1}. {p.nombre}</span><b style={{ color: "#555", whiteSpace: "nowrap" }}>{val(p)}</b>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Notas y seguimiento */}
+                  <div style={caja}>
+                    <div style={{ ...tit, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span>🗒️ Notas y seguimiento</span>
+                      <label style={{ fontSize: 11, fontWeight: 400, color: "#888", display: "flex", gap: 4, alignItems: "center", cursor: "pointer" }}><input type="checkbox" checked={verAnuladas} onChange={e => setVerAnuladas(e.target.checked)} /> Ver anuladas</label>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                      <select style={inp} value={form.tipo} onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>
+                        {Object.entries(NOTA_TIPOS).map(([k, v]) => <option key={k} value={k}>{v.icono} {v.label}</option>)}
+                      </select>
+                      <label style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>Próximo contacto
+                        <input type="date" style={inp} value={form.proximo_contacto} onChange={e => setForm(f => ({ ...f, proximo_contacto: e.target.value }))} />
+                      </label>
+                    </div>
+                    <textarea style={{ ...inp, width: "100%", minHeight: 60, resize: "vertical" }} placeholder="Qué hablaron, qué quedó pendiente…" value={form.texto} onChange={e => setForm(f => ({ ...f, texto: e.target.value }))} />
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6, marginBottom: 10 }}>
+                      <button style={{ fontSize: 12, fontWeight: 600, padding: "7px 14px", borderRadius: 8, border: "none", background: guardando ? "#ccc" : "#F68B32", color: "#fff", cursor: guardando ? "default" : "pointer" }} disabled={guardando} onClick={guardarNota}>{guardando ? "Guardando…" : "Guardar nota"}</button>
+                    </div>
+                    {notas.length === 0 ? <div style={{ fontSize: 12, color: "#aaa" }}>Sin notas todavía.</div> : notas.map(n => {
+                      const anulada = n.estado === "anulado";
+                      const t = NOTA_TIPOS[n.tipo] || NOTA_TIPOS.nota;
+                      const vence = n.proximo_contacto && !n.hecho ? (n.proximo_contacto < hoy ? "vencido" : n.proximo_contacto === hoy ? "hoy" : "futuro") : null;
+                      const puedeAnular = !anulada && (usuario?.rol === "superadmin" || n.usuario === usuario?.nombre_completo);
+                      return (
+                        <div key={n.id} style={{ display: "flex", gap: 10, padding: "8px 0", borderTop: "1px solid #f2f2f2", opacity: anulada ? 0.5 : 1 }}>
+                          <div style={{ fontSize: 18 }}>{t.icono}</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, color: "#333", whiteSpace: "pre-wrap", textDecoration: anulada ? "line-through" : "none" }}>{n.texto}</div>
+                            <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>
+                              {t.label} · {fmtFecha(n.created_at)}{n.usuario ? ` · ${n.usuario}` : ""}{anulada ? ` · anulada${n.usuario_anula ? ` por ${n.usuario_anula}` : ""}` : ""}
+                            </div>
+                            {n.proximo_contacto && (
+                              <div style={{ marginTop: 4, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                                <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: n.hecho ? "#eafaf1" : vence === "vencido" ? "#fdecea" : vence === "hoy" ? "#fef3c7" : "#eff6ff", color: n.hecho ? "#1d8a4e" : vence === "vencido" ? "#c0392b" : vence === "hoy" ? "#b45309" : "#2563eb" }}>
+                                  {n.hecho ? "✓ Hecho" : vence === "vencido" ? "Vencido" : vence === "hoy" ? "Hoy" : "Próximo contacto"} · {fmtISO(n.proximo_contacto)}
+                                </span>
+                                {!anulada && <label style={{ fontSize: 11, color: "#555", display: "flex", gap: 4, alignItems: "center", cursor: "pointer" }}><input type="checkbox" checked={!!n.hecho} onChange={e => marcarHecho(n, e.target.checked)} /> Hecho</label>}
+                              </div>
+                            )}
+                          </div>
+                          {puedeAnular && <button style={{ alignSelf: "flex-start", fontSize: 11, padding: "3px 8px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => anularNota(n)}>Anular</button>}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Oportunidades */}
+                  <div style={caja}>
+                    <div style={tit}>💼 Oportunidades ({data.oportunidades.length})</div>
+                    {data.oportunidades.length === 0 ? <div style={{ fontSize: 12, color: "#aaa" }}>Sin oportunidades en Ventas a realizar.</div> : data.oportunidades.map(o => {
+                      const e = etapa(o.etapa);
+                      return (
+                        <div key={o.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12, padding: "5px 0", borderTop: "1px solid #f5f5f5" }}>
+                          <span><span style={{ fontWeight: 700, color: e.color }}>{e.label}</span> · {fmtFecha(o.fecha)} · {o.origen === "manual" ? "manual" : o.origen === "regalos" ? "regalos" : "formulario"}{o.fecha_evento ? ` · evento ${o.fecha_evento}` : ""}</span>
+                          <b style={{ color: "#333" }}>{o.monto === null ? "—" : money(o.monto)}</b>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Pedidos */}
+                  <div style={caja}>
+                    <div style={tit}>📦 Pedidos ({data.pedidos.length})</div>
+                    {data.pedidos.length === 0 ? <div style={{ fontSize: 12, color: "#aaa" }}>Sin pedidos.</div> : data.pedidos.map(p => (
+                      <div key={p.id} style={{ borderTop: "1px solid #f5f5f5" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12, padding: "6px 0", cursor: "pointer", opacity: p.estado === "Anulado" ? 0.55 : 1 }} onClick={() => setAbiertos(a => ({ ...a, [p.id]: !a[p.id] }))}>
+                          <span>{abiertos[p.id] ? "▾" : "▸"} {fmtISO(p.fecha)} · <b>{p.numero}</b> · {p.local} · {p.estado}{p.medioPago ? ` · ${p.medioPago}` : ""}{p.esManual ? " · manual" : ""}</span>
+                          <b style={{ color: "#333", whiteSpace: "nowrap" }}>{money(p.total)}</b>
+                        </div>
+                        {abiertos[p.id] && (
+                          <div style={{ fontSize: 12, color: "#555", padding: "0 0 8px 18px" }}>
+                            {String(p.productos || "").split(", ").filter(Boolean).map((it, i) => <div key={i}>• {it}</div>)}
+                            {p.motivoAnulacion && <div style={{ color: "#c0392b" }}>Anulado: {p.motivoAnulacion}</div>}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+          </div>
+        </div>
+      );
+    }
+
+    function VistaClientes({ usuario, onVolver }) {
       const [data, setData] = useState(null);   // { clientes, totalClientes, corporativos, particulares, calientes, ... }
       const [loading, setLoading] = useState(true);
       const [tipo, setTipo] = useState("");       // "" | corporativos | particulares
@@ -8174,6 +8375,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [temperatura, setTemperatura] = useState(""); // "" | caliente | tibio | frio | dormido
       const [buscar, setBuscar] = useState("");
       const [error, setError] = useState("");
+      const [ficha, setFicha] = useState(null);           // cliente_key con la ficha abierta | null
+      const [seguimientos, setSeguimientos] = useState([]);
 
       const money = (n) => "$" + Number(n || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const fmtFecha = (d) => d ? new Date(d).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }) : "—";
@@ -8185,6 +8388,10 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         setLoading(false);
       }
       useEffect(() => { cargar(); }, [tipo, orden, temperatura]);
+      async function cargarSeguimientos() {
+        try { const r = await axios.get(`${API}/api/clientes/seguimientos`); setSeguimientos(r.data); } catch (err) { /* el bloque queda vacío */ }
+      }
+      useEffect(() => { cargarSeguimientos(); }, []);
 
       const lista = (data?.clientes || []).filter(c => {
         const q = buscar.trim().toLowerCase();
@@ -8215,6 +8422,28 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>👥 Clientes</div>
             <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver al panel</button>
+          </div>
+
+          {/* Seguimientos pendientes (próximo contacto sin hacer): vencidos en rojo; abre la ficha */}
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 12, marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#333", marginBottom: 6 }}>
+              📞 Seguimientos {seguimientos.length > 0 && <span style={{ fontWeight: 400, color: "#888" }}>({seguimientos.length}{seguimientos.filter(s => s.vencido).length ? ` · ${seguimientos.filter(s => s.vencido).length} vencidos` : ""})</span>}
+            </div>
+            {seguimientos.length === 0 ? <div style={{ fontSize: 12, color: "#aaa" }}>No hay seguimientos pendientes.</div> : (
+              <div style={{ maxHeight: 220, overflowY: "auto" }}>
+                {seguimientos.map(s => {
+                  const t = NOTA_TIPOS[s.tipo] || NOTA_TIPOS.nota;
+                  const color = s.vencido ? "#c0392b" : s.es_hoy ? "#b45309" : "#555";
+                  return (
+                    <div key={s.id} onClick={() => setFicha(s.cliente_key)} style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: 12, padding: "5px 4px", borderTop: "1px solid #f5f5f5", cursor: "pointer" }}>
+                      <span style={{ width: 86, flexShrink: 0, fontWeight: 700, color }}>{s.vencido ? "⚠️ " : ""}{`${s.proximo_contacto.slice(8, 10)}/${s.proximo_contacto.slice(5, 7)}/${s.proximo_contacto.slice(0, 4)}`}</span>
+                      <span style={{ fontWeight: 600, color: s.vencido ? "#c0392b" : "#333", flexShrink: 0 }}>{s.nombre}</span>
+                      <span style={{ color: "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.icono} {s.texto}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {data && (
@@ -8295,7 +8524,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                     </thead>
                     <tbody>
                       {lista.map(c => (
-                        <tr key={c.cliente_key}>
+                        <tr key={c.cliente_key} onClick={() => setFicha(c.cliente_key)} style={{ cursor: "pointer" }} title="Ver ficha del cliente">
                           <td style={td}>{c.nombre || "—"}{c.es_corporativo && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 10, background: "#ede9fe", color: "#6d28d9" }}>Corporativo</span>}</td>
                           <td style={td}>
                             {(() => { const ti = TEMP_INFO[c.temperatura] || {}; return (
@@ -8318,7 +8547,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                 </div>
               )}
           </div>
-          <div style={{ fontSize: 11, color: "#aaa", marginTop: 8 }}>Métricas sobre pedidos entregados. Cliente = email (o teléfono si no hay email).</div>
+          <div style={{ fontSize: 11, color: "#aaa", marginTop: 8 }}>Métricas sobre pedidos entregados. Cliente = email (o teléfono si no hay email). Tocá un cliente para ver su ficha.</div>
+          {ficha && <FichaCliente clienteKey={ficha} usuario={usuario} onCerrar={() => setFicha(null)} onCambio={cargarSeguimientos} />}
         </div>
       );
     }
@@ -8346,6 +8576,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [guardando, setGuardando] = useState(false);
       const [buscaCli, setBuscaCli] = useState("");
       const [mensaje, setMensaje] = useState(null);
+      const [ficha, setFicha] = useState(null);   // cliente_key con la ficha abierta | null
 
       const money = n => "$" + Number(n || 0).toLocaleString("es-AR");
       const diasDesde = v => v ? Math.max(0, Math.floor((Date.now() - new Date(v).getTime()) / 86400000)) : 0;
@@ -8448,7 +8679,9 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: "#333", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                        {c.cliente_nombre || "Sin nombre"}{c.empresa ? <span style={{ color: "#888", fontWeight: 400 }}>· {c.empresa}</span> : null}
+                        {c.cliente_key
+                          ? <span role="button" title="Ver ficha del cliente" onClick={() => setFicha(c.cliente_key)} style={{ cursor: "pointer", textDecoration: "underline", textDecorationColor: "#ddd", textUnderlineOffset: 3 }}>{c.cliente_nombre || "Sin nombre"}</span>
+                          : (c.cliente_nombre || "Sin nombre")}{c.empresa ? <span style={{ color: "#888", fontWeight: 400 }}>· {c.empresa}</span> : null}
                         {esLeadRegalos(c)
                           ? <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: REGALOS_BADGE.bg, color: REGALOS_BADGE.color }}>{etiquetaRegalos(c)}</span>
                           : <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: c.origen === "manual" ? "#ede9fe" : "#fff4e8", color: c.origen === "manual" ? "#6d28d9" : "#d9701c" }}>{c.origen === "manual" ? "manual" : "formulario"}</span>}
@@ -8517,6 +8750,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               </div>
             </div>
           )}
+          {ficha && <FichaCliente clienteKey={ficha} usuario={usuario} onCerrar={() => setFicha(null)} />}
         </div>
       );
     }
@@ -11166,7 +11400,7 @@ if (vista === "dashboard") {
       return <div style={s.wrap}>{Header()}<VistaLibroCompras onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "clientes") {
-      return <div style={s.wrap}>{Header()}<VistaClientes onVolver={() => setVista("panel")} /></div>;
+      return <div style={s.wrap}>{Header()}<VistaClientes usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "ordenesCompra") {
       return <div style={s.wrap}>{Header()}<VistaOrdenesCompra usuario={usuario} onVolver={() => setVista("panel")} /></div>;
