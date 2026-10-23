@@ -3786,6 +3786,12 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       pagada:    { label: "Pagada", bg: "#eafaf1", color: "#1d8a4e" },
     };
     const MEDIOS_PAGO_SUELDO = ["Efectivo", "Transferencia", "Mercado Pago", "Otro"];
+    // Tesorería B2: origen de la plata (caja / cuenta / externo) y medio sugerido según la cuenta (editable).
+    const rrhhOrigenTxt = (p) => p.caja_origen || p.cuenta_nombre || "Externo";
+    const rrhhMedioDeCuenta = (cuentas, id) => ((cuentas.find(c => String(c.id) === String(id)) || {}).tipo === "billetera" ? "Mercado Pago" : "Transferencia");
+    const RRHH_FORMA = { banco: { label: "Banco", color: "#2563eb", bg: "#eff6ff" }, efectivo: { label: "Efectivo", color: "#1d8a4e", bg: "#eafaf1" } };
+    const rrhhLbl = { fontSize: 12, color: "#888", display: "block", marginBottom: 4 };
+    const rrhhInp = { width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" };
     function VistaLiquidaciones({ usuario, onVolver }) {
       const [periodo, setPeriodo] = useState(rrhhMesActual);
       const [empleados, setEmpleados] = useState([]);
@@ -3795,10 +3801,16 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [savingId, setSavingId] = useState(null);
       const [mensaje, setMensaje] = useState(null);
       const [expandedId, setExpandedId] = useState(null);   // empleado_id con historial de pagos abierto
-      // Modal de pago
+      // Modal de pago: simple o dividido (Banco + Efectivo en una sola transacción)
       const [pagoLiq, setPagoLiq] = useState(null);        // liquidacion en pago | null
-      const [pagoForm, setPagoForm] = useState({ fecha: rrhhHoy, monto: "", medioPago: "Efectivo", origen: "externo", cajaOrigen: "" });
+      const pagoVacio = (saldo) => ({
+        fecha: rrhhHoy, dividido: false, monto: saldo, medioPago: "Efectivo", origen: "externo", cajaOrigen: "", cuentaId: "",
+        banco: { monto: "", origen: "externo", cuentaId: "", medioPago: "Transferencia" },
+        efectivo: { monto: "", origen: "externo", cajaOrigen: "", medioPago: "Efectivo" },
+      });
+      const [pagoForm, setPagoForm] = useState(pagoVacio(""));
       const [pagoGuardando, setPagoGuardando] = useState(false);
+      const [cuentas, setCuentas] = useState([]);           // cuentas de tesorería activas (id, nombre, tipo)
 
       function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 4000); }
       const vacio = { bruto: "", no_remunerativo: "", deducciones: "", neto: "", contribuciones: "" };
@@ -3821,6 +3833,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         setLoading(false);
       }
       useEffect(() => { cargar(); }, [periodo]);
+      useEffect(() => { axios.get(`${API}/api/tesoreria/cuentas-activas`).then(r => setCuentas(r.data)).catch(() => {}); }, []);
 
       const num = (x) => { const n = Number(x); return Number.isFinite(n) ? n : 0; };
       const getRow = (id) => edits[id] || vacio;
@@ -3849,31 +3862,64 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
       const CAJAS_PAGO = ["A. Thomas", "French", "Administración", "Fondo Fijo A. Thomas", "Fondo Fijo French"]
         .filter(c => c !== "Administración" || usuario.rol === "superadmin");
+      // El origen arranca SIEMPRE en "Externo". Caja → medio "Efectivo"; Cuenta → "Transferencia" ("Mercado Pago" si es
+      // billetera). El medio queda editable.
       function abrirPago(liq) {
-        setPagoForm({ fecha: rrhhHoy, monto: String(Number(liq.saldo).toFixed(2)), medioPago: "Efectivo", origen: "externo", cajaOrigen: "" });
+        setPagoForm(pagoVacio(String(Number(liq.saldo).toFixed(2))));
         setPagoLiq(liq);
       }
+      const setPago = (k, v) => setPagoForm(f => ({ ...f, [k]: v }));
+      const setParte = (parte, cambios) => setPagoForm(f => ({ ...f, [parte]: { ...f[parte], ...cambios } }));
+      function cambiarOrigenSimple(o) {
+        setPagoForm(f => ({ ...f, origen: o, ...(o === "caja" ? { medioPago: "Efectivo" } : o === "cuenta" ? { medioPago: rrhhMedioDeCuenta(cuentas, f.cuentaId) } : {}) }));
+      }
+      const parteBody = (p) => ({
+        monto: Number(p.monto), medioPago: p.medioPago,
+        cajaOrigen: p.origen === "caja" ? p.cajaOrigen : "", cuentaId: p.origen === "cuenta" ? Number(p.cuentaId) : null,
+      });
       async function registrarPago() {
-        if (!(Number(pagoForm.monto) > 0)) { mostrarMensaje("El monto debe ser mayor a 0", "error"); return; }
-        if (pagoForm.origen === "caja" && !pagoForm.cajaOrigen) { mostrarMensaje("Elegí de qué caja sale", "error"); return; }
+        const f = pagoForm;
+        const faltaOrigen = (p, nombre) => (p.origen === "caja" && !p.cajaOrigen ? `Elegí de qué caja sale${nombre}` : p.origen === "cuenta" && !p.cuentaId ? `Elegí de qué cuenta sale${nombre}` : "");
+        let body;
+        if (f.dividido) {
+          if (!(Number(f.banco.monto) > 0) || !(Number(f.efectivo.monto) > 0)) { mostrarMensaje("En el pago dividido, las dos partes tienen que tener monto", "error"); return; }
+          const falta = faltaOrigen(f.banco, " la parte de banco") || faltaOrigen(f.efectivo, " la parte de efectivo");
+          if (falta) { mostrarMensaje(falta, "error"); return; }
+          if (Number(f.banco.monto) + Number(f.efectivo.monto) > Number(pagoLiq.saldo) + 1) { mostrarMensaje(`Las dos partes superan el saldo (${rrhhMoney(pagoLiq.saldo)})`, "error"); return; }
+          body = { fecha: f.fecha, partes: [parteBody(f.banco), parteBody(f.efectivo)] };
+        } else {
+          if (!(Number(f.monto) > 0)) { mostrarMensaje("El monto debe ser mayor a 0", "error"); return; }
+          const falta = faltaOrigen(f, "");
+          if (falta) { mostrarMensaje(falta, "error"); return; }
+          body = { fecha: f.fecha, ...parteBody(f) };
+        }
         setPagoGuardando(true);
         try {
-          await axios.post(`${API}/api/rrhh/liquidaciones/${pagoLiq.id}/pagos`, {
-            fecha: pagoForm.fecha, monto: Number(pagoForm.monto), medioPago: pagoForm.medioPago,
-            cajaOrigen: pagoForm.origen === "caja" ? pagoForm.cajaOrigen : "", usuario: usuario.nombre_completo,
-          });
-          setPagoLiq(null); await cargar(); mostrarMensaje("Pago registrado");
+          await axios.post(`${API}/api/rrhh/liquidaciones/${pagoLiq.id}/pagos`, body);
+          setPagoLiq(null); await cargar(); mostrarMensaje(f.dividido ? "Pago dividido registrado (banco + efectivo)" : "Pago registrado");
         } catch (err) { mostrarMensaje(err.response?.data?.error || "Error registrando el pago", "error"); }
         setPagoGuardando(false);
       }
       async function anularPago(p, empNombre) {
-        const motivo = window.prompt(`Anular pago de ${rrhhMoney(p.monto)} (${empNombre}).\nMotivo:`);
+        const efecto = p.caja_origen ? `\nSe repone ${rrhhMoney(p.monto)} en la caja ${p.caja_origen}.` : p.cuenta_nombre ? `\nSe anula el egreso en la cuenta ${p.cuenta_nombre}.` : "";
+        const motivo = window.prompt(`Anular pago de ${rrhhMoney(p.monto)} (${empNombre}).${efecto}\nMotivo:`);
         if (motivo === null) return;
         if (!motivo.trim()) { mostrarMensaje("El motivo es obligatorio", "error"); return; }
         try {
-          await axios.post(`${API}/api/rrhh/pagos/${p.id}/anular`, { motivo: motivo.trim(), usuario: usuario.nombre_completo });
-          await cargar(); mostrarMensaje("Pago anulado" + (p.caja_origen ? " (repuesto en caja)" : ""));
+          await axios.post(`${API}/api/rrhh/pagos/${p.id}/anular`, { motivo: motivo.trim() });
+          await cargar(); mostrarMensaje("Pago anulado" + (p.caja_origen ? " (repuesto en caja)" : p.cuenta_nombre ? " (anulado también en la cuenta)" : ""));
         } catch (err) { mostrarMensaje(err.response?.data?.error || "Error anulando", "error"); }
+      }
+      // Excel de las liquidaciones del período, con el desglose banco / efectivo de lo pagado (informativo).
+      function exportar() {
+        const datos = empleados.map(e => liquid[e.id]).filter(Boolean).map(l => ({
+          "Empleado": l.empleado_nombre, "Local": l.empleado_local || "", "Período": l.periodo,
+          "Bruto": Number(l.bruto), "No remunerativo": Number(l.no_remunerativo), "Deducciones": Number(l.deducciones), "Neto": Number(l.neto),
+          "Contribuciones": Number(l.contribuciones), "Costo": Number(l.bruto) + Number(l.no_remunerativo) + Number(l.contribuciones),
+          "Pagado": Number(l.pagado), "Banco": Number(l.pagado_banco || 0), "Efectivo": Number(l.pagado_efectivo || 0), "Saldo": Number(l.saldo),
+          "Estado": (RRHH_ESTADO_PAGO[l.estado_pago] || {}).label || l.estado_pago,
+        }));
+        exportarExcel(`liquidaciones_${periodo}.xlsx`, [{ name: "Liquidaciones", data: datos }]);
       }
 
       const totalMes = empleados.reduce((a, e) => a + costoRow(getRow(e.id)), 0);
@@ -3882,7 +3928,9 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const totalAPagar = liqsMes.reduce((a, l) => a + Number(l.neto), 0);
       const totalPagado = liqsMes.reduce((a, l) => a + Number(l.pagado || 0), 0);
       const totalPendiente = totalAPagar - totalPagado;
-      const inpN = { width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", boxSizing: "border-box", textAlign: "right" };
+      const totalBanco = liqsMes.reduce((a, l) => a + Number(l.pagado_banco || 0), 0);
+      const totalEfectivo = liqsMes.reduce((a, l) => a + Number(l.pagado_efectivo || 0), 0);
+      const inpN ={ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", boxSizing: "border-box", textAlign: "right" };
       const GRID = "150px repeat(5, 84px) 92px 92px 92px 100px 150px";
 
       return (
@@ -3892,6 +3940,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ fontSize: 12, color: "#888" }}>Período</span>
               <input type="month" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={periodo} onChange={e => setPeriodo(e.target.value)} />
+              {liqsMes.length > 0 && <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "1px solid #1d8a4e", background: "#eafaf1", color: "#1d8a4e", cursor: "pointer" }} onClick={exportar}>📊 Excel</button>}
               <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver</button>
             </div>
           </div>
@@ -3911,6 +3960,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
             <div style={{ flex: "1 1 180px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "12px 16px" }}>
               <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5 }}>Pagado</div>
               <div style={{ fontSize: 20, fontWeight: 700, color: "#1d8a4e" }}>{rrhhMoney(totalPagado)}</div>
+              {totalPagado > 0 && <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>Banco {rrhhMoney(totalBanco)} · Efectivo {rrhhMoney(totalEfectivo)}</div>}
             </div>
             <div style={{ flex: "1 1 180px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "12px 16px" }}>
               <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5 }}>Pendiente</div>
@@ -3940,6 +3990,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                           <div style={{ color: "#333", fontWeight: 500, fontSize: 12 }}>
                             {e.nombre}
                             {!cierra && <div style={{ fontSize: 10, color: "#c0392b" }}>⚠️ neto no cierra</div>}
+                            {liq && Number(liq.pagado) > 0 && <div style={{ fontSize: 10, color: "#888", fontWeight: 400 }}>Banco {rrhhMoney(liq.pagado_banco)} · Efectivo {rrhhMoney(liq.pagado_efectivo)}</div>}
                           </div>
                           <input type="number" step="0.01" style={inpN} value={r.bruto} onChange={ev => setRow(e.id, "bruto", ev.target.value)} />
                           <input type="number" step="0.01" style={inpN} value={r.no_remunerativo} onChange={ev => setRow(e.id, "no_remunerativo", ev.target.value)} />
@@ -3962,15 +4013,19 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                         </div>
                         {abierto && liq && (
                           <div style={{ padding: "8px 16px 12px 24px", borderBottom: "1px solid #f5f5f5", background: "#fcfcfb" }}>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Pagos de esta liquidación</div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>
+                              Pagos de esta liquidación <span style={{ textTransform: "none", fontWeight: 600, color: "#555", marginLeft: 6 }}>Banco {rrhhMoney(liq.pagado_banco)} · Efectivo {rrhhMoney(liq.pagado_efectivo)}</span>
+                            </div>
                             {(liq.pagos || []).map(p => {
                               const anulado = p.estado === "anulado";
+                              const fm = RRHH_FORMA[p.forma] || RRHH_FORMA.banco;
                               return (
                                 <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, padding: "4px 0", opacity: anulado ? 0.55 : 1 }}>
                                   <span style={{ color: "#666", width: 90 }}>{p.fecha}</span>
                                   <span style={{ fontWeight: 600, color: "#333", width: 110, textAlign: "right", textDecoration: anulado ? "line-through" : "none" }}>{rrhhMoney(p.monto)}</span>
+                                  <span style={{ width: 64 }}><span style={{ fontSize: 9, fontWeight: 700, color: fm.color, background: fm.bg, borderRadius: 4, padding: "2px 6px" }}>{fm.label}</span></span>
                                   <span style={{ color: "#555", width: 110 }}>{p.medio_pago}</span>
-                                  <span style={{ color: "#666", flex: 1 }}>{p.caja_origen || "Externo"}</span>
+                                  <span style={{ color: "#666", flex: 1 }}>{rrhhOrigenTxt(p)}</span>
                                   {anulado
                                     ? <span style={{ fontSize: 10, color: "#c0392b" }}>Anulado{p.motivo_anulacion ? `: ${p.motivo_anulacion}` : ""}</span>
                                     : <button style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => anularPago(p, e.nombre)}>Anular</button>}
@@ -3993,43 +4048,114 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                 <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 4 }}>Registrar pago</div>
                 <div style={{ fontSize: 12, color: "#888", marginBottom: 16 }}>{pagoLiq.empleado_nombre} · {pagoLiq.periodo} · queda por pagar <b style={{ color: "#b45309" }}>{rrhhMoney(pagoLiq.saldo)}</b></div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {[[false, "Pago simple"], [true, "Pago dividido (banco + efectivo)"]].map(([v, t]) => (
+                      <button key={t} type="button" style={{ flex: 1, fontSize: 12, fontWeight: 600, padding: "7px 8px", borderRadius: 8, cursor: "pointer", border: `1px solid ${pagoForm.dividido === v ? "#1d8a4e" : "#ddd"}`, background: pagoForm.dividido === v ? "#eafaf1" : "#fff", color: pagoForm.dividido === v ? "#1d8a4e" : "#555" }} onClick={() => setPago("dividido", v)}>{t}</button>
+                    ))}
+                  </div>
                   <div style={{ display: "flex", gap: 12 }}>
                     <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Fecha</label>
-                      <input type="date" style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={pagoForm.fecha} onChange={e => setPagoForm(f => ({ ...f, fecha: e.target.value }))} />
+                      <label style={rrhhLbl}>Fecha</label>
+                      <input type="date" style={rrhhInp} value={pagoForm.fecha} onChange={e => setPago("fecha", e.target.value)} />
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Monto</label>
-                      <input type="number" min="0" step="0.01" style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={pagoForm.monto} onChange={e => setPagoForm(f => ({ ...f, monto: e.target.value }))} />
-                    </div>
+                    {!pagoForm.dividido && (
+                      <div style={{ flex: 1 }}>
+                        <label style={rrhhLbl}>Monto</label>
+                        <input type="number" min="0" step="0.01" style={rrhhInp} value={pagoForm.monto} onChange={e => setPago("monto", e.target.value)} />
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Medio de pago</label>
-                    <select style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={pagoForm.medioPago} onChange={e => setPagoForm(f => ({ ...f, medioPago: e.target.value }))}>
-                      {MEDIOS_PAGO_SUELDO.map(m => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Origen del dinero</label>
-                    <select style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={pagoForm.origen} onChange={e => setPagoForm(f => ({ ...f, origen: e.target.value }))}>
-                      <option value="externo">Externo (no toca caja)</option>
-                      <option value="caja">Sale de caja</option>
-                    </select>
-                  </div>
-                  {pagoForm.origen === "caja" && (
-                    <div>
-                      <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Caja</label>
-                      <select style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={pagoForm.cajaOrigen} onChange={e => setPagoForm(f => ({ ...f, cajaOrigen: e.target.value }))}>
-                        <option value="">Elegir caja…</option>
-                        {CAJAS_PAGO.map(c => <option key={c} value={c}>{c}</option>)}
-                      </select>
-                      <div style={{ fontSize: 11, color: "#999", marginTop: 4 }}>Registra una salida en la caja con fecha de hoy.</div>
-                    </div>
-                  )}
-                  {Number(pagoForm.monto) > 0 && (
-                    <div style={{ background: "#fafaf8", border: "1px solid #eee", borderRadius: 8, padding: "10px 12px", fontSize: 12, color: "#555" }}>
-                      Se registra un pago de <b>{rrhhMoney(pagoForm.monto)}</b> a <b>{pagoLiq.empleado_nombre}</b>{pagoForm.origen === "caja" && pagoForm.cajaOrigen ? <> con salida de <b>{pagoForm.cajaOrigen}</b></> : <> (externo)</>}. Quedaría por pagar <b>{rrhhMoney(Number(pagoLiq.saldo) - Number(pagoForm.monto))}</b>.
-                    </div>
+                  {!pagoForm.dividido ? (
+                    <>
+                      <div>
+                        <label style={rrhhLbl}>Origen del dinero</label>
+                        <select style={rrhhInp} value={pagoForm.origen} onChange={e => cambiarOrigenSimple(e.target.value)}>
+                          <option value="externo">Externo (no toca caja ni cuenta)</option>
+                          <option value="caja">Sale de caja</option>
+                          <option value="cuenta">Sale de una cuenta (banco / billetera)</option>
+                        </select>
+                      </div>
+                      {pagoForm.origen === "caja" && (
+                        <div>
+                          <label style={rrhhLbl}>Caja</label>
+                          <select style={rrhhInp} value={pagoForm.cajaOrigen} onChange={e => setPago("cajaOrigen", e.target.value)}>
+                            <option value="">Elegir caja…</option>
+                            {CAJAS_PAGO.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                          <div style={{ fontSize: 11, color: "#999", marginTop: 4 }}>Registra una salida en la caja con fecha de hoy.</div>
+                        </div>
+                      )}
+                      {pagoForm.origen === "cuenta" && (
+                        <div>
+                          <label style={rrhhLbl}>Cuenta</label>
+                          <select style={rrhhInp} value={pagoForm.cuentaId} onChange={e => { const id = e.target.value; setPagoForm(f => ({ ...f, cuentaId: id, medioPago: rrhhMedioDeCuenta(cuentas, id) })); }}>
+                            <option value="">Elegir cuenta…</option>
+                            {cuentas.map(c => <option key={c.id} value={c.id}>{c.tipo === "banco" ? "🏦" : "📱"} {c.nombre}</option>)}
+                          </select>
+                          <div style={{ fontSize: 11, color: "#999", marginTop: 4 }}>{cuentas.length ? "Registra un egreso en la cuenta con la fecha del pago." : "No hay cuentas activas: se cargan en Administración → Tesorería."}</div>
+                        </div>
+                      )}
+                      <div>
+                        <label style={rrhhLbl}>Medio de pago</label>
+                        <select style={rrhhInp} value={pagoForm.medioPago} onChange={e => setPago("medioPago", e.target.value)}>
+                          {MEDIOS_PAGO_SUELDO.map(m => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                      </div>
+                      {Number(pagoForm.monto) > 0 && (
+                        <div style={{ background: "#fafaf8", border: "1px solid #eee", borderRadius: 8, padding: "10px 12px", fontSize: 12, color: "#555" }}>
+                          Se registra un pago de <b>{rrhhMoney(pagoForm.monto)}</b> a <b>{pagoLiq.empleado_nombre}</b>{pagoForm.origen === "caja" && pagoForm.cajaOrigen ? <> con salida de <b>{pagoForm.cajaOrigen}</b></> : pagoForm.origen === "cuenta" && pagoForm.cuentaId ? <> desde <b>{(cuentas.find(c => String(c.id) === String(pagoForm.cuentaId)) || {}).nombre}</b></> : pagoForm.origen === "externo" ? <> (externo)</> : null}. Quedaría por pagar <b>{rrhhMoney(Number(pagoLiq.saldo) - Number(pagoForm.monto))}</b>.
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {/* Renglón Banco: monto + cuenta o externo */}
+                      <div style={{ border: "1px solid #dbeafe", background: "#f8fbff", borderRadius: 8, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#2563eb" }}>🏦 Banco</div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <input type="number" min="0" step="0.01" placeholder="Monto" style={{ ...rrhhInp, flex: 1 }} value={pagoForm.banco.monto} onChange={e => setParte("banco", { monto: e.target.value })} />
+                          <select style={{ ...rrhhInp, flex: 1 }} value={pagoForm.banco.origen} onChange={e => setParte("banco", { origen: e.target.value })}>
+                            <option value="externo">Externo</option>
+                            <option value="cuenta">Sale de una cuenta</option>
+                          </select>
+                        </div>
+                        {pagoForm.banco.origen === "cuenta" && (
+                          <select style={rrhhInp} value={pagoForm.banco.cuentaId} onChange={e => setParte("banco", { cuentaId: e.target.value, medioPago: rrhhMedioDeCuenta(cuentas, e.target.value) })}>
+                            <option value="">Elegir cuenta…</option>
+                            {cuentas.map(c => <option key={c.id} value={c.id}>{c.tipo === "banco" ? "🏦" : "📱"} {c.nombre}</option>)}
+                          </select>
+                        )}
+                        <select style={rrhhInp} value={pagoForm.banco.medioPago} onChange={e => setParte("banco", { medioPago: e.target.value })}>
+                          {MEDIOS_PAGO_SUELDO.filter(m => m !== "Efectivo").map(m => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                      </div>
+                      {/* Renglón Efectivo: monto + caja o externo */}
+                      <div style={{ border: "1px solid #d1fae5", background: "#f7fdf9", borderRadius: 8, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#1d8a4e" }}>💵 Efectivo</div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <input type="number" min="0" step="0.01" placeholder="Monto" style={{ ...rrhhInp, flex: 1 }} value={pagoForm.efectivo.monto} onChange={e => setParte("efectivo", { monto: e.target.value })} />
+                          <select style={{ ...rrhhInp, flex: 1 }} value={pagoForm.efectivo.origen} onChange={e => setParte("efectivo", { origen: e.target.value })}>
+                            <option value="externo">Externo</option>
+                            <option value="caja">Sale de caja</option>
+                          </select>
+                        </div>
+                        {pagoForm.efectivo.origen === "caja" && (
+                          <select style={rrhhInp} value={pagoForm.efectivo.cajaOrigen} onChange={e => setParte("efectivo", { cajaOrigen: e.target.value })}>
+                            <option value="">Elegir caja…</option>
+                            {CAJAS_PAGO.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        )}
+                      </div>
+                      {(Number(pagoForm.banco.monto) > 0 || Number(pagoForm.efectivo.monto) > 0) && (() => {
+                        const suma = Number(pagoForm.banco.monto || 0) + Number(pagoForm.efectivo.monto || 0);
+                        const pasa = suma > Number(pagoLiq.saldo) + 1;
+                        return (
+                          <div style={{ background: pasa ? "#fdecea" : "#fafaf8", border: `1px solid ${pasa ? "#f5c6cb" : "#eee"}`, borderRadius: 8, padding: "10px 12px", fontSize: 12, color: pasa ? "#c0392b" : "#555" }}>
+                            Banco <b>{rrhhMoney(pagoForm.banco.monto || 0)}</b> + Efectivo <b>{rrhhMoney(pagoForm.efectivo.monto || 0)}</b> = <b>{rrhhMoney(suma)}</b>. {pasa ? <>Supera el saldo de {rrhhMoney(pagoLiq.saldo)}.</> : <>Quedaría por pagar <b>{rrhhMoney(Number(pagoLiq.saldo) - suma)}</b>. Se registran los dos pagos juntos (si uno falla, no se guarda ninguno).</>}
+                          </div>
+                        );
+                      })()}
+                    </>
                   )}
                 </div>
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
@@ -4053,11 +4179,15 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [loading, setLoading] = useState(true);
       const [mensaje, setMensaje] = useState(null);
       const [modal, setModal] = useState(false);
-      const [form, setForm] = useState({ empleado_id: "", tipo: "adelanto", fecha: rrhhHoy, monto: "", concepto: "", origen: "externo", cajaOrigen: "" });
+      const formVacio = () => ({ empleado_id: empleadoSel || "", tipo: "adelanto", fecha: rrhhHoy, monto: "", concepto: "", origen: "externo", cajaOrigen: "", cuentaId: "", medioPago: "Efectivo" });
+      const [form, setForm] = useState(formVacio);
       const [guardando, setGuardando] = useState(false);
+      const [cuentas, setCuentas] = useState([]);   // cuentas de tesorería activas (id, nombre, tipo)
 
       function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 3500); }
       const setCampo = (k, v) => setForm(f => ({ ...f, [k]: v }));
+      // Adelanto: arranca en "Externo". Caja → medio "Efectivo"; Cuenta → "Transferencia" ("Mercado Pago" si es billetera).
+      const cambiarOrigen = (o) => setForm(f => ({ ...f, origen: o, ...(o === "caja" ? { medioPago: "Efectivo" } : o === "cuenta" ? { medioPago: rrhhMedioDeCuenta(cuentas, f.cuentaId) } : {}) }));
 
       async function cargarEmpleados() {
         try { const r = await axios.get(`${API}/api/rrhh/empleados`); setEmpleados(r.data); }
@@ -4076,40 +4206,45 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         setLoading(false);
       }
       useEffect(() => { cargarEmpleados(); }, []);
+      useEffect(() => { axios.get(`${API}/api/tesoreria/cuentas-activas`).then(r => setCuentas(r.data)).catch(() => {}); }, []);
       useEffect(() => { cargar(); }, [empleadoSel, periodo, incluirAnulados]);
 
-      function abrirNueva() { setForm({ empleado_id: empleadoSel || "", tipo: "adelanto", fecha: rrhhHoy, monto: "", concepto: "", origen: "externo", cajaOrigen: "" }); setModal(true); }
+      function abrirNueva() { setForm(formVacio()); setModal(true); }
 
       async function guardar() {
         if (!form.empleado_id) { mostrarMensaje("Elegí un empleado", "error"); return; }
         if (!(Number(form.monto) > 0)) { mostrarMensaje("El monto debe ser mayor a 0", "error"); return; }
-        if (form.tipo === "adelanto" && form.origen === "caja" && !form.cajaOrigen) { mostrarMensaje("Elegí de qué caja sale", "error"); return; }
+        const adelanto = form.tipo === "adelanto";
+        if (adelanto && form.origen === "caja" && !form.cajaOrigen) { mostrarMensaje("Elegí de qué caja sale", "error"); return; }
+        if (adelanto && form.origen === "cuenta" && !form.cuentaId) { mostrarMensaje("Elegí de qué cuenta sale", "error"); return; }
         setGuardando(true);
         try {
           await axios.post(`${API}/api/rrhh/novedades`, {
             empleado_id: Number(form.empleado_id), tipo: form.tipo, fecha: form.fecha,
             monto: Number(form.monto), concepto: form.concepto.trim() || null,
-            cajaOrigen: (form.tipo === "adelanto" && form.origen === "caja") ? form.cajaOrigen : "",
-            usuario: usuario.nombre_completo,
+            cajaOrigen: (adelanto && form.origen === "caja") ? form.cajaOrigen : "",
+            cuentaId: (adelanto && form.origen === "cuenta") ? Number(form.cuentaId) : null,
+            medioPago: adelanto ? form.medioPago : null,
           });
           setModal(false); await cargar(); mostrarMensaje("Novedad registrada");
         } catch (err) { mostrarMensaje(err.response?.data?.error || "Error registrando", "error"); }
         setGuardando(false);
       }
       async function anular(n) {
-        const motivo = window.prompt(`Anular ${RRHH_TIPO_LABEL[n.tipo] || n.tipo} de ${n.empleado_nombre} (${rrhhMoney(n.monto)}).\nMotivo:`);
+        const efecto = n.caja_origen ? `\nSe repone ${rrhhMoney(n.monto)} en la caja ${n.caja_origen}.` : n.cuenta_nombre ? `\nSe anula el egreso en la cuenta ${n.cuenta_nombre}.` : "";
+        const motivo = window.prompt(`Anular ${RRHH_TIPO_LABEL[n.tipo] || n.tipo} de ${n.empleado_nombre} (${rrhhMoney(n.monto)}).${efecto}\nMotivo:`);
         if (motivo === null) return;
         if (!motivo.trim()) { mostrarMensaje("El motivo es obligatorio", "error"); return; }
         try {
-          await axios.post(`${API}/api/rrhh/novedades/${n.id}/anular`, { motivo: motivo.trim(), usuario: usuario.nombre_completo });
-          await cargar(); mostrarMensaje("Novedad anulada" + (n.caja_origen ? " (repuesta en caja)" : ""));
+          await axios.post(`${API}/api/rrhh/novedades/${n.id}/anular`, { motivo: motivo.trim() });
+          await cargar(); mostrarMensaje("Novedad anulada" + (n.caja_origen ? " (repuesta en caja)" : n.cuenta_nombre ? " (anulada también en la cuenta)" : ""));
         } catch (err) { mostrarMensaje(err.response?.data?.error || "Error anulando", "error"); }
       }
 
       function exportar() {
         const datos = novedades.map(n => ({
           "Fecha": n.fecha, "Empleado": n.empleado_nombre, "Tipo": RRHH_TIPO_LABEL[n.tipo] || n.tipo,
-          "Monto": Number(n.monto), "Concepto": n.concepto || "", "Origen": n.caja_origen || (n.tipo === "adelanto" ? "Externo" : "—"),
+          "Monto": Number(n.monto), "Concepto": n.concepto || "", "Origen": n.tipo === "adelanto" ? rrhhOrigenTxt(n) : "—", "Medio": n.medio_pago || "",
           "Estado": n.estado, "Usuario": n.usuario || "", "Motivo anulación": n.motivo_anulacion || "",
         }));
         exportarExcel(`novedades_rrhh_${periodo || "todos"}.xlsx`, [{ name: "Novedades", data: datos }]);
@@ -4163,7 +4298,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                     <div style={{ color: "#555" }}>{RRHH_TIPO_LABEL[n.tipo] || n.tipo}</div>
                     <div style={{ textAlign: "right", fontWeight: 600, color: "#333" }}>{rrhhMoney(n.monto)}</div>
                     <div style={{ color: "#666", fontSize: 12 }}>{n.concepto || "—"}</div>
-                    <div style={{ color: "#666", fontSize: 12 }}>{n.caja_origen || (n.tipo === "adelanto" ? "Externo" : "—")}</div>
+                    <div style={{ color: "#666", fontSize: 12 }}>{n.tipo === "adelanto" ? rrhhOrigenTxt(n) : "—"}{n.medio_pago && <div style={{ fontSize: 11, color: "#999" }}>{n.medio_pago}</div>}</div>
                     <div style={{ textAlign: "right" }}>
                       {!anulado && <button style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #c0392b", background: "#fdecea", color: "#c0392b", cursor: "pointer" }} onClick={() => anular(n)}>Anular</button>}
                     </div>
@@ -4207,19 +4342,33 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                   {form.tipo === "adelanto" && (
                     <div>
                       <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>Origen del dinero</label>
-                      <select style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={form.origen} onChange={e => setCampo("origen", e.target.value)}>
-                        <option value="externo">Externo (no toca caja)</option>
+                      <select style={rrhhInp} value={form.origen} onChange={e => cambiarOrigen(e.target.value)}>
+                        <option value="externo">Externo (no toca caja ni cuenta)</option>
                         <option value="caja">Sale de caja</option>
+                        <option value="cuenta">Sale de una cuenta (banco / billetera)</option>
                       </select>
                       {form.origen === "caja" && (
                         <div style={{ marginTop: 8 }}>
-                          <select style={{ width: "100%", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", boxSizing: "border-box" }} value={form.cajaOrigen} onChange={e => setCampo("cajaOrigen", e.target.value)}>
+                          <select style={rrhhInp} value={form.cajaOrigen} onChange={e => setCampo("cajaOrigen", e.target.value)}>
                             <option value="">Elegir caja…</option>
                             {CAJAS_ADEL.map(c => <option key={c} value={c}>{c}</option>)}
                           </select>
                           <div style={{ fontSize: 11, color: "#999", marginTop: 4 }}>Registra una salida en la caja con fecha de hoy.</div>
                         </div>
                       )}
+                      {form.origen === "cuenta" && (
+                        <div style={{ marginTop: 8 }}>
+                          <select style={rrhhInp} value={form.cuentaId} onChange={e => { const id = e.target.value; setForm(f => ({ ...f, cuentaId: id, medioPago: rrhhMedioDeCuenta(cuentas, id) })); }}>
+                            <option value="">Elegir cuenta…</option>
+                            {cuentas.map(c => <option key={c.id} value={c.id}>{c.tipo === "banco" ? "🏦" : "📱"} {c.nombre}</option>)}
+                          </select>
+                          <div style={{ fontSize: 11, color: "#999", marginTop: 4 }}>{cuentas.length ? "Registra un egreso en la cuenta con la fecha del adelanto." : "No hay cuentas activas: se cargan en Administración → Tesorería."}</div>
+                        </div>
+                      )}
+                      <label style={{ ...rrhhLbl, marginTop: 10 }}>Medio de pago</label>
+                      <select style={rrhhInp} value={form.medioPago} onChange={e => setCampo("medioPago", e.target.value)}>
+                        {MEDIOS_PAGO_SUELDO.map(m => <option key={m} value={m}>{m}</option>)}
+                      </select>
                     </div>
                   )}
                 </div>
@@ -4258,7 +4407,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       useEffect(() => { cargar(); }, [desde, hasta, local]);
 
       function exportar() {
-        const emp = data.porEmpleado.map(e => ({ "Empleado": e.empleado, "Local": e.local || "", "Costo laboral": Number(e.costo), "Adelantos": Number(e.adelantos) }));
+        const emp = data.porEmpleado.map(e => ({ "Empleado": e.empleado, "Local": e.local || "", "Costo laboral": Number(e.costo), "Adelantos": Number(e.adelantos), "Sueldo pagado por banco": Number(e.banco || 0), "Sueldo pagado en efectivo": Number(e.efectivo || 0) }));
         const mes = Object.entries(data.porMes).sort().map(([m, v]) => ({ "Mes": m, "Costo laboral": Number(v), "Neto a pagar": Number(data.porMesPago?.[m]?.neto || 0), "Pagado": Number(data.porMesPago?.[m]?.pagado || 0), "Pendiente": Number(data.porMesPago?.[m]?.pendiente || 0) }));
         const loc = Object.entries(data.porLocal).map(([l, v]) => ({ "Local": l, "Costo laboral": Number(v) }));
         exportarExcel(`costo_personal_${desde}_${hasta}.xlsx`, [
@@ -4305,7 +4454,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
             <div style={{ flex: "1 1 220px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "14px 18px" }}>
               <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5 }}>Sueldos pagados</div>
               <div style={{ fontSize: 22, fontWeight: 700, color: "#1d8a4e" }}>{rrhhMoney(data.totalPagado)}</div>
-              <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>de {rrhhMoney(data.totalNeto)} netos</div>
+              <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>de {rrhhMoney(data.totalNeto)} netos · Banco {rrhhMoney(data.totalBanco || 0)} · Efectivo {rrhhMoney(data.totalEfectivo || 0)}</div>
             </div>
             <div style={{ flex: "1 1 220px", background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "14px 18px" }}>
               <div style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 0.5 }}>Pendiente de pago</div>
@@ -4341,19 +4490,25 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           </div>
 
           <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 140px 160px 160px", gap: 8, padding: "10px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>
-              <div>Empleado</div><div>Local</div><div style={{ textAlign: "right" }}>Costo laboral</div><div style={{ textAlign: "right" }}>Adelantos</div>
-            </div>
-            {loading ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>Cargando…</div>
-              : data.porEmpleado.length === 0 ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>No hay datos para el período elegido.</div>
-              : data.porEmpleado.map(e => (
-                <div key={e.empleado_id} style={{ display: "grid", gridTemplateColumns: "1fr 140px 160px 160px", gap: 8, padding: "10px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, alignItems: "center" }}>
-                  <div style={{ color: "#333", fontWeight: 500 }}>{e.empleado}</div>
-                  <div style={{ color: "#666" }}>{e.local || "—"}</div>
-                  <div style={{ textAlign: "right", fontWeight: 600, color: "#333" }}>{rrhhMoney(e.costo)}</div>
-                  <div style={{ textAlign: "right", color: "#8e44ad" }}>{rrhhMoney(e.adelantos)}</div>
+            <div style={{ overflowX: "auto" }}>
+              <div style={{ minWidth: 760 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 140px 120px 120px 120px", gap: 8, padding: "10px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>
+                  <div>Empleado</div><div>Local</div><div style={{ textAlign: "right" }}>Costo laboral</div><div style={{ textAlign: "right" }}>Adelantos</div><div style={{ textAlign: "right" }}>Banco</div><div style={{ textAlign: "right" }}>Efectivo</div>
                 </div>
-              ))}
+                {loading ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+                  : data.porEmpleado.length === 0 ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>No hay datos para el período elegido.</div>
+                  : data.porEmpleado.map(e => (
+                    <div key={e.empleado_id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 140px 120px 120px 120px", gap: 8, padding: "10px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, alignItems: "center" }}>
+                      <div style={{ color: "#333", fontWeight: 500 }}>{e.empleado}</div>
+                      <div style={{ color: "#666" }}>{e.local || "—"}</div>
+                      <div style={{ textAlign: "right", fontWeight: 600, color: "#333" }}>{rrhhMoney(e.costo)}</div>
+                      <div style={{ textAlign: "right", color: "#8e44ad" }}>{rrhhMoney(e.adelantos)}</div>
+                      <div style={{ textAlign: "right", color: "#2563eb" }}>{rrhhMoney(e.banco || 0)}</div>
+                      <div style={{ textAlign: "right", color: "#1d8a4e" }}>{rrhhMoney(e.efectivo || 0)}</div>
+                    </div>
+                  ))}
+              </div>
+            </div>
           </div>
         </div>
       );
