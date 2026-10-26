@@ -155,6 +155,35 @@ import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "reac
       }
       return { prevDesde: restarDias(dashDesde, diasEntre(dashDesde, dashHasta) + 1), prevHasta: restarDias(dashDesde, 1) };
     }
+    // Default de los reportes al entrar: últimos 7 días (hoy−6 → hoy). Si el usuario borra las
+    // fechas se sigue viendo toda la historia (REPORTE_FECHA_MIN), pero nunca al entrar.
+    const DESDE_7_DIAS = restarDias(HOY, 6);
+    // Atajos de rango para los filtros de fecha. Devuelve { desde, hasta } (YYYY-MM-DD).
+    function rangoAtajo(clave) {
+      const iniMes = HOY.slice(0, 8) + "01";
+      if (clave === "semana") return { desde: lunesDeLaSemana(HOY), hasta: HOY };
+      if (clave === "7dias") return { desde: DESDE_7_DIAS, hasta: HOY };
+      if (clave === "mes") return { desde: iniMes, hasta: HOY };
+      const finMesPasado = restarDias(iniMes, 1);   // mes pasado completo
+      return { desde: finMesPasado.slice(0, 8) + "01", hasta: finMesPasado };
+    }
+    const ATAJOS_FECHA = [["semana", "Esta semana"], ["7dias", "Últimos 7 días"], ["mes", "Este mes"], ["mesPasado", "Mes pasado"]];
+    function AtajosFecha({ desde, hasta, setDesde, setHasta }) {
+      return (
+        <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
+          {ATAJOS_FECHA.map(([clave, texto]) => {
+            const r = rangoAtajo(clave);
+            const activo = r.desde === desde && r.hasta === hasta;
+            return (
+              <button key={clave} type="button" onClick={() => { setDesde(r.desde); setHasta(r.hasta); }}
+                style={{ fontSize: 11, padding: "5px 9px", borderRadius: 6, cursor: "pointer", whiteSpace: "nowrap", background: activo ? "#FFF3E8" : "#fff", border: `1px solid ${activo ? "#F68B32" : "#ddd"}`, color: activo ? "#F68B32" : "#555", fontWeight: activo ? 600 : 400 }}>
+                {texto}
+              </button>
+            );
+          })}
+        </span>
+      );
+    }
     function guardarEstadoDB(id, estado, usuario) {
     axios.post(`${API}/api/estados/${id}`, { ...estado, usuario }).catch(console.error);
   }
@@ -1830,8 +1859,8 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       const puedeTransferir = ["admin", "superadmin"].includes(usuario.rol);   // solo admin/superadmin transfieren
       const [mostrarTransferir, setMostrarTransferir] = useState(false);
       // Filtros de movimientos (fecha/palabra) + edición de concepto — compartidos por todas las cajas.
-      const [movDesde, setMovDesde] = useState("");
-      const [movHasta, setMovHasta] = useState("");
+      const [movDesde, setMovDesde] = useState(DESDE_7_DIAS);   // default últimos 7 días; "✕ Limpiar" muestra todo
+      const [movHasta, setMovHasta] = useState(HOY);
       const [movBuscar, setMovBuscar] = useState("");
       const [editMovId, setEditMovId] = useState(null);
       const [editMovTexto, setEditMovTexto] = useState("");
@@ -2186,13 +2215,19 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           await reload();
         } catch (err) { alert("Error: " + (err.response?.data?.error || err.message)); }
       }
-      function exportarMovimientos(movs, nombre) {
-        const asc = [...movs].reverse();   // la lista viene DESC (más nuevo primero); acumulamos de viejo a nuevo
+      // Saldo acumulado sobre TODOS los movimientos de la caja (de viejo a nuevo) y recién después se
+      // filtra: la primera fila del rango arranca del saldo real, no de cero. Mismo criterio que Tesorería.
+      function exportarMovimientos(movsRaw, movs, nombre) {
+        // Orden por created_at (algunas cajas vienen DESC y otras ASC); a igual hora, por id.
+        const asc = [...(movsRaw || [])].sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")) || (Number(a.id) || 0) - (Number(b.id) || 0));
+        const saldoDe = new Map();
         let acum = 0;
-        const filas = asc.map(m => {
-          acum += Number(m.monto) || 0;
-          return { "Fecha": m.fecha || "", "Concepto": m.concepto || "", "Tipo": m.tipo || "", "Monto": Number(m.monto) || 0, "Saldo acumulado": Math.round(acum * 100) / 100 };
-        });
+        asc.forEach(m => { acum += Number(m.monto) || 0; saldoDe.set(m, Math.round(acum * 100) / 100); });
+        const visibles = new Set(movs);
+        const filas = asc.filter(m => visibles.has(m)).map(m => (
+          { "Fecha": m.fecha || "", "Concepto": m.concepto || "", "Tipo": m.tipo || "", "Monto": Number(m.monto) || 0, "Saldo acumulado": saldoDe.get(m) }
+        ));
+        if (movBuscar.trim()) filas.push({ "Fecha": "", "Concepto": `Nota: filtrado por "${movBuscar.trim()}". El saldo acumulado es el de la caja completa (incluye movimientos que no se listan).`, "Tipo": "", "Monto": "", "Saldo acumulado": "" });
         exportarExcel(`movimientos_${nombre}.xlsx`, [{ name: "Movimientos", data: filas }]);
       }
       // Bloque compartido por TODAS las cajas: filtros (fecha/palabra) + export + lista con editar (solo manuales).
@@ -2206,9 +2241,10 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               <input type="date" style={inp} value={movDesde} onChange={e => setMovDesde(e.target.value)} />
               <span style={{ fontSize: 11, color: "#888" }}>Hasta</span>
               <input type="date" style={inp} value={movHasta} onChange={e => setMovHasta(e.target.value)} />
+              <AtajosFecha desde={movDesde} hasta={movHasta} setDesde={setMovDesde} setHasta={setMovHasta} />
               <input style={{ ...inp, flex: 1, minWidth: 140 }} placeholder="Buscar en el concepto…" value={movBuscar} onChange={e => setMovBuscar(e.target.value)} />
               {(movDesde || movHasta || movBuscar) && <button style={{ ...inp, cursor: "pointer", color: "#c0392b", borderColor: "#c0392b" }} onClick={() => { setMovDesde(""); setMovHasta(""); setMovBuscar(""); }}>✕ Limpiar</button>}
-              {movs.length > 0 && <button style={{ ...inp, cursor: "pointer", background: "#2a7a4b", color: "#fff", border: "none", fontWeight: 600 }} onClick={() => exportarMovimientos(movs, localSeleccionado.toLowerCase().replace(/[.\s]/g, ""))}>📊 Excel</button>}
+              {movs.length > 0 && <button style={{ ...inp, cursor: "pointer", background: "#2a7a4b", color: "#fff", border: "none", fontWeight: 600 }} onClick={() => exportarMovimientos(movsRaw, movs, localSeleccionado.toLowerCase().replace(/[.\s]/g, ""))}>📊 Excel</button>}
             </div>
             {movs.length === 0 ? <div style={{ color: "#aaa", fontSize: 13 }}>No hay movimientos para el filtro.</div>
               : movs.map(m => {
@@ -2892,8 +2928,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [loading, setLoading] = useState(true);
       const [mensaje, setMensaje] = useState(null);
       // Filtros
-      const [fDesde, setFDesde] = useState("");
-      const [fHasta, setFHasta] = useState("");
+      const [fDesde, setFDesde] = useState(DESDE_7_DIAS);   // default últimos 7 días; vacío = toda la historia
+      const [fHasta, setFHasta] = useState(HOY);
       const [fCategoria, setFCategoria] = useState("");
       const [fOrigen, setFOrigen] = useState("");
       const [incluirAnulados, setIncluirAnulados] = useState(false);
@@ -3017,6 +3053,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
             <input type="date" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={fDesde} onChange={e => setFDesde(e.target.value)} />
             <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
             <input type="date" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={fHasta} onChange={e => setFHasta(e.target.value)} />
+            <AtajosFecha desde={fDesde} hasta={fHasta} setDesde={setFDesde} setHasta={setFHasta} />
             <select style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={fCategoria} onChange={e => setFCategoria(e.target.value)}>
               <option value="">Todas las categorías</option>
               {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
@@ -3157,8 +3194,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [sel, setSel] = useState(null);
       const [det, setDet] = useState({ cuenta: null, movimientos: [] });
       const [loadingDet, setLoadingDet] = useState(false);
-      const [fDesde, setFDesde] = useState("");
-      const [fHasta, setFHasta] = useState("");
+      const [fDesde, setFDesde] = useState(DESDE_7_DIAS);   // default últimos 7 días; vacío = toda la historia
+      const [fHasta, setFHasta] = useState(HOY);
       const [soloSin, setSoloSin] = useState(false);
       const [incluirAnulados, setIncluirAnulados] = useState(false);
       const [marcados, setMarcados] = useState([]);
@@ -3395,6 +3432,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                 <input type="date" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={fDesde} onChange={e => setFDesde(e.target.value)} />
                 <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
                 <input type="date" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={fHasta} onChange={e => setFHasta(e.target.value)} />
+                <AtajosFecha desde={fDesde} hasta={fHasta} setDesde={setFDesde} setHasta={setFHasta} />
                 <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#666", cursor: "pointer" }}>
                   <input type="checkbox" checked={soloSin} onChange={e => setSoloSin(e.target.checked)} /> Solo sin conciliar
                 </label>
@@ -7956,6 +7994,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 16, marginBottom: 16, display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
             <label style={{ fontSize: 12, color: "#555" }}>Desde<br /><input type="date" value={desde} onChange={e => setDesde(e.target.value)} style={inputStyle} /></label>
             <label style={{ fontSize: 12, color: "#555" }}>Hasta<br /><input type="date" value={hasta} onChange={e => setHasta(e.target.value)} style={inputStyle} /></label>
+            <AtajosFecha desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />
             <label style={{ fontSize: 12, color: "#555" }}>Proveedor<br />
               <select value={proveedorFiltro} onChange={e => setProveedorFiltro(e.target.value)} style={inputStyle}>
                 <option value="">Todos</option>
@@ -8094,6 +8133,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 16, marginBottom: 16, display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
             <label style={{ fontSize: 12, color: "#555" }}>Desde<br /><input type="date" value={desde} onChange={e => setDesde(e.target.value)} style={inputStyle} /></label>
             <label style={{ fontSize: 12, color: "#555" }}>Hasta<br /><input type="date" value={hasta} onChange={e => setHasta(e.target.value)} style={inputStyle} /></label>
+            <AtajosFecha desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />
             <label style={{ fontSize: 12, color: "#555" }}>Local / PDV<br />
               <select value={local} onChange={e => setLocal(e.target.value)} style={inputStyle}>
                 <option value="Ambos">Ambos</option>
@@ -8776,15 +8816,15 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [expandido, setExpandido] = useState(null);
       const [menuAbierto, setMenuAbierto] = useState(false);
       const [menuGrupo, setMenuGrupo] = useState("");
-      const [filtroFinDesde, setFiltroFinDesde] = useState(restarDias(HOY, 7)); // rango de FETCH a /api/reportes/pedidos (default últimos 7 días)
+      const [filtroFinDesde, setFiltroFinDesde] = useState(DESDE_7_DIAS); // rango de FETCH a /api/reportes/pedidos (default últimos 7 días)
       const [filtroFinHasta, setFiltroFinHasta] = useState(HOY);
       const [filtroRepartidor, setFiltroRepartidor] = useState("");
       const [filtroFinLocal, setFiltroFinLocal] = useState("");
       const [facturando, setFacturando] = useState(null);
       const [pedidoEmailMP, setPedidoEmailMP] = useState(null);
       const [facturaVersion, setFacturaVersion] = useState(0);
-      const [rvDesde, setRvDesde] = useState("");
-      const [rvHasta, setRvHasta] = useState("");
+      const [rvDesde, setRvDesde] = useState(DESDE_7_DIAS);   // default últimos 7 días; vacío = toda la historia
+      const [rvHasta, setRvHasta] = useState(HOY);
       const [rvMedio, setRvMedio] = useState("");
       const [rvRepartidor, setRvRepartidor] = useState("");
       const [rvLocal, setRvLocal] = useState("");
@@ -8798,16 +8838,16 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [rrTipo, setRrTipo] = useState(""); // "" = todos, "retiro" | "delivery" (por p.tabActual)
       const [rrTurno, setRrTurno] = useState("");   // filtro turno en Reporte de reservas ("" = todos)
       const [tabFin, setTabFin] = useState("entregados");
-      const [rpDesde, setRpDesde] = useState("");
-      const [rpHasta, setRpHasta] = useState("");
+      const [rpDesde, setRpDesde] = useState(DESDE_7_DIAS);   // default últimos 7 días; vacío = toda la historia
+      const [rpHasta, setRpHasta] = useState(HOY);
       const [rpLocal, setRpLocal] = useState(""); // "" = ambos; mismo criterio que reporteVentas (p.local)
       const [rpCategoria, setRpCategoria] = useState("");   // "" = todas; filtro por categoría TN (top-level)
       // Mapa NOMBRE(clave tolerante) → categoría top-level del catálogo TN. null = todavía no cargado.
       // Se trae EN VIVO (catálogo COMPLETO, sin filtrar por precio) solo para el reporte de productos.
       const [catVentasMap, setCatVentasMap] = useState(null);
       // Reporte fusionado (vendido / por vender) — solo admin. Rango libre que cruza hoy.
-      const [rfDesde, setRfDesde] = useState(HOY);   // default: día actual (HOY = fechaArgentina())
-      const [rfHasta, setRfHasta] = useState(HOY);   // default: día actual (el usuario puede ampliar el rango)
+      const [rfDesde, setRfDesde] = useState(DESDE_7_DIAS);   // default: últimos 7 días
+      const [rfHasta, setRfHasta] = useState(HOY);            // (el usuario puede ampliar el rango)
       const [rfLocal, setRfLocal] = useState("");                   // "" = ambos
       const [prodFecha, setProdFecha] = useState(HOY);
       const [prodLocal, setProdLocal] = useState("todos");
@@ -8835,8 +8875,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [repPedidos, setRepPedidos] = useState([]);
       const [repLoading, setRepLoading] = useState(false);
       const [repError, setRepError] = useState(null);
-      // Reporte de pedidos por repartidor y zona (solo admin). Default últimos 30 días.
-      const [zonasDesde, setZonasDesde] = useState(restarDias(HOY, 30));
+      // Reporte de pedidos por repartidor y zona (solo admin). Default últimos 7 días.
+      const [zonasDesde, setZonasDesde] = useState(DESDE_7_DIAS);
       const [zonasHasta, setZonasHasta] = useState(HOY);
       const [zonasRepartidor, setZonasRepartidor] = useState(""); // "" = todos
       const [zonasArea, setZonasArea] = useState("");             // "" = todas ("1".."10")
@@ -10531,7 +10571,7 @@ if (vista === "dashboard") {
       // y "Reporte de reservas" (pedidos activos a futuro). Misma presentación,
       // tarjetas por medio de pago, totales, filtros y exports. El modo sólo
       // cambia título/archivo/etiquetas; la lógica de agregación es idéntica.
-      const renderReporteVR = ({ pedidos, titulo, tituloExport, emoji, fileBase, sheetName, emptyMsg, loading, error, desde, setDesde, hasta, setHasta, medio, setMedio, repartidor, setRepartidor, local, setLocal, tipo, setTipo, turno, setTurno }) => {
+      const renderReporteVR = ({ pedidos, titulo, tituloExport, emoji, fileBase, sheetName, emptyMsg, loading, error, desde, setDesde, hasta, setHasta, atajosFecha = true, medio, setMedio, repartidor, setRepartidor, local, setLocal, tipo, setTipo, turno, setTurno }) => {
         const conTurno = !!setTurno; // el filtro/desglose por turno solo se activa donde se pasa (reservas)
         const filtradas = pedidos.filter(p => {
           const est = p.estado;
@@ -10582,6 +10622,7 @@ if (vista === "dashboard") {
                   <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={desde} onChange={e => setDesde(e.target.value)} />
                   <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
                   <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={hasta} onChange={e => setHasta(e.target.value)} />
+                  {atajosFecha && <AtajosFecha desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />}
                   <select style={{ ...s.select, padding: "5px 8px" }} value={medio} onChange={e => setMedio(e.target.value)}>
                     <option value="">Todos los medios</option>
                     {MEDIOS_PAGO.map(m => <option key={m} value={m}>{m}</option>)}
@@ -10681,7 +10722,7 @@ if (vista === "dashboard") {
           titulo: "Reporte de Reservas", tituloExport: "Reporte de Reservas", emoji: "📅",
           fileBase: "reservas", sheetName: "Reservas", emptyMsg: "No hay reservas en ese rango.",
           loading: false, error: null,
-          desde: rrDesde, setDesde: setRrDesde, hasta: rrHasta, setHasta: setRrHasta,
+          desde: rrDesde, setDesde: setRrDesde, hasta: rrHasta, setHasta: setRrHasta, atajosFecha: false,
           medio: rrMedio, setMedio: setRrMedio, repartidor: rrRepartidor, setRepartidor: setRrRepartidor,
           local: rrLocal, setLocal: setRrLocal, tipo: rrTipo, setTipo: setRrTipo, turno: rrTurno, setTurno: setRrTurno,
         });
@@ -10744,6 +10785,7 @@ if (vista === "dashboard") {
                   <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rpDesde} onChange={e => setRpDesde(e.target.value)} />
                   <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
                   <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rpHasta} onChange={e => setRpHasta(e.target.value)} />
+                  <AtajosFecha desde={rpDesde} hasta={rpHasta} setDesde={setRpDesde} setHasta={setRpHasta} />
                   <select style={{ ...s.select, padding: "5px 8px" }} value={rpLocal} onChange={e => setRpLocal(e.target.value)}>
                     <option value="">Todos los locales</option>
                     <option value="A. Thomas">A. Thomas</option>
@@ -10847,6 +10889,7 @@ if (vista === "dashboard") {
                   <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={zonasDesde} onChange={e => setZonasDesde(e.target.value)} />
                   <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
                   <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={zonasHasta} onChange={e => setZonasHasta(e.target.value)} />
+                  <AtajosFecha desde={zonasDesde} hasta={zonasHasta} setDesde={setZonasDesde} setHasta={setZonasHasta} />
                   <select style={{ ...s.select, padding: "5px 8px" }} value={zonasRepartidor} onChange={e => setZonasRepartidor(e.target.value)}>
                     <option value="">Todos los repartidores</option>
                     {filasBase.map(r => <option key={r.repartidor} value={r.repartidor}>{r.repartidor}</option>)}
@@ -10987,6 +11030,7 @@ if (vista === "dashboard") {
                   <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rfDesde} onChange={e => setRfDesde(e.target.value)} />
                   <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
                   <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={rfHasta} onChange={e => setRfHasta(e.target.value)} />
+                  <AtajosFecha desde={rfDesde} hasta={rfHasta} setDesde={setRfDesde} setHasta={setRfHasta} />
                   <select style={{ ...s.select, padding: "5px 8px" }} value={rfLocal} onChange={e => setRfLocal(e.target.value)}>
                     <option value="">Todos los locales</option>
                     <option value="A. Thomas">A. Thomas</option>
@@ -11509,6 +11553,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                   <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={filtroFinDesde} onChange={e => setFiltroFinDesde(e.target.value)} />
                   <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
                   <input type="date" style={{ ...s.select, padding: "5px 8px" }} value={filtroFinHasta} onChange={e => setFiltroFinHasta(e.target.value)} />
+                  <AtajosFecha desde={filtroFinDesde} hasta={filtroFinHasta} setDesde={setFiltroFinDesde} setHasta={setFiltroFinHasta} />
                   <select style={{ ...s.select, padding: "5px 8px" }} value={filtroRepartidor} onChange={e => setFiltroRepartidor(e.target.value)}>
                     <option value="">Todos los repartidores</option>
                     {repartidoresLista.map(r => <option key={r} value={r}>{r}</option>)} 
