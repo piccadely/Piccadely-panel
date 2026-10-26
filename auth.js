@@ -24,6 +24,8 @@ const CODIGO_2FA_TTL_MIN = 10;              // vencimiento del código 2FA de 6 
 const CHALLENGE_2FA_EXPIRES_IN = "10m";     // vencimiento del challengeToken (paso 2 del login)
 const REENVIO_2FA_MIN_MS = 30 * 1000;       // no reenviar el código más de 1 vez cada 30s
 const MODO_LECTURA_EXPIRES_IN = "4h";       // duración del token de emergencia (modo solo-lectura)
+// Roles válidos (alta y edición de usuarios). Mantener en sync con el CHECK de la tabla usuarios.
+const ROLES_VALIDOS = ["admin", "a_thomas", "french", "encargado", "superadmin", "solo_lectura", "crm"];
 const PASSWORD_INICIAL = process.env.PASSWORD_INICIAL || "Piccadely2026!";
 
 // ─── INIT DB: tabla + seed ───────────────────────────────────────────
@@ -34,7 +36,7 @@ export async function initAuthDB(pool) {
       username TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       nombre_completo TEXT NOT NULL,
-      rol TEXT NOT NULL CHECK (rol IN ('admin', 'a_thomas', 'french', 'encargado', 'superadmin', 'solo_lectura')),
+      rol TEXT NOT NULL CHECK (rol IN ('admin', 'a_thomas', 'french', 'encargado', 'superadmin', 'solo_lectura', 'crm')),
       activo BOOLEAN DEFAULT true,
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
@@ -45,6 +47,13 @@ export async function initAuthDB(pool) {
   await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS email_2fa TEXT;`);
   await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS codigo_2fa TEXT;`);
   await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS codigo_2fa_expira TIMESTAMP;`);
+  // Rol "crm" (comercial): las bases creadas antes tienen el CHECK viejo. Se rehace solo si todavía no admite 'crm'.
+  await pool.query(`DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'usuarios_rol_check' AND pg_get_constraintdef(oid) LIKE '%crm%') THEN
+      ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_rol_check;
+      ALTER TABLE usuarios ADD CONSTRAINT usuarios_rol_check CHECK (rol IN ('admin', 'a_thomas', 'french', 'encargado', 'superadmin', 'solo_lectura', 'crm'));
+    END IF;
+  END $$;`);
 
   const { rows } = await pool.query("SELECT COUNT(*)::int AS n FROM usuarios");
   if (rows[0].n > 0) {
@@ -95,6 +104,25 @@ export function setupAuth(app, pool, mailTransporter) {
   // Acciones de la bandeja de WhatsApp (las únicas escrituras que se le permiten a solo_lectura).
   // (crear plantillas NO está acá: es solo admin/superadmin)
   const RUTAS_BANDEJA_WA = /^\/api\/whatsapp\/(conversaciones\/([0-9]+\/(tomar|responder|liberar|devolver-bot|cerrar|plantilla|archivo)|nueva)|plantillas\/sincronizar)$/;
+  // Rol "crm" (comercial): LISTA CERRADA. Solo estas rutas + métodos; cualquier otra → 403 (aunque no tenga auth propia).
+  // Panel de pedidos activos en lectura, alta manual de pedidos, Clientes (ficha/notas/seguimientos) y Ventas a realizar.
+  // Una regla puede traer un chequeo extra del body (p. ej. en oportunidades solo puede cambiar la etapa).
+  const soloClaves = (permitidas) => (req) => Object.keys(req.body || {}).every((k) => permitidas.includes(k));
+  const RUTAS_CRM = [
+    // sesión
+    ["POST", /^\/api\/login(\/2fa(\/reenviar)?)?$/], ["GET", /^\/api\/me$/], ["POST", /^\/api\/cambiar-password$/],
+    // panel de pedidos activos (solo lectura) + refresco cada 30 s
+    ["GET", /^\/api\/(orders|estados|pedidos-manuales|repartidores|tandas|facturas-all)$/], ["GET", /^\/api\/pedidos\/productos-all$/],
+    // alta manual: catálogo, autocompletar por email / teléfono y el alta (con su estado inicial)
+    ["GET", /^\/api\/(products|categories)$/], ["GET", /^\/api\/clientes\/(buscar|buscar-telefono)$/], ["POST", /^\/api\/pedidos-manuales$/],
+    // Clientes: lista, ficha, seguimientos y notas (el Excel se arma en el front con la lista)
+    ["GET", /^\/api\/clientes$/], ["GET", /^\/api\/clientes\/(ficha|seguimientos)$/],
+    ["POST", /^\/api\/clientes\/notas$/], ["POST", /^\/api\/clientes\/notas\/[0-9]+\/(hecho|anular)$/],
+    // Ventas a realizar: ver, cargar oportunidades y cambiar de etapa (solo estado + motivo de pérdida)
+    ["GET", /^\/api\/cotizaciones$/], ["POST", /^\/api\/ventas\/oportunidades$/],
+    ["PATCH", /^\/api\/cotizaciones\/[0-9]+$/, soloClaves(["estado", "motivo_perdida"])],
+  ];
+  const crmPermitido = (req) => RUTAS_CRM.some(([m, re, extra]) => req.method === m && re.test(req.path) && (!extra || extra(req)));
   app.use((req, res, next) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) return next(); // sin token → flujo normal
@@ -115,6 +143,10 @@ export function setupAuth(app, pool, mailTransporter) {
       if (req.method === "GET") return next();
       if (req.method === "POST" && RUTAS_BANDEJA_WA.test(req.path)) return next();
       return res.status(403).json({ error: "Rol de solo lectura: acción no permitida." });
+    }
+    if (payload.rol === "crm") {
+      if (crmPermitido(req)) return next();
+      return res.status(403).json({ error: "Rol comercial: acción no permitida." });
     }
     return next();  // token normal → sin restricción acá
   });
@@ -165,6 +197,28 @@ export function setupAuth(app, pool, mailTransporter) {
     } catch (err) {
       return res.status(401).json({ error: "Token inválido o expirado" });
     }
+  }
+
+  // Admin, superadmin o comercial (crm): Clientes y Ventas a realizar. NO abre a encargado ni operarios.
+  // Lo que el crm puede hacer adentro lo acota igual la lista cerrada de arriba.
+  function requireAdminOCrm(req, res, next) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) return requireAdmin(req, res, next);   // x-admin-secret / 401, como antes
+    try {
+      const payload = jwt.verify(authHeader.slice(7), JWT_SECRET);
+      if (payload.rol === "crm") { req.user = payload; return next(); }
+    } catch { /* inválido: lo responde requireAdmin */ }
+    return requireAdmin(req, res, next);
+  }
+
+  // Sesión OPCIONAL: si viene un token válido deja req.user; si no, sigue igual (para endpoints que hoy no piden login
+  // pero tienen que registrar QUIÉN hizo la acción, p. ej. el alta manual de pedidos).
+  function usuarioOpcional(req, res, next) {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      try { req.user = jwt.verify(authHeader.slice(7), JWT_SECRET); } catch { /* sin sesión válida */ }
+    }
+    next();
   }
 
   // ─── 2FA POR EMAIL ───────────────────────────────────────────────────
@@ -385,7 +439,7 @@ export function setupAuth(app, pool, mailTransporter) {
     try {
       const { username, password, nombre_completo, rol, email_2fa } = req.body;
       if (!username || !password || !nombre_completo || !rol) return res.status(400).json({ error: "Faltan campos" });
-      if (!["admin", "a_thomas", "french", "encargado", "superadmin", "solo_lectura"].includes(rol)) return res.status(400).json({ error: "Rol inválido" });
+      if (!ROLES_VALIDOS.includes(rol)) return res.status(400).json({ error: "Rol inválido" });
       if (password.length < 4) return res.status(400).json({ error: "La contraseña es muy corta" });
       const email2fa = (email_2fa && String(email_2fa).trim()) ? String(email_2fa).trim() : null;
       if (email2fa && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email2fa)) return res.status(400).json({ error: "Email 2FA inválido" });
@@ -415,7 +469,7 @@ export function setupAuth(app, pool, mailTransporter) {
 
       if (nombre_completo !== undefined) { updates.push(`nombre_completo = $${i++}`); valores.push(nombre_completo); }
       if (rol !== undefined) {
-        if (!["admin", "a_thomas", "french", "encargado", "superadmin", "solo_lectura"].includes(rol)) return res.status(400).json({ error: "Rol inválido" });
+        if (!ROLES_VALIDOS.includes(rol)) return res.status(400).json({ error: "Rol inválido" });
         updates.push(`rol = $${i++}`); valores.push(rol);
       }
       if (activo !== undefined) { updates.push(`activo = $${i++}`); valores.push(activo); }
@@ -454,5 +508,5 @@ export function setupAuth(app, pool, mailTransporter) {
     } catch (err) { res.status(500).json({ error: err.message }); }
   });
 
-  return { requireAuth, requireAdmin, requireRole };
+  return { requireAuth, requireAdmin, requireRole, requireAdminOCrm, usuarioOpcional };
 }

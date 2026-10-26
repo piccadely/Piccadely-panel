@@ -8544,7 +8544,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               <option value="nombre">Orden: Nombre</option>
             </select>
             <input style={{ ...sel, flex: 1, minWidth: 200 }} placeholder="Buscar por nombre, email o teléfono…" value={buscar} onChange={e => setBuscar(e.target.value)} />
-            {lista.length > 0 && <button style={{ fontSize: 13, fontWeight: 600, padding: "7px 14px", borderRadius: 8, border: "none", background: "#2a7a4b", color: "#fff", cursor: "pointer" }} onClick={exportar}>📊 Exportar Excel</button>}
+            {lista.length > 0 && usuario?.rol !== "crm" && <button style={{ fontSize: 13, fontWeight: 600, padding: "7px 14px", borderRadius: 8, border: "none", background: "#2a7a4b", color: "#fff", cursor: "pointer" }} onClick={exportar}>📊 Exportar Excel</button>}
           </div>
 
           {error && <div style={{ background: "#fdecea", border: "1px solid #f5c6cb", color: "#c0392b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{error}</div>}
@@ -8811,6 +8811,10 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const esGestion = esAdmin || ["encargado", "solo_lectura"].includes(usuario.rol);
       const emergencia = !!usuario.modoLectura;                  // sesión de emergencia (mail caído): oculta el menú entero
       const soloLectura = emergencia || usuario.rol === "solo_lectura";   // no puede modificar (oculta acciones de escritura)
+      // Comercial (crm): panel en LECTURA + alta de pedidos nuevos + Clientes + Ventas a realizar. Nada más (el backend lo
+      // limita con una lista cerrada de rutas; acá solo se ocultan las acciones y las secciones).
+      const esCrm = usuario.rol === "crm";
+      const soloLecturaPanel = soloLectura || esCrm;   // oculta botones de acción del panel (sin sacarle "Nuevo pedido" al crm)
       const [filtroFecha, setFiltroFecha] = useState("");
       const [filtroZona, setFiltroZona] = useState("");
       const [expandido, setExpandido] = useState(null);
@@ -9626,7 +9630,7 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                           <span style={{ ...s.cel, flex: 1, textAlign: "center", color: "#555" }}>{p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"short"}) : "—"}</span>
                           <span style={{ ...s.cel, flex: 0.9, textAlign: "center" }}><span style={s.franjaTag}>{p.franjaDisplay}</span></span>
                           <span style={{ ...s.cel, flex: 0.8, textAlign: "center" }}><span style={{ ...s.estadoTag, background: ec.bg, color: ec.text }}>{estadoActual}</span></span>
-                          <button title={tui.title} onClick={e => { e.stopPropagation(); ciclarTarjeta(p.id); }}
+                          <button title={tui.title} disabled={esCrm} onClick={e => { e.stopPropagation(); if (!esCrm) ciclarTarjeta(p.id); }}
                             style={{ background: tui.bg, border: "none", borderRadius: 6, cursor: "pointer", padding: "4px 6px", marginLeft: 4, display: "inline-flex", alignItems: "center", lineHeight: 0 }}>
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={tui.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                               <rect x="2" y="4" width="20" height="16" rx="2" />
@@ -9642,6 +9646,8 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                                 ⚠️ REVISAR PAGO — el pago de este pedido NO está aprobado en Tienda Nube. Verificá antes de entregar.
                               </div>
                             )}
+                            {/* Comercial (crm): todo el detalle en solo lectura (el fieldset deshabilita inputs, selects y checkboxes). */}
+                            <fieldset disabled={esCrm} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
                             {/* DATOS EDITABLES */}
                             <div style={{ fontSize: 10, fontWeight: 700, color: "#F68B32", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
                               📋 Datos del pedido <span style={{ color: "#aaa", fontWeight: 400 }}>(guardado automático al salir del campo)</span>
@@ -9749,15 +9755,16 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                                 <div style={s.detalleLabel}>Estado</div>
                                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                                   <span style={{ ...s.estadoTag, background: ec.bg, color: ec.text }}>{estadoActual}</span>
-                                  {!soloLectura && estadoActual !== "Entregado" && <button style={s.btnEstado} onClick={e => cambiarEstado(p, e)}>→ {nextEstado(estadoActual)}</button>}
+                                  {!soloLecturaPanel && estadoActual !== "Entregado" && <button style={s.btnEstado} onClick={e => cambiarEstado(p, e)}>→ {nextEstado(estadoActual)}</button>}
                                 </div>
                               </div>
                               <div style={s.detalleBloque}><div style={s.detalleLabel}>Fecha de entrega</div><InputBlur type="date" style={s.inputField} initialValue={fechaManual} onCommit={v => { actualizarLocalSinGuardar(p.id, { fechaManual: v }); guardarLocalEnDB(p.id); }} onClick={e => e.stopPropagation()} /></div>
                               <div style={s.detalleBloque}><div style={s.detalleLabel}>Horario de entrega</div><InputBlur type="text" placeholder="ej: 14:00 – 16:00" style={s.inputField} initialValue={franjaManual} onCommit={v => { actualizarLocalSinGuardar(p.id, { franjaManual: v }); guardarLocalEnDB(p.id); }} onClick={e => e.stopPropagation()} /></div>
                               <div style={s.detalleBloque}><div style={s.detalleLabel}>Mover a sección</div><select style={s.inputField} value={tabActual} onChange={e => cambiarTab(p.id, e.target.value)}>{TABS.filter(t => t.id !== "nuevo").map(t => <option key={t.id} value={t.id}>{t.label.replace(/🏪|🚚/g, "").trim()}</option>)}</select></div>
                             </div>
-                            <AuditoriaInline pedidoId={String(p.id)} />
-                            {!soloLectura && (
+                            </fieldset>
+                            {!esCrm && <AuditoriaInline pedidoId={String(p.id)} />}
+                            {!soloLecturaPanel && (
                             <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
                               <button style={s.btnImprimir} onClick={e => { e.stopPropagation(); imprimirComanda(p); }}>
                                 🖨️ Imprimir comanda {comandasImpresas[p.id] ? <span style={{ marginLeft: 4, background: "#f39c12", color: "#fff", borderRadius: 99, fontSize: 10, padding: "1px 6px", fontWeight: 700 }}>{comandasImpresas[p.id]}</span> : null}
@@ -9992,13 +9999,13 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
           areaManual: areaManual ? Number(areaManual) : null,   // override de área del reporte de zonas (o null = sin asignar)
         };
 let numeroAsignado = "";
+        const estadoInicial ={ estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: form.fecha, franjaManual: (form.franjaInicio && form.franjaFin) ? `${form.franjaInicio} – ${form.franjaFin}` : "", cobrar: form.cobrar };
         try {
-          const respManual = await axios.post(`${API}/api/pedidos-manuales`, { ...nuevoPedido, usuario: usuario.nombre_completo });
+          const respManual = await axios.post(`${API}/api/pedidos-manuales`, { ...nuevoPedido, estadoInicial });
           numeroAsignado = respManual.data?.numero || "";
         } catch (e) { console.error(e); }
         nuevoPedido.numero = numeroAsignado;
-                const estadoInicial = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: form.fecha, franjaManual: (form.franjaInicio && form.franjaFin) ? `${form.franjaInicio} – ${form.franjaFin}` : "", cobrar: form.cobrar };
-        await axios.post(`${API}/api/estados/${id}`, estadoInicial).catch(console.error);
+        if (!esCrm) await axios.post(`${API}/api/estados/${id}`, estadoInicial).catch(console.error);   // el crm no cambia estados: ya viajó en el alta
         setPedidosManuales(prev => [...prev, nuevoPedido]);
         setPedidosLocales(prev => ({ ...prev, [id]: estadoInicial }));
         setCarrito([]); setForm(FORM_INICIAL); setAreaManual(""); setDescuentoRetiro(false); setEnvioZona(""); setClienteSugerido(null); setClientesTel([]); ultimaBusquedaTel.current = ""; setPedidoCreado(true);
@@ -10178,7 +10185,7 @@ let numeroAsignado = "";
           <div style={s.brand}>
             <img src="/Piccadely_Logotipo-Centrado-Negro.svg" alt="Piccadely" style={{ height: 36, objectFit: "contain" }} />
           </div>
-          {!emergencia && <WidgetWhatsApp />}{/* centrado (posición absoluta en desktop, en línea en celular) */}
+          {!emergencia && !esCrm && <WidgetWhatsApp />}{/* centrado (posición absoluta en desktop, en línea en celular) */}
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={s.fechaHoy}>{new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 12, borderLeft: "1px solid #eee" }}>
@@ -10196,6 +10203,12 @@ let numeroAsignado = "";
               )}
           {menuAbierto && (
                 <div style={s.dropdown}>
+                  {esCrm ? (<>
+                  <button style={s.dropItem} onClick={() => { setVista("panel"); if (tab === "nuevo") setTab("retiro-at"); setMenuAbierto(false); }}>📋 Pedidos</button>
+                  <button style={s.dropItem} onClick={() => { setVista("panel"); setTab("nuevo"); setMenuAbierto(false); }}>➕ Nuevo pedido</button>
+                  <button style={s.dropItem} onClick={() => { setVista("clientes"); setMenuAbierto(false); }}>👥 Clientes</button>
+                  <button style={s.dropItem} onClick={() => { setVista("ventasRealizar"); setMenuAbierto(false); }}>💼 Ventas a realizar</button>
+                  </>) : (<>
                   {esAdmin && (
                     <>
                       <button
@@ -10325,6 +10338,7 @@ let numeroAsignado = "";
                   <button style={s.dropItem} onClick={() => { setVista("cocina"); setMenuAbierto(false); }}>🍳 Tablero de cocina</button>
                   <button style={s.dropItem} onClick={() => { setVista("mapa"); setMenuAbierto(false); }}>🗺️ Mapa de pedidos</button>
                   <button style={{ ...s.dropItem, borderTop: "1px solid #eee", color: "#888" }} onClick={() => { setVista("panel"); setMenuAbierto(false); }}>← Volver al panel</button>
+                  </>)}
                 </div>
               )}
             </div>
@@ -10344,10 +10358,21 @@ let numeroAsignado = "";
         </div>
       );
 
+      // Guard del rol comercial (crm): fuera del panel, Clientes y Ventas a realizar → sin acceso.
+      if (esCrm && !["panel", "clientes", "ventasRealizar"].includes(vista)) {
+        return (
+          <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: "system-ui, sans-serif", background: "#f7f7f5", padding: 24, textAlign: "center" }}>
+            <div style={{ fontSize: 40 }}>🔒</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#333" }}>Sin acceso</div>
+            <div style={{ fontSize: 13, color: "#888" }}>Tu usuario comercial tiene acceso a Pedidos, Nuevo pedido, Clientes y Ventas a realizar.</div>
+            <button onClick={() => setVista("panel")} style={{ marginTop: 8, fontSize: 13, padding: "9px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }}>← Volver al panel</button>
+          </div>
+        );
+      }
       // Guard de acceso: las vistas de plata/administración son SOLO admin. Si un no-admin
       // (encargado/operario) llega igual (deep-link, estado viejo), no se renderiza el contenido.
       const VISTAS_SOLO_ADMIN = ["dashboard", "reporteVentas", "reporteFusionado", "zonas", "usuarios", "repartidores", "importar", "clientes", "ventasRealizar"];
-      if (VISTAS_SOLO_ADMIN.includes(vista) && !esAdmin) {
+      if (VISTAS_SOLO_ADMIN.includes(vista) && !esAdmin && !(esCrm && ["clientes", "ventasRealizar"].includes(vista))) {
         return (
           <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: "system-ui, sans-serif", background: "#f7f7f5", padding: 24, textAlign: "center" }}>
             <div style={{ fontSize: 40 }}>🔒</div>
@@ -11964,7 +11989,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
               <option value="">Todas las zonas</option>
               {zonas.map(z => <option key={z} value={z}>{z}</option>)}
             </select>
-            {!soloLectura && (<>
+            {!soloLecturaPanel && (<>
             <button
               onClick={imprimirComandasLote}
               disabled={comandasPendientes.length === 0}
@@ -12105,8 +12130,8 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
       return (
         <>
           <PanelApp usuario={usuario} />
-          <AgenteIA />
-          <WhatsAppDock usuario={usuario} />{/* widget + drawer de WhatsApp: fuera de PanelApp para sobrevivir a los cambios de pantalla */}
+          {usuario.rol !== "crm" && <AgenteIA />}{/* el comercial (crm) no usa el asistente ni la bandeja de WhatsApp */}
+          {usuario.rol !== "crm" && <WhatsAppDock usuario={usuario} />}{/* widget + drawer de WhatsApp: fuera de PanelApp para sobrevivir a los cambios de pantalla */}
         </>
       );
     }

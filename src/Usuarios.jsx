@@ -178,6 +178,7 @@ export default function Usuarios({ onVolver }) {
     admin: { bg: "#fef9e7", text: "#856404", border: "#f39c12" },
     encargado: { bg: "#f3e8fd", text: "#6d28d9", border: "#8b5cf6" },
     solo_lectura: { bg: "#f1f1f1", text: "#555", border: "#bbb" },
+    crm: { bg: "#e0f7f4", text: "#0f766e", border: "#14b8a6" },
     a_thomas: { bg: "#e6f1fb", text: "#0c447c", border: "#3b82f6" },
     french: { bg: "#eaf3de", text: "#27500a", border: "#F68B32" },
   };
@@ -279,6 +280,7 @@ export default function Usuarios({ onVolver }) {
                   <option value="admin">Admin (todo menos caja Administración)</option>
                   <option value="encargado">Encargado (todo menos plata/administración)</option>
                   <option value="solo_lectura">Solo lectura (ve como encargado, no modifica)</option>
+                  <option value="crm">Comercial / CRM (ve pedidos, carga pedidos nuevos, Clientes y Ventas a realizar)</option>
                   <option value="a_thomas">A. Thomas</option>
                   <option value="french">French</option>
                 </select>

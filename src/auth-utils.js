@@ -80,6 +80,7 @@ export const ROL_LABELS = {
   admin: "Admin",
   encargado: "Encargado",
   solo_lectura: "Solo lectura",
+  crm: "Comercial",
   a_thomas: "A. Thomas",
   french: "French",
 };

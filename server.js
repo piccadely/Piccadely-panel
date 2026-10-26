@@ -724,7 +724,7 @@ const mailTransporter = (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWOR
   ? nodemailer.createTransport({ host: "smtp.gmail.com", port: 465, secure: true, auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD } })
   : null;
 
-const { requireAuth, requireAdmin, requireRole } = setupAuth(app, pool, mailTransporter);
+const { requireAuth, requireAdmin, requireRole, requireAdminOCrm, usuarioOpcional } = setupAuth(app, pool, mailTransporter);
 
 // ─── AUDITORIA HELPER ────────────────────────────────────────────────
 async function registrarAuditoria(usuario, accion, entidadTipo, entidadId, detalle = {}) {
@@ -924,7 +924,7 @@ app.use("/api/bot", botWhatsappRouter({ requireAuth }));   // POST /whatsapp (Bo
 app.use("/api/whatsapp", whatsappWebhookRouter(pool));   // Cloud API de Meta: GET verificación + POST eventos (guarda, bot, envío)
 app.use("/api/whatsapp", whatsappBandejaRouter(pool, { requireAuth }));   // bandeja multiagente (requiere login)
 app.use("/api/whatsapp", whatsappAdminRouter(pool, { requireAuth }));     // Configuración WhatsApp + corte (solo admin/superadmin)
-app.use("/api", cotizadorRouter(pool, mailTransporter, requireAdmin));
+app.use("/api", cotizadorRouter(pool, mailTransporter, requireAdminOCrm));   // panel de oportunidades: admin, superadmin y comercial (crm)
 app.use("/api/regalos", regalosRouter(pool, mailTransporter));   // Cotizador de Regalos Empresariales (público: catálogo, cálculo y propuesta)
 
  // ─── ORDERS ───────────────────────────────────────────────────────────
@@ -2096,7 +2096,7 @@ function sanitizarAreaManual(v) {
   return (Number.isInteger(n) && n >= 1 && n <= 10) ? n : null;
 }
 
-app.post("/api/pedidos-manuales", async (req, res) => {
+app.post("/api/pedidos-manuales", usuarioOpcional, async (req, res) => {
   const p = req.body;
   try {
     const seqRes = await pool.query("SELECT nextval('pedidos_manuales_seq') AS n");
@@ -2116,10 +2116,24 @@ app.post("/api/pedidos-manuales", async (req, res) => {
         [p.id, areaManual]
       );
     }
+    // Estado inicial del pedido NUEVO (fecha/franja de entrega + cobrar), el mismo que el panel guardaba después con
+    // POST /api/estados/:id. Viene acá para que el rol comercial (crm), que no puede cambiar estados, cargue pedidos completos.
+    const ei = p.estadoInicial;
+    if (ei && typeof ei === "object") {
+      await pool.query(
+        `INSERT INTO pedidos_estados (id, estado, repartidor, fecha_manual, franja_manual, cobrar, updated_at)
+         VALUES ($1, 'Por empaquetar', 'Sin asignar', $2, $3, $4, NOW())
+         ON CONFLICT (id) DO UPDATE SET
+           fecha_manual = COALESCE(NULLIF(EXCLUDED.fecha_manual,''), pedidos_estados.fecha_manual),
+           franja_manual = COALESCE(NULLIF(EXCLUDED.franja_manual,''), pedidos_estados.franja_manual),
+           cobrar = EXCLUDED.cobrar, updated_at = NOW()`,
+        [p.id, ei.fechaManual || null, ei.franjaManual || null, !!ei.cobrar]
+      );
+    }
     const pedidoConNumero = { ...p, numero };
     if (p.email && p.email.trim()) enviarMailConfirmacion(pedidoConNumero).catch(console.error);
     res.json({ ok: true, numero });
-    registrarAuditoria(p.usuario || "Sistema", "creacion_manual", "pedido", p.id, { numero, cliente: p.cliente });
+    registrarAuditoria(req.user?.nombre_completo || "Sistema", "creacion_manual", "pedido", p.id, { numero, cliente: p.cliente });   // de la SESIÓN, nunca del body
   } catch (err) { res.status(500).json({ error: "Error guardando pedido manual" }); }
 });
 
@@ -3063,7 +3077,7 @@ function sqlClientes({ filtroAgg = "", conCompras = true, filtroFinal = "", orde
       ${orderBy ? `ORDER BY ${orderBy}` : ""}
     `;
 }
-app.get("/api/clientes", requireAdmin, async (req, res) => {
+app.get("/api/clientes", requireAdminOCrm, async (req, res) => {
   const { tipo, buscar, orden, temperatura } = req.query;
   // ORDER BY con whitelist (nunca interpolar input crudo).
   const ORDENES = {
@@ -3109,7 +3123,7 @@ const claveClienteDeQuery = (k) => { const s = String(k || "").trim(); return s.
 
 // Ficha: datos + métricas + temperatura (misma consulta que /api/clientes), "qué compra siempre", todos sus pedidos
 // (TN + manuales, con overrides, también anulados), sus oportunidades y sus notas.
-app.get("/api/clientes/ficha", requireAdmin, async (req, res) => {
+app.get("/api/clientes/ficha", requireAdminOCrm, async (req, res) => {
   const key = claveClienteDeQuery(req.query.key);
   if (!key) return res.status(400).json({ error: "Falta el cliente (key)." });
   try {
@@ -3175,7 +3189,7 @@ app.get("/api/clientes/ficha", requireAdmin, async (req, res) => {
 });
 
 // Notas y seguimiento (no se borran: se anulan). Solo el autor o un superadmin pueden anular.
-app.post("/api/clientes/notas", requireAdmin, async (req, res) => {
+app.post("/api/clientes/notas", requireAdminOCrm, async (req, res) => {
   const b = req.body || {};
   const key = claveClienteDeQuery(b.cliente_key);
   const tipo = b.tipo || "nota";
@@ -3196,7 +3210,7 @@ app.post("/api/clientes/notas", requireAdmin, async (req, res) => {
   } catch (err) { console.error("Error POST /api/clientes/notas:", err.message); res.status(500).json({ error: "Error guardando la nota" }); }
 });
 // Marcar (o desmarcar) un seguimiento como hecho.
-app.post("/api/clientes/notas/:id/hecho", requireAdmin, async (req, res) => {
+app.post("/api/clientes/notas/:id/hecho", requireAdminOCrm, async (req, res) => {
   const hecho = (req.body || {}).hecho !== false;
   const quien = req.user?.nombre_completo || null;
   try {
@@ -3208,7 +3222,7 @@ app.post("/api/clientes/notas/:id/hecho", requireAdmin, async (req, res) => {
     registrarAuditoria(quien, hecho ? "cliente_seguimiento_hecho" : "cliente_seguimiento_pendiente", "cliente_nota", req.params.id, { cliente_key: r.rows[0].cliente_key });
   } catch (err) { console.error("Error hecho nota:", err.message); res.status(500).json({ error: "Error actualizando el seguimiento" }); }
 });
-app.post("/api/clientes/notas/:id/anular", requireAdmin, async (req, res) => {
+app.post("/api/clientes/notas/:id/anular", requireAdminOCrm, async (req, res) => {
   const quien = req.user?.nombre_completo || null;
   let client;
   try {
@@ -3228,7 +3242,7 @@ app.post("/api/clientes/notas/:id/anular", requireAdmin, async (req, res) => {
   } finally { if (client) client.release(); }
 });
 // Seguimientos pendientes: próximo contacto sin hacer (notas activas), por fecha (vencidos y de hoy primero).
-app.get("/api/clientes/seguimientos", requireAdmin, async (req, res) => {
+app.get("/api/clientes/seguimientos", requireAdminOCrm, async (req, res) => {
   try {
     const hoy = fechaArgentinaISO();
     const { rows } = await pool.query(
@@ -3255,7 +3269,7 @@ app.get("/api/clientes/seguimientos", requireAdmin, async (req, res) => {
 
 // Alta MANUAL de oportunidad (pipeline "Ventas a realizar"). Reusa la tabla cotizaciones con
 // origen='manual'. Admin + superadmin. El cliente puede ser existente (autocompletado) o nuevo.
-app.post("/api/ventas/oportunidades", requireAdmin, async (req, res) => {
+app.post("/api/ventas/oportunidades", requireAdminOCrm, async (req, res) => {
   const b = req.body || {};
   if (!b.cliente_nombre || !String(b.cliente_nombre).trim()) return res.status(400).json({ error: "El nombre del cliente es obligatorio." });
   const ETAPAS = ["pendiente", "contactado", "cotizado", "ganada", "perdida"];
@@ -3272,7 +3286,7 @@ app.post("/api/ventas/oportunidades", requireAdmin, async (req, res) => {
        b.motivo_perdida || null, cliente_key]
     );
     res.json({ ok: true, id: q.rows[0].id });
-    registrarAuditoria(b.usuario, "oportunidad_crear", "cotizacion", q.rows[0].id, { cliente: b.cliente_nombre, total: b.total_elegido, estado });
+    registrarAuditoria(req.user?.nombre_completo || null, "oportunidad_crear", "cotizacion", q.rows[0].id, { cliente: b.cliente_nombre, total: b.total_elegido, estado });
   } catch (err) {
     console.error("Error /api/ventas/oportunidades:", err.message);
     res.status(500).json({ error: "Error creando la oportunidad" });
