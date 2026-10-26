@@ -4485,6 +4485,39 @@ app.get("/api/insumos/movimientos", stockVer, async (req, res) => {
 
 // ─── RECETAS (Fase 2a) — módulos anidados, editor, importación, necesidades ─
 // SIN descuento automático de stock (Fase 2b). Ver = gestión; escribir = admin/superadmin.
+// Demanda { nombre normalizado → cantidad } × recetas (productos, combos, módulos) → insumos. COMPARTIDO por
+// Productos necesarios y Productos utilizados. Vínculo por clave guardada y, de respaldo, por el nombre re-normalizado.
+async function explotarDemandaInsumos(demanda) {
+  const idx = await cargarRecetasIndex();
+  const insIdx = await cargarInsumosIndex();
+  const recetaPorClave = {};
+  const rp = await pool.query("SELECT rp.producto_clave, rp.producto_nombre, rp.receta_id FROM receta_productos rp JOIN recetas r ON r.id = rp.receta_id WHERE r.activo = true ORDER BY rp.id");
+  // También por el nombre re-normalizado (vínculos con clave vieja, previa a un alias); la clave guardada manda.
+  for (const x of rp.rows) { const k = claveVinculo(x.producto_nombre); if (!(k in recetaPorClave)) recetaPorClave[k] = x.receta_id; }
+  for (const x of rp.rows) recetaPorClave[x.producto_clave] = x.receta_id;
+
+  const porInsumo = {};   // insumo_id -> cantidad base
+  const sinReceta = [];
+  const avisosSet = {};
+  for (const [nombre, qty] of Object.entries(demanda)) {
+    const recetaId = recetaPorClave[claveProducto(nombre)];
+    if (!recetaId) { sinReceta.push({ producto: nombre, cantidad: qty }); continue; }
+    const exp = explotarReceta(recetaId, idx, insIdx);
+    for (const [iid, base] of Object.entries(exp.insumos)) porInsumo[iid] = (porInsumo[iid] || 0) + base * qty;
+    for (const a of exp.avisos) avisosSet[a.detalle] = a;
+  }
+  return { porInsumo, sinReceta, avisos: Object.values(avisosSet), insIdx };
+}
+// Stock actual por insumo (suma de movimientos), de un local o de ambos (localFiltro null).
+async function stockPorInsumo(localFiltro) {
+  const stR = await pool.query("SELECT insumo_id, local, COALESCE(SUM(cantidad),0) AS total FROM insumos_movimientos GROUP BY insumo_id, local");
+  const stockByInsumo = {};
+  for (const s of stR.rows) {
+    if (localFiltro && s.local !== localFiltro) continue;
+    stockByInsumo[s.insumo_id] = (stockByInsumo[s.insumo_id] || 0) + Number(s.total);
+  }
+  return stockByInsumo;
+}
 async function cargarRecetasIndex(exec = pool) {
   const recs = await exec.query("SELECT * FROM recetas");
   const lineas = await exec.query("SELECT * FROM receta_lineas ORDER BY receta_id, orden, id");
@@ -4949,31 +4982,8 @@ app.get("/api/insumos/necesidades", stockVer, async (req, res) => {
       addProductos(ovMap[r.id] || r.productos);
     }
 
-    const idx = await cargarRecetasIndex();
-    const insIdx = await cargarInsumosIndex();
-    const recetaPorClave = {};
-    const rp = await pool.query("SELECT rp.producto_clave, rp.producto_nombre, rp.receta_id FROM receta_productos rp JOIN recetas r ON r.id = rp.receta_id WHERE r.activo = true ORDER BY rp.id");
-    // También por el nombre re-normalizado (vínculos con clave vieja, previa a un alias); la clave guardada manda.
-    for (const x of rp.rows) { const k = claveVinculo(x.producto_nombre); if (!(k in recetaPorClave)) recetaPorClave[k] = x.receta_id; }
-    for (const x of rp.rows) recetaPorClave[x.producto_clave] = x.receta_id;
-
-    const necesarioBase = {};   // insumo_id -> base
-    const sinReceta = [];
-    const avisosSet = {};
-    for (const [nombre, qty] of Object.entries(demanda)) {
-      const recetaId = recetaPorClave[claveProducto(nombre)];
-      if (!recetaId) { sinReceta.push({ producto: nombre, cantidad: qty }); continue; }
-      const exp = explotarReceta(recetaId, idx, insIdx);
-      for (const [iid, base] of Object.entries(exp.insumos)) necesarioBase[iid] = (necesarioBase[iid] || 0) + base * qty;
-      for (const a of exp.avisos) avisosSet[a.detalle] = a;
-    }
-
-    const stR = await pool.query("SELECT insumo_id, local, COALESCE(SUM(cantidad),0) AS total FROM insumos_movimientos GROUP BY insumo_id, local");
-    const stockByInsumo = {};
-    for (const s of stR.rows) {
-      if (localFiltro && s.local !== localFiltro) continue;
-      stockByInsumo[s.insumo_id] = (stockByInsumo[s.insumo_id] || 0) + Number(s.total);
-    }
+    const { porInsumo: necesarioBase, sinReceta, avisos, insIdx } = await explotarDemandaInsumos(demanda);
+    const stockByInsumo = await stockPorInsumo(localFiltro);
 
     const items = Object.entries(necesarioBase).map(([iid, necesario]) => {
       const ins = insIdx[iid] || {};
@@ -4982,8 +4992,59 @@ app.get("/api/insumos/necesidades", stockVer, async (req, res) => {
     }).sort((a, b) => (a.categoria || "").localeCompare(b.categoria || "") || a.nombre.localeCompare(b.nombre));
 
     sinReceta.sort((a, b) => b.cantidad - a.cantidad);
-    res.json({ items, sin_receta: sinReceta, avisos: Object.values(avisosSet) });
+    res.json({ items, sin_receta: sinReceta, avisos });
   } catch (err) { console.error("Error /api/insumos/necesidades:", err.message); res.status(500).json({ error: err.message }); }
+});
+
+// Productos utilizados: lo mismo que Productos necesarios pero RETROACTIVO. Pedidos ENTREGADOS del rango con el
+// mismo criterio y fuente que el reporte de ventas (fechaDisplay, overrides, sin anulados) y la misma normalización
+// que Productos vendidos → recetas → insumos. Promedio diario y "alcanza para" contra el stock actual.
+app.get("/api/insumos/utilizados", stockVer, async (req, res) => {
+  const { desde, hasta, local } = req.query;
+  const re = /^\d{4}-\d{2}-\d{2}$/;
+  if (!desde || !hasta || !re.test(desde) || !re.test(hasta)) return res.status(400).json({ error: "Parámetros 'desde' y 'hasta' requeridos (YYYY-MM-DD)." });
+  if (desde > hasta) return res.status(400).json({ error: "'desde' no puede ser posterior a 'hasta'." });
+  const localFiltro = (local === "A. Thomas" || local === "French") ? local : null;   // null = ambos
+  try {
+    const estadosRes = await pool.query("SELECT * FROM pedidos_estados");
+    const estadosMap = {}; estadosRes.rows.forEach(r => { estadosMap[r.id] = estadoPedidoDeFila(r); });
+    const ovRes = await pool.query("SELECT * FROM pedidos_productos");
+    const ovMap = {}; ovRes.rows.forEach(r => { ovMap[r.pedido_id] = { productos: r.productos, total_num: Number(r.total_num) }; });
+
+    let pedidos = 0;
+    const vendidos = {};   // nombre normalizado -> unidades
+    const sumarPedido = (fila) => {
+      if (fila.estado !== "Entregado") return;
+      if (!fila.fechaDisplay || fila.fechaDisplay < desde || fila.fechaDisplay > hasta) return;
+      if (localFiltro && fila.local !== localFiltro) return;
+      pedidos++;
+      for (const item of String(fila.productos || "").split(", ")) {
+        const m = item.match(/^(.+) x(\d+)$/);
+        if (!m) continue;
+        const nombre = normalizarProducto(m[1].trim());
+        if (esExcluidoProduccion(nombre) || esBasuraVenta(nombre)) continue;   // envíos / medios de pago / cupones, como Productos vendidos
+        vendidos[nombre] = (vendidos[nombre] || 0) + Number(m[2]);
+      }
+    };
+    const tnRes = await pool.query(`SELECT t.data FROM pedidos_tn t WHERE t.tn_created_at BETWEEN ($1::date - INTERVAL '365 days') AND ($2::date + INTERVAL '5 days')`, [desde, hasta]);
+    for (const row of tnRes.rows) sumarPedido(filaPedidoTN(row.data, estadosMap[String(row.data.id)] || {}, ovMap[String(row.data.id)]));
+    const manRes = await pool.query("SELECT * FROM pedidos_manuales");
+    for (const r of manRes.rows) sumarPedido(filaPedidoManual(r, estadosMap[r.id] || {}, ovMap[r.id]));
+
+    const dias = Math.round((Date.parse(hasta + "T00:00:00Z") - Date.parse(desde + "T00:00:00Z")) / 86400000) + 1;
+    const { porInsumo, sinReceta, avisos, insIdx } = await explotarDemandaInsumos(vendidos);
+    const stockByInsumo = await stockPorInsumo(localFiltro);
+    const items = Object.entries(porInsumo).map(([iid, utilizado]) => {
+      const ins = insIdx[iid] || {};
+      const stock = stockByInsumo[iid] || 0;
+      const promedio = utilizado / dias;
+      return { insumo_id: Number(iid), nombre: ins.nombre || `#${iid}`, categoria: ins.categoria || null, unidad: ins.unidad || "g",
+        utilizado, promedio_diario: promedio, stock, alcanza_dias: promedio > 0 ? Math.max(0, stock) / promedio : null };
+    }).sort((a, b) => (a.categoria || "").localeCompare(b.categoria || "") || a.nombre.localeCompare(b.nombre));
+    const productos = Object.entries(vendidos).map(([producto, cantidad]) => ({ producto, cantidad })).sort((a, b) => b.cantidad - a.cantidad || a.producto.localeCompare(b.producto));
+    sinReceta.sort((a, b) => b.cantidad - a.cantidad);
+    res.json({ dias, pedidos, productos, items, sin_receta: sinReceta, avisos });
+  } catch (err) { console.error("Error /api/insumos/utilizados:", err.message); res.status(500).json({ error: err.message }); }
 });
 
 // ─── MAPA DE PEDIDOS ───────────────────────────────────────────────────

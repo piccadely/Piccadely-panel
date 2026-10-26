@@ -5483,14 +5483,9 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
     }
 
     // ── Productos necesarios (demanda × recetas → insumos vs stock) ──
-    function VistaNecesidades({ usuario, onVolver }) {
-      const manana = (() => { const h = new Date(); h.setDate(h.getDate() + 1); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`; })();
-      const [desde, setDesde] = useState(manana);
-      const [hasta, setHasta] = useState(manana);
-      const [local, setLocal] = useState("Ambos");
-      const [data, setData] = useState({ items: [], sin_receta: [], avisos: [] });
-      const [loading, setLoading] = useState(true);
-      const [mensaje, setMensaje] = useState(null);
+    // ── Productos sin receta + modales «Vincular a receta existente» / «Crear receta». COMPARTIDO por
+    // Productos necesarios y Productos utilizados. onCambio = recargar la vista después de vincular / crear.
+    function SinRecetaVinculos({ usuario, sinReceta, onCambio, mostrarMensaje }) {
       const [vincular, setVincular] = useState(null);    // { producto } | null
       const [recetas, setRecetas] = useState([]);
       const [busqReceta, setBusqReceta] = useState("");
@@ -5498,18 +5493,6 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [vinculando, setVinculando] = useState(null);       // id de la receta que se está vinculando
       const [crear, setCrear] = useState(null);          // { producto, nombre } | null
 
-      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 4000); }
-      async function cargar() {
-        setLoading(true);
-        try {
-          const params = { desde, hasta };
-          if (local === "A. Thomas" || local === "French") params.local = local;
-          const r = await axios.get(`${API}/api/insumos/necesidades`, { params });
-          setData(r.data);
-        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error cargando necesidades", "error"); }
-        setLoading(false);
-      }
-      useEffect(() => { cargar(); }, [desde, hasta, local]);
       // Productos y combos (los módulos no se venden, no se vinculan a productos de la tienda).
       async function cargarRecetas() {
         try { const r = await axios.get(`${API}/api/recetas`); setRecetas(r.data.filter(x => x.tipo === "producto" || x.tipo === "combo")); }
@@ -5521,7 +5504,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         setVincularError(""); setVinculando(recetaId);
         try {
           const r = await axios.post(`${API}/api/recetas/${recetaId}/productos`, { nombre: vincular.producto, usuario: usuario.nombre_completo });
-          setVincular(null); await cargar();
+          setVincular(null); await onCambio();
           mostrarMensaje(r.data?.reasignadoDe ? `Producto vinculado (estaba en la receta dada de baja «${r.data.reasignadoDe}»)` : "Producto vinculado");
         } catch (err) { setVincularError(err.response?.data?.error || "Error vinculando"); }
         setVinculando(null);
@@ -5530,57 +5513,18 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         if (!crear.nombre.trim()) { mostrarMensaje("Falta el nombre", "error"); return; }
         try {
           await axios.post(`${API}/api/recetas`, { nombre: crear.nombre.trim(), tipo: "producto", lineas: [], productos: [{ nombre: crear.producto }], usuario: usuario.nombre_completo });
-          setCrear(null); await cargar(); mostrarMensaje("Receta creada y vinculada. Cargale las líneas en «Recetas».");
+          setCrear(null); await onCambio(); mostrarMensaje("Receta creada y vinculada. Cargale las líneas en «Recetas».");
         } catch (err) { mostrarMensaje(err.response?.data?.error || "Error creando receta", "error"); }
       }
-
-      // agrupar por categoría
-      const porCategoria = {};
-      for (const i of data.items) (porCategoria[i.categoria || "(sin categoría)"] = porCategoria[i.categoria || "(sin categoría)"] || []).push(i);
-      const categoriasOrd = Object.keys(porCategoria).sort();
       const recetasFiltradas = recetas.filter(r => !busqReceta || r.nombre.toLowerCase().includes(busqReceta.toLowerCase()));
 
-      // Subtotales por categoría: sumar por unidad base (no mezclar kg con unidades).
-      const sumaCat = (items, campo) => { const acc = {}; for (const i of items) acc[i.unidad] = (acc[i.unidad] || 0) + Number(i[campo] || 0); return acc; };
-      const fmtMulti = (acc) => { const partes = ["g", "unidad"].filter(u => Math.abs(acc[u] || 0) > 0.0001).map(u => fmtStock(acc[u], u)); return partes.length ? partes.join(" + ") : "—"; };
-
-      function exportar() {
-        const datos = [];
-        for (const cat of categoriasOrd) {
-          const items = porCategoria[cat];
-          for (const i of items) datos.push({ "Categoría": cat, "Insumo": i.nombre, "Necesario": stockAMostrar(i.necesario, i.unidad), "Stock": stockAMostrar(i.stock, i.unidad), "Faltante": stockAMostrar(i.faltante, i.unidad), "Unidad": stockUnidadLabel(i.unidad) });
-          datos.push({ "Categoría": cat, "Insumo": `TOTAL ${cat}`, "Necesario": fmtMulti(sumaCat(items, "necesario")), "Stock": fmtMulti(sumaCat(items, "stock")), "Faltante": fmtMulti(sumaCat(items, "faltante")), "Unidad": "" });
-        }
-        exportarExcel(`necesidades_${desde}_${hasta}.xlsx`, [{ name: "Necesidades", data: datos }]);
-      }
-
       return (
-        <div style={{ padding: 24, maxWidth: 1000, margin: "0 auto" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>🧮 Productos necesarios</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              {data.items.length > 0 && <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "1px solid #1d8a4e", background: "#eafaf1", color: "#1d8a4e", cursor: "pointer" }} onClick={exportar}>📊 Excel</button>}
-              <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver</button>
-            </div>
-          </div>
-
-          {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>}
-
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
-            <input type="date" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={desde} onChange={e => setDesde(e.target.value)} />
-            <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
-            <input type="date" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={hasta} onChange={e => setHasta(e.target.value)} />
-            <select style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={local} onChange={e => setLocal(e.target.value)}>
-              <option value="Ambos">Ambos locales</option><option value="A. Thomas">A. Thomas</option><option value="French">French</option>
-            </select>
-          </div>
-
+        <>
           {/* Sin receta */}
-          {data.sin_receta.length > 0 && (
+          {sinReceta.length > 0 && (
             <div style={{ background: "#fff", border: "1px solid #f5c6cb", borderRadius: 10, overflow: "hidden", marginBottom: 16 }}>
-              <div style={{ padding: "8px 16px", background: "#fdecea", color: "#c0392b", fontSize: 12, fontWeight: 700 }}>⚠️ {data.sin_receta.length} producto(s) sin receta (no se explotan a insumos)</div>
-              {data.sin_receta.map((s, i) => (
+              <div style={{ padding: "8px 16px", background: "#fdecea", color: "#c0392b", fontSize: 12, fontWeight: 700 }}>⚠️ {sinReceta.length} producto(s) sin receta (no se explotan a insumos)</div>
+              {sinReceta.map((s, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, flexWrap: "wrap" }}>
                   <span style={{ flex: 1, color: "#333", minWidth: 180 }}>{s.producto} <span style={{ color: "#999" }}>× {s.cantidad}</span></span>
                   <button style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #1d4ed8", background: "#dbeafe", color: "#1d4ed8", cursor: "pointer" }} onClick={() => abrirVincular(s.producto)}>Vincular a receta existente</button>
@@ -5589,41 +5533,6 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               ))}
             </div>
           )}
-
-          {/* Avisos */}
-          {data.avisos.length > 0 && (
-            <div style={{ background: "#fffbe6", border: "1px solid #ffe58f", borderRadius: 10, padding: "10px 16px", marginBottom: 16, fontSize: 12, color: "#8a6d3b" }}>
-              {data.avisos.map((a, i) => <div key={i}>⚠️ {a.detalle}</div>)}
-            </div>
-          )}
-
-          {/* Tabla por categoría */}
-          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1.8fr 140px 140px 140px", gap: 8, padding: "10px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 10, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>
-              <div>Insumo</div><div style={{ textAlign: "right" }}>Necesario</div><div style={{ textAlign: "right" }}>Stock</div><div style={{ textAlign: "right" }}>Faltante</div>
-            </div>
-            {loading ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>Cargando…</div>
-              : data.items.length === 0 ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>No hay necesidades para el rango elegido (¿pedidos por producir con receta?).</div>
-              : categoriasOrd.map(cat => (
-                <div key={cat}>
-                  <div style={{ padding: "6px 16px", background: "#fcfcfb", fontSize: 11, fontWeight: 700, color: "#666", borderBottom: "1px solid #f0f0f0" }}>{cat}</div>
-                  {porCategoria[cat].map(i => (
-                    <div key={i.insumo_id} style={{ display: "grid", gridTemplateColumns: "1.8fr 140px 140px 140px", gap: 8, padding: "8px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, alignItems: "center", background: i.faltante > 0 ? "#fef6f5" : "transparent" }}>
-                      <div style={{ color: "#333" }}>{i.nombre}</div>
-                      <div style={{ textAlign: "right", color: "#555" }}>{fmtStock(i.necesario, i.unidad)}</div>
-                      <div style={{ textAlign: "right", color: "#888" }}>{fmtStock(i.stock, i.unidad)}</div>
-                      <div style={{ textAlign: "right", fontWeight: 600, color: i.faltante > 0 ? "#c0392b" : "#1d8a4e" }}>{i.faltante > 0 ? fmtStock(i.faltante, i.unidad) : "—"}</div>
-                    </div>
-                  ))}
-                  <div style={{ display: "grid", gridTemplateColumns: "1.8fr 140px 140px 140px", gap: 8, padding: "8px 16px", borderBottom: "2px solid #eee", fontSize: 13, alignItems: "center", background: "#f4f4ef", fontWeight: 700 }}>
-                    <div style={{ color: "#555" }}>Total {cat}</div>
-                    <div style={{ textAlign: "right", color: "#333" }}>{fmtMulti(sumaCat(porCategoria[cat], "necesario"))}</div>
-                    <div style={{ textAlign: "right", color: "#333" }}>{fmtMulti(sumaCat(porCategoria[cat], "stock"))}</div>
-                    <div style={{ textAlign: "right", color: "#c0392b" }}>{fmtMulti(sumaCat(porCategoria[cat], "faltante"))}</div>
-                  </div>
-                </div>
-              ))}
-          </div>
 
           {/* Modal vincular a receta existente */}
           {vincular && (
@@ -5667,6 +5576,252 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               </div>
             </div>
           )}
+        </>
+      );
+    }
+
+    function VistaNecesidades({ usuario, onVolver }) {
+      const manana = (() => { const h = new Date(); h.setDate(h.getDate() + 1); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`; })();
+      const [desde, setDesde] = useState(manana);
+      const [hasta, setHasta] = useState(manana);
+      const [local, setLocal] = useState("Ambos");
+      const [data, setData] = useState({ items: [], sin_receta: [], avisos: [] });
+      const [loading, setLoading] = useState(true);
+      const [mensaje, setMensaje] = useState(null);
+
+      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 4000); }
+      async function cargar() {
+        setLoading(true);
+        try {
+          const params = { desde, hasta };
+          if (local === "A. Thomas" || local === "French") params.local = local;
+          const r = await axios.get(`${API}/api/insumos/necesidades`, { params });
+          setData(r.data);
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error cargando necesidades", "error"); }
+        setLoading(false);
+      }
+      useEffect(() => { cargar(); }, [desde, hasta, local]);
+
+      // agrupar por categoría
+      const porCategoria = {};
+      for (const i of data.items) (porCategoria[i.categoria || "(sin categoría)"] = porCategoria[i.categoria || "(sin categoría)"] || []).push(i);
+      const categoriasOrd = Object.keys(porCategoria).sort();
+
+      // Subtotales por categoría: sumar por unidad base (no mezclar kg con unidades).
+      const sumaCat = (items, campo) => { const acc = {}; for (const i of items) acc[i.unidad] = (acc[i.unidad] || 0) + Number(i[campo] || 0); return acc; };
+      const fmtMulti = (acc) => { const partes = ["g", "unidad"].filter(u => Math.abs(acc[u] || 0) > 0.0001).map(u => fmtStock(acc[u], u)); return partes.length ? partes.join(" + ") : "—"; };
+
+      function exportar() {
+        const datos = [];
+        for (const cat of categoriasOrd) {
+          const items = porCategoria[cat];
+          for (const i of items) datos.push({ "Categoría": cat, "Insumo": i.nombre, "Necesario": stockAMostrar(i.necesario, i.unidad), "Stock": stockAMostrar(i.stock, i.unidad), "Faltante": stockAMostrar(i.faltante, i.unidad), "Unidad": stockUnidadLabel(i.unidad) });
+          datos.push({ "Categoría": cat, "Insumo": `TOTAL ${cat}`, "Necesario": fmtMulti(sumaCat(items, "necesario")), "Stock": fmtMulti(sumaCat(items, "stock")), "Faltante": fmtMulti(sumaCat(items, "faltante")), "Unidad": "" });
+        }
+        exportarExcel(`necesidades_${desde}_${hasta}.xlsx`, [{ name: "Necesidades", data: datos }]);
+      }
+
+      return (
+        <div style={{ padding: 24, maxWidth: 1000, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>🧮 Productos necesarios</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {data.items.length > 0 && <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "1px solid #1d8a4e", background: "#eafaf1", color: "#1d8a4e", cursor: "pointer" }} onClick={exportar}>📊 Excel</button>}
+              <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver</button>
+            </div>
+          </div>
+
+          {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>}
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
+            <input type="date" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={desde} onChange={e => setDesde(e.target.value)} />
+            <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
+            <input type="date" style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={hasta} onChange={e => setHasta(e.target.value)} />
+            <select style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={local} onChange={e => setLocal(e.target.value)}>
+              <option value="Ambos">Ambos locales</option><option value="A. Thomas">A. Thomas</option><option value="French">French</option>
+            </select>
+          </div>
+
+          <SinRecetaVinculos usuario={usuario} sinReceta={data.sin_receta} onCambio={cargar} mostrarMensaje={mostrarMensaje} />
+
+          {/* Avisos */}
+          {data.avisos.length > 0 && (
+            <div style={{ background: "#fffbe6", border: "1px solid #ffe58f", borderRadius: 10, padding: "10px 16px", marginBottom: 16, fontSize: 12, color: "#8a6d3b" }}>
+              {data.avisos.map((a, i) => <div key={i}>⚠️ {a.detalle}</div>)}
+            </div>
+          )}
+
+          {/* Tabla por categoría */}
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1.8fr 140px 140px 140px", gap: 8, padding: "10px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 10, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>
+              <div>Insumo</div><div style={{ textAlign: "right" }}>Necesario</div><div style={{ textAlign: "right" }}>Stock</div><div style={{ textAlign: "right" }}>Faltante</div>
+            </div>
+            {loading ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+              : data.items.length === 0 ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>No hay necesidades para el rango elegido (¿pedidos por producir con receta?).</div>
+              : categoriasOrd.map(cat => (
+                <div key={cat}>
+                  <div style={{ padding: "6px 16px", background: "#fcfcfb", fontSize: 11, fontWeight: 700, color: "#666", borderBottom: "1px solid #f0f0f0" }}>{cat}</div>
+                  {porCategoria[cat].map(i => (
+                    <div key={i.insumo_id} style={{ display: "grid", gridTemplateColumns: "1.8fr 140px 140px 140px", gap: 8, padding: "8px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, alignItems: "center", background: i.faltante > 0 ? "#fef6f5" : "transparent" }}>
+                      <div style={{ color: "#333" }}>{i.nombre}</div>
+                      <div style={{ textAlign: "right", color: "#555" }}>{fmtStock(i.necesario, i.unidad)}</div>
+                      <div style={{ textAlign: "right", color: "#888" }}>{fmtStock(i.stock, i.unidad)}</div>
+                      <div style={{ textAlign: "right", fontWeight: 600, color: i.faltante > 0 ? "#c0392b" : "#1d8a4e" }}>{i.faltante > 0 ? fmtStock(i.faltante, i.unidad) : "—"}</div>
+                    </div>
+                  ))}
+                  <div style={{ display: "grid", gridTemplateColumns: "1.8fr 140px 140px 140px", gap: 8, padding: "8px 16px", borderBottom: "2px solid #eee", fontSize: 13, alignItems: "center", background: "#f4f4ef", fontWeight: 700 }}>
+                    <div style={{ color: "#555" }}>Total {cat}</div>
+                    <div style={{ textAlign: "right", color: "#333" }}>{fmtMulti(sumaCat(porCategoria[cat], "necesario"))}</div>
+                    <div style={{ textAlign: "right", color: "#333" }}>{fmtMulti(sumaCat(porCategoria[cat], "stock"))}</div>
+                    <div style={{ textAlign: "right", color: "#c0392b" }}>{fmtMulti(sumaCat(porCategoria[cat], "faltante"))}</div>
+                  </div>
+                </div>
+              ))}
+          </div>
+
+        </div>
+      );
+    }
+
+    // ── Productos utilizados (RETROACTIVO: pedidos entregados × recetas → insumos; promedio diario vs stock) ──
+    function VistaUtilizados({ usuario, onVolver }) {
+      const [desde, setDesde] = useState(DESDE_7_DIAS);
+      const [hasta, setHasta] = useState(HOY);
+      const [local, setLocal] = useState("Ambos");
+      const [proyectar, setProyectar] = useState("7");   // días a proyectar con el promedio diario
+      const [data, setData] = useState({ dias: 0, pedidos: 0, productos: [], items: [], sin_receta: [], avisos: [] });
+      const [loading, setLoading] = useState(true);
+      const [mensaje, setMensaje] = useState(null);
+      const [verProductos, setVerProductos] = useState(false);
+
+      function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 4000); }
+      async function cargar() {
+        if (!desde || !hasta) return;
+        setLoading(true);
+        try {
+          const params = { desde, hasta };
+          if (local === "A. Thomas" || local === "French") params.local = local;
+          const r = await axios.get(`${API}/api/insumos/utilizados`, { params });
+          setData(r.data);
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error cargando productos utilizados", "error"); }
+        setLoading(false);
+      }
+      useEffect(() => { cargar(); }, [desde, hasta, local]);
+
+      const nDias = Math.max(0, Number(proyectar) || 0);
+      const items = data.items.map(i => ({ ...i, proyeccion: i.promedio_diario * nDias }));
+      const porCategoria = {};
+      for (const i of items) (porCategoria[i.categoria || "(sin categoría)"] = porCategoria[i.categoria || "(sin categoría)"] || []).push(i);
+      const categoriasOrd = Object.keys(porCategoria).sort();
+      // Subtotales por categoría: sumar por unidad base (no mezclar kg con unidades), igual que Productos necesarios.
+      const sumaCat = (lista, campo) => { const acc = {}; for (const i of lista) acc[i.unidad] = (acc[i.unidad] || 0) + Number(i[campo] || 0); return acc; };
+      const fmtMulti = (acc) => { const partes = ["g", "unidad"].filter(u => Math.abs(acc[u] || 0) > 0.0001).map(u => fmtStock(acc[u], u)); return partes.length ? partes.join(" + ") : "—"; };
+      const fmtDias = (d) => d === null || d === undefined ? "—" : d >= 999 ? "+999 días" : `${d.toLocaleString("es-AR", { maximumFractionDigits: 1 })} días`;
+      const corto = (i) => i.alcanza_dias !== null && i.alcanza_dias < nDias;   // no alcanza para la proyección
+      const unidadesVendidas = data.productos.reduce((a, p) => a + p.cantidad, 0);
+
+      function exportar() {
+        const insumos = [];
+        for (const cat of categoriasOrd) {
+          const lista = porCategoria[cat];
+          for (const i of lista) insumos.push({ "Categoría": cat, "Insumo": i.nombre, "Utilizado": stockAMostrar(i.utilizado, i.unidad), "Promedio diario": stockAMostrar(i.promedio_diario, i.unidad), "Stock actual": stockAMostrar(i.stock, i.unidad), "Alcanza para (días)": i.alcanza_dias === null ? "" : Math.round(i.alcanza_dias * 10) / 10, [`Proyección ${nDias} días`]: stockAMostrar(i.proyeccion, i.unidad), "Unidad": stockUnidadLabel(i.unidad) });
+          insumos.push({ "Categoría": cat, "Insumo": `TOTAL ${cat}`, "Utilizado": fmtMulti(sumaCat(lista, "utilizado")), "Promedio diario": fmtMulti(sumaCat(lista, "promedio_diario")), "Stock actual": fmtMulti(sumaCat(lista, "stock")), "Alcanza para (días)": "", [`Proyección ${nDias} días`]: fmtMulti(sumaCat(lista, "proyeccion")), "Unidad": "" });
+        }
+        const resumen = [{ "Desde": desde, "Hasta": hasta, "Días": data.dias, "Local": local, "Pedidos entregados": data.pedidos, "Unidades vendidas": unidadesVendidas }];
+        const productos = data.productos.map(p => ({ "Producto": p.producto, "Unidades vendidas": p.cantidad }));
+        const sinReceta = data.sin_receta.map(p => ({ "Producto sin receta": p.producto, "Unidades vendidas": p.cantidad }));
+        exportarExcel(`productos_utilizados_${desde}_${hasta}.xlsx`, [
+          { name: "Insumos", data: insumos }, { name: "Productos vendidos", data: productos }, { name: "Sin receta", data: sinReceta }, { name: "Resumen", data: resumen },
+        ]);
+      }
+
+      const cols = "1.6fr 110px 110px 110px 110px 120px";
+      const cab = { display: "grid", gridTemplateColumns: cols, gap: 8, padding: "10px 16px", background: "#fafaf8", borderBottom: "1px solid #eee", fontSize: 10, fontWeight: 700, color: "#888", textTransform: "uppercase" };
+      const inp = { fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd" };
+      return (
+        <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#333" }}>📦 Productos utilizados</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {data.items.length > 0 && <button style={{ fontSize: 12, fontWeight: 600, padding: "8px 14px", borderRadius: 8, border: "1px solid #1d8a4e", background: "#eafaf1", color: "#1d8a4e", cursor: "pointer" }} onClick={exportar}>📊 Excel</button>}
+              <button style={{ fontSize: 13, padding: "8px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={onVolver}>← Volver</button>
+            </div>
+          </div>
+
+          {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 13 }}>{mensaje.texto}</div>}
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "#888" }}>Desde</span>
+            <input type="date" style={inp} value={desde} onChange={e => setDesde(e.target.value)} />
+            <span style={{ fontSize: 12, color: "#888" }}>Hasta</span>
+            <input type="date" style={inp} value={hasta} onChange={e => setHasta(e.target.value)} />
+            <AtajosFecha desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />
+            <select style={inp} value={local} onChange={e => setLocal(e.target.value)}>
+              <option value="Ambos">Ambos locales</option><option value="A. Thomas">A. Thomas</option><option value="French">French</option>
+            </select>
+            <span style={{ fontSize: 12, color: "#888", marginLeft: 8 }}>Proyectar</span>
+            <input type="number" min="0" style={{ ...inp, width: 64 }} value={proyectar} onChange={e => setProyectar(e.target.value)} />
+            <span style={{ fontSize: 12, color: "#888" }}>días</span>
+          </div>
+
+          {/* Resumen del período + productos vendidos */}
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, marginBottom: 16, overflow: "hidden" }}>
+            <div style={{ display: "flex", gap: 24, padding: "12px 16px", flexWrap: "wrap", alignItems: "center", fontSize: 13, color: "#555" }}>
+              <span><b style={{ fontSize: 18, color: "#333" }}>{loading ? "…" : data.pedidos}</b> pedidos entregados</span>
+              <span><b style={{ fontSize: 18, color: "#333" }}>{loading ? "…" : unidadesVendidas}</b> unidades vendidas</span>
+              <span><b style={{ fontSize: 18, color: "#333" }}>{loading ? "…" : data.dias}</b> días</span>
+              {data.productos.length > 0 && <button style={{ marginLeft: "auto", fontSize: 12, padding: "5px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#555", cursor: "pointer" }} onClick={() => setVerProductos(x => !x)}>{verProductos ? "▾ Ocultar" : "▸ Ver"} productos vendidos ({data.productos.length})</button>}
+            </div>
+            {verProductos && data.productos.map((p, i) => (
+              <div key={p.producto} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "6px 16px", borderTop: "1px solid #f5f5f5", fontSize: 13 }}>
+                <span style={{ color: "#333" }}><span style={{ color: "#bbb", marginRight: 8 }}>{i + 1}</span>{p.producto}</span>
+                <span style={{ color: "#555", fontWeight: 600 }}>{p.cantidad}</span>
+              </div>
+            ))}
+          </div>
+
+          <SinRecetaVinculos usuario={usuario} sinReceta={data.sin_receta} onCambio={cargar} mostrarMensaje={mostrarMensaje} />
+
+          {data.avisos.length > 0 && (
+            <div style={{ background: "#fffbe6", border: "1px solid #ffe58f", borderRadius: 10, padding: "10px 16px", marginBottom: 16, fontSize: 12, color: "#8a6d3b" }}>
+              {data.avisos.map((a, i) => <div key={i}>⚠️ {a.detalle}</div>)}
+            </div>
+          )}
+
+          {/* Tabla por categoría */}
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, overflowX: "auto" }}>
+            <div style={{ minWidth: 760 }}>
+              <div style={cab}>
+                <div>Insumo</div><div style={{ textAlign: "right" }}>Utilizado</div><div style={{ textAlign: "right" }}>Prom. diario</div><div style={{ textAlign: "right" }}>Stock actual</div><div style={{ textAlign: "right" }}>Alcanza para</div><div style={{ textAlign: "right" }}>Proyección {nDias} d</div>
+              </div>
+              {loading ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>Cargando…</div>
+                : items.length === 0 ? <div style={{ padding: 20, color: "#aaa", fontSize: 13 }}>No hay insumos utilizados en el rango (¿pedidos entregados con receta?).</div>
+                : categoriasOrd.map(cat => (
+                  <div key={cat}>
+                    <div style={{ padding: "6px 16px", background: "#fcfcfb", fontSize: 11, fontWeight: 700, color: "#666", borderBottom: "1px solid #f0f0f0" }}>{cat}</div>
+                    {porCategoria[cat].map(i => (
+                      <div key={i.insumo_id} style={{ display: "grid", gridTemplateColumns: cols, gap: 8, padding: "8px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13, alignItems: "center", background: corto(i) ? "#fef6f5" : "#fff" }}>
+                        <div style={{ color: "#333" }}>{i.nombre}</div>
+                        <div style={{ textAlign: "right", color: "#555" }}>{fmtStock(i.utilizado, i.unidad)}</div>
+                        <div style={{ textAlign: "right", color: "#555" }}>{fmtStock(i.promedio_diario, i.unidad)}</div>
+                        <div style={{ textAlign: "right", color: "#888" }}>{fmtStock(i.stock, i.unidad)}</div>
+                        <div style={{ textAlign: "right", fontWeight: 600, color: corto(i) ? "#c0392b" : "#1d8a4e" }}>{fmtDias(i.alcanza_dias)}</div>
+                        <div style={{ textAlign: "right", color: i.proyeccion > i.stock ? "#c0392b" : "#555" }}>{fmtStock(i.proyeccion, i.unidad)}</div>
+                      </div>
+                    ))}
+                    <div style={{ display: "grid", gridTemplateColumns: cols, gap: 8, padding: "8px 16px", borderBottom: "2px solid #eee", fontSize: 13, alignItems: "center", background: "#f4f4ef", fontWeight: 700 }}>
+                      <div style={{ color: "#555" }}>Total {cat}</div>
+                      <div style={{ textAlign: "right", color: "#333" }}>{fmtMulti(sumaCat(porCategoria[cat], "utilizado"))}</div>
+                      <div style={{ textAlign: "right", color: "#333" }}>{fmtMulti(sumaCat(porCategoria[cat], "promedio_diario"))}</div>
+                      <div style={{ textAlign: "right", color: "#333" }}>{fmtMulti(sumaCat(porCategoria[cat], "stock"))}</div>
+                      <div />
+                      <div style={{ textAlign: "right", color: "#333" }}>{fmtMulti(sumaCat(porCategoria[cat], "proyeccion"))}</div>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
         </div>
       );
     }
@@ -10323,6 +10478,7 @@ let numeroAsignado = "";
                           {(esAdmin || usuario.rol === "encargado") && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("stockRecuento"); setMenuAbierto(false); }}>📋 Recuento</button>}
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("recetas"); setMenuAbierto(false); }}>📖 Recetas</button>
                           <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("necesidades"); setMenuAbierto(false); }}>🧮 Productos necesarios</button>
+                          <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("utilizados"); setMenuAbierto(false); }}>📦 Productos utilizados</button>
                           {esAdmin && <button style={{ ...s.dropItem, paddingLeft: 30, fontSize: 12, color: "#555" }} onClick={() => { setVista("insumos"); setMenuAbierto(false); }}>🧾 Insumos</button>}
                         </>
                       )}
@@ -10413,7 +10569,7 @@ let numeroAsignado = "";
       }
 
       // Guard módulo Stock. Ver = gestión; ingreso/recuento = admin/superadmin/encargado; maestro insumos = admin/superadmin.
-      const VISTAS_STOCK = ["stockActual", "stockIngreso", "stockRecuento", "insumos", "recetas", "necesidades"];
+      const VISTAS_STOCK = ["stockActual", "stockIngreso", "stockRecuento", "insumos", "recetas", "necesidades", "utilizados"];
       const sinAccesoStock = (texto) => (
         <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: "system-ui, sans-serif", background: "#f7f7f5", padding: 24, textAlign: "center" }}>
           <div style={{ fontSize: 40 }}>🔒</div>
@@ -11541,6 +11697,9 @@ if (vista === "dashboard") {
     }
     if (vista === "necesidades") {
       return <div style={s.wrap}>{Header()}<VistaNecesidades usuario={usuario} onVolver={() => setVista("panel")} /></div>;
+    }
+    if (vista === "utilizados") {
+      return <div style={s.wrap}>{Header()}<VistaUtilizados usuario={usuario} onVolver={() => setVista("panel")} /></div>;
     }
     if (vista === "mapa") {
         return <div style={s.wrap}>{Header()}<VistaMapa onVolver={() => setVista("panel")} repartidores={repartidoresLista} onCrearTanda={crearTanda} /></div>;
