@@ -7,6 +7,7 @@ import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "reac
     import Usuarios from "./Usuarios";
     import { getUsuarioGuardado, validarSesion, cerrarSesion, ROL_LABELS, guardarVistaActual, tomarVistaPrevia } from "./auth-utils";
     import { normalizarProducto, esExcluidoProduccion, esBasuraVenta, claveProducto, SUFIJOS_TAMANO, calcularEnvioTN } from "../productos-normalizacion.js";
+    import { linkWhatsAppAR } from "../Routes/telefonoAR.js";   // link wa.me con la misma normalización de teléfonos que el backend
 
     const API = import.meta.env.VITE_API_URL || "https://piccadely-panel-production.up.railway.app";
 
@@ -1636,7 +1637,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       );
     }
     // ─── LEADS DE REGALOS EMPRESARIALES (public/regalos.html → origen 'regalos') ───
-    // Detalle compartido por "Cotizaciones" y "Ventas a realizar". `opciones` = { tipo: "regalos", lineas, entrega, ... }.
+    // Detalle de regalos (lo usa DetalleCotizacion, más abajo). `opciones` = { tipo: "regalos", lineas, entrega, ... }.
     const REGALOS_BADGE = { bg: "#e0f2f1", color: "#0f766e" };   // verde azulado (manual = violeta, formulario = naranja)
     const esLeadRegalos = (c) => c?.origen === "regalos" || (c?.opciones && !Array.isArray(c.opciones) && ["regalos", "calendario"].includes(c.opciones.tipo));
     // Calendario anual (opciones.tipo === "calendario"): varias fechas con precio congelado al día de la propuesta.
@@ -1701,125 +1702,101 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       );
     }
 
-    function VistaCotizaciones({ onVolver }) {
-      const [lista, setLista] = useState([]);
-      const [loading, setLoading] = useState(true);
-      const [error, setError] = useState("");
-      const [filtro, setFiltro] = useState("todas");
-
-      const cargar = async () => {
-        setLoading(true);
-        try { const r = await axios.get(`${API}/api/cotizaciones`); setLista(r.data || []); setError(""); }
-        catch (e) { setError("No se pudieron cargar las cotizaciones."); }
-        finally { setLoading(false); }
-      };
-      useEffect(() => { cargar(); }, []);
-
-      const cambiarEstado = async (id, estado) => {
-        try {
-          await axios.patch(`${API}/api/cotizaciones/${id}`, { estado });
-          setLista(l => l.map(c => c.id === id ? { ...c, estado } : c));
-        } catch (e) { alert("Error al actualizar: " + (e.response?.data?.error || e.message)); }
-      };
-
-      const money = n => "$" + Number(n || 0).toLocaleString("es-AR");
-      const fmtFecha = v => v ? new Date(v).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
-      const wsp = t => { const d = String(t || "").replace(/\D/g, ""); if (!d) return null; const full = d.length <= 10 ? "549" + d : (d.startsWith("54") ? d : "54" + d); return "https://wa.me/" + full; };
-
-      const estados = ["pendiente", "contactado", "ganada", "perdida"];
-      const colorEstado = { pendiente: "#e8a33d", contactado: "#3d7de8", ganada: "#1ea05a", perdida: "#c0392b" };
-      const filtradas = filtro === "todas" ? lista : lista.filter(c => c.estado === filtro);
-
-      const btnVolver = { fontSize: 12, padding: "7px 14px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#555", cursor: "pointer", fontWeight: 600 };
-      const card = { background: "#fff", border: "1px solid #eee", borderRadius: 12, padding: 16, marginBottom: 14 };
-      const pill = (active, color) => ({ fontSize: 12, padding: "5px 12px", borderRadius: 20, border: "1px solid " + (active ? color : "#ddd"), background: active ? color : "#fff", color: active ? "#fff" : "#666", cursor: "pointer", fontWeight: 600 });
-
+    // ─── DETALLE DE UNA COTIZACIÓN / OPORTUNIDAD (Ventas a realizar) ───
+    // Componente ÚNICO para los tres orígenes: eventos (formulario), regalos (y calendario) y manual.
+    // Eventos: las filas nuevas guardan { tipo, vegetarianos, porciones, bebidas, opciones: [...] }; las viejas, solo la LISTA.
+    const MIX_LABEL = { solo_piccadas: "Solo piccadas", mas_piccada: "Más piccada", equilibrado: "Equilibrado", mas_sandwich: "Más sándwich" };
+    const CANAL_LABEL = { whatsapp: "📲 Cerró por WhatsApp", solicitar: "📞 Pidió que lo contacten", manual: "✍️ Carga manual" };
+    function detalleEventoDe(c) {
+      const o = c?.opciones;
+      if (Array.isArray(o)) return { formatoViejo: true, tipo: null, vegetarianos: null, porciones: null, opciones: o };
+      if (o && Array.isArray(o.opciones)) return { formatoViejo: false, ...o };
+      return null;
+    }
+    function TablaOpcionEvento({ op, personas, destacada }) {
+      const pesos = (n) => "$" + Math.round(Number(n) || 0).toLocaleString("es-AR");
+      const grupos = [["Piccadas", op.piccadas], ["Sándwiches", op.sandwiches], ["Para vegetarianos", op.vegetarianas]].filter(([, xs]) => (xs || []).length);
+      const celda = { padding: "4px 6px", fontSize: 12, borderBottom: "1px solid #f0f0f0" };
       return (
-        <div style={{ padding: 24, maxWidth: 820, margin: "0 auto" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
-            <button style={btnVolver} onClick={onVolver}>← Volver</button>
-            <h2 style={{ fontSize: 17, fontWeight: 600, color: "#333", margin: 0 }}>🎉 Cotizaciones de Eventos</h2>
-            <span style={{ fontSize: 13, color: "#999" }}>{filtradas.length}</span>
-            <button onClick={cargar} style={{ marginLeft: "auto", fontSize: 12, padding: "6px 12px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }}>↻ Actualizar</button>
+        <div style={{ border: `1px solid ${destacada ? "#F68B32" : "#eee"}`, background: destacada ? "#fffaf5" : "#fff", borderRadius: 8, padding: "8px 10px", marginTop: 6 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", fontSize: 13, marginBottom: 4 }}>
+            <b style={{ color: destacada ? "#d9701c" : "#555" }}>{destacada ? "✅ Elegida: " : ""}{op.etiqueta || op.nivel}</b>
+            <span><b>{pesos(op.total)}</b>{op.porPersona ? <span style={{ color: "#888" }}> · {pesos(op.porPersona)} por persona{personas ? ` (${personas})` : ""}</span> : null}</span>
           </div>
-
-          <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
-            {["todas", ...estados].map(f => (
-              <button key={f} style={pill(filtro === f, f === "todas" ? "#F68B32" : colorEstado[f])} onClick={() => setFiltro(f)}>
-                {f === "todas" ? "Todas" : f.charAt(0).toUpperCase() + f.slice(1)}
-              </button>
-            ))}
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 420 }}>
+              <thead><tr style={{ color: "#999", fontSize: 10, textTransform: "uppercase", textAlign: "left" }}>
+                <th style={celda}>Producto</th><th style={celda}>Tamaño</th><th style={{ ...celda, textAlign: "right" }}>Cant.</th><th style={{ ...celda, textAlign: "right" }}>Precio unit.</th><th style={{ ...celda, textAlign: "right" }}>Subtotal</th>
+              </tr></thead>
+              <tbody>
+                {grupos.map(([titulo, xs]) => [
+                  <tr key={titulo}><td colSpan={5} style={{ ...celda, fontSize: 11, fontWeight: 700, color: "#888", background: "#fafafa" }}>{titulo}</td></tr>,
+                  ...xs.map((i, k) => (
+                    <tr key={titulo + k}>
+                      <td style={celda}>{i.nombre}</td><td style={{ ...celda, color: "#777" }}>{i.tamano || "—"}</td>
+                      <td style={{ ...celda, textAlign: "right" }}>{i.cantidad}</td>
+                      <td style={{ ...celda, textAlign: "right" }}>{pesos(i.precioUnitario)}</td>
+                      <td style={{ ...celda, textAlign: "right", fontWeight: 600 }}>{pesos(i.subtotal ?? (i.precioUnitario || 0) * (i.cantidad || 0))}</td>
+                    </tr>
+                  )),
+                ])}
+              </tbody>
+            </table>
           </div>
-
-          {loading && <p style={{ color: "#999" }}>Cargando...</p>}
-          {error && <p style={{ color: "#c0392b" }}>{error}</p>}
-          {!loading && !error && filtradas.length === 0 && <p style={{ color: "#999" }}>No hay cotizaciones todavía.</p>}
-
-          {filtradas.map(c => {
-            // Los leads de regalos guardan en `opciones` un objeto ({ tipo: "regalos", ... }), no la lista de opciones del evento.
-            const esRegalos = esLeadRegalos(c);
-            const elegida = Array.isArray(c.opciones) ? c.opciones.find(o => o.nivel === c.nivel_elegido) : null;
-            const items = elegida ? [...(elegida.piccadas || []), ...(elegida.sandwiches || []), ...(elegida.vegetarianas || [])] : [];
-            const link = wsp(c.telefono);
-            if (esRegalos) return (
-              <div key={c.id} style={{ ...card, borderLeft: "4px solid " + (colorEstado[c.estado] || "#ddd") }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 6, background: REGALOS_BADGE.bg, color: REGALOS_BADGE.color }}>{esCalendarioRegalos(c) ? "📅 Regalos · Calendario anual" : "🎁 Regalos empresariales"}</span>
-                  <span style={{ fontSize: 12, color: "#999" }}>#{c.id} · {fmtFecha(c.creada_en)} · {c.canal === "whatsapp" ? "📲 WhatsApp" : "📄 Pidió la propuesta"}</span>
-                  <select value={c.estado} onChange={e => cambiarEstado(c.id, e.target.value)}
-                    style={{ marginLeft: "auto", fontSize: 12, padding: "5px 8px", borderRadius: 6, border: "1px solid #ddd", color: colorEstado[c.estado], fontWeight: 600 }}>
-                    {estados.map(e => <option key={e} value={e}>{e.charAt(0).toUpperCase() + e.slice(1)}</option>)}
-                  </select>
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>
-                  {c.cliente_nombre || "Sin nombre"}{c.empresa ? <span style={{ color: "#888", fontWeight: 400 }}> · {c.empresa}</span> : null}
-                </div>
-                <div style={{ fontSize: 13, color: "#666", margin: "4px 0 10px" }}>
-                  ✉️ {c.email || "-"} · 📱 {c.telefono || "-"}
-                  {link && <a href={link} target="_blank" rel="noreferrer" style={{ marginLeft: 8, color: "#1ea05a", textDecoration: "none", fontWeight: 600 }}>Escribir ›</a>}
-                </div>
-                <DetalleRegalos c={c} />
-              </div>
-            );
-            return (
-              <div key={c.id} style={{ ...card, borderLeft: "4px solid " + (colorEstado[c.estado] || "#ddd") }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 6, background: c.canal === "whatsapp" ? "#e9f8ef" : "#fff4e8", color: c.canal === "whatsapp" ? "#1ea05a" : "#d9701c" }}>
-                    {c.canal === "whatsapp" ? "📲 Cerró por WhatsApp" : "📞 Pidió que lo contacten"}
-                  </span>
-                  <span style={{ fontSize: 12, color: "#999" }}>#{c.id} · {fmtFecha(c.creada_en)}</span>
-                  <select value={c.estado} onChange={e => cambiarEstado(c.id, e.target.value)}
-                    style={{ marginLeft: "auto", fontSize: 12, padding: "5px 8px", borderRadius: 6, border: "1px solid #ddd", color: colorEstado[c.estado], fontWeight: 600 }}>
-                    {estados.map(e => <option key={e} value={e}>{e.charAt(0).toUpperCase() + e.slice(1)}</option>)}
-                  </select>
-                </div>
-
-                <div style={{ fontSize: 14, fontWeight: 600, color: "#333" }}>
-                  {c.cliente_nombre || "Sin nombre"}{c.empresa ? <span style={{ color: "#888", fontWeight: 400 }}> · {c.empresa}</span> : null}
-                </div>
-                <div style={{ fontSize: 13, color: "#666", margin: "4px 0 10px" }}>
-                  ✉️ {c.email || "-"} · 📱 {c.telefono || "-"}
-                  {link && <a href={link} target="_blank" rel="noreferrer" style={{ marginLeft: 8, color: "#1ea05a", textDecoration: "none", fontWeight: 600 }}>Escribir ›</a>}
-                </div>
-
-                <div style={{ fontSize: 13, color: "#444", background: "#faf7f2", borderRadius: 8, padding: "10px 12px" }}>
-                  <div style={{ marginBottom: 6 }}>
-                    👥 <b>{c.personas}</b> personas ({c.modo}) · {c.mix}{c.fecha_evento ? " · 📅 " + c.fecha_evento : ""}{c.zona ? " · 📍 " + c.zona : ""}{c.con_bebidas ? " · 🥤 quiere bebidas" : ""}
-                  </div>
-                  <div style={{ fontWeight: 700, color: "#d9701c" }}>
-                    {elegida ? elegida.etiqueta : (c.nivel_elegido || "—")} · {money(c.total_elegido)}
-                  </div>
-                  {items.length > 0 && (
-                    <ul style={{ margin: "6px 0 0", paddingLeft: 18, color: "#666" }}>
-                      {items.map((i, k) => <li key={k} style={{ fontSize: 12 }}>{i.cantidad}× {i.nombre} ({i.tamano})</li>)}
-                    </ul>
-                  )}
-                </div>
-              </div>
-            );
-          })}
         </div>
       );
+    }
+    function DetalleEvento({ c }) {
+      const [verOtras, setVerOtras] = useState(false);
+      const d = detalleEventoDe(c);
+      const pesos = (n) => "$" + Math.round(Number(n) || 0).toLocaleString("es-AR");
+      if (!d) return <div style={{ fontSize: 12, color: "#999" }}>Sin detalle guardado.</div>;
+      const elegida = d.opciones.find((o) => o.nivel === c.nivel_elegido);
+      const otras = d.opciones.filter((o) => o !== elegida);
+      const tipo = d.tipo === "desayuno" ? "☕ Desayuno / merienda" : d.tipo === "evento" ? "🎉 Evento" : null;
+      const dato = (k, v) => (v === null || v === undefined || v === "" ? null : <span key={k} style={{ whiteSpace: "nowrap" }}><span style={{ color: "#999" }}>{k}:</span> <b style={{ fontWeight: 600 }}>{v}</b></span>);
+      const datos = [
+        tipo && dato("Tipo", tipo),
+        dato("Personas", c.personas),
+        d.tipo !== "desayuno" && dato("Vegetarianos", d.vegetarianos),
+        dato("Modo", c.modo === "comer" ? "Comen" : c.modo === "piccar" ? "Piccan" : c.modo),
+        d.tipo !== "desayuno" && dato("Combinación", MIX_LABEL[c.mix] || c.mix),
+        d.porciones && (d.porciones.piccada || d.porciones.sandwich) ? dato("Porciones", `${d.porciones.piccada ?? 0} de piccada · ${d.porciones.sandwich ?? 0} de sándwich`) : null,
+        dato("Fecha", c.fecha_evento), dato("Zona", c.zona),
+        dato("Bebidas", c.con_bebidas ? "Sí, las coordina un asesor" : "No"),
+        dato("Canal", CANAL_LABEL[c.canal] || c.canal),
+      ].filter(Boolean);
+      return (
+        <div style={{ fontSize: 13, color: "#444", background: "#fafaf8", borderRadius: 8, padding: "10px 12px" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px", fontSize: 12 }}>{datos}</div>
+          {d.formatoViejo && <div style={{ fontSize: 11, color: "#aaa", marginTop: 4 }}>Cotización anterior a la Entrega 2a: no guardó tipo ni vegetarianos.</div>}
+          {elegida ? <TablaOpcionEvento op={elegida} personas={c.personas} destacada />
+            : <div style={{ fontSize: 12, color: "#999", marginTop: 6 }}>No se guardó la opción elegida. Total: {pesos(c.total_elegido)}</div>}
+          {otras.length > 0 && (
+            <button type="button" onClick={() => setVerOtras((x) => !x)} style={{ marginTop: 8, fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#555", cursor: "pointer" }}>
+              {verOtras ? "▾ Ocultar" : "▸ Ver"} las otras opciones ({otras.length})
+            </button>
+          )}
+          {verOtras && otras.map((op, k) => <TablaOpcionEvento key={k} op={op} personas={c.personas} />)}
+        </div>
+      );
+    }
+    function DetalleManual({ c }) {
+      const pesos = (n) => "$" + Math.round(Number(n) || 0).toLocaleString("es-AR");
+      const fila = (k, v) => <div style={{ display: "flex", gap: 8, fontSize: 12 }}><span style={{ color: "#999", minWidth: 90 }}>{k}</span><span>{v || "—"}</span></div>;
+      return (
+        <div style={{ fontSize: 13, color: "#444", background: "#f7f5ff", borderRadius: 8, padding: "10px 12px", display: "grid", gap: 3 }}>
+          {fila("Personas", c.personas)}{fila("Fecha", c.fecha_evento)}{fila("Zona", c.zona)}
+          {fila("Total", c.total_elegido ? pesos(c.total_elegido) : null)}
+          {fila("Cargada", c.creada_en ? new Date(c.creada_en).toLocaleDateString("es-AR") : null)}
+          <div style={{ fontSize: 12, marginTop: 4 }}><span style={{ color: "#999" }}>Notas</span><div style={{ whiteSpace: "pre-wrap", marginTop: 2 }}>{c.notas || "—"}</div></div>
+        </div>
+      );
+    }
+    function DetalleCotizacion({ c }) {
+      if (esLeadRegalos(c)) return <DetalleRegalos c={c} />;
+      if (c?.origen === "manual") return <DetalleManual c={c} />;
+      return <DetalleEvento c={c} />;
     }
     // ─── COMPONENTE CAJA ─────────────────────────────────────────────────
     function VistaCaja({ pedidosActivos, onVolver, usuario }) {
@@ -8365,7 +8342,6 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
     // Se abre desde Clientes (fila o seguimiento) y desde las tarjetas de Ventas a realizar. Lee /api/clientes/ficha.
     // Notas: solo el autor o un superadmin ven "Anular" (el backend lo valida igual).
     const NOTA_TIPOS = { nota: { label: "Nota", icono: "📝" }, llamada: { label: "Llamada", icono: "📞" }, whatsapp: { label: "WhatsApp", icono: "💬" }, mail: { label: "Mail", icono: "✉️" }, reunion: { label: "Reunión", icono: "🤝" } };
-    const linkWhatsApp = (t) => { const d = String(t || "").replace(/\D/g, ""); if (!d) return null; const full = d.length <= 10 ? "549" + d : (d.startsWith("54") ? d : "54" + d); return "https://wa.me/" + full; };
     const hoyISO = () => { const h = new Date(); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`; };
     function FichaCliente({ clienteKey, usuario, onCerrar, onCambio }) {
       const [data, setData] = useState(null);
@@ -8410,7 +8386,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
       const d = data?.datos || {}, m = data?.metricas || {};
       const ti = data?.temperatura ? TEMP_INFO[data.temperatura] : null;
-      const wa = linkWhatsApp(d.telefono);
+      const wa = linkWhatsAppAR(d.telefono);
       const hoy = hoyISO();
       const notas = (data?.notas || []).filter(n => verAnuladas || n.estado === "activo");
       const caja = { background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 14, marginBottom: 12 };
@@ -8760,7 +8736,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
     const OPP_FORM_VACIO = { cliente_nombre: "", empresa: "", email: "", telefono: "", personas: "", fecha_evento: "", zona: "", total_elegido: "", notas: "", estado: "pendiente" };
     function VistaVentasRealizar({ usuario, onVolver }) {
       const [lista, setLista] = useState([]);
-      const [detalleAbierto, setDetalleAbierto] = useState({});   // id → detalle de regalos desplegado
+      const [detalleAbierto, setDetalleAbierto] = useState({});   // id → detalle desplegado (todos los orígenes)
       const [clientesMap, setClientesMap] = useState({});
       const [clientesList, setClientesList] = useState([]);
       const [loading, setLoading] = useState(true);
@@ -8885,15 +8861,20 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                       <div style={{ fontSize: 12, color: "#888", marginTop: 3 }}>
                         {c.fecha_evento ? `📅 ${c.fecha_evento}` : "sin fecha"}{c.personas ? ` · 👥 ${c.personas}` : ""}{c.zona ? ` · 📍 ${c.zona}` : ""} · hace {diasDesde(c.creada_en)} día(s){cli ? ` · cliente: ${money(cli.total_gastado)} gastados` : ""}
                       </div>
+                      {(c.telefono || c.email) && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, flexWrap: "wrap", fontSize: 12, color: "#555" }}>
+                          {c.telefono && <span>📞 {c.telefono}</span>}
+                          {c.telefono && linkWhatsAppAR(c.telefono) && <a href={linkWhatsAppAR(c.telefono)} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 6, background: "#25D366", color: "#fff", textDecoration: "none" }}>💬 WhatsApp</a>}
+                          {c.email && <span style={{ marginLeft: c.telefono ? 6 : 0 }}>✉️ {c.email}</span>}
+                          {c.email && <a href={`mailto:${c.email}`} style={{ fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 6, background: "#2563eb", color: "#fff", textDecoration: "none" }}>Mail</a>}
+                        </div>
+                      )}
                       {c.estado === "perdida" && c.motivo_perdida && <div style={{ fontSize: 11, color: "#c0392b", marginTop: 3 }}>Perdida: {c.motivo_perdida}</div>}
                       {c.notas && <div style={{ fontSize: 12, color: "#666", marginTop: 3 }}>{c.notas}</div>}
-                      {esLeadRegalos(c) && (
-                        <button type="button" onClick={() => setDetalleAbierto(d => ({ ...d, [c.id]: !d[c.id] }))}
-                          style={{ marginTop: 6, fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 6, border: `1px solid ${REGALOS_BADGE.color}`, background: "#fff", color: REGALOS_BADGE.color, cursor: "pointer" }}>
-                          {detalleAbierto[c.id] ? "Ocultar detalle ▴" : "Ver detalle ▾"}
-                        </button>
-                      )}
-                      {esLeadRegalos(c) && detalleAbierto[c.id] && <div style={{ marginTop: 8 }}><DetalleRegalos c={c} /></div>}
+                      <button type="button" onClick={() => setDetalleAbierto(d => ({ ...d, [c.id]: !d[c.id] }))}
+                        style={{ marginTop: 6, fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 6, border: `1px solid ${esLeadRegalos(c) ? REGALOS_BADGE.color : c.origen === "manual" ? "#6d28d9" : "#d9701c"}`, background: "#fff", color: esLeadRegalos(c) ? REGALOS_BADGE.color : c.origen === "manual" ? "#6d28d9" : "#d9701c", cursor: "pointer" }}>
+                        {detalleAbierto[c.id] ? "Ocultar detalle ▴" : "Ver detalle ▾"}
+                      </button>
                     </div>
                     <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                       <div style={{ fontSize: 16, fontWeight: 700, color: "#333" }}>{money(c.total_elegido)}</div>
@@ -8902,6 +8883,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                       </select>
                     </div>
                   </div>
+                  {detalleAbierto[c.id] && <div style={{ marginTop: 8 }}><DetalleCotizacion c={c} /></div>}{/* ancho completo, debajo de la fila */}
                 </div>
               );
             })}

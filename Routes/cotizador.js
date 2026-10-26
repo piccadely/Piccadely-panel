@@ -101,7 +101,7 @@ function piccadasDelNivel(productos, cfg, modo) {
       const rinde  = modo === "comer" ? comer : piccar;
       const precio = num(v.price);
       if (rinde > 0 && precio > 0) {
-        (porProducto[nombre] = porProducto[nombre] || []).push({ nombre, tamano: label, comer, piccar, rinde, precio, imagen: imgDe(p) });
+        (porProducto[nombre] = porProducto[nombre] || []).push({ nombre, tamano: label, comer, piccar, rinde, precio, imagen: imgDe(p), product_id: p.id, variant_id: v.id });
       }
     }
   }
@@ -122,6 +122,7 @@ function unidadesSandwich(productos, nivel, modo) {
         nombre: prod.name?.es,
         tamano: modo === "comer" ? `comen ${regla.comer}` : `piccan ${regla.piccar}`,
         comer: regla.comer, piccar: regla.piccar, rinde, precio, imagen: imgDe(prod),
+        product_id: prod.id, variant_id: (prod.variants || [])[0]?.id ?? null,
       });
     }
   }
@@ -143,7 +144,7 @@ function unidadesVeg(productos, nivel, modo) {
         const piccar = num((label.match(/piccan\s*(\d+)/i) || [])[1]);
         const rinde = modo === "comer" ? comer : piccar;
         const precio = num(v.price);
-        if (rinde > 0 && precio > 0) unidades.push({ nombre: prod.name.es, tamano: label, comer, piccar, rinde, precio, imagen: imgDe(prod) });
+        if (rinde > 0 && precio > 0) unidades.push({ nombre: prod.name.es, tamano: label, comer, piccar, rinde, precio, imagen: imgDe(prod), product_id: prod.id, variant_id: v.id });
       }
     }
   } else {
@@ -156,7 +157,8 @@ function unidadesVeg(productos, nivel, modo) {
       const precio = num((prod.variants || [])[0]?.price);
       const rinde = modo === "comer" ? sz.comer : sz.piccar;
       if (rinde > 0 && precio > 0)
-        unidades.push({ nombre: prod.name.es, tamano: `${sz.match} (come ${sz.comer} / piccan ${sz.piccar})`, comer: sz.comer, piccar: sz.piccar, rinde, precio, imagen: imgDe(prod) });
+        unidades.push({ nombre: prod.name.es, tamano: `${sz.match} (come ${sz.comer} / piccan ${sz.piccar})`, comer: sz.comer, piccar: sz.piccar, rinde, precio, imagen: imgDe(prod),
+          product_id: prod.id, variant_id: (prod.variants || [])[0]?.id ?? null });
     }
   }
   return unidades;
@@ -177,6 +179,7 @@ function unidadesDesayuno(productos, nivel, modo) {
         nombre: prod.name?.es,
         tamano: modo === "comer" ? `desayunan ${it.comer}` : `piccan ${it.piccar}`,
         comer: it.comer, piccar: it.piccar, rinde, precio, imagen: imgDe(prod),
+        product_id: prod.id, variant_id: (prod.variants || [])[0]?.id ?? null,
       });
   }
   return unidades;
@@ -206,7 +209,7 @@ function cubrirMenorCosto(unidades, objetivo) {
   }
   const items = Object.entries(conteo).map(([u, cant]) => {
     const un = unidades[u];
-    return { nombre: un.nombre, tamano: un.tamano, cantidad: cant, precioUnitario: un.precio, subtotal: un.precio * cant, rinde: un.rinde * cant, imagen: un.imagen };
+    return { nombre: un.nombre, tamano: un.tamano, cantidad: cant, precioUnitario: un.precio, subtotal: un.precio * cant, rinde: un.rinde * cant, imagen: un.imagen, product_id: un.product_id ?? null, variant_id: un.variant_id ?? null };
   });
   const total = items.reduce((a, i) => a + i.subtotal, 0);
   return { items, total };
@@ -247,7 +250,7 @@ function repartirDesayuno(unidades, objetivo) {
   }
   const items = Object.entries(conteo).map(([i, cant]) => {
     const u = pool[i];
-    return { nombre: u.nombre, tamano: u.tamano, cantidad: cant, precioUnitario: u.precio, subtotal: u.precio * cant, rinde: u.rinde * cant, imagen: u.imagen };
+    return { nombre: u.nombre, tamano: u.tamano, cantidad: cant, precioUnitario: u.precio, subtotal: u.precio * cant, rinde: u.rinde * cant, imagen: u.imagen, product_id: u.product_id ?? null, variant_id: u.variant_id ?? null };
   });
   const total = items.reduce((a, i) => a + i.subtotal, 0);
   return { items, total };
@@ -287,6 +290,25 @@ async function notificarCotizacion(mailTransporter, cot) {
   } catch (e) {
     console.error("Error enviando mail de cotización:", e.message);
   }
+}
+
+// Detalle que se GUARDA de una cotización de eventos. Hasta la Entrega 2a se guardaba solo la lista de opciones (se
+// perdían tipo, vegetarianos y porciones). Ahora: { tipo: "evento"|"desayuno", vegetarianos, porciones, bebidas, opciones: [...] }.
+// Las filas viejas siguen siendo una LISTA: el panel lee los dos formatos. Un cotizador viejo cacheado que no manda
+// tipo → se deduce (el desayuno solo tiene Selección y Premium, sin sándwiches).
+const entero0 = (x) => { const n = parseInt(x, 10); return Number.isFinite(n) && n >= 0 ? n : null; };
+export function detalleEvento(b) {
+  if (!Array.isArray(b.opciones)) return b.opciones || null;
+  const deducido = b.opciones.length && !b.opciones.some(o => o.nivel === "economica") && b.opciones.every(o => !(o.sandwiches || []).length) ? "desayuno" : "evento";
+  const tipo = b.tipo === "desayuno" || b.tipo === "evento" ? b.tipo : deducido;
+  return {
+    tipo, formato: 2,
+    vegetarianos: tipo === "desayuno" ? 0 : entero0(b.vegetarianos),
+    porciones: b.porciones && typeof b.porciones === "object"
+      ? { piccada: entero0(b.porciones.piccada), sandwich: entero0(b.porciones.sandwich) } : null,
+    bebidas: { pedidas: !!b.con_bebidas },   // el formulario solo tiene la casilla: el detalle lo coordina un asesor
+    opciones: b.opciones,
+  };
 }
 
 // Clave de cliente: email (lower+trim) o, si no hay, teléfono (solo dígitos). MISMA fórmula que
@@ -367,6 +389,7 @@ export function cotizadorRouter(pool, mailTransporter, requireAdmin) {
   router.post("/cotizaciones", async (req, res) => {
     try {
       const b = req.body || {};
+      const opcionesGuardadas = detalleEvento(b);
       const canal = b.canal === "whatsapp" ? "whatsapp" : "solicitar";
       const cliente_key = clienteKeyDe(b.email, b.telefono);
       const q = await pool.query(
@@ -379,7 +402,7 @@ export function cotizadorRouter(pool, mailTransporter, requireAdmin) {
         [
           b.cliente_nombre || null, b.empresa || null, b.email || null, b.telefono || null,
           b.personas || null, b.modo || null, b.mix || null, b.fecha_evento || null, b.zona || null,
-          b.nivel_elegido || null, b.opciones ? JSON.stringify(b.opciones) : null,
+          b.nivel_elegido || null, opcionesGuardadas ? JSON.stringify(opcionesGuardadas) : null,
           b.total_elegido || null, !!b.con_bebidas, canal, b.notas || null, cliente_key,
         ]
       );

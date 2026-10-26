@@ -297,6 +297,8 @@ async function guardar(canal){
     fecha_evento:document.getElementById("fecha").value||null,
     zona:document.getElementById("zona").value.trim()||null,
     nivel_elegido:o.nivel, opciones:state.calc.opciones, total_elegido:o.total,
+    tipo:state.calc.tipo, vegetarianos:state.calc.vegetarianos||0,
+    porciones:{ piccada:state.calc.objetivoPiccada||0, sandwich:state.calc.objetivoSandwich||0 },
     con_bebidas:document.getElementById("bebidas").checked, canal
   };
   const r = await fetch(API+"/api/cotizaciones",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});

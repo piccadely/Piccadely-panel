@@ -26,3 +26,11 @@ export function mismoTelefonoAR(a, b) {
   const n = Math.min(x.length, y.length) >= 10 ? 10 : 8;
   return x.slice(-n) === y.slice(-n);
 }
+
+// Link de WhatsApp (wa.me/549 + área + número) con la MISMA normalización. Sin código de área → 11 (CABA/GBA).
+// Lo usan el panel (tarjetas de Ventas a realizar, ficha de cliente). Número que no queda en 10 dígitos → null (sin botón).
+export function linkWhatsAppAR(tel) {
+  let d = normalizarTelefonoAR(tel);
+  if (d.length === 8) d = "11" + d;
+  return d.length === 10 ? "https://wa.me/549" + d : null;
+}
