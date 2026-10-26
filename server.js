@@ -724,7 +724,7 @@ const mailTransporter = (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWOR
   ? nodemailer.createTransport({ host: "smtp.gmail.com", port: 465, secure: true, auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD } })
   : null;
 
-const { requireAuth, requireAdmin, requireRole, requireAdminOCrm, usuarioOpcional } = setupAuth(app, pool, mailTransporter);
+const { requireAuth, requireAdmin, requireRole, requireAdminOCrm } = setupAuth(app, pool, mailTransporter);
 
 // ─── AUDITORIA HELPER ────────────────────────────────────────────────
 async function registrarAuditoria(usuario, accion, entidadTipo, entidadId, detalle = {}) {
@@ -919,7 +919,7 @@ async function enviarMailAnulacion(pedido) {
 }
 
 // ─── MERCADO PAGO ─────────────────────────────────────────────────────
-app.use("/api/mp", mpRouter(pool, mailTransporter));
+app.use("/api/mp", mpRouter(pool, mailTransporter, { requireAuth }));   // create-preference: panel (con login) · webhook: Mercado Pago (público)
 app.use("/api/bot", botWhatsappRouter({ requireAuth }));   // POST /whatsapp (Botmaker, público) + GET /catalogo (debug, con login)
 app.use("/api/whatsapp", whatsappWebhookRouter(pool));   // Cloud API de Meta: GET verificación + POST eventos (guarda, bot, envío)
 app.use("/api/whatsapp", whatsappBandejaRouter(pool, { requireAuth }));   // bandeja multiagente (requiere login)
@@ -928,7 +928,7 @@ app.use("/api", cotizadorRouter(pool, mailTransporter, requireAdminOCrm));   // 
 app.use("/api/regalos", regalosRouter(pool, mailTransporter));   // Cotizador de Regalos Empresariales (público: catálogo, cálculo y propuesta)
 
  // ─── ORDERS ───────────────────────────────────────────────────────────
-app.get("/api/orders", async (req, res) => {
+app.get("/api/orders", requireAuth, async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT t.data
@@ -1176,7 +1176,7 @@ function areaDePunto(lat, lng) {
 }
 
 // GET /api/costos-areas -> { "1": costo, ..., "10": costo } (fallback 1 por área).
-app.get("/api/costos-areas", async (req, res) => {
+app.get("/api/costos-areas", requireAdmin, async (req, res) => {
   try {
     res.json(await cargarCostosAreas());
   } catch (err) { console.error("Error GET /api/costos-areas:", err.message); res.status(500).json({ error: "Error trayendo costos de áreas" }); }
@@ -1184,7 +1184,7 @@ app.get("/api/costos-areas", async (req, res) => {
 
 // PATCH /api/costos-areas -> body { costos: { "1": num, ..., "10": num } }. Cada valor
 // debe ser número finito >= 0. Upsert por área.
-app.patch("/api/costos-areas", async (req, res) => {
+app.patch("/api/costos-areas", requireAdmin, async (req, res) => {
   const costos = req.body?.costos;
   if (!costos || typeof costos !== "object") {
     return res.status(400).json({ error: "Falta 'costos' (objeto { \"1\"..\"10\": número })" });
@@ -1357,7 +1357,7 @@ app.get("/api/reportes/zonas", requireAdmin, async (req, res) => {
   }
 });
 
-  app.get("/api/products", async (req, res) => {
+  app.get("/api/products", requireAuth, async (req, res) => {
     if (!TN_ENABLED) { console.warn("⚠️ Tienda Nube no configurada: /api/products devuelve []"); return res.json([]); }
     // TN pagina con ?page=N&per_page=200 (200 = máximo por página). Traemos TODAS las páginas
     // (mismo patrón que el backfill de pedidos), si no los productos >200 quedan afuera.
@@ -1382,7 +1382,7 @@ app.get("/api/reportes/zonas", requireAdmin, async (req, res) => {
     }
   });
 
-  app.get("/api/categories", async (req, res) => {
+  app.get("/api/categories", requireAuth, async (req, res) => {
     if (!TN_ENABLED) { console.warn("⚠️ Tienda Nube no configurada: /api/categories devuelve []"); return res.json([]); }
     try {
       const r = await axios.get(`https://api.tiendanube.com/2025-03/${STORE_ID}/categories`, { headers });
@@ -1391,7 +1391,7 @@ app.get("/api/reportes/zonas", requireAdmin, async (req, res) => {
   });
 
   // ─── ESTADOS ──────────────────────────────────────────────────────────
-  app.get("/api/estados", async (req, res) => {
+  app.get("/api/estados", requireAuth, async (req, res) => {
     try {
       const result = await pool.query("SELECT * FROM pedidos_estados");
       const estados = {};
@@ -1417,7 +1417,7 @@ app.get("/api/reportes/zonas", requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Error trayendo estados" }); }
 });
 
-app.post("/api/estados/:id", async (req, res) => {
+app.post("/api/estados/:id", requireAuth, async (req, res) => {
   const { id } = req.params;
 const { estado, repartidor, tabManual, fechaManual, franjaManual, cobrar, silencioso, motivoAnulacion, usuario: usuarioAudit } = req.body;  try {
     // Leer estado previo para auditoria
@@ -1466,7 +1466,7 @@ if (mailAnularPedido && !silencioso) enviarMailAnulacion(mailAnularPedido).catch
   } catch (err) { res.status(500).json({ error: "Error guardando estado" }); }
 });
 // ─── CONTADOR DE COMANDAS IMPRESAS ────────────────────────────────────
-app.post("/api/pedidos/:id/imprimir", async (req, res) => {
+app.post("/api/pedidos/:id/imprimir", requireAuth, async (req, res) => {
   const { id } = req.params;
   const { usuario: usuarioAudit } = req.body;
   try {
@@ -1485,7 +1485,7 @@ app.post("/api/pedidos/:id/imprimir", async (req, res) => {
 // ─── MARCADOR "SOBRE" (avisado) POR PEDIDO ───────────────────────────
 // Toggle persistente y compartido. UPSERT sobre la misma clave (id) que el
 // resto de los overrides de pedidos_estados. Misma auth que /api/estados.
-app.patch("/api/orders/:id/sobre", async (req, res) => {
+app.patch("/api/orders/:id/sobre", requireAuth, async (req, res) => {
   const { id } = req.params;
   const sobre = !!req.body.sobre;
   try {
@@ -1502,7 +1502,7 @@ app.patch("/api/orders/:id/sobre", async (req, res) => {
 // ─── MARCADOR "TARJETA DE REGALO" POR PEDIDO (3 estados) ─────────────
 // Reemplaza al de "sobre". Valores: 'no' | 'pendiente' | 'hecha'. Upsert de UNA sola
 // columna con el mismo patrón anti-clobber: NO pisa estado/repartidor/overrides.
-app.patch("/api/orders/:id/tarjeta", async (req, res) => {
+app.patch("/api/orders/:id/tarjeta", requireAuth, async (req, res) => {
   const { id } = req.params;
   const { tarjeta } = req.body;
   if (!["no", "pendiente", "hecha"].includes(tarjeta)) {
@@ -1534,14 +1534,14 @@ async function setTandaIdPedido(id, tandaId) {
   );
 }
 
-app.get("/api/tandas", async (req, res) => {
+app.get("/api/tandas", requireAuth, async (req, res) => {
   try {
     const r = await pool.query("SELECT * FROM tandas ORDER BY id DESC");
     res.json(r.rows.map(t => ({ id: t.id, nombre: t.nombre, repartidor: t.repartidor, local: t.local, estado: t.estado, createdAt: t.created_at })));
   } catch (err) { res.status(500).json({ error: "Error trayendo tandas" }); }
 });
 
-app.post("/api/tandas", async (req, res) => {
+app.post("/api/tandas", requireAuth, async (req, res) => {
   const { nombre, repartidor, local, pedidoIds, usuario: usuarioAudit } = req.body;
   if (!repartidor || !Array.isArray(pedidoIds) || pedidoIds.length === 0) {
     return res.status(400).json({ error: "repartidor y pedidoIds son requeridos" });
@@ -1558,7 +1558,7 @@ app.post("/api/tandas", async (req, res) => {
   } catch (err) { console.error("Error POST /api/tandas:", err.message); res.status(500).json({ error: "Error creando tanda" }); }
 });
 
-app.patch("/api/tandas/:id", async (req, res) => {
+app.patch("/api/tandas/:id", requireAuth, async (req, res) => {
   const { id } = req.params;
   const { estado, nombre, repartidor, usuario: usuarioAudit } = req.body;
   try {
@@ -1604,7 +1604,7 @@ app.patch("/api/tandas/:id", async (req, res) => {
 });
 
 // Quitar/asignar UN pedido suelto: tandaId null lo saca de la tanda (vuelve al pool)
-app.patch("/api/orders/:id/tanda", async (req, res) => {
+app.patch("/api/orders/:id/tanda", requireAuth, async (req, res) => {
   const { id } = req.params;
   const tandaId = req.body.tandaId == null ? null : Number(req.body.tandaId);
   try {
@@ -1634,7 +1634,7 @@ async function localYTandaDePedido(id) {
 // Agregar 1+ pedidos a una tanda EXISTENTE (inverso del quitar). Mismo upsert de una
 // sola columna (tanda_id = :id), no pisa estado/repartidor. Valida: tanda 'armada',
 // cada pedido sin tanda y del mismo local. Los que no cumplen no se agregan.
-app.post("/api/tandas/:id/pedidos", async (req, res) => {
+app.post("/api/tandas/:id/pedidos", requireAuth, async (req, res) => {
   const { id } = req.params;
   const { pedidoIds, usuario: usuarioAudit } = req.body;
   if (!Array.isArray(pedidoIds) || pedidoIds.length === 0) {
@@ -1892,7 +1892,7 @@ app.post("/api/stock/descartar", requireAuth, async (req, res) => {
 });
 
 // ─── DATOS EDITABLES DE PEDIDO ────────────────────────────────────────
-app.patch("/api/pedidos/:id/datos", async (req, res) => {
+app.patch("/api/pedidos/:id/datos", requireAuth, async (req, res) => {
   const { id } = req.params;
   const { esManual, cliente, telefono, direccion, barrio, zona, medioPago, medioPagoOtro, nota, email, codigoPago, esCorporativo, usuario: usuarioAudit } = req.body;
   try {
@@ -1939,7 +1939,7 @@ app.patch("/api/pedidos/:id/datos", async (req, res) => {
 });
 
 // ─── PEDIDOS MANUALES ─────────────────────────────────────────────────
-app.patch("/api/pedidos-manuales/:id/email", async (req, res) => {
+app.patch("/api/pedidos-manuales/:id/email", requireAuth, async (req, res) => {
   const { id } = req.params;
   const { email } = req.body;
   try {
@@ -1948,7 +1948,7 @@ app.patch("/api/pedidos-manuales/:id/email", async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get("/api/pedidos-manuales", async (req, res) => {
+app.get("/api/pedidos-manuales", requireAuth, async (req, res) => {
   try {
     // LEFT JOIN a pedidos_estados para traer el area_manual (vive ahí, no en pedidos_manuales),
     // así el objeto del pedido manual ya carga su área para el select de edición.
@@ -2096,7 +2096,7 @@ function sanitizarAreaManual(v) {
   return (Number.isInteger(n) && n >= 1 && n <= 10) ? n : null;
 }
 
-app.post("/api/pedidos-manuales", usuarioOpcional, async (req, res) => {
+app.post("/api/pedidos-manuales", requireAuth, async (req, res) => {
   const p = req.body;
   try {
     const seqRes = await pool.query("SELECT nextval('pedidos_manuales_seq') AS n");
@@ -2138,7 +2138,7 @@ app.post("/api/pedidos-manuales", usuarioOpcional, async (req, res) => {
 });
 
 // ─── REPARTIDORES ──────────────────────────────────────────────────────
-app.get("/api/repartidores", async (req, res) => {
+app.get("/api/repartidores", requireAuth, async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM repartidores WHERE activo = true ORDER BY CASE WHEN nombre = 'Sin asignar' THEN 0 ELSE 1 END, nombre ASC");
     res.json(result.rows);
@@ -5056,7 +5056,7 @@ async function geocodificarConConfianza(direccionCompleta) {
   return null;
 }
 
-app.get("/api/mapa/pedidos/:fecha", async (req, res) => {
+app.get("/api/mapa/pedidos/:fecha", requireAuth, async (req, res) => {
   const { fecha } = req.params;
   try {
     const tnRes = await pool.query("SELECT data FROM pedidos_tn ORDER BY tn_created_at DESC LIMIT 500");
@@ -5128,7 +5128,7 @@ app.get("/api/mapa/pedidos/:fecha", async (req, res) => {
 });
 
 // ─── AUDITORIA ─────────────────────────────────────────────────────
-app.get("/api/auditoria/:entidadId", async (req, res) => {
+app.get("/api/auditoria/:entidadId", requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
       "SELECT * FROM auditoria WHERE entidad_id=$1 ORDER BY created_at DESC LIMIT 50",
@@ -5547,13 +5547,13 @@ function puntoVentaDesdeNumero(numero) {
 }
 
 // ─── PDF FRESCO DESDE TUSFACTURAS ────────────────────────────────────
-app.get("/api/facturas-all", async (req, res) => {
+app.get("/api/facturas-all", requireAuth, async (req, res) => {
   try {
     const result = await pool.query("SELECT id, pedido_id, tipo, numero FROM facturas ORDER BY created_at ASC");
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: "Error trayendo facturas" }); }
 });
-app.get("/api/facturas/:facturaId/pdf-url", async (req, res) => {
+app.get("/api/facturas/:facturaId/pdf-url", requireAuth, async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM facturas WHERE id=$1", [req.params.facturaId]);
     if (result.rows.length === 0) return res.status(404).json({ error: "Factura no encontrada" });
@@ -5575,14 +5575,14 @@ app.get("/api/facturas/:facturaId/pdf-url", async (req, res) => {
     return res.json({ ok: false, error: data.errores || "No se pudo obtener el PDF" });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
-app.get("/api/facturas/:pedidoId", async (req, res) => {
+app.get("/api/facturas/:pedidoId", requireAuth, async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM facturas WHERE pedido_id=$1 ORDER BY created_at ASC", [req.params.pedidoId]);
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: "Error trayendo facturas" }); }
 });
 
-app.post("/api/facturar", async (req, res) => {
+app.post("/api/facturar", requireAuth, async (req, res) => {
   if (!TF_ENABLED) { console.warn("⚠️ Facturación no configurada: /api/facturar deshabilitado"); return res.status(503).json({ ok: false, error: "Facturación no configurada en este entorno" }); }
   const { pedidoId, tipo, cliente, documentoTipo, documentoNro, razonSocial, domicilio, email, total, productos, local, usuario: usuarioAudit } = req.body;
   const { usertoken: TF_USERTOKEN, pdv: TF_PDV } = getTFCredentials(local);
@@ -5628,7 +5628,7 @@ app.post("/api/facturar", async (req, res) => {
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
-app.post("/api/nota-credito", async (req, res) => {
+app.post("/api/nota-credito", requireAuth, async (req, res) => {
   if (!TF_ENABLED) { console.warn("⚠️ Facturación no configurada: /api/nota-credito deshabilitado"); return res.status(503).json({ ok: false, error: "Facturación no configurada en este entorno" }); }
   const { facturaId, pedidoId, usuario: usuarioAudit } = req.body;
   try {
@@ -5858,7 +5858,7 @@ app.post("/api/tusfacturas/webhook", async (req, res) => {
 });
 
 // ─── PEDIDOS PRODUCTOS ─────────────────────────────────────────────────
-app.post("/api/pedidos/productos/:id", async (req, res) => {
+app.post("/api/pedidos/productos/:id", requireAuth, async (req, res) => {
   const { id } = req.params;
   const { productos, totalNum } = req.body;
   try {
@@ -5867,7 +5867,7 @@ app.post("/api/pedidos/productos/:id", async (req, res) => {
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get("/api/pedidos/productos/:id", async (req, res) => {
+app.get("/api/pedidos/productos/:id", requireAuth, async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM pedidos_productos WHERE pedido_id=$1", [req.params.id]);
     res.json(result.rows[0] || null);
@@ -5878,7 +5878,7 @@ app.get("/api/pedidos/productos/:id", async (req, res) => {
 // front al cargar). Devuelve un mapa { [pedido_id]: { pedido_id, productos, total_num } },
 // misma forma por pedido que el endpoint /:id. La tabla solo guarda overrides, así que
 // trae solo los pedidos que tienen uno (igual que antes, que omitía los sin override).
-app.get("/api/pedidos/productos-all", async (req, res) => {
+app.get("/api/pedidos/productos-all", requireAuth, async (req, res) => {
   try {
     const result = await pool.query("SELECT pedido_id, productos, total_num FROM pedidos_productos");
     const map = {};
@@ -6179,7 +6179,7 @@ CAMBIAR REPARTIDOR:
 COBRAR EN ENTREGA:
 - Expandí el pedido → tildá "Cobrar en entrega" → aparece el badge COBRAR en la lista.`;
 
-app.post("/api/agente", async (req, res) => {
+app.post("/api/agente", requireAuth, async (req, res) => {
   const { messages } = req.body;
   if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: "messages requerido" });
   if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: "ANTHROPIC_API_KEY no configurada" });

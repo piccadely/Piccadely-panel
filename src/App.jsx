@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "reac
     import autoTable from "jspdf-autotable";
     import Login from "./Login";
     import Usuarios from "./Usuarios";
-    import { getUsuarioGuardado, validarSesion, cerrarSesion, ROL_LABELS } from "./auth-utils";
+    import { getUsuarioGuardado, validarSesion, cerrarSesion, ROL_LABELS, guardarVistaActual, tomarVistaPrevia } from "./auth-utils";
     import { normalizarProducto, esExcluidoProduccion, esBasuraVenta, claveProducto, SUFIJOS_TAMANO, calcularEnvioTN } from "../productos-normalizacion.js";
 
     const API = import.meta.env.VITE_API_URL || "https://piccadely-panel-production.up.railway.app";
@@ -8802,8 +8802,11 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [pedidosManuales, setPedidosManuales] = useState([]);
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState(null);
-      const [tab, setTab] = useState("retiro-at");
-      const [vista, setVista] = useState("panel");
+      // Si la sesión venció y vuelve a entrar el mismo usuario, arranca en la vista / pestaña donde estaba.
+      const [vistaPrevia] = useState(() => tomarVistaPrevia(usuario.username));
+      const [tab, setTab] = useState(vistaPrevia?.tab || "retiro-at");
+      const [vista, setVista] = useState(vistaPrevia?.vista || "panel");
+      useEffect(() => { guardarVistaActual(usuario.username, vista, tab); }, [vista, tab]);
       // Nivel de acceso por rol. esAdmin: solo admin (plata/administración). esGestion:
       // admin o encargado (operación completa). Los operarios (a_thomas/french) no son ni uno ni otro.
       const esSuperadmin = usuario.rol === "superadmin";

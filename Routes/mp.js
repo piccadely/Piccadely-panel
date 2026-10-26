@@ -3,10 +3,10 @@ import { MercadoPagoConfig, Preference, Payment } from "mercadopago";
 
 const router = express.Router();
 
-export function mpRouter(pool, mailTransporter) {
+export function mpRouter(pool, mailTransporter, { requireAuth }) {
 
   // ─── POST /api/mp/create-preference ────────────────────────────────
-  router.post("/create-preference", async (req, res) => {
+  router.post("/create-preference", requireAuth, async (req, res) => {
     const { pedidoId } = req.body;
     try {
       const client = new MercadoPagoConfig({

@@ -20,16 +20,25 @@ axios.interceptors.request.use(config => {
   return config;
 });
 
-// ── Interceptor de RESPONSE: si el server devuelve 401 (token expirado),
-//    borra la sesión y recarga la página para mostrar el login. ──
+// Sesión vencida: el login muestra el aviso y, al volver a entrar el MISMO usuario, el panel
+// vuelve a la vista en la que estaba. sessionStorage = por pestaña (otro local / otra pestaña no se mezcla).
+const VENCIDA_KEY = "piccadely_sesion_vencida";
+const VISTA_KEY = "piccadely_ultima_vista";   // { username, vista, tab }
+const leerSesion = (k) => { try { return sessionStorage.getItem(k); } catch { return null; } };
+const escribirSesion = (k, v) => { try { v === null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v); } catch { /* sin storage */ } };
+let recargando = false;   // varias llamadas dan 401 a la vez (refresco de 30 s, WhatsApp…): se recarga una sola vez
+
+// ── Interceptor de RESPONSE: si el server devuelve 401 (token vencido),
+//    borra la sesión, marca "sesión vencida" y recarga para mostrar el login con el aviso. ──
 axios.interceptors.response.use(
   res => res,
   err => {
     if (err.response?.status === 401) {
       const url = err.config?.url || "";
-      // No matar la sesión si el 401 viene del propio /api/login
-      // (eso es solo "credenciales incorrectas" en el form de login).
-      if (!url.includes("/api/login")) {
+      // 401 que NO son de sesión: credenciales / código 2FA del login y "contraseña actual incorrecta".
+      if (!url.includes("/api/login") && !url.includes("/api/cambiar-password") && !recargando) {
+        recargando = true;
+        escribirSesion(VENCIDA_KEY, "1");
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(USER_KEY);
         window.location.reload();
@@ -38,6 +47,25 @@ axios.interceptors.response.use(
     return Promise.reject(err);
   }
 );
+
+export function sesionVencida() {
+  return leerSesion(VENCIDA_KEY) === "1";
+}
+
+export function guardarVistaActual(username, vista, tab) {
+  escribirSesion(VISTA_KEY, JSON.stringify({ username, vista, tab }));
+}
+
+// Al entrar al panel: si la sesión había vencido y vuelve el mismo usuario → { vista, tab } donde estaba.
+// Consume la marca (una sola vez).
+export function tomarVistaPrevia(username) {
+  if (!sesionVencida()) return null;
+  escribirSesion(VENCIDA_KEY, null);
+  try {
+    const v = JSON.parse(leerSesion(VISTA_KEY) || "null");
+    return v && v.username === username ? { vista: v.vista, tab: v.tab } : null;
+  } catch { return null; }
+}
 
 // ── Helpers de sesión ──
 

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import axios from "axios";
-import { guardarSesion } from "./auth-utils";
+import { guardarSesion, sesionVencida } from "./auth-utils";
 
 const API = import.meta.env.VITE_API_URL || "https://piccadely-panel-production.up.railway.app";
 
@@ -9,6 +9,7 @@ const labelStyle = { fontSize: 11, fontWeight: 600, color: "#888", textTransform
 const inputStyle = { fontSize: 14, padding: "9px 12px", borderRadius: 8, border: "1px solid #ddd", width: "100%", boxSizing: "border-box", outline: "none" };
 const errorBox = { background: "#fdecea", border: "1px solid #c0392b", borderRadius: 6, padding: "8px 12px", marginBottom: 14, fontSize: 12, color: "#c0392b" };
 const infoBox = { background: "#eaf3de", border: "1px solid #F68B32", borderRadius: 6, padding: "8px 12px", marginBottom: 14, fontSize: 12, color: "#27500a" };
+const avisoBox = { background: "#fff8e1", border: "1px solid #f39c12", borderRadius: 6, padding: "10px 12px", marginBottom: 16, fontSize: 13, fontWeight: 600, color: "#856404", textAlign: "center" };
 const btnStyle = (disabled) => ({ width: "100%", padding: 11, borderRadius: 8, border: "none", background: disabled ? "#ccc" : "#F68B32", color: "#fff", fontSize: 14, fontWeight: 600, cursor: disabled ? "default" : "pointer" });
 
 export default function Login({ onLogin }) {
@@ -22,6 +23,7 @@ export default function Login({ onLogin }) {
   const [codigo, setCodigo] = useState("");
   const [info, setInfo] = useState("");
   const [emergencyToken, setEmergencyToken] = useState(""); // modo emergencia (mail caído)
+  const [vencida] = useState(sesionVencida); // llegó acá porque una llamada dio 401 (token vencido)
 
   // Paso 1: usuario + contraseña
   async function handleSubmit(e) {
@@ -97,6 +99,7 @@ export default function Login({ onLogin }) {
             <img src="/Piccadely_Logotipo-Centrado-Negro.svg" alt="Piccadely" style={{ height: 48, objectFit: "contain" }} />
           </div>
           <div style={{ fontSize: 13, color: "#888", textAlign: "center", marginBottom: 24 }}>Ingresá al panel</div>
+          {vencida && <div style={avisoBox}>⏰ Tu sesión venció, volvé a entrar.</div>}
 
           <div style={{ marginBottom: 14 }}>
             <label style={labelStyle}>Usuario</label>

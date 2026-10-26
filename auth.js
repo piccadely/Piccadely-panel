@@ -211,16 +211,6 @@ export function setupAuth(app, pool, mailTransporter) {
     return requireAdmin(req, res, next);
   }
 
-  // Sesión OPCIONAL: si viene un token válido deja req.user; si no, sigue igual (para endpoints que hoy no piden login
-  // pero tienen que registrar QUIÉN hizo la acción, p. ej. el alta manual de pedidos).
-  function usuarioOpcional(req, res, next) {
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      try { req.user = jwt.verify(authHeader.slice(7), JWT_SECRET); } catch { /* sin sesión válida */ }
-    }
-    next();
-  }
-
   // ─── 2FA POR EMAIL ───────────────────────────────────────────────────
   // Código de 6 dígitos al email_2fa del usuario. Se guarda HASHEADO (bcrypt), vence a
   // CODIGO_2FA_TTL_MIN, un solo uso. mailTransporter se inyecta desde server.js.
@@ -426,6 +416,15 @@ export function setupAuth(app, pool, mailTransporter) {
     }
   });
 
+  // Solo un SUPERADMIN crea, edita o asigna los roles admin y superadmin, y edita o borra a un admin o superadmin.
+  // Un admin crea, edita y borra los demás roles. (El x-admin-secret entra como admin: mismas reglas.)
+  const ROLES_PROTEGIDOS = ["admin", "superadmin"];
+  const esSuperadmin = (req) => req.user?.rol === "superadmin";
+  async function rolDeUsuario(id) {
+    const { rows } = await pool.query("SELECT rol FROM usuarios WHERE id = $1", [id]);
+    return rows[0]?.rol ?? null;
+  }
+
   app.get("/api/usuarios", requireAdmin, async (req, res) => {
     try {
       const { rows } = await pool.query(
@@ -440,6 +439,7 @@ export function setupAuth(app, pool, mailTransporter) {
       const { username, password, nombre_completo, rol, email_2fa } = req.body;
       if (!username || !password || !nombre_completo || !rol) return res.status(400).json({ error: "Faltan campos" });
       if (!ROLES_VALIDOS.includes(rol)) return res.status(400).json({ error: "Rol inválido" });
+      if (ROLES_PROTEGIDOS.includes(rol) && !esSuperadmin(req)) return res.status(403).json({ error: "Solo un superadmin puede crear usuarios admin o superadmin." });
       if (password.length < 4) return res.status(400).json({ error: "La contraseña es muy corta" });
       const email2fa = (email_2fa && String(email_2fa).trim()) ? String(email_2fa).trim() : null;
       if (email2fa && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email2fa)) return res.status(400).json({ error: "Email 2FA inválido" });
@@ -462,6 +462,12 @@ export function setupAuth(app, pool, mailTransporter) {
     try {
       const { id } = req.params;
       const { nombre_completo, rol, activo, password, email_2fa } = req.body;
+      if (!esSuperadmin(req)) {
+        const rolActual = await rolDeUsuario(id);
+        if (rolActual === null) return res.status(404).json({ error: "Usuario no encontrado" });
+        if (ROLES_PROTEGIDOS.includes(rolActual)) return res.status(403).json({ error: "Solo un superadmin puede editar a un admin o superadmin." });
+        if (rol !== undefined && ROLES_PROTEGIDOS.includes(rol)) return res.status(403).json({ error: "Solo un superadmin puede asignar el rol admin o superadmin." });
+      }
 
       const updates = [];
       const valores = [];
@@ -502,11 +508,12 @@ export function setupAuth(app, pool, mailTransporter) {
     try {
       const { id } = req.params;
       if (Number(id) === req.user.id) return res.status(400).json({ error: "No podés eliminarte a vos mismo" });
+      if (!esSuperadmin(req) && ROLES_PROTEGIDOS.includes(await rolDeUsuario(id))) return res.status(403).json({ error: "Solo un superadmin puede borrar a un admin o superadmin." });
       const { rows } = await pool.query("DELETE FROM usuarios WHERE id = $1 RETURNING id", [id]);
       if (rows.length === 0) return res.status(404).json({ error: "Usuario no encontrado" });
       res.json({ ok: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
   });
 
-  return { requireAuth, requireAdmin, requireRole, requireAdminOCrm, usuarioOpcional };
+  return { requireAuth, requireAdmin, requireRole, requireAdminOCrm };
 }

@@ -26,6 +26,9 @@ export default function Usuarios({ onVolver }) {
   const [enviado2fa, setEnviado2fa] = useState(false);
   const [verif2fa, setVerif2fa] = useState(null); // null | "ok" | "bad"
   const yo = getUsuarioGuardado(); // usuario logueado (el botón "Probar 2FA" solo va sobre su propia fila)
+  // Admin y superadmin los crea / edita / borra solo un superadmin (el backend lo valida igual).
+  const yoSuperadmin = yo?.rol === "superadmin";
+  const puedeGestionar = (u) => yoSuperadmin || !["admin", "superadmin"].includes(u.rol);
 
   async function cargarUsuarios() {
     setLoading(true);
@@ -231,13 +234,15 @@ export default function Usuarios({ onVolver }) {
                     : <span style={{ fontSize: 11, fontWeight: 600, color: "#aaa" }}>○ Inactivo</span>}
                 </span>
                 <span style={{ ...st.cel, flex: 1.8, textAlign: "right", display: "flex", justifyContent: "flex-end", gap: 4, flexWrap: "wrap" }}>
-                  <button style={st.btnAccion} onClick={() => abrirEditar(u)}>✏️ Editar</button>
+                  {puedeGestionar(u) && <button style={st.btnAccion} onClick={() => abrirEditar(u)}>✏️ Editar</button>}
                   {yo?.id === u.id && u.email_2fa && <button style={{ ...st.btnAccion, color: "#4f46e5", borderColor: "#c7d2fe" }} onClick={() => abrir2fa(u)}>🔐 Probar 2FA</button>}
-                  <button style={st.btnAccion} onClick={() => abrirPassword(u)}>🔑 Password</button>
-                  <button style={{ ...st.btnAccion, color: u.activo ? "#856404" : "#27500a", borderColor: u.activo ? "#f39c12" : "#F68B32" }} onClick={() => toggleActivo(u)}>
-                    {u.activo ? "⊘ Desactivar" : "✓ Activar"}
-                  </button>
-                  <button style={{ ...st.btnAccion, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => eliminarUsuario(u)}>🗑</button>
+                  {puedeGestionar(u) && <>
+                    <button style={st.btnAccion} onClick={() => abrirPassword(u)}>🔑 Password</button>
+                    <button style={{ ...st.btnAccion, color: u.activo ? "#856404" : "#27500a", borderColor: u.activo ? "#f39c12" : "#F68B32" }} onClick={() => toggleActivo(u)}>
+                      {u.activo ? "⊘ Desactivar" : "✓ Activar"}
+                    </button>
+                    <button style={{ ...st.btnAccion, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => eliminarUsuario(u)}>🗑</button>
+                  </>}
                 </span>
               </div>
             );
@@ -276,8 +281,8 @@ export default function Usuarios({ onVolver }) {
               <div>
                 <label style={st.label}>Rol</label>
                 <select style={st.input} value={form.rol} onChange={e => setForm(f => ({ ...f, rol: e.target.value }))}>
-                  <option value="superadmin">Superadmin (todo + caja Administración)</option>
-                  <option value="admin">Admin (todo menos caja Administración)</option>
+                  {yoSuperadmin && <option value="superadmin">Superadmin (todo + caja Administración)</option>}
+                  {yoSuperadmin && <option value="admin">Admin (todo menos caja Administración)</option>}
                   <option value="encargado">Encargado (todo menos plata/administración)</option>
                   <option value="solo_lectura">Solo lectura (ve como encargado, no modifica)</option>
                   <option value="crm">Comercial / CRM (ve pedidos, carga pedidos nuevos, Clientes y Ventas a realizar)</option>
