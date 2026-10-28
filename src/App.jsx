@@ -123,14 +123,20 @@ import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "reac
       seccion: "delivery-at", cobrar: true, esCorporativo: false,
     };
 
-    // Polling que se PAUSA con la pestaña oculta (no consulta en segundo plano) y, al volver, refresca enseguida y
-    // retoma el ritmo. Devuelve la función de limpieza para el useEffect.
-    function intervaloVisible(fn, ms) {
+    // Polling que se adapta a la pestaña: visible → cada `ms`; oculta → cada `msOculta` (más lento, para que sigan
+    // saliendo los avisos de beep y título) o FRENADO del todo si no se pasa `msOculta`. Al volver a la pestaña
+    // refresca enseguida y retoma el ritmo normal. Devuelve la función de limpieza para el useEffect.
+    function intervaloVisible(fn, ms, msOculta = null) {
       let t = null;
-      const arrancar = () => { if (t === null) t = setInterval(fn, ms); };
       const parar = () => { if (t !== null) { clearInterval(t); t = null; } };
-      const alCambiar = () => { if (document.visibilityState === "hidden") parar(); else { fn(); arrancar(); } };
-      if (document.visibilityState !== "hidden") arrancar();
+      const programar = () => {
+        parar();
+        const oculta = document.visibilityState === "hidden";
+        if (!oculta) t = setInterval(fn, ms);
+        else if (msOculta) t = setInterval(fn, msOculta);
+      };
+      const alCambiar = () => { if (document.visibilityState !== "hidden") fn(); programar(); };
+      programar();
       document.addEventListener("visibilitychange", alCambiar);
       return () => { parar(); document.removeEventListener("visibilitychange", alCambiar); };
     }
@@ -6899,7 +6905,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           } catch { /* reintenta en el próximo ciclo */ }
         };
         tick();
-        const pararPolling = intervaloVisible(tick, 15000);   // cada 15 s (antes 5 s), y en pausa con la pestaña oculta
+        const pararPolling = intervaloVisible(tick, 15000, 60000);   // 15 s visible (antes 5 s); 60 s oculta: el beep sigue sonando
         return () => { vivo = false; pararPolling(); };
       }, [habilitado]);
       useEffect(() => {
@@ -9188,7 +9194,7 @@ setPedidosDatosOverride(datosInit);
             });
           } catch (err) { console.warn("Auto-refresh falló:", err.message); }
         };
-        return intervaloVisible(refrescar, 30000);
+        return intervaloVisible(refrescar, 30000, 60000);   // oculta: cada 60 s, así siguen el beep y el título de pedido nuevo
       }, []);
 
       const idsPedidosVistosRef = useRef(null);
