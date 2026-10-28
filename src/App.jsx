@@ -123,6 +123,18 @@ import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "reac
       seccion: "delivery-at", cobrar: true, esCorporativo: false,
     };
 
+    // Polling que se PAUSA con la pestaña oculta (no consulta en segundo plano) y, al volver, refresca enseguida y
+    // retoma el ritmo. Devuelve la función de limpieza para el useEffect.
+    function intervaloVisible(fn, ms) {
+      let t = null;
+      const arrancar = () => { if (t === null) t = setInterval(fn, ms); };
+      const parar = () => { if (t !== null) { clearInterval(t); t = null; } };
+      const alCambiar = () => { if (document.visibilityState === "hidden") parar(); else { fn(); arrancar(); } };
+      if (document.visibilityState !== "hidden") arrancar();
+      document.addEventListener("visibilitychange", alCambiar);
+      return () => { parar(); document.removeEventListener("visibilitychange", alCambiar); };
+    }
+
     function fechaArgentina(d = new Date()) {
       return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
     }
@@ -1901,8 +1913,7 @@ const res = await axios.get(`${API}/api/caja/estado/${encodeURIComponent(localSe
       // toca el poll global de 30s.
       useEffect(() => {
         if (noEsCajaDiaria) return;
-        const iv = setInterval(cargarFinalizadosHoy, 30000);
-        return () => clearInterval(iv);
+        return intervaloVisible(cargarFinalizadosHoy, 30000);
       }, [localSeleccionado]);
   function generarPDFCierre(local, fecha, montoIni, ventasPorMedioData, ajustesList, saldoEsp, montoCierreVal) {
         const doc = new jsPDF();
@@ -6463,8 +6474,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       }
       useEffect(() => {
         setCargandoLista(true); cargarLista();
-        const t = setInterval(cargarLista, 5000);
-        return () => clearInterval(t);
+        return intervaloVisible(cargarLista, 5000);
       }, [tab, q]);   // eslint-disable-line
 
       const alFinal = () => setTimeout(() => finRef.current?.scrollIntoView({ block: "end" }), 30);
@@ -6509,8 +6519,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       useEffect(() => {
         if (!selId) { setConv(null); setMensajes([]); return; }
         setTexto(""); setAdjunto(null); abrirConversacion(selId);
-        const t = setInterval(() => cargarNuevos(selId), 5000);
-        return () => clearInterval(t);
+        return intervaloVisible(() => cargarNuevos(selId), 5000);
       }, [selId]);   // eslint-disable-line
 
       async function cargarAnteriores() {
@@ -6890,8 +6899,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           } catch { /* reintenta en el próximo ciclo */ }
         };
         tick();
-        const t = setInterval(tick, 5000);
-        return () => { vivo = false; clearInterval(t); };
+        const pararPolling = intervaloVisible(tick, 15000);   // cada 15 s (antes 5 s), y en pausa con la pestaña oculta
+        return () => { vivo = false; pararPolling(); };
       }, [habilitado]);
       useEffect(() => {
         const h = () => setAbierto(true);
@@ -9179,8 +9188,7 @@ setPedidosDatosOverride(datosInit);
             });
           } catch (err) { console.warn("Auto-refresh falló:", err.message); }
         };
-        const interval = setInterval(refrescar, 30000);
-        return () => clearInterval(interval);
+        return intervaloVisible(refrescar, 30000);
       }, []);
 
       const idsPedidosVistosRef = useRef(null);

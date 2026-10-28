@@ -63,12 +63,14 @@ const headers = {
   "User-Agent": "PiccadelyPanel (piccadely@gmail.com)",
 };
 
+const POOL_MAX = 20;
+const STATEMENT_TIMEOUT_MS = 30000;
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
   // max: tope de conexiones simultáneas. 20 es un punto medio para Neon; subir/bajar
   // según el límite del plan (Neon pooler suele tolerar más; sin pooler, menos).
-  max: 20,
+  max: POOL_MAX,
   // Si el pool está saturado, fallar rápido (5s) en vez de colgar la request indefinido.
   connectionTimeoutMillis: 5000,
   // Cerrar conexiones ociosas a los 30s.
@@ -79,6 +81,31 @@ const pool = new Pool({
   // así que las queries sin prefijo resuelven solo. Si se quisiera fijar explícito,
   // hacerlo server-side por rol: ALTER ROLE <owner> SET search_path TO public;
 });
+
+// Tope por consulta: 30 s. Una consulta colgada no retiene su conexión para siempre. Se fija POR CONEXIÓN con un
+// SET al conectarse (no como parámetro de arranque, que el pooler de Neon rechaza; ver nota de search_path).
+// pg encola las consultas de cada client, así que el SET corre antes que cualquier consulta de esa conexión.
+pool.on("connect", (client) => {
+  client.query(`SET statement_timeout = ${STATEMENT_TIMEOUT_MS}`)
+    .catch((e) => console.error("pool: no se pudo fijar statement_timeout en la conexión nueva:", e.message));
+});
+// Un error en una conexión OCIOSA (Neon la corta, red caída) se emite en el pool: sin este listener tira abajo el proceso.
+pool.on("error", (err) => {
+  console.error(`pool: error en una conexión ociosa (se descarta, el proceso sigue) ${err.code || ""} ${err.message} · ${estadoPool()}`);
+});
+const estadoPool = () => `total=${pool.totalCount}/${POOL_MAX} libres=${pool.idleCount} esperando=${pool.waitingCount}`;
+// Métrica del pool: muestreo cada 5 s y UNA línea por minuto con el pico (una foto por minuto se pierde los picos).
+// warn si hubo pedidos esperando o el pool estuvo casi lleno.
+let picoUsoPool = 0, picoEsperaPool = 0;
+setInterval(() => {
+  picoUsoPool = Math.max(picoUsoPool, pool.totalCount - pool.idleCount);
+  picoEsperaPool = Math.max(picoEsperaPool, pool.waitingCount);
+}, 5000).unref();
+setInterval(() => {
+  const linea = `pool: ${estadoPool()} · pico del minuto: en uso=${picoUsoPool} esperando=${picoEsperaPool}`;
+  (picoEsperaPool > 0 || picoUsoPool >= POOL_MAX - 2 ? console.warn : console.log)(linea);
+  picoUsoPool = 0; picoEsperaPool = 0;
+}, 60000).unref();
 
 // ─── REINTENTO ANTE CONEXIONES "ENVENENADAS" DE NEON ─────────────────
 // Tras un restart/wake del compute de Neon, el pooler (PgBouncer) a veces entrega
@@ -125,6 +152,11 @@ pool.query = async function reintentarQuery(...args) {
       // Clasificación según en qué etapa falló: si hay client, falló la query; si no,
       // falló el connect.
       const transitorio = client ? esErrorTransitorio(err) : esConnectTransitorio(err);
+      // Timeout esperando conexión con gente en COLA = pool saturado: reintentar solo suma cola. Fallar rápido.
+      if (!client && /timeout exceeded when trying to connect/i.test(String(err.message || "")) && pool.waitingCount > 0) {
+        console.warn(`pool.query: sin reintento, pool saturado (${estadoPool()}): ${err.message}`);
+        throw err;
+      }
       if (!transitorio) {
         if (client) client.release();            // query no-transitoria: soltar normal y propagar
         throw err;                               // (connect no-transitorio: no hay client que soltar)
@@ -132,16 +164,40 @@ pool.query = async function reintentarQuery(...args) {
       if (client) client.release(err);           // query transitoria: EVICTAR la conexión envenenada
       // (connect transitorio: nunca devolvió client -> nada que evictar, solo backoff)
       if (intento < 3) {
-        console.warn(`pool.query: reintento ${intento}/3 por error transitorio ${err.code || err.message}`);
+        console.warn(`pool.query: reintento ${intento}/3 por error transitorio ${err.code || err.message} · ${estadoPool()}`);
         await esperarMs(BACKOFFS_MS[intento - 1]);
       }
     }
   }
-  console.warn(`pool.query: reintentos agotados (3/3), propago último error ${ultimoError?.code || ultimoError?.message}`);
+  console.warn(`pool.query: reintentos agotados (3/3), propago último error ${ultimoError?.code || ultimoError?.message} · ${estadoPool()}`);
   throw ultimoError;
 };
 
+// initDB corre en UNA conexión propia SIN tope de tiempo (statement_timeout = 0): el tope de 30 s de las consultas
+// normales nunca puede impedir el arranque (DDL / rellenos sobre tablas grandes). Al terminar, la conexión se
+// DESCARTA (release(true)) para que su statement_timeout = 0 no vuelva al pool. El esquema es idempotente (IF NOT
+// EXISTS), así que ante un error transitorio (Neon recién despierto, conexión envenenada) se reintenta entero, como
+// hacía pool.query cuando initDB lo usaba directo.
 async function initDB() {
+  for (let intento = 1; ; intento++) {
+    let client, error = null;
+    try {
+      client = await pool.connect();
+      await client.query("SET statement_timeout = 0");
+      await crearEsquema(client);
+    } catch (err) { error = err; }
+    finally { if (client) client.release(true); }
+    if (!error) return;
+    const transitorio = client ? esErrorTransitorio(error) : esConnectTransitorio(error);
+    if (!transitorio || intento >= 3) throw error;
+    console.warn(`initDB: reintento ${intento}/3 por error transitorio ${error.code || error.message} · ${estadoPool()}`);
+    await esperarMs(BACKOFFS_MS[intento - 1]);
+  }
+}
+
+// Crea / migra el esquema. `pool` acá es la CONEXIÓN de initDB: sombrea al pool global a propósito, así TODO corre en
+// esa conexión sin tope de tiempo (incluido initAuthDB).
+async function crearEsquema(pool) {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS pedidos_estados (
       id TEXT PRIMARY KEY,

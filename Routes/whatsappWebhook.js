@@ -355,7 +355,10 @@ async function procesarEvento(pool, body) {
         try { await procesarEntrante(pool, m, nombres[m.from], ajustes); }
         catch (e) { console.error("WhatsApp: error guardando mensaje entrante:", e.message); }
       }
-      for (const s of v.statuses || []) {
+      // WhatsApp apagado (wa_activo false): Meta ya recibió su 200; los "status" (enviado/entregado/leído) no se
+      // escriben en la base (no hay envíos que seguir y cada uno es una escritura).
+      if (!ajustes.wa_activo) { if ((v.statuses || []).length) resumen.estadosIgnorados = (resumen.estadosIgnorados || 0) + v.statuses.length; }
+      else for (const s of v.statuses || []) {
         resumen.estados++;
         try { await procesarStatus(pool, s); }
         catch (e) { console.error("WhatsApp: error guardando status:", e.message); }
