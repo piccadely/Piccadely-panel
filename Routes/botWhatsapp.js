@@ -10,6 +10,7 @@ import express from "express";
 import axios from "axios";
 import { detectarZonas, lineasZona, zonasUltimoMensaje, zonaSinCoberturaClara, respuestaSinCobertura, prometeCobertura } from "./zonaCobertura.js";
 import { HERRAMIENTAS, calcularTamanos, calcularTotal } from "./botHerramientas.js";
+import { decodificarEntidades } from "./tnCatalogo.js";
 
 const MAX_VUELTAS_HERRAMIENTAS = 3;   // vueltas de tool use por respuesta; después se fuerza texto
 const TEXTO_GRUPO_GRANDE = "Como es un evento grande, te paso con alguien del equipo que te arma la propuesta a medida 🙌";
@@ -269,11 +270,7 @@ Piccadely: empresa argentina fundada en 2006, especializada en piccadas para jun
 // Saca el HTML de la descripción y la deja en texto plano corto
 const limpiarDescripcion = (html) => {
   if (!html) return "";
-  const txt = String(html)
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&[a-z]+;/gi, " ")
+  const txt = decodificarEntidades(String(html).replace(/<[^>]*>/g, " "))   // acentos: "Jam&oacute;n" → "Jamón" (antes "Jam n")
     .replace(/\s+/g, " ")
     .trim();
   return txt.length > 350 ? txt.slice(0, 350) + "…" : txt;

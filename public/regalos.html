@@ -17,9 +17,51 @@
 .cantidad button{background:none;border:0;width:52px;height:60px;font-size:24px;cursor:pointer}
 .cantidad button:hover{background:var(--fondo-2)}
 .cantidad input{width:96px;text-align:center;border:0;background:none;font-family:"Bricolage Grotesque",sans-serif;font-size:32px;font-weight:800;-moz-appearance:textfield}
-.escala{display:flex;gap:6px;flex-wrap:wrap}
-.escala span{font-size:13px;padding:5px 10px;border-radius:999px;border:1px solid var(--linea);color:var(--tinta-2)}
-.escala span.on{background:var(--ok);border-color:var(--ok);color:#fff}
+/* Barra de descuento por volumen: se llena con la cantidad; marcas en cada tramo (TRAMOS_REGALOS de la API). El tramo
+   alcanzado queda en verde; lo que avanza hacia el próximo pasa de neutro a naranja a medida que se acerca. */
+.barra-desc{--b-pista:var(--fondo-2);--b-borde:var(--linea);--b-neutro:#B9AC9F;--b-naranja:var(--naranja);--b-ok:var(--ok);--b-texto:var(--tinta-2);
+  flex:1 1 320px;min-width:0;max-width:560px}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .barra-desc{--b-neutro:#7A685B}}
+:root[data-theme="dark"] .barra-desc{--b-neutro:#7A685B}
+.barra-desc .pista{position:relative;height:14px;border-radius:999px;background:var(--b-pista);border:1px solid var(--b-borde);margin:8px 12px 34px 0}   /* margen derecho: la marca del último tramo no se sale */
+.barra-desc .ok,.barra-desc .avance{position:absolute;top:0;bottom:0;left:0;border-radius:999px;transition:width .35s ease,background-color .35s ease}
+.barra-desc .ok{background:var(--b-ok);z-index:1}
+.barra-desc .avance{z-index:0}
+.barra-desc .marca{position:absolute;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;z-index:2}
+.barra-desc .punto{position:absolute;inset:0;border-radius:50%;background:var(--card);border:2px solid var(--b-borde);
+  display:grid;place-items:center;font-size:12px;font-weight:800;color:#fff;transition:background-color .25s,border-color .25s}
+.barra-desc .marca.on .punto{background:var(--b-ok);border-color:var(--b-ok)}
+.barra-desc .marca .et{position:absolute;top:24px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:12px;font-weight:700;color:var(--b-texto);line-height:1.15;text-align:center}
+.barra-desc .marca .et small{display:block;font-weight:500;font-size:11px}
+.barra-desc .marca:last-child .et{left:auto;right:0;transform:none;text-align:right}
+.barra-desc .marca.on .et{color:var(--b-ok)}
+.barra-desc .txt{font-size:15px;font-weight:600;color:var(--tinta);min-height:22px}
+.barra-desc .txt b{color:var(--b-ok)}
+.barra-desc .txt .falta-n{color:var(--naranja-hondo)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .barra-desc .txt .falta-n{color:var(--naranja)}}
+/* Microanimación al desbloquear un tramo (sin animación con prefers-reduced-motion). */
+@keyframes desbloqueo{0%{transform:scale(1);box-shadow:0 0 0 0 rgba(73,147,66,.55)}45%{transform:scale(1.45);box-shadow:0 0 0 10px rgba(73,147,66,0)}100%{transform:scale(1);box-shadow:0 0 0 0 rgba(73,147,66,0)}}
+@keyframes festejo{0%{transform:translateY(4px);opacity:.3}100%{transform:none;opacity:1}}
+.barra-desc .marca.recien .punto{animation:desbloqueo .8s ease-out}   /* solo el círculo: la etiqueta no se mueve */
+.barra-desc .txt.recien{animation:festejo .45s ease-out}
+@media(prefers-reduced-motion:reduce){.barra-desc .marca.recien .punto,.barra-desc .txt.recien{animation:none}.barra-desc .ok,.barra-desc .avance,.barra-desc .punto{transition:none}}
+/* Versión mini en "Tu propuesta" (fondo oscuro: colores a partir del texto del panel). */
+.barra-desc.barra-mini{--b-pista:color-mix(in srgb,currentColor 14%,transparent);--b-borde:color-mix(in srgb,currentColor 22%,transparent);--b-neutro:color-mix(in srgb,currentColor 45%,transparent);--b-ok:#9BD18F;--b-texto:currentColor;
+  max-width:none;margin:0 0 14px}
+.barra-desc.barra-mini .pista{height:8px;margin:4px 8px 26px 0}
+.barra-desc.barra-mini .marca{width:14px;height:14px;margin:-7px 0 0 -7px}
+.barra-desc.barra-mini .punto{font-size:9px;background:var(--tinta);color:var(--tinta)}
+.barra-desc.barra-mini .marca .et{top:15px;font-size:11px;opacity:.85}
+.barra-desc.barra-mini .marca .et small{display:none}
+.barra-desc.barra-mini .txt{font-size:13px;font-weight:500;color:inherit;opacity:.92;min-height:0}
+.barra-desc.barra-mini .txt .falta-n{color:var(--naranja)}
+/* En modo oscuro el panel se invierte (fondo claro): verde de marca, más oscuro, para que se lea. */
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .barra-desc.barra-mini{--b-ok:var(--ok)}}
+:root[data-theme="dark"] .barra-desc.barra-mini{--b-ok:var(--ok)}
+/* Piccadas medianas: van en caja de regalo (línea debajo de las pestañas + etiqueta en la tarjeta). */
+.aviso-estilo{margin:-6px 0 14px;font-size:15px;font-weight:600;color:var(--tinta)}
+.tag-caja{align-self:flex-start;font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--naranja-suave);color:var(--naranja-hondo);border:1px solid var(--naranja)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .tag-caja{color:var(--naranja)}}
 .presu{display:flex;gap:12px;align-items:center;margin:0 0 18px;flex-wrap:wrap;font-size:15px;color:var(--tinta-2)}
 .presu select{border:1.5px solid var(--linea);background:var(--card);border-radius:10px;padding:7px 10px}
 .vacio-grilla{color:var(--tinta-2);font-size:15px;padding:18px;border:1.5px dashed var(--linea);border-radius:16px}
@@ -201,7 +243,7 @@
           <input id="cant" type="number" min="1" value="20" aria-label="Cantidad de regalos">
           <button type="button" aria-label="Sumar" data-cant="1">+</button>
         </div>
-        <div class="escala" id="escala"></div>
+        <div class="barra-desc" id="escala"></div>
       </div>
       <div class="paso-pie"><span class="falta"></span><button class="btn-sig" type="button" data-sig="cantidad">Siguiente</button></div>
     </div>
@@ -216,6 +258,7 @@
           <div id="cat-cargando" class="cargando">Cargando el catálogo…</div>
           <div id="cat-ok" hidden>
             <div class="tabs" id="tabs" role="group" aria-label="Estilo de regalo"></div>
+            <p class="aviso-estilo" id="aviso-estilo" hidden></p>
             <div class="presu">
               <label for="presu">Presupuesto por regalo</label>
               <select id="presu">
@@ -305,7 +348,7 @@
       </div>
       <div id="cal-lista"></div>
       <button class="agregar-fecha" type="button" id="cal-agregar">+ Sumar otra fecha</button>
-      <div style="margin-top:16px"><p class="ayuda" style="margin:0 0 8px">Descuento por volumen según el total de regalos del año:</p><div class="escala" id="cal-escala"></div></div>
+      <div style="margin-top:16px"><p class="ayuda" style="margin:0 0 8px">Descuento por volumen según el total de regalos del año:</p><div class="barra-desc" id="cal-escala"></div></div>
       <div class="paso-pie"><span class="falta"></span><button class="btn-sig" type="button" data-sig="fechas">Siguiente</button></div>
     </div>
     <div id="cal-editor-holder" hidden>
@@ -376,6 +419,7 @@
 <aside aria-live="polite">
   <h2 id="aside-tit">Tu propuesta</h2>
   <div class="asig" id="asig"></div>
+  <div class="barra-desc barra-mini" id="escala-mini" hidden></div>
   <ul class="lineas" id="lineas"></ul>
   <div class="tot">
     <div><span>Regalos</span><span id="t-reg">$0</span></div>
@@ -497,8 +541,11 @@ const varianteLinda = (v) => {
 };
 // "Mediana - Comen 2- Piccan 5" → "Mediana"
 const tamanoCorto = (v) => varianteLinda(v).split(" · ")[0];
-// Nombre de una línea del resumen: "La Fausta · Chica (Clásica)", "Caja Gourmet (XL)", "Giftcard personalizada · $75.000"
-const nombreLinea = (l) => `${l.nombre}${(l.variante_mostrar || l.variante) ? " · " + tamanoCorto(l.variante_mostrar || l.variante) : ""}${!l.digital && l.opcion && l.opcion !== l.nombre ? ` (${l.opcion})` : ""}`;
+// Nombre de una línea del resumen: "La Fausta · Chica (Clásica)", "Caja Gourmet (XL)", "Giftcard personalizada · $75.000".
+// Las que van en caja de regalo (Piccadas medianas) lo dicen: con emoji en pantalla y WhatsApp; sin emoji en el PDF
+// (la fuente del PDF no lo tiene).
+const TXT_CAJA = "Viene en caja de regalo";
+const nombreLinea = (l, pdf = false) => `${l.nombre}${(l.variante_mostrar || l.variante) ? " · " + tamanoCorto(l.variante_mostrar || l.variante) : ""}${!l.digital && l.opcion && l.opcion !== l.nombre ? ` (${l.opcion})` : ""}${l.enCajaRegalo ? (pdf ? " · en caja de regalo" : " · 🎁 en caja de regalo") : ""}`;
 const tarjetasDe = (e) => (e && e.grupos ? e.grupos : []).flatMap((g) => g.tarjetas);
 const claveSel = (e, t) => `${e.id}:${t.clave}`;
 const varianteSel = (e, t) => t.variantes.find((v) => v.variant_id === estado.sel[claveSel(e, t)]) || t.variantes[0];
@@ -639,25 +686,68 @@ function renderAvisoAsig() {
   $("#b-ajustar").dataset.n = n;
 }
 function alCambiar() {
-  renderPasos(); renderAvisoAsig();
+  renderPasos(); renderAvisoAsig(); renderEscalaMini();
   if (estado.modo === "calendario") { const f = fechaActual(); if (f) actualizarFechaUI(f); renderEscalaCal(); renderAtajos(); }
 }
 
-// ===== Render del catálogo =====
-function renderEscala() {
-  if (!estado.cat) return;
-  const c = +$("#cant").value || 0;
-  $("#escala").innerHTML = estado.cat.tramos.map((t) => `<span class="${c >= t.min ? "on" : ""}">${t.min}+ regalos · ${t.pct}% off</span>`).join("");
+// ===== Barra de descuento por volumen =====
+// Tramos de la API (TRAMOS_REGALOS): nada hardcodeado. Devuelve el tramo alcanzado, el próximo y cuánto falta.
+function estadoTramos(c) {
+  const tramos = [...((estado.cat && estado.cat.tramos) || [])].sort((a, b) => a.min - b.min);
+  const alcanzado = [...tramos].reverse().find((t) => c >= t.min) || null;
+  const siguiente = tramos.find((t) => c < t.min) || null;
+  return { tramos, alcanzado, siguiente, max: tramos.length ? tramos[tramos.length - 1].min : 1, falta: siguiente ? siguiente.min - c : 0 };
 }
-function renderEscalaCal() {
+const regalosTxt = (n) => `${n} ${n === 1 ? "regalo" : "regalos"}`;
+// Texto que empuja: cuánto falta, qué se desbloqueó y cuánto falta para el siguiente, o el máximo.
+function textoBarra(c, { recien, sufijo = "" }) {
+  const { alcanzado, siguiente, falta } = estadoTramos(c);
+  if (!siguiente && alcanzado) return `¡Llegaste al máximo descuento: <b>${alcanzado.pct}% OFF</b>!`;
+  if (!alcanzado) return `Te faltan <span class="falta-n">${regalosTxt(falta)}</span>${sufijo} para el <b>${siguiente.pct}% OFF</b>`;
+  if (recien) return `¡Desbloqueaste <b>${alcanzado.pct}% OFF</b>! Con <span class="falta-n">${falta} más</span> llegás al ${siguiente.pct}%`;
+  return `Tenés <b>${alcanzado.pct}% OFF</b> · Te faltan <span class="falta-n">${regalosTxt(falta)}</span>${sufijo} para el ${siguiente.pct}% OFF`;
+}
+// Pinta la barra en `el` con la cantidad `c`. Si cruzó un tramo hacia arriba desde la última vez → "recién desbloqueado"
+// (microanimación y el texto de desbloqueo; queda hasta que la cantidad vuelve a cambiar).
+function pintarBarra(el, c, { sufijo = "", etiqueta = "Descuento por volumen" } = {}) {
+  if (!el || !estado.cat) return;
+  const { tramos, alcanzado, siguiente, max } = estadoTramos(c);
+  if (!tramos.length) { el.hidden = true; return; }
+  const previo = el.dataset.c === undefined ? null : +el.dataset.c;
+  const tramoPrevio = previo === null ? null : estadoTramos(previo).alcanzado;
+  const cruzo = previo !== null && alcanzado && (!tramoPrevio || tramoPrevio.min < alcanzado.min);
+  const recien = cruzo || (el.dataset.recien === String(alcanzado && alcanzado.min) && previo === c);
+  el.dataset.c = c; el.dataset.recien = recien && alcanzado ? alcanzado.min : "";
+  const pct = (n) => Math.min(100, (n / max) * 100);
+  const desde = alcanzado ? alcanzado.min : 0;
+  // Avance hacia el próximo tramo: de neutro a naranja según cuánto falta (0 % recién arrancado → 100 % a un paso).
+  const cerca = siguiente ? Math.max(0, Math.min(1, (c - desde) / (siguiente.min - desde))) : 1;
+  const color = `color-mix(in srgb, var(--b-naranja) ${Math.round(cerca * 100)}%, var(--b-neutro))`;
+  el.setAttribute("role", "group"); el.setAttribute("aria-label", etiqueta);
+  el.innerHTML = `<div class="pista" role="progressbar" aria-valuemin="0" aria-valuemax="${max}" aria-valuenow="${Math.min(c, max)}" aria-valuetext="${regalosTxt(c)}${alcanzado ? `, ${alcanzado.pct}% OFF` : ""}">
+      <div class="ok" style="width:${siguiente ? pct(desde) : 100}%"></div>
+      <div class="avance" style="width:${pct(c)}%;background-color:${color}"></div>
+      ${tramos.map((t) => `<span class="marca${c >= t.min ? " on" : ""}${cruzo && alcanzado && t.min === alcanzado.min ? " recien" : ""}" style="left:${pct(t.min)}%"><span class="punto">${c >= t.min ? "✓" : ""}</span><span class="et">${t.pct}% OFF<small>${t.min}+</small></span></span>`).join("")}
+    </div>
+    <div class="txt${cruzo ? " recien" : ""}" aria-live="polite">${textoBarra(c, { recien, sufijo })}</div>`;
+  el.hidden = false;
+}
+// ===== Render del catálogo =====
+function renderEscala() { pintarBarra($("#escala"), cantPedida()); renderEscalaMini(); }
+function renderEscalaCal() { pintarBarra($("#cal-escala"), estado.fechas.reduce((a, f) => a + contar(f).regalos, 0), { sufijo: " en el año", etiqueta: "Descuento por volumen anual" }); renderEscalaMini(); }
+// Mini en "Tu propuesta": con los regalos ASIGNADOS (paso 2), así empuja mientras eligen; en calendario, el total anual.
+function renderEscalaMini() {
   if (!estado.cat) return;
-  const c = estado.fechas.reduce((a, f) => a + contar(f).regalos, 0);
-  $("#cal-escala").innerHTML = estado.cat.tramos.map((t) => `<span class="${c >= t.min ? "on" : ""}">${t.min}+ regalos en el año · ${t.pct}% off</span>`).join("");
+  const c = estado.modo === "calendario" ? estado.fechas.reduce((a, f) => a + contar(f).regalos, 0) : contar(estado).regalos;
+  pintarBarra($("#escala-mini"), c, { sufijo: estado.modo === "calendario" ? " en el año" : "", etiqueta: "Descuento por volumen de lo elegido" });
 }
 function renderTabs() {
   const regalos = estado.cat.estilos.filter((e) => !e.extra);
   $("#tabs").innerHTML = regalos.map((e) =>
     `<button class="tab" type="button" aria-pressed="${estado.estilo === e.id}" data-e="${e.id}">${esc(e.nombre)}${tieneAlgo(e) ? " •" : ""}</button>`).join("");
+  const activo = regalos.find((e) => e.id === estado.estilo);
+  $("#aviso-estilo").hidden = !(activo && activo.enCajaRegalo);
+  $("#aviso-estilo").textContent = activo && activo.enCajaRegalo ? `🎁 Las ${activo.nombre} vienen en caja de regalo, listas para entregar.` : "";
 }
 function tarjeta(e, t, tope) {
   const v = varianteSel(e, t), id = v.variant_id;
@@ -668,7 +758,8 @@ function tarjeta(e, t, tope) {
   const precio = libre ? (Number(libre.monto) > 0 ? Number(libre.monto) : null) : v.precio;
   const fuera = tope && precio && precio > tope;
   const fotoUrl = v.foto || t.foto;
-  const foto = fotoUrl ? `<img src="${esc(fotoUrl)}" alt="" loading="lazy">` : (ICONOS[e.id] || "🎁");
+  const foco = /^[0-9.]+% [0-9.]+%$/.test(t.foco || "") ? t.foco : "50% 50%";   // config: foco (object-position)
+  const foto = fotoUrl ? `<img src="${esc(fotoUrl)}" alt="" loading="lazy" style="object-position:${foco}">` : (ICONOS[e.id] || "🎁");
   // Debajo del título: el producto de TN (y el rinde si hay una sola variante: "come 1, piccan 3")
   const rinde = t.variantes.length === 1 && v.etiqueta ? varianteLinda(v.etiqueta).split(" · ").slice(1).join(" · ") : "";
   const sub = t.producto && t.producto !== t.titulo ? `<div class="variante">${esc(t.producto)}${rinde ? " · " + esc(rinde) : ""}</div>` : "";
@@ -680,7 +771,7 @@ function tarjeta(e, t, tope) {
     ? `<label class="tam">Monto por giftcard <input type="number" inputmode="numeric" min="${t.minimo || 1}" step="1000" placeholder="Ej. 75000" value="${esc(libre.monto)}" data-monto="${esc(id)}"></label>${t.minimo ? `<div class="nota-min">Mínimo ${plata(t.minimo)}</div>` : ""}` : "";
   return `<article class="prod ${algo ? "sel" : ""} ${fuera ? "fuera" : ""}">
     <div class="foto" aria-hidden="true">${foto}</div>
-    <div class="prod-body"><h3>${esc(t.titulo)}</h3>${sub}<div class="desc">${esc(t.descripcion)}</div>${selector}${monto}
+    <div class="prod-body"><h3>${esc(t.titulo)}</h3>${sub}${e.enCajaRegalo ? `<span class="tag-caja">🎁 ${TXT_CAJA}</span>` : ""}<div class="desc">${esc(t.descripcion)}</div>${selector}${monto}
       ${porVariante ? `<div class="resumen-var">${porVariante}</div>` : ""}
       <div class="linea-q"><span class="precio" data-precio="${esc(id)}">${precio ? plata(precio) : "Elegí el monto"}${!libre && v.precio_antes ? `<span class="antes">${plata(v.precio_antes)}</span>` : ""}</span>
         <div class="mini"><button type="button" aria-label="Restar ${esc(t.titulo)}" data-q="${esc(id)}" data-d="-1">−</button>
@@ -1185,7 +1276,7 @@ async function generarPDF(c, id) {
       const f = (/^data:image\/(\w+)/.exec(data) || [])[1];
       try { doc.addImage(data, f === "png" ? "PNG" : f === "webp" ? "WEBP" : "JPEG", 15, y - 5, 8, 8); } catch (_) {}
     }
-    const nombre = `${l.cantidad} x ${nombreLinea(l)}${l.extra ? " · bebida" : ""}`;
+    const nombre = `${l.cantidad} x ${nombreLinea(l, true)}${l.extra ? " · bebida" : ""}`;
     doc.text(doc.splitTextToSize(nombre, 125), data ? 26 : 15, y);
     doc.text(`${plata(l.precio)} c/u`, 160, y, { align: "right" });
     doc.text(plata(l.subtotal), W - 15, y, { align: "right" });
@@ -1247,7 +1338,7 @@ async function generarPDFCalendario(c, id) {
     }
     for (const l of f.lineas) {
       espacio(6);
-      doc.text(doc.splitTextToSize(`${l.cantidad} x ${nombreLinea(l)}${l.extra ? " · bebida" : ""}`, 120), 20, y);
+      doc.text(doc.splitTextToSize(`${l.cantidad} x ${nombreLinea(l, true)}${l.extra ? " · bebida" : ""}`, 120), 20, y);
       doc.text(`${plata(l.precio)} c/u`, 160, y, { align: "right" }); doc.text(plata(l.subtotal), W - 15, y, { align: "right" }); y += 5.5;
     }
     const ent = f.envioDetalle;
@@ -1478,7 +1569,7 @@ async function cargarCatalogo() {
       $("#cf-fecha").min = d.calendario.fechaMin; $("#cf-fecha").max = d.calendario.fechaMax;
     }
     const conItems = d.estilos.filter((e) => !e.extra && tarjetasDe(e).length);
-    if (!estado.estilo || !conItems.some((e) => e.id === estado.estilo)) estado.estilo = (conItems.find((e) => e.id === "caja") || conItems[0] || d.estilos[0]).id;
+    if (!estado.estilo || !conItems.some((e) => e.id === estado.estilo)) estado.estilo = (conItems.find((e) => e.id === d.estiloInicial) || conItems[0] || d.estilos[0]).id;
     renderZonas(); renderEscala(); renderTabs(); renderGrilla();
     if (estado.modo === "calendario") dibujarCalendario();
     $("#cat-cargando").hidden = true; $("#cat-ok").hidden = false;

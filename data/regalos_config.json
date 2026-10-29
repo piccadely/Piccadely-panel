@@ -1,6 +1,43 @@
 {
   "_comentario": "Selección curada del Cotizador de Regalos (public/regalos.html). Precios, fotos y stock salen en vivo de Tienda Nube; acá se fija QUÉ se muestra. 'producto' se busca por nombre en TN (sin tildes, sin mayúsculas, 'contiene'; si hay varios, gana el nombre exacto y después el más corto). Si no aparece en TN: warning en el log y se omite. 'tamano' filtra la variante cuyo nombre empieza con ese texto (chica / mediana).",
+  "estilo_inicial": "chica",
+  "_comentario_estilos": "El ORDEN de 'estilos' es el de las pestañas. 'estilo_inicial' = la pestaña abierta al entrar. 'foco' (opcional, por ítem) = qué parte de la foto se ve en la tarjeta (object-position, ej. '50% 70%' = centrada y más abajo); sin foco, el centro. 'en_caja_regalo' marca el estilo que se entrega en caja de regalo (se avisa en la pestaña, la tarjeta, el resumen, el PDF y el mail).",
   "estilos": [
+    {
+      "id": "chica", "nombre": "Piccadas chicas", "tamano": "chica",
+      "items": [
+        { "clave": "pic-clasica", "titulo": "Clásica", "producto": "la fausta", "foco": "50% 65%" },
+        { "clave": "pic-seleccion", "titulo": "Selección", "producto": "comilona", "foco": "50% 65%" },
+        { "clave": "pic-premium", "titulo": "Premium", "producto": "anita de baires", "foco": "50% 65%" },
+        { "clave": "pic-veggie", "titulo": "Veggie", "producto": "esquesitos", "foco": "50% 65%" }
+      ]
+    },
+    {
+      "id": "mediana", "nombre": "Piccadas medianas", "tamano": "mediana", "en_caja_regalo": true,
+      "items": [
+        { "clave": "pic-clasica", "titulo": "Clásica", "producto": "la fausta", "foco": "50% 65%" },
+        { "clave": "pic-seleccion", "titulo": "Selección", "producto": "comilona", "foco": "50% 65%" },
+        { "clave": "pic-premium", "titulo": "Premium", "producto": "anita de baires", "foco": "50% 65%" },
+        { "clave": "pic-veggie", "titulo": "Veggie", "producto": "esquesitos", "foco": "50% 65%" }
+      ]
+    },
+    {
+      "id": "caja", "nombre": "Cajas de regalo",
+      "items": [
+        { "clave": "caja-mediana", "titulo": "Mediana", "producto": "piccapacket luke", "foco": "50% 60%" },
+        { "clave": "caja-grande", "titulo": "Grande", "producto": "piccabox delicious", "foco": "50% 75%" },
+        { "clave": "caja-xl", "titulo": "XL", "producto": "caja gourmet", "foco": "50% 80%" },
+        { "clave": "caja-vegetariana", "titulo": "Vegetariana", "producto": "piccabox the cheese premium", "foco": "50% 80%" },
+        { "clave": "caja-premium", "titulo": "Premium", "producto": "caja fuerte", "foco": "50% 70%" }
+      ]
+    },
+    {
+      "id": "desayuno", "nombre": "Desayunos",
+      "items": [
+        { "clave": "des-vegetariano", "titulo": "Vegetariano", "producto": "desayuno vegeta" },
+        { "clave": "des-clasico", "titulo": "Clásico", "producto": "roshi" }
+      ]
+    },
     {
       "id": "giftcard", "nombre": "GiftCards", "digital": true,
       "grupos": [
@@ -17,41 +54,6 @@
           { "clave": "gc-platinum", "titulo": "Platinum", "producto": "piccagift card platinum" },
           { "clave": "gc-black", "titulo": "Black", "producto": "piccagift card black" }
         ]}
-      ]
-    },
-    {
-      "id": "desayuno", "nombre": "Desayunos",
-      "items": [
-        { "clave": "des-vegetariano", "titulo": "Vegetariano", "producto": "desayuno vegeta" },
-        { "clave": "des-clasico", "titulo": "Clásico", "producto": "roshi" }
-      ]
-    },
-    {
-      "id": "caja", "nombre": "Cajas de regalo",
-      "items": [
-        { "clave": "caja-mediana", "titulo": "Mediana", "producto": "piccapacket luke" },
-        { "clave": "caja-grande", "titulo": "Grande", "producto": "piccabox delicious" },
-        { "clave": "caja-xl", "titulo": "XL", "producto": "caja gourmet" },
-        { "clave": "caja-vegetariana", "titulo": "Vegetariana", "producto": "piccabox the cheese premium" },
-        { "clave": "caja-premium", "titulo": "Premium", "producto": "caja fuerte" }
-      ]
-    },
-    {
-      "id": "chica", "nombre": "Piccadas chicas", "tamano": "chica",
-      "items": [
-        { "clave": "pic-clasica", "titulo": "Clásica", "producto": "la fausta" },
-        { "clave": "pic-seleccion", "titulo": "Selección", "producto": "comilona" },
-        { "clave": "pic-premium", "titulo": "Premium", "producto": "anita de baires" },
-        { "clave": "pic-veggie", "titulo": "Veggie", "producto": "esquesitos" }
-      ]
-    },
-    {
-      "id": "mediana", "nombre": "Piccadas medianas", "tamano": "mediana",
-      "items": [
-        { "clave": "pic-clasica", "titulo": "Clásica", "producto": "la fausta" },
-        { "clave": "pic-seleccion", "titulo": "Selección", "producto": "comilona" },
-        { "clave": "pic-premium", "titulo": "Premium", "producto": "anita de baires" },
-        { "clave": "pic-veggie", "titulo": "Veggie", "producto": "esquesitos" }
       ]
     }
   ],

@@ -59,12 +59,28 @@ export async function getProductosTN() {
   return (await getCatalogoTN()).productos;
 }
 
+// Entidades HTML de las descripciones de TN → caracteres. Antes cualquier entidad con nombre se borraba y quedaba
+// "Jam n Crudo" (por "Jam&oacute;n"). Se decodifican las con nombre de uso común y las numéricas (&#243; / &#xF3;);
+// una con nombre desconocido sigue siendo un espacio. &amp; va al final, para no decodificar dos veces.
+const ENTIDADES = {
+  aacute: "á", eacute: "é", iacute: "í", oacute: "ó", uacute: "ú", Aacute: "Á", Eacute: "É", Iacute: "Í", Oacute: "Ó", Uacute: "Ú",
+  ntilde: "ñ", Ntilde: "Ñ", uuml: "ü", Uuml: "Ü", iexcl: "¡", iquest: "¿", ordm: "º", ordf: "ª", deg: "°", middot: "·", bull: "•",
+  quot: '"', apos: "'", lt: "<", gt: ">", nbsp: " ", laquo: "«", raquo: "»", ndash: "–", mdash: "—", hellip: "…",
+  lsquo: "‘", rsquo: "’", ldquo: "“", rdquo: "”", euro: "€", times: "×", frac12: "½", frac14: "¼", copy: "©", reg: "®",
+};
+const codigo = (c) => (c > 0 && c < 0x110000 ? String.fromCodePoint(c) : " ");
+export function decodificarEntidades(s) {
+  return String(s)
+    .replace(/&#(\d+);/g, (m, n) => codigo(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (m, h) => codigo(parseInt(h, 16)))
+    .replace(/&([a-z][a-z0-9]*);/gi, (m, n) => (n.toLowerCase() === "amp" ? m : ENTIDADES[n] ?? " "))
+    .replace(/&amp;/gi, "&");
+}
+
 // Descripción de TN (HTML) → texto plano corto.
 export function limpiarDescripcion(html, max = 220) {
   if (!html) return "";
-  const txt = String(html)
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&[a-z]+;/gi, " ")
+  const txt = decodificarEntidades(String(html).replace(/<[^>]*>/g, " "))
     .replace(/\s+/g, " ").trim();
   return txt.length > max ? txt.slice(0, max).replace(/\s+\S*$/, "") + "…" : txt;
 }

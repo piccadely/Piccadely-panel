@@ -56,8 +56,11 @@ input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-
 .grilla{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
 .prod{background:var(--card);border:1.5px solid var(--linea);border-radius:16px;overflow:hidden;display:flex;flex-direction:column;transition:border-color .15s}
 .prod.sel{border-color:var(--naranja)}
-.foto{aspect-ratio:4/3;display:grid;place-items:center;font-size:54px;background:var(--fondo-2);overflow:hidden}
-.foto img{width:100%;height:100%;object-fit:cover;display:block}
+/* La foto LLENA el recuadro 4:3 (absoluta adentro): antes se dibujaba con su proporción (cuadrada) y se cortaba la
+   franja de abajo, donde suele estar el producto. "cover" recorta parejo; el punto de encuadre lo fija cada página
+   (object-position; regalos lo toma de la config: foco). */
+.foto{aspect-ratio:4/3;display:grid;place-items:center;font-size:54px;background:var(--fondo-2);overflow:hidden;position:relative}
+.foto img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 .prod-body{padding:14px 14px 16px;display:flex;flex-direction:column;gap:6px;flex:1}
 .prod h3{font-size:18px;font-weight:700}
 .prod .variante{font-size:13px;font-weight:600;color:var(--naranja-hondo)}

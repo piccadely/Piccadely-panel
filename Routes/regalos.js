@@ -96,7 +96,7 @@ export function armarCatalogoRegalos({ productos, categorias }, config = configR
     const minimo = libre && Number(it.minimo) > 0 ? Number(it.minimo) : null;
     porVariante.set(id, { variant_id: id, product_id: null, sinProductoTN: true, montoLibre: libre, minimo, opcion: it.titulo, nombre: it.nombre || it.titulo,
       variante: "", estilo: e.id, digital: !!e.digital, extra: false, foto: "", precio: libre ? null : Number(it.precio), precio_antes: null });
-    return { clave: it.clave, titulo: it.titulo, producto: it.nombre || it.titulo, descripcion: it.descripcion || "", foto: "", virtual: true, montoLibre: libre, minimo,
+    return { clave: it.clave, titulo: it.titulo, producto: it.nombre || it.titulo, descripcion: it.descripcion || "", foto: "", ...(it.foco ? { foco: it.foco } : {}), virtual: true, montoLibre: libre, minimo,
       variantes: [{ variant_id: id, etiqueta: "", precio: libre ? null : Number(it.precio), precio_antes: null, foto: "" }] };
   };
 
@@ -110,11 +110,11 @@ export function armarCatalogoRegalos({ productos, categorias }, config = configR
       const id = String(v.id), foto = fotoDe(p, v);
       variantes.push({ variant_id: id, etiqueta, mostrar: mostrar(etiqueta), precio: pr.precio, precio_antes: pr.antes, foto });
       porVariante.set(id, { variant_id: id, product_id: p.id, opcion: it.titulo, nombre: txt(p.name), variante: etiqueta, variante_mostrar: mostrar(etiqueta), estilo: e.id,
-        digital: !!e.digital, extra: !!e.extra, foto, precio: pr.precio, precio_antes: pr.antes });
+        digital: !!e.digital, extra: !!e.extra, ...(e.en_caja_regalo ? { enCajaRegalo: true } : {}), foto, precio: pr.precio, precio_antes: pr.antes });
     }
     if (!variantes.length) { avisos.push(`"${txt(p.name)}" (${e.nombre} · ${it.titulo}) no tiene variantes${e.tamano ? " " + e.tamano : ""} con precio y stock: se omite`); return null; }
     return { clave: it.clave, titulo: it.titulo, producto: txt(p.name), product_id: p.id, descripcion: limpiarDescripcion(txt(p.description)),
-      foto: variantes[0].foto || fotoDe(p), variantes };
+      foto: variantes[0].foto || fotoDe(p), ...(it.foco ? { foco: it.foco } : {}), variantes };
   };
 
   const estilos = (config.estilos || []).map((e) => {
@@ -127,7 +127,7 @@ export function armarCatalogoRegalos({ productos, categorias }, config = configR
         return tarjetaTN(e, it, p);
       }).filter(Boolean),
     })).filter((g) => g.tarjetas.length);
-    return { id: e.id, nombre: e.nombre, digital: !!e.digital, extra: false, grupos };
+    return { id: e.id, nombre: e.nombre, digital: !!e.digital, extra: false, ...(e.en_caja_regalo ? { enCajaRegalo: true } : {}), grupos };
   });
 
   // Bebidas: por categoría de TN (add-on, no cuentan como regalo).
@@ -192,7 +192,7 @@ function lineasDe(catalogo, items, errores) {
   return [...acumulado.values()].map(({ item: i, precio, cantidad }) => ({
     variant_id: i.variant_id, product_id: i.product_id, opcion: i.opcion, nombre: i.nombre,
     variante: i.montoLibre ? pesos(precio) : i.variante, variante_mostrar: i.montoLibre ? pesos(precio) : (i.variante_mostrar || i.variante), estilo: i.estilo, digital: i.digital, extra: i.extra, foto: i.foto,
-    ...(i.sinProductoTN ? { sinProductoTN: true } : {}), ...(i.montoLibre ? { monto: precio } : {}),
+    ...(i.sinProductoTN ? { sinProductoTN: true } : {}), ...(i.montoLibre ? { monto: precio } : {}), ...(i.enCajaRegalo ? { enCajaRegalo: true } : {}),
     cantidad, precio, precio_antes: i.precio_antes, subtotal: precio * cantidad,
   }));
 }
@@ -332,7 +332,7 @@ async function notificarRegalos(mailTransporter, lead) {
          <b>Email:</b> ${esc(lead.email)} &nbsp;·&nbsp; <b>Tel:</b> ${esc(lead.telefono || "-")}</p>
       <p><b>${c.regalos} regalos</b>${c.cantidadRegalos !== c.regalos ? ` (pidió ${c.cantidadRegalos})` : ""}${lead.fecha ? " · 📅 " + esc(lead.fecha) : ""}<br>
          <b>Entrega:</b> ${esc(entregaTxt)}</p>
-      <ul>${c.lineas.map((l) => `<li>${l.cantidad}× ${l.opcion && l.opcion !== l.nombre ? esc(l.opcion) + " · " : ""}${esc(l.nombre)}${l.variante ? " (" + esc(l.variante) + ")" : ""} · ${pesos(l.subtotal)}${l.sinProductoTN ? " <i>(sin producto en TN)</i>" : ""}</li>`).join("")}</ul>
+      <ul>${c.lineas.map((l) => `<li>${l.cantidad}× ${l.opcion && l.opcion !== l.nombre ? esc(l.opcion) + " · " : ""}${esc(l.nombre)}${l.variante ? " (" + esc(l.variante) + ")" : ""}${l.enCajaRegalo ? " · 🎁 <b>en caja de regalo</b>" : ""} · ${pesos(l.subtotal)}${l.sinProductoTN ? " <i>(sin producto en TN)</i>" : ""}</li>`).join("")}</ul>
       <p>Regalos ${pesos(c.subtotalRegalos)}${c.subtotalBebidas ? " · Bebidas " + pesos(c.subtotalBebidas) : ""}${c.descuento ? ` · Descuento ${c.tramo.pct}% −${pesos(c.descuento)}` : ""}<br>
          <b>Total estimado sin envío: ${pesos(c.total)}</b> (${pesos(c.porRegalo)} por regalo)<br>
          <b style="color:#c0392b">${esc(TEXTO_SIN_ENVIO)}</b></p>
@@ -359,7 +359,7 @@ async function notificarCalendario(mailTransporter, lead) {
     const c = lead.calculo;
     const porMes = new Map();
     for (const f of c.fechas) { const m = mesDe(f.fecha); if (!porMes.has(m)) porMes.set(m, []); porMes.get(m).push(f); }
-    const linea = (l) => `${l.cantidad}× ${l.opcion && l.opcion !== l.nombre ? esc(l.opcion) + " · " : ""}${esc(l.nombre)}${l.variante ? " (" + esc(l.variante) + ")" : ""} · ${pesos(l.precio)} c/u`;
+    const linea = (l) => `${l.cantidad}× ${l.opcion && l.opcion !== l.nombre ? esc(l.opcion) + " · " : ""}${esc(l.nombre)}${l.variante ? " (" + esc(l.variante) + ")" : ""}${l.enCajaRegalo ? " · 🎁 <b>en caja de regalo</b>" : ""} · ${pesos(l.precio)} c/u`;
     const html = `
       <h2>📅 Nuevo calendario anual de regalos #${lead.id}</h2>
       <p><b>${lead.canal === "whatsapp" ? "📲 Cerró por WhatsApp" : "📄 Pidió la propuesta"}</b></p>
@@ -426,6 +426,7 @@ export function regalosRouter(pool, mailTransporter) {
         tramos: TRAMOS_REGALOS,
         envio: { caba: tar.caba, partidos: tar.partidos, referencia: tar.referencia, aviso: TEXTO_SIN_ENVIO },
         calendario: reglasCalendario(),   // modo "Calendario anual" (campo nuevo: un front anterior lo ignora)
+        estiloInicial: configRegalos().estilo_inicial || null,   // pestaña abierta al entrar (campo nuevo: un front anterior lo ignora)
       });
     } catch (e) {
       console.error("Regalos: error armando el catálogo:", e.message);
