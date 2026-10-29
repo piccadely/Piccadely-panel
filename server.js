@@ -51,6 +51,9 @@ const TF_ENABLED = missingTF.length === 0;
 
 const app = express();
 app.use(cors({ origin: "*" }));
+// PDF de la propuesta (paso 2 del mail al cliente, Routes/mailCliente.js): hasta 5 MB en base64 → 8 MB de JSON, SOLO en esas
+// dos rutas (el resto sigue con el límite por defecto de 100 KB). Va antes del parser general: si ya parseó, el general no hace nada.
+app.use(/^\/api\/(regalos\/propuesta|cotizaciones)\/\d+\/pdf$/, express.json({ limit: "8mb" }));
 app.use(express.json({
   verify: (req, res, buf) => { req.rawBody = buf; }
 }));

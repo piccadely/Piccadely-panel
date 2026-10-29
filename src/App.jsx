@@ -1811,10 +1811,18 @@ const [facturaLabel, setFacturaLabel] = useState(null);
         </div>
       );
     }
+    // Mail AL CLIENTE con su propuesta (Routes/mailCliente.js): resultado guardado en opciones.mailCliente.
+    function EstadoMailCliente({ c }) {
+      const m = c?.opciones && !Array.isArray(c.opciones) ? c.opciones.mailCliente : null;
+      if (!m) return null;
+      const cuando = m.fecha ? new Date(m.fecha).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+      return m.enviado
+        ? <div style={{ fontSize: 12, color: "#1d8a4e", marginTop: 6 }}>✉️ Propuesta enviada al cliente ({m.email}){cuando ? " · " + cuando : ""}{m.adjunto ? " · con PDF" : " · sin PDF"}{m.sinAdjunto ? ` (${m.sinAdjunto})` : ""}</div>
+        : <div style={{ fontSize: 12, color: "#c0392b", marginTop: 6 }}>⚠️ No se pudo mandar el mail al cliente ({m.email}){cuando ? " · " + cuando : ""}{m.error ? `: ${m.error}` : ""}</div>;
+    }
     function DetalleCotizacion({ c }) {
-      if (esLeadRegalos(c)) return <DetalleRegalos c={c} />;
-      if (c?.origen === "manual") return <DetalleManual c={c} />;
-      return <DetalleEvento c={c} />;
+      const detalle = esLeadRegalos(c) ? <DetalleRegalos c={c} /> : c?.origen === "manual" ? <DetalleManual c={c} /> : <DetalleEvento c={c} />;
+      return <>{detalle}<EstadoMailCliente c={c} /></>;
     }
     // ─── COMPONENTE CAJA ─────────────────────────────────────────────────
     function VistaCaja({ pedidosActivos, onVolver, usuario }) {

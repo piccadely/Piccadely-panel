@@ -1,6 +1,13 @@
 import express from "express";
 import axios from "axios";
 import { getProductosTN } from "./tnCatalogo.js";   // catálogo TN compartido (paginado + caché de 5 min)
+import { esBot, ipDe, crearLimitador } from "./antispam.js";
+import { crearEsperaPdf, enviarMailCliente, mailPropuestaEventos } from "./mailCliente.js";
+
+// POST /cotizaciones es público y ahora manda un mail al cliente: misma protección que el cotizador de regalos
+// (máx. 5 cotizaciones GUARDADAS por IP cada 10 minutos + honeypot). Ver Routes/antispam.js.
+const limitadorEventos = crearLimitador({ limite: 5, ventanaMs: 10 * 60 * 1000 });
+const emailValido = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || "").trim());
 
 // ─── Piccadas por nivel: categoría + qué piccadas puede usar ─────────
 const PICCADA = {
@@ -385,8 +392,24 @@ export function cotizadorRouter(pool, mailTransporter, requireAdmin) {
     }
   });
 
+  // Mail AL CLIENTE con la opción elegida (solo si la pidió: canal "solicitar"), con el PDF del paso 2
+  // (POST /cotizaciones/:id/pdf); si el PDF no llega en 60 s, sale sin adjunto. Ver Routes/mailCliente.js.
+  const esperaPdf = crearEsperaPdf({
+    enviar: (id, { cot }, adjunto, motivoSinAdjunto) => enviarMailCliente({
+      mailTransporter, pool, id, to: String(cot.email).trim(), mail: mailPropuestaEventos({ id, cot }), adjunto, motivoSinAdjunto,
+      nombrePdf: `cotizacion-evento-piccadely-${id}.pdf`,
+    }),
+  });
+
   // Guardar una cotización (lo que el cliente eligió + canal)
   router.post("/cotizaciones", async (req, res) => {
+    // Honeypot lleno → bot: OK sin guardar ni mandar mail. Rate limit por IP (cuentan solo las guardadas).
+    if (esBot(req.body)) { console.warn("Cotizador: cotización descartada por honeypot."); return res.json({ ok: true, id: null }); }
+    const ip = ipDe(req);
+    if (limitadorEventos.excedido(ip)) {
+      console.warn("Cotizador: rate limit de cotizaciones alcanzado.");
+      return res.status(429).json({ error: "Recibimos varias cotizaciones seguidas desde tu conexión. Esperá unos minutos o escribinos por WhatsApp." });
+    }
     try {
       const b = req.body || {};
       const opcionesGuardadas = detalleEvento(b);
@@ -407,8 +430,10 @@ export function cotizadorRouter(pool, mailTransporter, requireAdmin) {
         ]
       );
       const nuevaId = q.rows[0].id;
+      limitadorEventos.registrar(ip);
       notificarCotizacion(mailTransporter, { ...b, id: nuevaId, canal });
-      res.json({ ok: true, id: nuevaId, creada_en: q.rows[0].creada_en });
+      const tokenPdf = canal === "solicitar" && emailValido(b.email) ? esperaPdf.programar(nuevaId, { cot: b }) : null;
+      res.json({ ok: true, id: nuevaId, creada_en: q.rows[0].creada_en, ...(tokenPdf ? { tokenPdf } : {}) });
     } catch (err) {
       console.error("Error guardando cotización:", err.message);
       res.status(500).json({ error: "Error al guardar la cotización" });
@@ -475,6 +500,15 @@ export function cotizadorRouter(pool, mailTransporter, requireAdmin) {
     } catch (err) {
       res.status(502).json({ error: "No se pudo cargar la imagen" });
     }
+  });
+
+  // Paso 2: el PDF (con el N°) que armó el navegador → mail al cliente con el adjunto. Token de un solo uso.
+  router.post("/cotizaciones/:id/pdf", async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Cotización inválida." });
+    const r = await esperaPdf.conPdf(id, req.body?.token, req.body?.pdf);
+    if (!r) return res.status(404).json({ error: "No hay una cotización pendiente de envío con esos datos." });
+    res.json({ ok: true, mailEnviado: r.enviado, adjunto: r.adjunto, email: r.email });
   });
 
   return router;

@@ -15,6 +15,9 @@ import express from "express";
 import fs from "fs";
 import { getCatalogoTN, limpiarDescripcion } from "./tnCatalogo.js";
 import { clienteKeyDe } from "./cotizador.js";
+import { esBot, ipDe, crearLimitador } from "./antispam.js";
+import { crearEsperaPdf, enviarMailCliente, mailPropuestaRegalos } from "./mailCliente.js";
+export { ipDe };   // antes vivía acá; se mantiene el export
 
 // Descuento por volumen según la cantidad de REGALOS (las bebidas no cuentan para el tramo, pero se descuentan).
 export const TRAMOS_REGALOS = [{ min: 5, pct: 5 }, { min: 15, pct: 10 }, { min: 25, pct: 15 }];
@@ -388,31 +391,21 @@ async function notificarCalendario(mailTransporter, lead) {
   }
 }
 
-// ── Anti-spam de /propuesta (público y manda mail) ──
-// Rate limit en memoria (una sola réplica): máx. LIMITE_PROPUESTAS leads guardados por IP cada VENTANA_MS.
-// IP: el ÚLTIMO valor de X-Forwarded-For (lo agrega el proxy de Railway; los anteriores los puede inventar
-// el cliente), o la del socket si no hay proxy.
-const LIMITE_PROPUESTAS = 5;
-const VENTANA_MS = 10 * 60 * 1000;
-const _propuestasPorIp = new Map();   // ip → [timestamps]
-export function ipDe(req) {
-  const xff = String(req.headers["x-forwarded-for"] || "").split(",").map((s) => s.trim()).filter(Boolean);
-  return xff.length ? xff[xff.length - 1] : (req.socket?.remoteAddress || "desconocida");
-}
-function propuestasRecientes(ip, ahora = Date.now()) {
-  const lista = (_propuestasPorIp.get(ip) || []).filter((t) => ahora - t < VENTANA_MS);
-  if (lista.length) _propuestasPorIp.set(ip, lista); else _propuestasPorIp.delete(ip);
-  return lista;
-}
-// Se cuentan solo las propuestas GUARDADAS (un error de validación no consume intentos).
-const registrarPropuesta = (ip) => _propuestasPorIp.set(ip, [...propuestasRecientes(ip), Date.now()]);
-setInterval(() => { for (const ip of [..._propuestasPorIp.keys()]) propuestasRecientes(ip); }, VENTANA_MS).unref();
-// Honeypot: campo oculto en el formulario; una persona nunca lo completa.
-const CAMPO_HONEYPOT = "sitio_web";
+// ── Anti-spam de /propuesta (público y manda mail): Routes/antispam.js (mismo criterio que el cotizador de eventos).
+// Máx. 5 propuestas GUARDADAS por IP cada 10 minutos + honeypot (campo CAMPO_HONEYPOT del formulario).
+const limitador = crearLimitador({ limite: 5, ventanaMs: 10 * 60 * 1000 });
 
 // ── Router ──
 export function regalosRouter(pool, mailTransporter) {
   const router = express.Router();
+  // Mail AL CLIENTE con su propuesta (solo si la pidió: canal "solicitar"). Espera el PDF del paso 2 (POST /propuesta/:id/pdf);
+  // si no llega en 60 s, sale sin adjunto. Ver Routes/mailCliente.js.
+  const esperaPdf = crearEsperaPdf({
+    enviar: (id, { lead }, adjunto, motivoSinAdjunto) => enviarMailCliente({
+      mailTransporter, pool, id, to: lead.email, mail: mailPropuestaRegalos({ id, lead, calculo: lead.calculo }), adjunto, motivoSinAdjunto,
+      nombrePdf: `${lead.calculo.fechas ? "calendario" : "propuesta"}-regalos-piccadely-${id}.pdf`,
+    }),
+  });
   // Solo 3 rutas, ninguna devuelve leads: GET /catalogo, POST /calcular, POST /propuesta.
 
   router.get("/catalogo", async (req, res) => {
@@ -478,20 +471,21 @@ export function regalosRouter(pool, mailTransporter) {
        clienteKeyDe(lead.email, lead.telefono)]
     );
     const id = q.rows[0].id;
-    registrarPropuesta(ip);
+    limitador.registrar(ip);
     notificarCalendario(mailTransporter, { ...lead, id });
-    return res.json({ ok: true, id, calculo });
+    const tokenPdf = canal === "solicitar" ? esperaPdf.programar(id, { lead }) : null;
+    return res.json({ ok: true, id, calculo, ...(tokenPdf ? { tokenPdf } : {}) });
   }
 
   router.post("/propuesta", async (req, res) => {
     const b = req.body || {};
     // Honeypot lleno → bot: se responde OK y se descarta en silencio (sin guardar ni mandar mail).
-    if (String(b[CAMPO_HONEYPOT] || "").trim()) {
+    if (esBot(b)) {
       console.warn("Regalos: propuesta descartada por honeypot.");
       return res.json({ ok: true, id: null });
     }
     const ip = ipDe(req);
-    if (propuestasRecientes(ip).length >= LIMITE_PROPUESTAS) {
+    if (limitador.excedido(ip)) {
       console.warn("Regalos: rate limit de propuestas alcanzado.");
       return res.status(429).json({ error: "Recibimos varias propuestas seguidas desde tu conexión. Esperá unos minutos o escribinos por WhatsApp." });
     }
@@ -533,13 +527,23 @@ export function regalosRouter(pool, mailTransporter) {
          JSON.stringify(opciones), calculo.total, calculo.subtotalBebidas > 0, canal, clienteKeyDe(lead.email, lead.telefono)]
       );
       const id = q.rows[0].id;
-      registrarPropuesta(ip);
+      limitador.registrar(ip);
       notificarRegalos(mailTransporter, { ...lead, id });
-      res.json({ ok: true, id, calculo });
+      const tokenPdf = canal === "solicitar" ? esperaPdf.programar(id, { lead }) : null;
+      res.json({ ok: true, id, calculo, ...(tokenPdf ? { tokenPdf } : {}) });
     } catch (e) {
       console.error("Regalos: error guardando la propuesta:", e.message);
       res.status(500).json({ error: "No pudimos guardar la propuesta. Probá de nuevo." });
     }
+  });
+
+  // Paso 2: el PDF (con el N°) que armó el navegador → mail al cliente con el adjunto. Token de un solo uso.
+  router.post("/propuesta/:id/pdf", async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Propuesta inválida." });
+    const r = await esperaPdf.conPdf(id, req.body?.token, req.body?.pdf);
+    if (!r) return res.status(404).json({ error: "No hay una propuesta pendiente de envío con esos datos." });
+    res.json({ ok: true, mailEnviado: r.enviado, adjunto: r.adjunto, email: r.email });
   });
 
   return router;

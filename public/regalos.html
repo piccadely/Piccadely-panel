@@ -1213,13 +1213,28 @@ function mensajeEspecialista() {
   return t;
 }
 
+// Paso 2 del mail al cliente: el PDF (con el N°) va al servidor, que lo adjunta al mail. Sin PDF (no se pudo
+// armar), el mail sale igual sin adjunto. Devuelve { mailEnviado } o null si el pedido no llegó (el servidor lo manda
+// igual, sin adjunto, al minuto).
+async function mandarPdf(id, token, doc) {
+  try {
+    return await pedirJSON(`/api/regalos/propuesta/${id}/pdf`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, pdf: doc ? doc.output("datauristring") : null }) }, MSG.propuesta);
+  } catch (e) { console.error("Regalos: no se pudo mandar el PDF para el mail", { api: API, id, error: e && e.message }); return null; }
+}
 $("#b-sol").addEventListener("click", async () => {
   if (faltaEn("datos")) { toast("Completá tu nombre y email en «Tus datos»", true); return; }
   const b = $("#b-sol"); b.disabled = true; b.textContent = "Generando…";
   try {
+    const email = $("#email").value.trim();
     const d = await guardarLead("solicitar");
-    if (d.calculo && d.calculo.modo === "calendario") await generarPDFCalendario(d.calculo, d.id); else await generarPDF(d.calculo, d.id);
-    toast(`¡Listo! Tu propuesta #${d.id} quedó registrada y te descargamos el PDF. Te contactamos a la brevedad.${$("#tarjeta-propia").checked ? " " + TXT_DISENO : ""}`, false, $("#tarjeta-propia").checked ? 9000 : 4500);
+    let doc = null;
+    try { doc = d.calculo && d.calculo.modo === "calendario" ? await generarPDFCalendario(d.calculo, d.id) : await generarPDF(d.calculo, d.id); }
+    catch (e) { console.error("Regalos: no se pudo armar el PDF", e); }
+    const envio = d.tokenPdf ? await mandarPdf(d.id, d.tokenPdf, doc) : null;
+    if (envio && envio.mailEnviado) toast(`¡Listo! Te mandamos la propuesta a ${email}. Revisá spam si no la ves.`, false, 9000);
+    else if (envio) toast(`Tu propuesta #${d.id} quedó registrada${doc ? " y te descargamos el PDF" : ""}. No pudimos mandarte el mail: te contactamos a la brevedad.`, false, 9000);
+    else toast(`¡Listo! Tu propuesta #${d.id} quedó registrada${doc ? " y te descargamos el PDF" : ""}. En unos minutos te llega por mail a ${email}.`, false, 9000);
   } catch (e) { toast(mensajeCliente(e, MSG.propuesta), true); }
   finally { b.textContent = "Pedir la propuesta"; actualizarCTAs(); }
 });
@@ -1235,12 +1250,27 @@ $("#b-wa").addEventListener("click", async (ev) => {
 });
 $("#acc-esp").addEventListener("click", () => { $("#acc-esp").href = "https://wa.me/" + WA + "?text=" + encodeURIComponent(mensajeEspecialista()); });
 
+// Las fotos van al PDF a ~8 mm: se achican a 160 px en JPEG (antes viajaban a 1024 px y el PDF pesaba varios MB;
+// ahora el PDF también va adjunto al mail, con tope de 5 MB). Si algo falla, queda la foto original.
+const achicarFoto = (dataUrl, px = 160) => new Promise((ok) => {
+  const img = new Image();
+  img.onload = () => {
+    try {
+      const k = Math.min(1, px / Math.max(img.width, img.height)), c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+      const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+      ok(c.toDataURL("image/jpeg", 0.85));
+    } catch (_) { ok(dataUrl); }
+  };
+  img.onerror = () => ok(dataUrl);
+  img.src = dataUrl;
+});
 // PDF: fotos vía /api/cotizador/img (mismo armado que el cotizador de eventos)
 async function fotosPDF(lineas) {
   const urls = [...new Set(lineas.map((l) => l.foto).filter(Boolean))];
   const cache = {};
   await Promise.all(urls.map(async (u) => {
-    try { const r = await fetch(API + "/api/cotizador/img?u=" + encodeURIComponent(u)); const d = await r.json(); if (d.dataUrl) cache[u] = d.dataUrl; } catch (_) {}
+    try { const r = await fetch(API + "/api/cotizador/img?u=" + encodeURIComponent(u)); const d = await r.json(); if (d.dataUrl) cache[u] = await achicarFoto(d.dataUrl); } catch (_) {}
   }));
   return cache;
 }
@@ -1305,6 +1335,7 @@ async function generarPDF(c, id) {
   doc.text("Precio orientativo, válido por 7 días. Te confirmamos disponibilidad y fecha antes de cobrar.", 15, 285);
   doc.text("Corporativo: 11 6239-3921 · corporativo@piccadely.com", 15, 291);
   doc.save(`propuesta-regalos-piccadely${id ? "-" + id : ""}.pdf`);
+  return doc;   // también va adjunto al mail (mandarPdf)
 }
 const notasPersonalizacion = () => [
   $("#tarjeta").checked ? `Tarjeta con mensaje${$("#msg").value.trim() ? ": “" + $("#msg").value.trim() + "”" : ""}.` : "",
@@ -1365,6 +1396,7 @@ async function generarPDFCalendario(c, id) {
   doc.text("Te confirmamos disponibilidad de cada fecha antes de cobrar.", 15, 285);
   doc.text("Corporativo: 11 6239-3921 · corporativo@piccadely.com", 15, 291);
   doc.save(`calendario-regalos-piccadely${id ? "-" + id : ""}.pdf`);
+  return doc;   // también va adjunto al mail (mandarPdf)
 }
 
 function toast(m, error, ms = 4500) { const t = $("#toast"); t.textContent = m; t.classList.toggle("error", !!error); t.classList.add("show"); clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove("show"), ms); }

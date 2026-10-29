@@ -171,6 +171,7 @@ footer{text-align:center;color:var(--tinta-2);font-size:13px;padding:24px 16px c
         </div>
         <div class="fila">
           <label class="campo">Email *<input type="email" id="email" placeholder="tucorreo@empresa.com" autocomplete="email"></label>
+          <div aria-hidden="true" style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden"><label>Sitio web<input type="text" id="sitio_web" name="sitio_web" tabindex="-1" autocomplete="off"></label></div>
           <label class="campo">Teléfono / WhatsApp *<input type="text" id="telefono" placeholder="11 5555-5555" autocomplete="tel"></label>
         </div>
       </div>
@@ -192,9 +193,34 @@ footer{text-align:center;color:var(--tinta-2);font-size:13px;padding:24px 16px c
 <footer>Piccadely · Piccadas para juntadas y eventos · info@piccadely.com</footer>
 
 <script>
-const API = "https://piccadely-panel-production.up.railway.app";
+// ===== API: producción, salvo ?api= (para probar contra staging) o localhost — mismo criterio que regalos.html =====
+const API_PROD = "https://piccadely-panel-production.up.railway.app";
+const API = (() => {
+  const valida = (u) => /^https:\/\/[a-z0-9.-]+(:[0-9]+)?$/i.test(u) || /^http:\/\/(localhost|127\.0\.0\.1)(:[0-9]+)?$/.test(u);
+  const q = new URLSearchParams(location.search).get("api");
+  if (q && valida(q.replace(/\/+$/, ""))) { try { sessionStorage.setItem("cotizador_api", q.replace(/\/+$/, "")); } catch (_) {} return q.replace(/\/+$/, ""); }
+  try { const s = sessionStorage.getItem("cotizador_api"); if (s && valida(s)) return s; } catch (_) {}
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) return "http://localhost:3001";
+  return API_PROD;
+})();
+// Las fotos van al PDF a ~8 mm: se achican a 160 px en JPEG (antes viajaban a 1024 px y el PDF pesaba varios MB;
+// ahora el PDF también va adjunto al mail, con tope de 5 MB). Si algo falla, queda la foto original.
+const achicarFoto = (dataUrl, px = 160) => new Promise((ok) => {
+  const img = new Image();
+  img.onload = () => {
+    try {
+      const k = Math.min(1, px / Math.max(img.width, img.height)), c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+      const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+      ok(c.toDataURL("image/jpeg", 0.85));
+    } catch (_) { ok(dataUrl); }
+  };
+  img.onerror = () => ok(dataUrl);
+  img.src = dataUrl;
+});
 const WSP = "5491162393921"; // WhatsApp corporativo
 const fmt = n => "$" + Number(n||0).toLocaleString("es-AR");
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
 
 const state = { tipo:"evento", modo:"piccar", mix:"equilibrado", calc:null, chosen:null };
 
@@ -299,21 +325,36 @@ async function guardar(canal){
     nivel_elegido:o.nivel, opciones:state.calc.opciones, total_elegido:o.total,
     tipo:state.calc.tipo, vegetarianos:state.calc.vegetarianos||0,
     porciones:{ piccada:state.calc.objetivoPiccada||0, sandwich:state.calc.objetivoSandwich||0 },
-    con_bebidas:document.getElementById("bebidas").checked, canal
+    con_bebidas:document.getElementById("bebidas").checked, canal,
+    sitio_web:document.getElementById("sitio_web").value   // honeypot: siempre vacío para una persona
   };
   const r = await fetch(API+"/api/cotizaciones",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
   const data = await r.json();
   if(!r.ok || !data.ok) throw new Error(data.error||"No se pudo guardar");
-  return data.id;
+  return data;   // { id, tokenPdf? }
 }
 
 document.getElementById("btnSolicitar").onclick = async ()=>{
   const b=event.target; b.disabled=true; b.innerHTML='<span class="loading"></span> Enviando...';
   try{
-    const id = await guardar("solicitar");
+    const d = await guardar("solicitar");
+    const id = d && d.id;
     if(id){
+      // Paso 2 del mail al cliente: el PDF con el N° de la opción elegida (el servidor lo adjunta; sin PDF, sale igual)
+      let envio=null;
+      if(d.tokenPdf){
+        let pdf=null;
+        try{ pdf=(await armarPDF(id, true)).output("datauristring"); }catch(e){ console.error("Cotizador: no se pudo armar el PDF", e); }
+        try{
+          const r=await fetch(API+`/api/cotizaciones/${id}/pdf`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:d.tokenPdf,pdf})});
+          envio=await r.json();
+        }catch(e){ console.error("Cotizador: no se pudo mandar el PDF para el mail", e); }
+      }
+      const email=document.getElementById("email").value.trim();
       const ok=document.getElementById("okMsg");
-      ok.innerHTML=`¡Listo! Tu cotización <b>#${id}</b> quedó registrada. Un asesor de Piccadely te va a contactar a la brevedad. 🧡`;
+      ok.innerHTML = envio && envio.mailEnviado
+        ? `¡Listo! Te mandamos la propuesta a <b>${esc(email)}</b>. Revisá spam si no la ves.`
+        : `¡Listo! Tu cotización <b>#${id}</b> quedó registrada. Un asesor de Piccadely te va a contactar a la brevedad. 🧡`;
       ok.classList.remove("hidden"); ok.scrollIntoView({behavior:"smooth"});
     }
   }catch(e){ document.getElementById("err3").textContent="Error al enviar: "+e.message; document.getElementById("err3").classList.remove("hidden"); }
@@ -323,7 +364,7 @@ document.getElementById("btnSolicitar").onclick = async ()=>{
 document.getElementById("btnWsp").onclick = async ()=>{
   const b=event.target; b.disabled=true; b.innerHTML='<span class="loading"></span> Preparando...';
   try{
-    const id = await guardar("whatsapp");
+    const id = (await guardar("whatsapp") || {}).id;
     if(id){
       const o=state.chosen;
       const items = [...o.piccadas, ...o.sandwiches, ...(o.vegetarianas||[])]
@@ -345,14 +386,12 @@ document.getElementById("btnWsp").onclick = async ()=>{
   finally{ b.disabled=false; b.innerHTML="Cerrar por WhatsApp"; }
 };
 
-// PDF (todas las opciones, con fotos)
-document.getElementById("btnPdf").onclick = async ()=>{
-  if(!state.calc) return;
-  const b=event.target; const txt=b.innerHTML; b.disabled=true; b.innerHTML='<span class="loading"></span> Generando PDF...';
-  try{
+// PDF con fotos. Botón: todas las opciones (se descarga). Mail al cliente: solo la elegida y con el N° (se adjunta).
+async function armarPDF(id, soloElegida){
+    const opciones = soloElegida && state.chosen ? [state.chosen] : state.calc.opciones;
     // Precargar las fotos vía proxy del backend (base64) para meterlas en el PDF
     const urls = [...new Set(
-      state.calc.opciones.flatMap(o=>[...o.piccadas,...o.sandwiches,...(o.vegetarianas||[])])
+      opciones.flatMap(o=>[...o.piccadas,...o.sandwiches,...(o.vegetarianas||[])])
         .map(i=>i.imagen).filter(Boolean)
     )];
     const cache = {};
@@ -360,7 +399,7 @@ document.getElementById("btnPdf").onclick = async ()=>{
       try{
         const r=await fetch(API+"/api/cotizador/img?u="+encodeURIComponent(u));
         const d=await r.json();
-        if(d.dataUrl) cache[u]=d.dataUrl;
+        if(d.dataUrl) cache[u]=await achicarFoto(d.dataUrl);
       }catch(_){}
     }));
 
@@ -373,12 +412,12 @@ document.getElementById("btnPdf").onclick = async ()=>{
       doc.text("Piccadely", 15, 16);
       doc.setFont("helvetica","normal"); doc.setFontSize(11);
       doc.text("Cotización de Evento", 15, 23);
-      const hoy=new Date(); doc.text(hoy.toLocaleDateString("es-AR"), W-15, 16, {align:"right"});
+      const hoy=new Date(); doc.text(hoy.toLocaleDateString("es-AR")+(id?`  ·  N° ${id}`:""), W-15, 16, {align:"right"});
       doc.text(`${state.calc.personas} personas · ${state.calc.modo}`, W-15, 23, {align:"right"});
     };
     header();
     let y=44; doc.setTextColor(43,32,24);
-    state.calc.opciones.forEach(o=>{
+    opciones.forEach(o=>{
       if(y>255){ doc.addPage(); header(); y=44; }
       doc.setFont("helvetica","bold"); doc.setFontSize(15);
       doc.setTextColor(217,112,28); doc.text(o.etiqueta, 15, y);
@@ -401,7 +440,13 @@ document.getElementById("btnPdf").onclick = async ()=>{
     doc.setFontSize(9); doc.setTextColor(138,122,107);
     doc.text("Cotización válida por 7 días. Bebidas y envío se cotizan aparte.", 15, 285);
     doc.text("Corporativo: 11 6239-3921 · corporativo@piccadely.com", 15, 291);
-    doc.save("cotizacion-piccadely.pdf");
+    return doc;
+}
+document.getElementById("btnPdf").onclick = async ()=>{
+  if(!state.calc) return;
+  const b=event.target; const txt=b.innerHTML; b.disabled=true; b.innerHTML='<span class="loading"></span> Generando PDF...';
+  try{
+    (await armarPDF(null, false)).save("cotizacion-piccadely.pdf");
   }catch(e){
     alert("No pudimos generar el PDF: "+e.message);
   }finally{ b.disabled=false; b.innerHTML=txt; }
