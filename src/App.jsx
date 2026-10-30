@@ -758,6 +758,95 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       );
     }
 
+    // ─── COTIZACIÓN (PDF desde Nuevo pedido) ─────────────────────────────
+    // Diseño del PDF de propuestas (public/pdf-propuesta.js, el MISMO que la propuesta de regalos que va por mail):
+    // se carga la primera vez que se usa. No hay ruta en el servidor: la cotización no guarda nada.
+    let cargaPDFPropuesta = null;
+    function cargarPDFPropuesta() {
+      if (window.PDFPropuesta) return Promise.resolve(window.PDFPropuesta);
+      if (!cargaPDFPropuesta) cargaPDFPropuesta = new Promise((ok, mal) => {
+        const s = document.createElement("script");
+        s.src = "/pdf-propuesta.js";
+        s.onload = () => (window.PDFPropuesta ? ok(window.PDFPropuesta) : mal(new Error("no cargó el diseño del PDF")));
+        s.onerror = () => { cargaPDFPropuesta = null; mal(new Error("no se pudo cargar el diseño del PDF")); };
+        document.head.appendChild(s);
+      });
+      return cargaPDFPropuesta;
+    }
+    // Logo de los cotizadores (PNG, fondo transparente) → { dataUrl, ancho, alto } para el encabezado del PDF.
+    // Si no carga, el PDF sale con "Piccadely" escrito (como la propuesta de regalos).
+    let cargaLogoPDF = null;
+    function cargarLogoPDF() {
+      if (!cargaLogoPDF) cargaLogoPDF = new Promise((ok) => {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const c = document.createElement("canvas"); c.width = img.naturalWidth; c.height = img.naturalHeight;
+            c.getContext("2d").drawImage(img, 0, 0);
+            ok({ dataUrl: c.toDataURL("image/png"), ancho: img.naturalWidth, alto: img.naturalHeight });
+          } catch (_) { ok(null); }
+        };
+        img.onerror = () => { cargaLogoPDF = null; ok(null); };
+        img.src = "/Piccadely_Logotipo_Izquierda_Negro.png";
+      });
+      return cargaLogoPDF;
+    }
+    const ddmmaaaa = (f) => { const [y, m, d] = String(f || "").split("-"); return d ? `${d}/${m}/${y}` : ""; };
+    const fechaLarga = (f) => new Date(f + "T12:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
+    const archivoCotizacion = (cliente, fecha) => `Cotizacion-Piccadely-${String(cliente).normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "cliente"}-${fecha}.pdf`;
+    const LOCALES_RETIRO = { "retiro-at": "Alvarez Thomas 1558, Villa Ortúzar", "retiro-fr": "French 2615, Recoleta" };
+
+    // renglones = los mismos renglones con precio que se guardan para facturar (renglonesDeCarrito): productos en el
+    // detalle; envío y descuentos (10% retiro, producto variable negativo) como filas propias antes del total.
+    function armarPDFCotizacion(P, { form, empresa, renglones, total, emitida, validaHasta, logo }) {
+      const { doc, W, header } = P.nuevo(jsPDF, "Cotización", [`Emitida el ${ddmmaaaa(emitida)}`, `Válida hasta el ${ddmmaaaa(validaHasta)}`], logo ? { logo } : {});
+      let y = 44;
+      const espacio = (h) => { if (y + h > 270) { doc.addPage(); header(); y = 44; } };
+      const titulo = (t) => { espacio(14); doc.setTextColor(...P.TEXTO); doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.text(t, 15, y); y += 7; };
+      const linea = (t) => { doc.setFont("helvetica", "normal"); doc.setFontSize(10); const l = doc.splitTextToSize(t, W - 30); espacio(l.length * 5); doc.text(l, 15, y); y += l.length * 5; };
+
+      // Cliente y entrega
+      titulo("Cliente");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text(form.cliente.trim(), 15, y); y += 6;
+      const retiro = LOCALES_RETIRO[form.seccion];
+      const calle = [form.direccion, form.entreCalles && `(${form.entreCalles})`].filter(x => String(x || "").trim()).join(" ").trim();
+      const direccion = [calle, String(form.barrio || "").trim()].filter(Boolean).join(", ");
+      [String(empresa || "").trim() && `Empresa: ${String(empresa).trim()}`, form.telefono && `Teléfono: ${form.telefono}`, form.email && `Email: ${form.email}`, !retiro && direccion && `Dirección: ${direccion}`].filter(Boolean).forEach(linea);
+      const franja = form.franjaInicio && form.franjaFin ? `${form.franjaInicio} – ${form.franjaFin}` : "";
+      if (form.fecha || franja) linea(`${retiro ? "Retiro" : "Entrega"}: ${[form.fecha && fechaLarga(form.fecha), franja && `de ${franja}`].filter(Boolean).join(", ")}${retiro ? ` en ${retiro}` : ""}`);
+      y += 6;
+
+      // Detalle: producto, cantidad, precio unitario y subtotal
+      titulo("Detalle");
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...P.GRIS);
+      doc.text("Cantidad y producto", 15, y); doc.text("Precio unitario", 160, y, { align: "right" }); doc.text("Subtotal", W - 15, y, { align: "right" }); y += 7;
+      doc.setFontSize(10); doc.setTextColor(...P.TEXTO);
+      for (const r of renglones.filter(r => r.tipo === "producto")) {
+        const texto = `${r.cantidad} x ${r.nombre}`;
+        const alto = Math.max(9, doc.splitTextToSize(texto, 125).length * 5 + 4);
+        espacio(alto);
+        P.renglon(doc, y, { texto, unitario: `${fmt(r.precio)} c/u`, subtotal: fmt(r.precio * r.cantidad) });
+        y += alto;
+      }
+      P.separador(doc, y - 3); y += 4;
+      const fila = (txt, monto, negrita) => { espacio(9); y = P.filaTotal(doc, y, txt, monto, negrita); };
+      const subtotalProductos = renglones.filter(r => r.tipo === "producto").reduce((a, r) => a + r.precio * r.cantidad, 0);
+      fila("Productos", fmt(subtotalProductos));
+      for (const r of renglones.filter(r => r.tipo === "envio")) fila(r.cantidad > 1 ? `${r.cantidad} x ${r.nombre}` : r.nombre, fmt(r.precio * r.cantidad));
+      for (const r of renglones.filter(r => r.tipo === "descuento")) fila(r.nombre, `-${fmt(-r.precio * r.cantidad)}`);
+      fila("Total", fmt(total), true);
+      y += 4;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(217, 112, 28);
+      espacio(8); doc.text("Si hay piccada, que sea Piccadely.", 15, y);
+
+      doc.setFont("helvetica", "normal");
+      P.pie(doc, [
+        `Precios válidos hasta el ${ddmmaaaa(validaHasta)}. Te confirmamos disponibilidad, fecha y horario antes de cobrar.`,
+        "Piccadely · WhatsApp 11 6239-3600 · info@piccadely.com · Alvarez Thomas 1558 · French 2615",
+      ]);
+      return { doc, archivo: archivoCotizacion(form.cliente.trim(), emitida) };
+    }
+
     // ─── MODAL FACTURACIÓN ───────────────────────────────────────────────
     function ModalFacturacion({ p, onCerrar }) {
       const docRaw = p.identificacion || "";
@@ -9122,6 +9211,7 @@ const [facturasMap, setFacturasMap] = useState({});
       const [areaManual, setAreaManual] = useState("");   // alta manual: área asignada a mano (override del reporte de zonas). "" = sin asignar.
       const [descuentoRetiro, setDescuentoRetiro] = useState(false);   // alta manual: toggle 10% OFF Retiro (descuento DERIVADO, no ítem del carrito).
       const [envioZona, setEnvioZona] = useState("");                  // alta manual: zona de envío elegida ("" = sin envío).
+      const [cotizacion, setCotizacion] = useState(null);              // alta manual: mini-modal "Crear cotización" ({ validaHasta, error, generando }) o null.
       const [pedidoCreado, setPedidoCreado] = useState(false);
       // Autocompletar cliente por email (solo alta manual): datos del último pedido de ese mail.
       const [clienteSugerido, setClienteSugerido] = useState(null);
@@ -10222,6 +10312,23 @@ let numeroAsignado = "";
         setPedidosLocales(prev => ({ ...prev, [id]: estadoInicial }));
         setCarrito([]); setForm(FORM_INICIAL); setAreaManual(""); setDescuentoRetiro(false); setEnvioZona(""); setClienteSugerido(null); setClientesTel([]); ultimaBusquedaTel.current = ""; setPedidoCreado(true);
         setTimeout(() => setPedidoCreado(false), 3000);
+      }
+
+      // Cotización en PDF del carrito del alta: NO crea el pedido ni guarda nada (se arma en el navegador).
+      // Mismos renglones con precio que se guardan para facturar; el total tiene que ser el que muestra el alta.
+      async function descargarCotizacion() {
+        const faltan = [!form.cliente.trim() && "el nombre del cliente", carrito.length === 0 && "al menos un producto"].filter(Boolean);
+        if (faltan.length) { setCotizacion(c => ({ ...c, error: `Falta ${faltan.join(" y ")}.` })); return; }
+        if (!cotizacion.validaHasta) { setCotizacion(c => ({ ...c, error: "Elegí hasta cuándo vale la cotización." })); return; }
+        const renglones = renglonesDeCarrito(carrito, { descuentoRetiro: descuentoMontoRetiro });
+        if (!resumenRenglones(renglones, totalConDescuento).cierra) { setCotizacion(c => ({ ...c, error: "Los renglones no suman el total del pedido: revisá los precios." })); return; }
+        setCotizacion(c => ({ ...c, generando: true, error: "" }));
+        try {
+          const [P, logo] = await Promise.all([cargarPDFPropuesta(), cargarLogoPDF()]);
+          const { doc, archivo } = armarPDFCotizacion(P, { form, empresa: cotizacion.empresa, renglones, total: totalConDescuento, emitida: fechaArgentina(), validaHasta: cotizacion.validaHasta, logo });
+          doc.save(archivo);
+          setCotizacion(null);
+        } catch (e) { setCotizacion(c => ({ ...c, generando: false, error: "No se pudo armar el PDF: " + e.message })); }
       }
 
       const productosFiltrados = productos.filter(p => {
@@ -12124,7 +12231,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                   </button>
                   <div>
                     <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Agregar envío</div>
-                    <select style={s.formInput} value={envioZona}
+                    <select style={{ ...s.formInput, width: "100%", maxWidth: "100%", boxSizing: "border-box" }} value={envioZona}
                       onChange={e => {
                         const zona = e.target.value;
                         setEnvioZona(zona);
@@ -12158,6 +12265,28 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                   </button>
                 </div>
                 <button style={{ ...s.btnCrear, opacity: (!form.cliente || carrito.length === 0) ? 0.4 : 1, marginTop: 12 }} disabled={!form.cliente || carrito.length === 0} onClick={crearPedido}>✅ Crear pedido</button>
+                <button style={{ ...s.btnCrear, marginTop: 8, background: "#fff", color: "#F68B32", border: "1.5px solid #F68B32" }}
+                  onClick={() => setCotizacion({ validaHasta: restarDias(fechaArgentina(), -7), empresa: "", error: "", generando: false })}>📄 Crear cotización</button>
+                {cotizacion && (
+                  <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+                    onClick={() => !cotizacion.generando && setCotizacion(null)}>
+                    <div style={{ background: "#fff", borderRadius: 12, padding: 22, width: 340, maxWidth: "100%", boxSizing: "border-box", boxShadow: "0 8px 40px rgba(0,0,0,0.25)" }} onClick={e => e.stopPropagation()}>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: "#333" }}>📄 Cotización</div>
+                      <div style={{ fontSize: 12, color: "#888", marginTop: 2, marginBottom: 14 }}>PDF con el pedido cargado. No crea el pedido ni guarda nada.</div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Válida hasta</div>
+                      <input type="date" style={{ ...s.formInput, width: "100%", boxSizing: "border-box" }} value={cotizacion.validaHasta} min={fechaArgentina()}
+                        onChange={e => setCotizacion(c => ({ ...c, validaHasta: e.target.value, error: "" }))} />
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 6, marginTop: 12 }}>Empresa (opcional)</div>
+                      <input type="text" style={{ ...s.formInput, width: "100%", boxSizing: "border-box" }} value={cotizacion.empresa} placeholder="Va en los datos del cliente"
+                        onChange={e => setCotizacion(c => ({ ...c, empresa: e.target.value }))} />
+                      {cotizacion.error && <div style={{ fontSize: 12, color: "#c0392b", marginTop: 10 }}>⚠️ {cotizacion.error}</div>}
+                      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+                        <button style={{ ...s.btnCrear, flex: 1, opacity: cotizacion.generando ? 0.6 : 1 }} disabled={cotizacion.generando} onClick={descargarCotizacion}>{cotizacion.generando ? "Armando…" : "Descargar PDF"}</button>
+                        <button style={{ ...s.btnCrear, flex: "0 0 auto", width: "auto", padding: "11px 16px", background: "#fff", color: "#555", border: "1px solid #ddd" }} disabled={cotizacion.generando} onClick={() => setCotizacion(null)}>Cancelar</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

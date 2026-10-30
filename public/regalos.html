@@ -10,6 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+<script src="/pdf-propuesta.js" defer></script><!-- diseño del PDF, compartido con la Cotización del panel -->
 <link rel="stylesheet" href="/piccadely-ui.css">
 <style>
 .cantidad-wrap{display:flex;gap:20px;align-items:center;flex-wrap:wrap}
@@ -1274,24 +1275,10 @@ async function fotosPDF(lineas) {
   }));
   return cache;
 }
-function nuevoPDF(subtitulo, derecha) {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-  const W = 210;
-  const header = () => {
-    doc.setFillColor(246, 139, 50); doc.rect(0, 0, W, 30, "F");
-    doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(22);
-    doc.text("Piccadely", 15, 16);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(11);
-    doc.text(subtitulo, 15, 23);
-    doc.text(derecha[0], W - 15, 16, { align: "right" });
-    doc.text(derecha[1], W - 15, 23, { align: "right" });
-  };
-  header();
-  return { doc, W, header };
-}
+// Banda, renglones, totales y pie salen de /pdf-propuesta.js (el mismo diseño que la Cotización del panel).
+const nuevoPDF = (subtitulo, derecha) => PDFPropuesta.nuevo(window.jspdf.jsPDF, subtitulo, derecha);
 async function generarPDF(c, id) {
-  if (!window.jspdf) throw new Error("no cargó el generador de PDF");
+  if (!window.jspdf || !window.PDFPropuesta) throw new Error("no cargó el generador de PDF");
   const cache = await fotosPDF(c.lineas);
   const empresa = $("#empresa").value.trim();
   const { doc, W, header } = nuevoPDF("Propuesta de Regalos Empresariales", [new Date().toLocaleDateString("es-AR") + (id ? `  ·  N° ${id}` : ""), `${c.regalos} regalos${empresa ? " · " + empresa : ""}`]);
@@ -1300,22 +1287,13 @@ async function generarPDF(c, id) {
   doc.setFont("helvetica", "normal"); doc.setFontSize(10);
   for (const l of c.lineas) {
     if (y > 270) { doc.addPage(); header(); y = 44; }
-    const data = l.foto && cache[l.foto];
-    if (data) {
-      const f = (/^data:image\/(\w+)/.exec(data) || [])[1];
-      try { doc.addImage(data, f === "png" ? "PNG" : f === "webp" ? "WEBP" : "JPEG", 15, y - 5, 8, 8); } catch (_) {}
-    }
-    const nombre = `${l.cantidad} x ${nombreLinea(l, true)}${l.extra ? " · bebida" : ""}`;
-    doc.text(doc.splitTextToSize(nombre, 125), data ? 26 : 15, y);
-    doc.text(`${plata(l.precio)} c/u`, 160, y, { align: "right" });
-    doc.text(plata(l.subtotal), W - 15, y, { align: "right" });
+    PDFPropuesta.renglon(doc, y, { texto: `${l.cantidad} x ${nombreLinea(l, true)}${l.extra ? " · bebida" : ""}`, unitario: `${plata(l.precio)} c/u`, subtotal: plata(l.subtotal), foto: l.foto && cache[l.foto] });
     y += 9;
   }
-  doc.setDrawColor(236, 226, 212); doc.line(15, y - 3, W - 15, y - 3); y += 4;
+  PDFPropuesta.separador(doc, y - 3); y += 4;
   const fila = (txt, monto, negrita) => {
     if (y > 278) { doc.addPage(); header(); y = 44; }
-    doc.setFont("helvetica", negrita ? "bold" : "normal"); doc.setFontSize(negrita ? 13 : 10);
-    doc.text(txt, 120, y, { align: "right" }); doc.text(monto, W - 15, y, { align: "right" }); y += negrita ? 9 : 7;
+    y = PDFPropuesta.filaTotal(doc, y, txt, monto, negrita);
   };
   fila("Regalos", plata(c.subtotalRegalos));
   if (c.subtotalBebidas) fila("Bebidas", plata(c.subtotalBebidas));
@@ -1331,9 +1309,7 @@ async function generarPDF(c, id) {
   ].filter(Boolean);
   doc.setFontSize(10); doc.setTextColor(43, 32, 24);
   for (const n of notas) { const t = doc.splitTextToSize(n, W - 30); if (y + t.length * 5 > 280) { doc.addPage(); header(); y = 44; } doc.text(t, 15, y); y += t.length * 5 + 2; }
-  doc.setFontSize(9); doc.setTextColor(138, 122, 107);
-  doc.text("Precio orientativo, válido por 7 días. Te confirmamos disponibilidad y fecha antes de cobrar.", 15, 285);
-  doc.text("Corporativo: 11 6239-3921 · corporativo@piccadely.com", 15, 291);
+  PDFPropuesta.pie(doc, ["Precio orientativo, válido por 7 días. Te confirmamos disponibilidad y fecha antes de cobrar.", "Corporativo: 11 6239-3921 · corporativo@piccadely.com"]);
   doc.save(`propuesta-regalos-piccadely${id ? "-" + id : ""}.pdf`);
   return doc;   // también va adjunto al mail (mandarPdf)
 }
@@ -1343,7 +1319,7 @@ const notasPersonalizacion = () => [
 ];
 // PDF del calendario: línea de tiempo por mes (cada fecha con sus regalos y subtotal), total anual, condición y validez.
 async function generarPDFCalendario(c, id) {
-  if (!window.jspdf) throw new Error("no cargó el generador de PDF");
+  if (!window.jspdf || !window.PDFPropuesta) throw new Error("no cargó el generador de PDF");
   const empresa = $("#empresa").value.trim();
   const { doc, W, header } = nuevoPDF("Calendario anual de regalos", [new Date().toLocaleDateString("es-AR") + (id ? `  ·  N° ${id}` : ""), `${c.cantidadFechas} fechas · ${c.regalos} regalos${empresa ? " · " + empresa : ""}`]);
   let y = 44;
@@ -1376,11 +1352,10 @@ async function generarPDFCalendario(c, id) {
     doc.text(ent.modo === "uno" ? `Entrega: todos a ${ent.zona}${ent.direccion ? " · " + ent.direccion : ""}` : `Entrega: cada uno a su casa (${ent.nCaba} CABA, ${ent.nGba} GBA)`, 20, y);
     doc.setTextColor(43, 32, 24); y += 8;
   }
-  doc.setDrawColor(236, 226, 212); doc.line(15, y - 3, W - 15, y - 3); y += 4;
+  PDFPropuesta.separador(doc, y - 3); y += 4;
   const fila = (txt, monto, negrita) => {
     espacio(9);
-    doc.setFont("helvetica", negrita ? "bold" : "normal"); doc.setFontSize(negrita ? 13 : 10);
-    doc.text(txt, 120, y, { align: "right" }); doc.text(monto, W - 15, y, { align: "right" }); y += negrita ? 9 : 7;
+    y = PDFPropuesta.filaTotal(doc, y, txt, monto, negrita);
   };
   fila("Regalos del año", plata(c.subtotalRegalos));
   if (c.subtotalBebidas) fila("Bebidas", plata(c.subtotalBebidas));
@@ -1392,9 +1367,8 @@ async function generarPDFCalendario(c, id) {
   bloque(`Propuesta del ${ddmmaaaa(c.fechaPropuesta)}, válida hasta el ${ddmmaaaa(c.validaHasta)}.`, [43, 32, 24], true, 10);
   if (c.avisoEnvio) bloque(c.avisoEnvio, [217, 112, 28], true, 10);
   for (const n of notasPersonalizacion().filter(Boolean)) bloque(n, [43, 32, 24], false, 10);
-  doc.setFontSize(9); doc.setTextColor(138, 122, 107); doc.setFont("helvetica", "normal");
-  doc.text("Te confirmamos disponibilidad de cada fecha antes de cobrar.", 15, 285);
-  doc.text("Corporativo: 11 6239-3921 · corporativo@piccadely.com", 15, 291);
+  doc.setFont("helvetica", "normal");
+  PDFPropuesta.pie(doc, ["Te confirmamos disponibilidad de cada fecha antes de cobrar.", "Corporativo: 11 6239-3921 · corporativo@piccadely.com"]);
   doc.save(`calendario-regalos-piccadely${id ? "-" + id : ""}.pdf`);
   return doc;   // también va adjunto al mail (mandarPdf)
 }
