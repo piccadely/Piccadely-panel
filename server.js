@@ -18,6 +18,8 @@ import { cotizadorRouter, clienteKeyDe } from "./Routes/cotizador.js";
 import { regalosRouter } from "./Routes/regalos.js";
 import { createRequire } from "module";
 import { normalizarProducto, calcularEnvioTN, esExcluidoProduccion, esBasuraVenta, claveProducto } from "./productos-normalizacion.js"; // clave canónica + costo de envío TN + filtros de producción, compartidos con el front
+import { sanitizarRenglones, resumenRenglones, conciliar, reconstruirRenglones, renglonesDeTN, lineasCrudasTN, detalleTusFacturas, totalFacturado, renglonUnico } from "./facturacion-renglones.js"; // renglones del pedido para facturar, compartidos con el front
+import { getProductosTN } from "./Routes/tnCatalogo.js";
 const requireCJS = createRequire(import.meta.url); // server.js es ESM; require solo para el JSON de polígonos
 const { Pool } = pg;
 
@@ -353,6 +355,9 @@ async function crearEsquema(pool) {
   await pool.query(`ALTER TABLE facturas ADD COLUMN IF NOT EXISTS local TEXT;`);
   await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS codigo_pago_override TEXT;`);
   await pool.query(`ALTER TABLE pedidos_manuales ADD COLUMN IF NOT EXISTS codigo_pago TEXT;`);
+  // Facturación detallada: renglones con precio (nombre, cantidad, precio unitario con IVA, tipo) al crear/editar.
+  await pool.query(`ALTER TABLE pedidos_manuales ADD COLUMN IF NOT EXISTS lineas JSONB;`);
+  await pool.query(`ALTER TABLE pedidos_productos ADD COLUMN IF NOT EXISTS lineas JSONB;`);
   await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS comandas_impresas INTEGER DEFAULT 0;`);
   await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS tarjeta TEXT NOT NULL DEFAULT 'no';`);
   // Área asignada a mano en el alta manual (1-10). NULL = sin asignar → el reporte de zonas
@@ -2021,6 +2026,7 @@ app.get("/api/pedidos-manuales", requireAuth, async (req, res) => {
       tabActual: r.tab_actual, local: r.local, nota: r.nota,
 codigoPago: r.codigo_pago || "", esManual: true, esCorporativo: !!r.es_corporativo, estado: "Por empaquetar", repartidor: "Sin asignar",
       areaManual: r.area_manual ?? null,
+      lineas: r.lineas || null,   // renglones con precio (solo pedidos cargados desde la facturación detallada)
     }));
     res.json(pedidos);
   } catch (err) { res.status(500).json({ error: "Error trayendo pedidos manuales" }); }
@@ -2155,15 +2161,27 @@ function sanitizarAreaManual(v) {
   return (Number.isInteger(n) && n >= 1 && n <= 10) ? n : null;
 }
 
+// Renglones con precio que manda el front al crear/editar un pedido → JSON para la columna `lineas`,
+// o null si no vinieron, son inválidos o no suman exacto el total (entonces la factura reconstruye).
+function lineasParaGuardar(lineas, totalNum, pedidoId) {
+  if (lineas === undefined || lineas === null) return null;
+  const limpias = sanitizarRenglones(lineas);
+  if (!limpias || !resumenRenglones(limpias, totalNum).cierra) {
+    console.warn(`⚠️ Pedido ${pedidoId}: renglones con precio descartados (inválidos o no suman el total ${totalNum})`);
+    return null;
+  }
+  return JSON.stringify(limpias);
+}
+
 app.post("/api/pedidos-manuales", requireAuth, async (req, res) => {
   const p = req.body;
   try {
     const seqRes = await pool.query("SELECT nextval('pedidos_manuales_seq') AS n");
     const numero = `#M${seqRes.rows[0].n}`;
     await pool.query(`
-      INSERT INTO pedidos_manuales (id, numero, cliente, telefono, email, direccion, entre_calles, barrio, zona, fecha, franja, productos, total_num, total, pago, medio_pago, cobrar, tab_actual, local, nota, es_corporativo)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
-    `, [p.id, numero, p.cliente, p.telefono, p.email || "", p.direccion, p.entreCalles, p.barrio, p.zona, p.fecha, p.franja, p.productos, p.totalNum, p.total, p.pago, p.medioPago, p.cobrar, p.tabActual, p.local, p.nota, !!p.esCorporativo]);
+      INSERT INTO pedidos_manuales (id, numero, cliente, telefono, email, direccion, entre_calles, barrio, zona, fecha, franja, productos, total_num, total, pago, medio_pago, cobrar, tab_actual, local, nota, es_corporativo, lineas)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+    `, [p.id, numero, p.cliente, p.telefono, p.email || "", p.direccion, p.entreCalles, p.barrio, p.zona, p.fecha, p.franja, p.productos, p.totalNum, p.total, p.pago, p.medioPago, p.cobrar, p.tabActual, p.local, p.nota, !!p.esCorporativo, lineasParaGuardar(p.lineas, p.totalNum, p.id)]);
     // Área manual (override del reporte de zonas). Se guarda en pedidos_estados; upsert de una
     // sola columna (no toca estado/repartidor/overrides). Solo si vino un valor válido 1-10.
     const areaManual = sanitizarAreaManual(p.areaManual);
@@ -5702,19 +5720,117 @@ app.get("/api/facturas/:pedidoId", requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Error trayendo facturas" }); }
 });
 
+// ─── FACTURACIÓN DETALLADA: renglones del pedido ─────────────────────
+// Precedencia (la misma que el panel): productos editados (pedidos_productos) > TN crudo > manual.
+//   1. renglones con precio guardados al crear/editar (columna lineas);
+//   2. pedido de TN sin editar → del pedido crudo (precio unitario real, envío y descuentos);
+//   3. pedido viejo → reconstrucción desde el texto "nombre xN" (TN crudo, zonas de envío, catálogo de hoy).
+// filas = { ov: fila de pedidos_productos, data: pedidos_tn.data, man: fila de pedidos_manuales } (las que haya).
+function renglonesDePedido({ ov, data, man }, catalogo) {
+  const total = ov ? Number(ov.total_num) : data ? Number(data.total) : Number(man.total_num);
+  const productos = ov ? (ov.productos || "") : data ? lineasCrudasTN(data).map(pr => `${pr.name} x${pr.quantity}`).join(", ") : (man.productos || "");
+  const guardadas = ov ? ov.lineas : data ? null : man.lineas;
+  let r, origen;
+  if (Array.isArray(guardadas) && guardadas.length) { r = conciliar(guardadas.map(x => ({ ...x, origen: "guardado" })), total); origen = "guardado"; }
+  else if (data && !ov) { r = renglonesDeTN(data); origen = "tn"; }
+  else { r = reconstruirRenglones({ productos, total, lineasTN: data ? lineasCrudasTN(data) : [], catalogo }); origen = "reconstruido"; }
+  // total = el del PEDIDO (va después de ...r, que trae la suma de los renglones con el mismo nombre).
+  return { ...r, numero: data ? `#${data.number}` : (man?.numero || ""), total, productos, origen };
+}
+
+// Catálogo de TN para reconstruir precios (con caché). Sin TN configurado (staging) → [].
+async function catalogoParaFacturar() {
+  if (!TN_ENABLED) return [];
+  try { return (await getProductosTN()).filter(p => p.variants?.[0]?.price); }
+  catch (e) { console.error("Facturación: no se pudo traer el catálogo de TN:", e.message); return []; }
+}
+
+async function renglonesParaFacturar(pedidoId) {
+  const id = String(pedidoId);
+  const [ov, tn, man] = await Promise.all([
+    pool.query("SELECT productos, total_num, lineas FROM pedidos_productos WHERE pedido_id=$1", [id]),
+    pool.query("SELECT data FROM pedidos_tn WHERE id::text=$1", [id]),
+    pool.query("SELECT numero, productos, total_num, lineas FROM pedidos_manuales WHERE id=$1", [id]),
+  ]);
+  const filas = { ov: ov.rows[0], data: tn.rows[0]?.data, man: man.rows[0] };
+  if (!filas.data && !filas.man) return null;
+  // El catálogo solo hace falta para reconstruir (pedido viejo sin renglones guardados).
+  const necesitaCatalogo = !(filas.ov ? filas.ov.lineas : filas.data ? true : filas.man.lineas);
+  return renglonesDePedido(filas, necesitaCatalogo ? await catalogoParaFacturar() : []);
+}
+
+// Vista previa: renglones (con IVA, como los ve el cliente) + lo que se le mandaría a TusFacturas.
+app.get("/api/facturar/:pedidoId/preview", requireAuth, async (req, res) => {
+  try {
+    const r = await renglonesParaFacturar(req.params.pedidoId);
+    if (!r) return res.status(404).json({ ok: false, error: "Pedido no encontrado" });
+    res.json({ ok: true, ...r, tusfacturas: r.cierra ? detalleTusFacturas(r.renglones, r.total) : null });
+  } catch (err) {
+    console.error("Error /api/facturar/preview:", err.message);
+    res.status(500).json({ ok: false, error: "Error armando la vista previa" });
+  }
+});
+
+// Control (solo superadmin, solo lectura): corre la vista previa sobre los pedidos de los últimos N días
+// y cuenta cuántos se facturarían detallados y exactos, y cuáles necesitan revisar precios a mano.
+app.get("/api/facturar/control", soloSuperadmin, async (req, res) => {
+  const dias = Math.min(Math.max(parseInt(req.query.dias, 10) || 30, 1), 120);
+  try {
+    const [tn, man] = await Promise.all([
+      pool.query(`SELECT id::text AS id, data FROM pedidos_tn WHERE tn_created_at > NOW() - ($1 || ' days')::interval`, [dias]),
+      pool.query(`SELECT id, numero, productos, total_num, lineas FROM pedidos_manuales WHERE created_at > NOW() - ($1 || ' days')::interval`, [dias]),
+    ]);
+    const ids = [...tn.rows.map(r => r.id), ...man.rows.map(r => r.id)];
+    const ovs = {};
+    if (ids.length) for (const r of (await pool.query("SELECT pedido_id, productos, total_num, lineas FROM pedidos_productos WHERE pedido_id = ANY($1)", [ids])).rows) ovs[r.pedido_id] = r;
+    const catalogo = await catalogoParaFacturar();
+    const filas = [...tn.rows.map(r => ({ id: r.id, data: r.data })), ...man.rows.map(r => ({ id: r.id, man: r }))];
+    const resumen = { dias, pedidos: 0, cierran: 0, exactos: 0, porOrigen: {}, revisar: [] };
+    for (const f of filas) {
+      const r = renglonesDePedido({ ov: ovs[f.id], data: f.data, man: f.man }, catalogo);
+      if (!(r.total > 0)) continue;
+      resumen.pedidos++;
+      resumen.porOrigen[r.origen] = (resumen.porOrigen[r.origen] || 0) + 1;
+      const armado = r.cierra ? detalleTusFacturas(r.renglones, r.total) : null;
+      if (r.cierra) resumen.cierran++;
+      if (armado && totalFacturado(armado) === r.total) resumen.exactos++;
+      else if (resumen.revisar.length < 200) resumen.revisar.push({ id: f.id, numero: r.numero, total: r.total, diferencia: r.diferencia, origen: r.origen, sinPrecio: r.renglones.filter(x => x.precio === null).map(x => x.nombre) });
+    }
+    res.json(resumen);
+  } catch (err) {
+    console.error("Error /api/facturar/control:", err.message);
+    res.status(500).json({ error: "Error corriendo el control" });
+  }
+});
+
 app.post("/api/facturar", requireAuth, async (req, res) => {
   if (!TF_ENABLED) { console.warn("⚠️ Facturación no configurada: /api/facturar deshabilitado"); return res.status(503).json({ ok: false, error: "Facturación no configurada en este entorno" }); }
-  const { pedidoId, tipo, cliente, documentoTipo, documentoNro, razonSocial, domicilio, email, total, productos, local, usuario: usuarioAudit } = req.body;
+  // renglones = los de la vista previa si el usuario editó precios; modo "unico" = último recurso, un renglón por el total.
+  const { pedidoId, tipo, cliente, documentoTipo, documentoNro, razonSocial, domicilio, email, local, renglones: renglonesEditados, modo, usuario: usuarioAudit } = req.body;
   const { usertoken: TF_USERTOKEN, pdv: TF_PDV } = getTFCredentials(local);
   const esFacturaA = tipo === "FACTURA A";
   const esExento = tipo === "FACTURA B EXENTO";
   const sinDatos = !documentoNro || String(documentoNro).trim() === "";
-  const totalNum = (() => {
-    const raw = String(total).trim();
-    if (/^\d+(\.\d+)?$/.test(raw)) return Number(raw);
-    return Number(raw.replace(/[$\s]/g, "").replace(/\./g, "").replace(",", "."));
-  })();
-  if (!totalNum || totalNum <= 0) return res.json({ ok: false, error: "Total inválido: " + total });
+  // El total y los renglones salen de la base (no del body): el total facturado es el del pedido.
+  let base;
+  try { base = await renglonesParaFacturar(pedidoId); }
+  catch (err) { return res.status(500).json({ ok: false, error: "Error leyendo el pedido" }); }
+  if (!base) return res.json({ ok: false, error: "Pedido no encontrado" });
+  const totalNum = base.total;
+  if (!totalNum || totalNum <= 0) return res.json({ ok: false, error: "Total inválido: " + totalNum });
+  let renglones;
+  if (modo === "unico") renglones = renglonUnico(base.productos, totalNum);
+  else if (renglonesEditados !== undefined) {
+    renglones = sanitizarRenglones(renglonesEditados);
+    if (!renglones) return res.json({ ok: false, error: "Renglones inválidos" });
+    const r = resumenRenglones(renglones, totalNum);
+    if (!r.cierra) return res.json({ ok: false, error: `Los renglones suman $${r.total.toLocaleString("es-AR")} y el pedido $${totalNum.toLocaleString("es-AR")}` });
+  } else {
+    if (!base.cierra) return res.json({ ok: false, error: "Los renglones no suman el total del pedido: revisá los precios en la vista previa" });
+    renglones = base.renglones;
+  }
+  const armado = detalleTusFacturas(renglones, totalNum);
+  if (!armado) return res.json({ ok: false, error: "No se pudo armar el detalle de la factura" });
   try {
     const existentes = await pool.query("SELECT * FROM facturas WHERE pedido_id=$1 ORDER BY created_at ASC", [pedidoId]);
     const facturaActiva = obtenerFacturaActiva(existentes.rows);
@@ -5731,18 +5847,19 @@ app.post("/api/facturar", requireAuth, async (req, res) => {
    provincia: "2", condicion_pago: "201", condicion_iva: esFacturaA ? "RI" : (esExento ? "E" : "CF"),
     condicion_iva_operacion: esFacturaA ? "RI" : (esExento ? "E" : "CF"), envia_por_mail: email ? "S" : "N", reclama_deuda: "N",
   };
-  const descripcion = productos.map(p => p.descripcion).join(", ").substring(0, 200);
-  const precioSinIva = Math.round((totalNum / 1.21) * 100) / 100;
-  const detalle = [{ cantidad: 1, bonificacion_porcentaje: 0, afecta_stock: "N", producto: { descripcion, codigo: "VENTA", lista_precios: "standard", leyenda: "", unidad_bulto: 1, alicuota: 21, precio_unitario_sin_iva: precioSinIva, actualiza_precio: "S" } }];
-  const body = { apitoken: TF_APITOKEN, usertoken: TF_USERTOKEN, apikey: TF_APIKEY, cliente: clienteObj, comprobante: { fecha: fechaHoy(), vencimiento: fechaVencimiento(30), tipo: tipoComprobante, operacion: "V", moneda: "PES", cotizacion: 1, punto_venta: TF_PDV, rubro: "Alimentos y bebidas", rubro_grupo_contable: "Alimentos", bonificacion: 0, total: totalNum, external_reference: String(pedidoId) || `pedido-${Date.now()}`, detalle } };
-  console.log(`Facturando pedido ${pedidoId} - Local: ${local} - PDV: ${TF_PDV}`);
+  // Un renglón por producto y por el envío; los descuentos, como bonificación general (sin IVA).
+  // alicuota 21 en todos, igual que antes (lo de FACTURA B EXENTO queda como estaba: se ve aparte con el contador).
+  // actualiza_precio "N": la factura no toca el catálogo de productos de TusFacturas.
+  const detalle = armado.lineas.map(l => ({ cantidad: l.cantidad, bonificacion_porcentaje: 0, afecta_stock: "N", producto: { descripcion: l.descripcion, codigo: l.codigo, lista_precios: "standard", leyenda: "", unidad_bulto: 1, alicuota: 21, precio_unitario_sin_iva: l.precioSinIva, actualiza_precio: "N" } }));
+  const body = { apitoken: TF_APITOKEN, usertoken: TF_USERTOKEN, apikey: TF_APIKEY, cliente: clienteObj, comprobante: { fecha: fechaHoy(), vencimiento: fechaVencimiento(30), tipo: tipoComprobante, operacion: "V", moneda: "PES", cotizacion: 1, punto_venta: TF_PDV, rubro: "Alimentos y bebidas", rubro_grupo_contable: "Alimentos", bonificacion: armado.bonificacion, total: totalNum, external_reference: String(pedidoId) || `pedido-${Date.now()}`, detalle } };
+  console.log(`Facturando pedido ${pedidoId} - Local: ${local} - PDV: ${TF_PDV} - ${detalle.length} renglón(es), bonificación $${armado.bonificacion} (${modo === "unico" ? "un renglón" : renglonesEditados !== undefined ? "precios editados" : base.origen})`);
   try {
     const response = await axios.post("https://www.tusfacturas.app/app/api/v2/facturacion/nuevo", body, { headers: { "Content-Type": "application/json" } });
     const data = response.data;
     if (data.error === "N") {
       await pool.query(`INSERT INTO facturas (pedido_id, tipo, numero, cae, vencimiento_cae, cliente, documento_tipo, documento_nro, total, pdf_url, fecha, datos_raw, local) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
         [pedidoId, tipo, data.comprobante_nro, data.cae, data.vencimiento_cae, clienteObj.razon_social, clienteObj.documento_tipo, clienteObj.documento_nro, totalNum, data.comprobante_pdf_url || "", fechaHoy(), JSON.stringify(data), local]);
-      registrarAuditoria(usuarioAudit, "facturacion", "pedido", pedidoId, { tipo, numero: data.comprobante_nro, total: totalNum });
+      registrarAuditoria(usuarioAudit, "facturacion", "pedido", pedidoId, { tipo, numero: data.comprobante_nro, total: totalNum, renglones: detalle.length, bonificacion: armado.bonificacion, origen: modo === "unico" ? "unico" : renglonesEditados !== undefined ? "editado" : base.origen });
       res.json({ ok: true, data });
     } else { res.json({ ok: false, error: data.errores || data }); }
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
@@ -5980,9 +6097,10 @@ app.post("/api/tusfacturas/webhook", async (req, res) => {
 // ─── PEDIDOS PRODUCTOS ─────────────────────────────────────────────────
 app.post("/api/pedidos/productos/:id", requireAuth, async (req, res) => {
   const { id } = req.params;
-  const { productos, totalNum } = req.body;
+  const { productos, totalNum, lineas } = req.body;
   try {
-    await pool.query(`INSERT INTO pedidos_productos (pedido_id, productos, total_num) VALUES ($1,$2,$3) ON CONFLICT (pedido_id) DO UPDATE SET productos=$2, total_num=$3`, [id, productos, totalNum]);
+    // lineas se pisa SIEMPRE (null si no vinieron): nunca quedan renglones de una edición anterior.
+    await pool.query(`INSERT INTO pedidos_productos (pedido_id, productos, total_num, lineas) VALUES ($1,$2,$3,$4) ON CONFLICT (pedido_id) DO UPDATE SET productos=$2, total_num=$3, lineas=$4`, [id, productos, totalNum, lineasParaGuardar(lineas, totalNum, id)]);
     res.json({ ok: true });
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
@@ -6000,9 +6118,9 @@ app.get("/api/pedidos/productos/:id", requireAuth, async (req, res) => {
 // trae solo los pedidos que tienen uno (igual que antes, que omitía los sin override).
 app.get("/api/pedidos/productos-all", requireAuth, async (req, res) => {
   try {
-    const result = await pool.query("SELECT pedido_id, productos, total_num FROM pedidos_productos");
+    const result = await pool.query("SELECT pedido_id, productos, total_num, lineas FROM pedidos_productos");
     const map = {};
-    for (const r of result.rows) map[r.pedido_id] = { pedido_id: r.pedido_id, productos: r.productos, total_num: r.total_num };
+    for (const r of result.rows) map[r.pedido_id] = { pedido_id: r.pedido_id, productos: r.productos, total_num: r.total_num, lineas: r.lineas || null };
     res.json(map);
   } catch(err) { res.status(500).json({ error: "Error trayendo overrides de productos" }); }
 });

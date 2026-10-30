@@ -8,6 +8,7 @@ import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "reac
     import { getUsuarioGuardado, validarSesion, cerrarSesion, ROL_LABELS, guardarVistaActual, tomarVistaPrevia } from "./auth-utils";
     import { normalizarProducto, esExcluidoProduccion, esBasuraVenta, claveProducto, SUFIJOS_TAMANO, calcularEnvioTN } from "../productos-normalizacion.js";
     import { linkWhatsAppAR } from "../Routes/telefonoAR.js";   // link wa.me con la misma normalización de teléfonos que el backend
+    import { ZONAS_ENVIO, renglonesDeCarrito, reconstruirRenglones, resumenRenglones, sanitizarRenglones } from "../facturacion-renglones.js";   // renglones con precio del pedido (alta, edición y facturación), compartidos con el backend
 
     const API = import.meta.env.VITE_API_URL || "https://piccadely-panel-production.up.railway.app";
 
@@ -64,26 +65,8 @@ import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "reac
       { id: "nuevo",       label: "➕ Nuevo pedido" },
     ];
 
-    // Zonas de envío para el alta manual. El ítem que se suma al carrito se llama
-    // "Envío {nombre}" (queda excluido de cocina/producción/reporte por esExcluidoProduccion).
-    const ZONAS_ENVIO = [
-      { nombre: "CABA", precio: 2500 },
-      { nombre: "Olivos · San Isidro", precio: 5000 },
-      { nombre: "San Martín · San Fernando", precio: 8000 },
-      { nombre: "Tigre · Malvinas Argentinas", precio: 13000 },
-      { nombre: "Pilar · Escobar", precio: 25000 },
-      { nombre: "Tres de Febrero", precio: 7500 },
-      { nombre: "San Miguel · José C. Paz", precio: 15000 },
-      { nombre: "General Rodríguez", precio: 25000 },
-      { nombre: "Morón · Hurlingham", precio: 12000 },
-      { nombre: "Ituzaingó · Moreno · Merlo", precio: 17000 },
-      { nombre: "La Matanza", precio: 20000 },
-      { nombre: "Marcos Paz", precio: 25000 },
-      { nombre: "Avellaneda · Lanús", precio: 6000 },
-      { nombre: "Lomas de Zamora · Quilmes", precio: 11000 },
-      { nombre: "Pdte. Perón · Berazategui · Florencio Varela · Ezeiza", precio: 25000 },
-      { nombre: "La Plata", precio: 35000 },
-    ];
+    // Zonas de envío para el alta manual (ZONAS_ENVIO): viven en facturacion-renglones.js, porque la
+    // facturación las usa para reconstruir el precio del envío de pedidos viejos.
 
     const TN_CODE_FRENCH = "01KQ7S2Z0799JKAT5A1VTH12EQ";
     const TN_CODE_AT = "01KQ7TFQPTTZQ7CFFKCKVWEZQV";
@@ -792,7 +775,14 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       const [loadingFacturas, setLoadingFacturas] = useState(true);
       const requiereDoc = tipo === "FACTURA A" || tipo === "FACTURA B EXENTO";
 
-      useEffect(() => { cargarFacturas(); }, []);
+      // Vista previa del servidor: un renglón por producto y por el envío (unitario CON IVA), los descuentos
+      // aparte, contra el total del pedido. Si no cierra (pedido viejo sin precios), se editan los unitarios acá.
+      const [preview, setPreview] = useState(null);      // respuesta de /api/facturar/:id/preview, o { ok: false, error }
+      const [renglones, setRenglones] = useState([]);    // copia editable de preview.renglones
+      const [editandoPrecios, setEditandoPrecios] = useState(false);
+      const [preciosEditados, setPreciosEditados] = useState(false);
+
+      useEffect(() => { cargarFacturas(); cargarPreview(); }, []);
 
       async function cargarFacturas() {
         setLoadingFacturas(true);
@@ -803,27 +793,34 @@ const [facturaLabel, setFacturaLabel] = useState(null);
         setLoadingFacturas(false);
       }
 
-      const productosFactura = p.productos.split(", ").map((prod, i) => {
-        const match = prod.match(/^(.+) x(\d+)$/);
-        return { descripcion: match ? match[1] : prod, cantidad: match ? Number(match[2]) : 1, codigo: `PROD${i+1}` };
-      });
+      async function cargarPreview() {
+        try {
+          const res = await axios.get(`${API}/api/facturar/${encodeURIComponent(p.id)}/preview`);
+          setPreview(res.data); setRenglones(res.data.renglones || []);
+          setEditandoPrecios(!res.data.cierra); setPreciosEditados(false);
+        } catch (e) { setPreview({ ok: false, error: e.response?.data?.error || e.message }); }
+      }
 
-      const totalLimpio = (() => {
-        if (typeof p.totalNum === "number" && p.totalNum > 0) return p.totalNum;
-        const raw = String(p.totalNum).trim();
-        if (/^\d+(\.\d+)?$/.test(raw)) return Number(raw);
-        return Number(raw.replace(/[$\s]/g, "").replace(/\./g, "").replace(",", "."));
-      })();
+      const resumen = preview?.ok ? resumenRenglones(renglones, preview.total) : null;
+      const AVISO_ORIGEN = { catalogo: "precio de hoy del catálogo", zona: "precio de hoy de la zona de envío", calculado: "10% de los productos", diferencia: "sale de la diferencia con el total", editado: "editado a mano", falta: "sin precio: cargalo" };
 
-      async function emitir() {
+      function cambiarPrecio(i, valor) {
+        const n = valor === "" ? null : Number(valor);
+        setRenglones(prev => prev.map((r, j) => j !== i ? r : { ...r, precio: n, origen: "editado", tipo: n !== null && n < 0 ? "descuento" : (r.tipo === "descuento" ? "producto" : r.tipo) }));
+        setPreciosEditados(true);
+      }
+
+      // modo "unico" = último recurso: un solo renglón por el total (con las cantidades en la descripción).
+      async function emitir(modo) {
         if (requiereDoc && !docNro.trim()) { alert("Para Factura A es obligatorio el CUIT"); return; }
-        if (!totalLimpio || totalLimpio <= 0) { alert("Error: no se pudo determinar el total"); return; }
+        if (modo !== "unico" && !resumen?.cierra) { alert("Los renglones no suman el total del pedido: revisá los precios"); return; }
+        if (modo === "unico" && !window.confirm("Se va a facturar en UN solo renglón por el total, con las cantidades en la descripción. ¿Seguís?")) return;
         setEmitiendo(true); setResultado(null);
         try {
           const res = await axios.post(`${API}/api/facturar`, {
             pedidoId: p.id, tipo, cliente: p.cliente, documentoTipo: docTipo,
-            documentoNro: docNro.trim(), razonSocial, domicilio, email,
-            total: totalLimpio, productos: productosFactura, local: p.local,
+            documentoNro: docNro.trim(), razonSocial, domicilio, email, local: p.local,
+            ...(modo === "unico" ? { modo: "unico" } : preciosEditados ? { renglones: renglones.map(({ nombre, cantidad, precio, tipo, codigo }) => ({ nombre, cantidad, precio, tipo, codigo })) } : {}),
           });
           setResultado(res.data);
           if (res.data.ok) await cargarFacturas();
@@ -849,7 +846,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
 
       return (
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-          <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 540, maxHeight: "92vh", overflowY: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.25)" }}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 540, maxWidth: "100%", boxSizing: "border-box", maxHeight: "92vh", overflowY: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.25)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: "#333" }}>🧾 Facturación</div>
@@ -952,12 +949,65 @@ const [facturaLabel, setFacturaLabel] = useState(null);
                     <input style={{ fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #ddd", width: "100%", boxSizing: "border-box" }} value={domicilio} onChange={e => setDomicilio(e.target.value)} />
                   </div>
                 </div>
-                <div style={{ background: "#f9f9f7", borderRadius: 8, padding: "10px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 13, color: "#666" }}>Total a facturar</span>
-                  <span style={{ fontSize: 16, fontWeight: 700, color: "#F68B32" }}>{p.total}</span>
+                <div style={{ background: "#f9f9f7", borderRadius: 8, padding: "10px 14px", marginBottom: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase" }}>Detalle de la factura</span>
+                    {preview?.ok && !editandoPrecios && <button onClick={() => setEditandoPrecios(true)} style={{ fontSize: 11, border: "none", background: "none", color: "#F68B32", cursor: "pointer", textDecoration: "underline" }}>Editar precios</button>}
+                    {preciosEditados && <button onClick={cargarPreview} style={{ fontSize: 11, border: "none", background: "none", color: "#888", cursor: "pointer", textDecoration: "underline" }}>Volver a los precios del pedido</button>}
+                  </div>
+                  {!preview && <div style={{ fontSize: 12, color: "#aaa" }}>Armando el detalle…</div>}
+                  {preview && !preview.ok && <div style={{ fontSize: 12, color: "#c0392b" }}>❌ {preview.error || "No se pudo armar el detalle"}</div>}
+                  {preview?.ok && resumen && (
+                    <>
+                      <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr style={{ color: "#888", fontSize: 11 }}>
+                            <th style={{ textAlign: "left", fontWeight: 600, padding: "2px 4px" }}>Producto</th>
+                            <th style={{ textAlign: "right", fontWeight: 600, padding: "2px 4px" }}>Cant.</th>
+                            <th style={{ textAlign: "right", fontWeight: 600, padding: "2px 4px" }}>Unitario</th>
+                            <th style={{ textAlign: "right", fontWeight: 600, padding: "2px 4px" }}>Subtotal</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {renglones.map((r, i) => (
+                            <tr key={i} style={{ borderTop: "1px solid #eee", color: r.tipo === "descuento" ? "#c0392b" : "#333" }}>
+                              <td style={{ padding: "5px 4px" }}>
+                                {r.nombre}
+                                {AVISO_ORIGEN[r.origen] && <div style={{ fontSize: 10, color: r.origen === "falta" ? "#c0392b" : "#b45309" }}>{AVISO_ORIGEN[r.origen]}</div>}
+                              </td>
+                              <td style={{ padding: "5px 4px", textAlign: "right" }}>{r.cantidad}</td>
+                              <td style={{ padding: "5px 4px", textAlign: "right" }}>
+                                {editandoPrecios
+                                  ? <input type="number" value={r.precio ?? ""} onChange={e => cambiarPrecio(i, e.target.value)} placeholder="Precio" style={{ width: 90, fontSize: 12, padding: "3px 6px", borderRadius: 4, border: `1px solid ${r.precio === null ? "#c0392b" : "#ddd"}`, textAlign: "right" }} />
+                                  : (r.precio === null ? "—" : r.precio < 0 ? `−${fmt(-r.precio)}` : fmt(r.precio))}
+                              </td>
+                              <td style={{ padding: "5px 4px", textAlign: "right" }}>{r.precio === null ? "—" : r.precio < 0 ? `−${fmt(-r.precio * r.cantidad)}` : fmt(r.precio * r.cantidad)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <div style={{ borderTop: "1px solid #ddd", marginTop: 6, paddingTop: 6, fontSize: 12, color: "#555" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between" }}><span>Subtotal</span><span>{fmt(resumen.subtotal)}</span></div>
+                        {resumen.descuento > 0 && <div style={{ display: "flex", justifyContent: "space-between", color: "#c0392b" }}><span>Descuentos (van como bonificación)</span><span>−{fmt(resumen.descuento)}</span></div>}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+                          <span style={{ fontSize: 13, color: "#666" }}>Total a facturar</span>
+                          <span style={{ fontSize: 16, fontWeight: 700, color: "#F68B32" }}>{fmt(resumen.total)}</span>
+                        </div>
+                        {resumen.cierra
+                          ? <div style={{ fontSize: 11, color: "#2e7d32", marginTop: 4 }}>✓ Coincide con el total del pedido ({fmt(preview.total)})</div>
+                          : <div style={{ fontSize: 11, color: "#c0392b", marginTop: 4 }}>⚠️ {resumen.faltan ? `Faltan ${resumen.faltan} precio(s). ` : ""}El pedido suma {fmt(preview.total)}: {resumen.diferencia > 0 ? `faltan ${fmt(resumen.diferencia)}` : resumen.diferencia < 0 ? `sobran ${fmt(-resumen.diferencia)}` : "completá los precios"}. Ajustá los unitarios para poder emitir.</div>}
+                      </div>
+                    </>
+                  )}
                 </div>
-                <button style={{ width: "100%", padding: 11, borderRadius: 8, border: "none", background: emitiendo ? "#ccc" : "#F68B32", color: "#fff", fontSize: 13, fontWeight: 600, cursor: emitiendo ? "default" : "pointer" }}
-                  onClick={emitir} disabled={emitiendo}>{emitiendo ? "Emitiendo..." : `Emitir ${tipo}`}</button>
+                <button style={{ width: "100%", padding: 11, borderRadius: 8, border: "none", background: (emitiendo || !resumen?.cierra) ? "#ccc" : "#F68B32", color: "#fff", fontSize: 13, fontWeight: 600, cursor: (emitiendo || !resumen?.cierra) ? "default" : "pointer" }}
+                  onClick={() => emitir()} disabled={emitiendo || !resumen?.cierra}>{emitiendo ? "Emitiendo..." : `Emitir ${tipo}`}</button>
+                {preview?.ok && !resumen?.cierra && (
+                  <button onClick={() => emitir("unico")} disabled={emitiendo}
+                    style={{ width: "100%", marginTop: 8, padding: 8, borderRadius: 8, border: "1px solid #ddd", background: "#fff", color: "#888", fontSize: 12, cursor: "pointer" }}>
+                    Facturar en un renglón (sin detalle, por {fmt(preview.total)})
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -971,22 +1021,16 @@ const [facturaLabel, setFacturaLabel] = useState(null);
         // Líneas crudas de TN (precio real por ítem). Manuales/TN sin campo -> []. Todo defensivo.
         const rawTN = Array.isArray(p?.productosRaw) ? p.productosRaw : [];
         const catalogo = Array.isArray(productos) ? productos : [];
-        return String(p?.productos || "").split(", ").map(item => {
-          const match = item.match(/^(.+) x(\d+)$/);
-          if (!match) return null;
-          const nombre = match[1].trim();
-          const cantidad = Number(match[2]);
-          // Precio en ORDEN: a) línea real de TN por nombre; b) catálogo por nombre; c) $0
-          // (editable a mano en el input). No se inventa; el usuario puede ajustarlo y guardar igual.
-          let precio = 0;
-          const linea = rawTN.find(pr => String(pr?.name || "").trim().toLowerCase() === nombre.toLowerCase());
-          if (linea && Number(linea.price) > 0) precio = Number(linea.price);
-          if (precio === 0) {
-            const prod = catalogo.find(pr => pr?.name?.es?.toLowerCase() === nombre.toLowerCase());
-            if (prod && Number(prod?.variants?.[0]?.price) > 0) precio = Number(prod.variants[0].price);
-          }
-          return { id: nombre, variantId: nombre, nombre, precio, cantidad, esVariable: precio === 0 };
-        }).filter(Boolean);
+        // 1) Renglones con precio guardados (alta o edición anterior): precios exactos, con descuentos y envío.
+        const guardadas = sanitizarRenglones(p?.lineas);
+        if (guardadas) return guardadas.map(r => ({ id: r.nombre, variantId: r.nombre, nombre: r.nombre, precio: r.precio, cantidad: r.cantidad, tipo: r.tipo, codigo: r.codigo, esEnvio: r.tipo === "envio" }));
+        // 2) Pedido viejo: la misma reconstrucción que la factura. Precio en ORDEN: a) línea real de TN por
+        // nombre; b) zona de envío; c) catálogo por nombre; d) si falta UNO solo, sale de la diferencia con el
+        // total; si no, $0 (editable a mano en el input). No se inventa; el usuario puede ajustarlo y guardar igual.
+        // Solo los ítems "nombre xN", como antes: el texto que se guarda al editar tiene que salir igual que siempre.
+        const items = String(p?.productos || "").split(", ").filter(item => /^(.+) x(\d+)$/.test(item)).join(", ");
+        const { renglones } = reconstruirRenglones({ productos: items, total: p?.totalNum, lineasTN: rawTN, catalogo });
+        return renglones.map(r => ({ id: r.nombre, variantId: r.nombre, nombre: r.nombre, precio: r.precio ?? 0, cantidad: r.cantidad, tipo: r.precio === null ? undefined : r.tipo, codigo: r.codigo, esEnvio: r.tipo === "envio", esVariable: r.precio === null }));
       });
       const [busqueda, setBusqueda] = useState("");
       const [categoriaFiltro, setCategoriaFiltro] = useState("");
@@ -1017,8 +1061,9 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       async function guardar() {
         setGuardando(true);
         const productosStr = carrito.map(i => `${i.nombre} x${i.cantidad}`).join(", ");
-        await axios.post(`${API}/api/pedidos/productos/${p.id}`, { productos: productosStr, totalNum: total });
-        onGuardar(p.id, productosStr, total);
+        const lineas = renglonesDeCarrito(carrito);   // renglones con precio para la factura
+        await axios.post(`${API}/api/pedidos/productos/${p.id}`, { productos: productosStr, totalNum: total, lineas });
+        onGuardar(p.id, productosStr, total, lineas);
         setGuardando(false);
         onCerrar();
       }
@@ -1281,6 +1326,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
             const items = [`${f.producto} x1`];
             if (f.envioPrecio > 0) items.push(`${f.envioNombre} x1`);
             const productosStr = items.join(", ");
+            const lineas = renglonesDeCarrito([{ nombre: f.producto, precio: f.precioProd, cantidad: 1 }, ...(f.envioPrecio > 0 ? [{ nombre: f.envioNombre, precio: f.envioPrecio, cantidad: 1, esEnvio: true }] : [])]);
             const esEfectivo = ["Efectivo", "Pedidos Ya Efectivo"].includes(f.medioPago);
             const pago = ["Efectivo", "Pedidos Ya Efectivo", "Mercado Pago", "Rappi", "MP Delivery", "Pedidos Ya"].includes(f.medioPago) ? "Pendiente" : "Pagado";
             const nuevoPedido = {
@@ -1288,7 +1334,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
               direccion: f.direccion, barrio: f.barrio, entreCalles: f.entreCalles,
               zona: "Sin zona", fecha: f.fecha, franja: f.franja,
               fechaDisplay: f.fecha, franjaDisplay: f.franja || "Sin franja",
-              productos: productosStr, totalNum: f.total, total: fmtImp(f.total),
+              productos: productosStr, lineas, totalNum: f.total, total: fmtImp(f.total),
               pago, medioPago: f.medioPago, cobrar: esEfectivo,
               tabActual: f.seccion, local: localDe(f.seccion),
               nota: f.nota, esManual: true, estado: "Por empaquetar", repartidor: "Sin asignar",
@@ -9485,6 +9531,7 @@ setPedidosDatosOverride(datosInit);
             fecha, franja, fechaDisplay: local.fechaManual || fecha, franjaDisplay: local.franjaManual || franja || "Sin franja",
             productos: ov ? ov.productos : prods,
             productosRaw: prodsRawTN,   // líneas crudas de TN (+ ítem "Envío" con su costo) para el modal Editar productos
+            lineas: ov ? (ov.lineas || null) : null,   // renglones con precio guardados al editar productos (o null)
             totalNum: ov ? Number(ov.total_num) : totalNum,
             total: ov ? `$${Number(ov.total_num).toLocaleString("es-AR")}` : `$${totalNum.toLocaleString("es-AR")}`,
             pago: p.payment_status === "paid" ? "Pagado" : "Pendiente",
@@ -9529,6 +9576,7 @@ setPedidosDatosOverride(datosInit);
             identificacion: p.identificacion || "", email: p.email || "",
             codigoPago: ovDatos.codigoPago !== undefined ? ovDatos.codigoPago : (p.codigoPago || ""),
             productos: ov ? ov.productos : p.productos,
+            lineas: ov ? (ov.lineas || null) : (p.lineas || null),   // renglones con precio: de la edición, si no del alta
             totalNum: ov ? Number(ov.total_num) : p.totalNum,
             total: ov ? `$${Number(ov.total_num).toLocaleString("es-AR")}` : p.total,
           };
@@ -10148,13 +10196,15 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
         const lineasProductos = carrito.map(i => `${i.nombre} x${i.cantidad}`);
         if (descuentoMontoRetiro > 0) lineasProductos.push("Descuento 10% Retiro x1");
         const productosStr = lineasProductos.join(", ");
+        // Renglones con precio para la factura (producto/envío/descuento); el texto de arriba sigue igual para cocina y reportes.
+        const lineas = renglonesDeCarrito(carrito, { descuentoRetiro: descuentoMontoRetiro });
         const nuevoPedido = {
          id, numero: "", cliente: form.cliente, telefono: form.telefono,
           email: form.email || "",
           direccion: form.direccion, barrio: form.barrio, entreCalles: form.entreCalles || "",
           zona: form.zona || "Sin zona", fecha: form.fecha, franja: (form.franjaInicio && form.franjaFin) ? `${form.franjaInicio} – ${form.franjaFin}` : "",
           fechaDisplay: form.fecha, franjaDisplay: (form.franjaInicio && form.franjaFin) ? `${form.franjaInicio} – ${form.franjaFin}` : "Sin franja",
-          productos: productosStr, totalNum: totalConDescuento, total: `$${totalConDescuento.toLocaleString("es-AR")}`,
+          productos: productosStr, lineas, totalNum: totalConDescuento, total: `$${totalConDescuento.toLocaleString("es-AR")}`,
           pago: ["Efectivo", "Pedidos Ya Efectivo", "Mercado Pago", "Rappi", "MP Delivery", "Pedidos Ya"].includes(form.medioPago) ? "Pendiente" : "Pagado",
           medioPago: form.medioPago, cobrar: form.cobrar, tabActual: form.seccion, local: localLabel(form.seccion),
           nota: form.nota, esManual: true, esCorporativo: form.esCorporativo, estado: "Por empaquetar", repartidor: "Sin asignar",
@@ -12124,8 +12174,8 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
               productos={productos}
               categorias={categorias}
               onCerrar={() => setEditandoProductos(null)}
-              onGuardar={(id, productosStr, totalNum) => {
-                setProductosOverride(prev => ({ ...prev, [String(id)]: { productos: productosStr, total_num: totalNum } }));
+              onGuardar={(id, productosStr, totalNum, lineas) => {
+                setProductosOverride(prev => ({ ...prev, [String(id)]: { productos: productosStr, total_num: totalNum, lineas: lineas || null } }));
                 setEditandoProductos(null);
               }}
             />
