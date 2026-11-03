@@ -355,6 +355,20 @@ async function crearEsquema(pool) {
   await pool.query(`ALTER TABLE facturas ADD COLUMN IF NOT EXISTS local TEXT;`);
   await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS codigo_pago_override TEXT;`);
   await pool.query(`ALTER TABLE pedidos_manuales ADD COLUMN IF NOT EXISTS codigo_pago TEXT;`);
+  // Sobres: anular un sobre DUPLICADO (pendiente) deja sin efecto SU salida en la caja del local, sin movimientos nuevos.
+  // La salida no se borra: queda con monto 0 y el monto original en monto_anulado (así deja de sumar en todos los saldos).
+  await pool.query(`ALTER TABLE sobres ADD COLUMN IF NOT EXISTS caja_movimiento_id INTEGER;`);   // salida "Sobre a bandeja" (sobres nuevos)
+  await pool.query(`ALTER TABLE sobres ADD COLUMN IF NOT EXISTS motivo_anulacion TEXT;`);
+  await pool.query(`DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sobres_estado_check' AND pg_get_constraintdef(oid) LIKE '%anulado%') THEN
+      ALTER TABLE sobres DROP CONSTRAINT IF EXISTS sobres_estado_check;
+      ALTER TABLE sobres ADD CONSTRAINT sobres_estado_check CHECK (estado IN ('pendiente','recibido','rechazado','anulado'));
+    END IF;
+  END $$;`);
+  await pool.query(`ALTER TABLE caja_movimientos ADD COLUMN IF NOT EXISTS monto_anulado NUMERIC;`);
+  await pool.query(`ALTER TABLE caja_movimientos ADD COLUMN IF NOT EXISTS anulado_motivo TEXT;`);
+  await pool.query(`ALTER TABLE caja_movimientos ADD COLUMN IF NOT EXISTS anulado_at TIMESTAMP;`);
+  await pool.query(`ALTER TABLE caja_movimientos ADD COLUMN IF NOT EXISTS anulado_por TEXT;`);
   // Facturación detallada: renglones con precio (nombre, cantidad, precio unitario con IVA, tipo) al crear/editar.
   await pool.query(`ALTER TABLE pedidos_manuales ADD COLUMN IF NOT EXISTS lineas JSONB;`);
   await pool.query(`ALTER TABLE pedidos_productos ADD COLUMN IF NOT EXISTS lineas JSONB;`);
@@ -5343,6 +5357,8 @@ app.post("/api/caja/ajuste", requireAuth, async (req, res) => {
     registrarAuditoria(usuarioAudit, "ajuste_caja", "caja", local, { fecha, tipo, concepto, monto });
   } catch (err) { res.status(500).json({ error: "Error registrando ajuste" }); }
 });
+// Concepto de la salida que genera un sobre en la caja del local (se usa también para encontrarla al anular).
+const conceptoDeSalidaSobre = (concepto) => (concepto ? `Sobre a bandeja: ${concepto}` : "Sobre a bandeja");
 // SOBRE — Etapa 1: sale de la caja del local y queda PENDIENTE en la bandeja (tabla sobres),
 // SIN impactar ninguna caja destino. Atómico (salida local + sobre pendiente, las dos o ninguna).
 // La recepción/rechazo (Parte B) la hace el superadmin. La entrada a Administración YA NO ocurre acá.
@@ -5358,14 +5374,14 @@ app.post("/api/caja/sobre", requireAuth, async (req, res) => {
     client = await pool.connect();
     await client.query("BEGIN");
     // 1. Salida en el local origen (la plata queda EN TRÁNSITO, no en ninguna caja destino).
-    await client.query(
-      "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'salida',$2,$3,$4)",
-      [localOrigen, conceptoTxt ? `Sobre a bandeja: ${conceptoTxt}` : "Sobre a bandeja", -montoAbs, fecha]
+    const salida = await client.query(
+      "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'salida',$2,$3,$4) RETURNING id",
+      [localOrigen, conceptoDeSalidaSobre(conceptoTxt), -montoAbs, fecha]
     );
-    // 2. Sobre PENDIENTE en la bandeja (lo recibe/rechaza el superadmin en la Parte B).
+    // 2. Sobre PENDIENTE en la bandeja (lo recibe/rechaza el superadmin en la Parte B), vinculado a su salida.
     await client.query(
-      "INSERT INTO sobres (local_origen, monto_declarado, concepto, estado, fecha_creacion, usuario_crea) VALUES ($1,$2,$3,'pendiente',$4,$5)",
-      [localOrigen, montoAbs, conceptoTxt || null, fecha, usuarioAudit || null]
+      "INSERT INTO sobres (local_origen, monto_declarado, concepto, estado, fecha_creacion, usuario_crea, caja_movimiento_id) VALUES ($1,$2,$3,'pendiente',$4,$5,$6)",
+      [localOrigen, montoAbs, conceptoTxt || null, fecha, usuarioAudit || null, salida.rows[0].id]
     );
     await client.query("COMMIT");
   } catch (e) {
@@ -5508,6 +5524,98 @@ app.post("/api/sobres/:id/rechazar", requireAuth, async (req, res) => {
   }
   res.json({ ok: true });
   registrarAuditoria(usuarioAudit, "sobre_rechazado", "sobre", req.params.id, { fecha });
+});
+
+// ─── ANULAR SOBRE DUPLICADO (solo superadmin, solo PENDIENTES) ───────
+// Un local creó el mismo sobre dos veces: cada uno hizo su salida "Sobre a bandeja" en la caja del local.
+// Rechazar crearía una entrada HOY (no corresponde). Anular deja el sobre en 'anulado' y deja sin efecto
+// SU salida original: no se borra, queda con monto 0 y el original en monto_anulado (+ motivo, quién y cuándo),
+// así deja de sumar en todos los saldos y el historial la muestra tachada. No se crean movimientos nuevos.
+// Si la salida es de un día ya CERRADO, el historial recalcula ese día en vivo (saldo esperado sube, la
+// diferencia baja por el monto del sobre); el efectivo contado al cierre no cambia. Queda en la auditoría.
+
+// Salidas candidatas del sobre (con FOR UPDATE si va en transacción). Sobres nuevos: por caja_movimiento_id.
+// Sobres viejos (sin vínculo): la salida y el sobre se insertaron en la MISMA transacción, así que comparten
+// created_at exacto (NOW() es la hora de inicio de la transacción) + local, fecha, monto y concepto.
+async function salidasDeSobre(client, s, bloquear) {
+  const forUpdate = bloquear ? " FOR UPDATE" : "";
+  if (s.caja_movimiento_id) {
+    return (await client.query(`SELECT * FROM caja_movimientos WHERE id=$1 AND local=$2 AND tipo='salida'${forUpdate}`, [s.caja_movimiento_id, s.local_origen])).rows;
+  }
+  // created_at se compara en SQL (microsegundos): pasarlo por un Date de JS lo trunca a milisegundos.
+  return (await client.query(
+    `SELECT cm.* FROM caja_movimientos cm JOIN sobres s ON s.id = $1
+     WHERE cm.local = s.local_origen AND cm.tipo = 'salida' AND cm.fecha = s.fecha_creacion AND cm.monto = -s.monto_declarado
+       AND cm.concepto = $2 AND cm.created_at = s.created_at${bloquear ? " FOR UPDATE OF cm" : ""}`,
+    [s.id, conceptoDeSalidaSobre(s.concepto)]
+  )).rows;
+}
+const ESTADO_SOBRE_TXT = { recibido: "ya fue recibido", rechazado: "ya fue rechazado", anulado: "ya fue anulado" };
+
+// Vista previa para la confirmación: datos del sobre, la salida que se va a dejar sin efecto y si el día está cerrado.
+app.get("/api/sobres/:id/anulacion", soloSuperadmin, async (req, res) => {
+  try {
+    const s = (await pool.query("SELECT * FROM sobres WHERE id=$1", [req.params.id])).rows[0];
+    if (!s) return res.status(404).json({ error: "Sobre no encontrado." });
+    if (s.estado !== "pendiente") return res.status(409).json({ error: `El sobre ${ESTADO_SOBRE_TXT[s.estado] || "no está pendiente"}: no se puede anular.` });
+    const salidas = await salidasDeSobre(pool, s, false);
+    const salida = salidas.length === 1 && salidas[0].monto_anulado === null ? salidas[0] : null;
+    const apertura = (await pool.query("SELECT cerrada, monto_cierre FROM caja_aperturas WHERE local=$1 AND fecha=$2", [s.local_origen, s.fecha_creacion])).rows[0];
+    res.json({
+      sobre: { id: s.id, local: s.local_origen, monto: Number(s.monto_declarado), fecha: s.fecha_creacion, usuario: s.usuario_crea, concepto: s.concepto },
+      salida: salida ? { id: salida.id, fecha: salida.fecha, concepto: salida.concepto, monto: Number(salida.monto) } : null,
+      problema: salida ? null : salidas.length === 0 ? "No se encontró la salida de este sobre en la caja del local." : salidas.length > 1 ? "Hay más de una salida que coincide: no se puede identificar con seguridad." : "La salida de este sobre ya está anulada.",
+      diaCerrado: !!apertura?.cerrada,
+      montoCierre: apertura?.cerrada && apertura.monto_cierre !== null ? Number(apertura.monto_cierre) : null,
+    });
+  } catch (err) {
+    console.error("Error /api/sobres/:id/anulacion:", err.message);
+    res.status(500).json({ error: "Error preparando la anulación" });
+  }
+});
+
+app.post("/api/sobres/:id/anular", soloSuperadmin, async (req, res) => {
+  const motivo = String(req.body?.motivo || "").trim();
+  if (!motivo) return res.status(400).json({ error: "El motivo es obligatorio." });
+  const quien = req.user?.nombre_completo || req.user?.username || "superadmin";   // de la SESIÓN, nunca del body
+  const fecha = fechaArgentinaISO();
+  let client, s, salida, apertura;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    s = (await client.query("SELECT * FROM sobres WHERE id=$1 FOR UPDATE", [req.params.id])).rows[0];
+    if (!s) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Sobre no encontrado." }); }
+    if (s.estado !== "pendiente") { await client.query("ROLLBACK"); return res.status(409).json({ error: `El sobre ${ESTADO_SOBRE_TXT[s.estado] || "no está pendiente"}: no se puede anular.` }); }
+    const salidas = await salidasDeSobre(client, s, true);
+    if (salidas.length !== 1) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: salidas.length === 0 ? "No se encontró la salida de este sobre en la caja del local: no se anuló nada." : "Hay más de una salida que coincide con este sobre: no se puede identificar con seguridad. No se anuló nada." });
+    }
+    salida = salidas[0];
+    if (salida.monto_anulado !== null) { await client.query("ROLLBACK"); return res.status(409).json({ error: "La salida de este sobre ya está anulada." }); }
+    apertura = (await client.query("SELECT cerrada, monto_cierre FROM caja_aperturas WHERE local=$1 AND fecha=$2", [s.local_origen, salida.fecha])).rows[0];
+    await client.query(
+      "UPDATE caja_movimientos SET monto_anulado=monto, monto=0, anulado_motivo=$1, anulado_at=NOW(), anulado_por=$2 WHERE id=$3",
+      [`Sobre #${s.id} anulado (duplicado): ${motivo}`, quien, salida.id]
+    );
+    await client.query(
+      "UPDATE sobres SET estado='anulado', motivo_anulacion=$1, fecha_resolucion=$2, usuario_resuelve=$3, caja_movimiento_id=COALESCE(caja_movimiento_id, $4) WHERE id=$5",
+      [motivo, fecha, quien, salida.id, s.id]
+    );
+    await client.query("COMMIT");
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    console.error("Error /api/sobres/:id/anular:", e.message);
+    return res.status(500).json({ error: "Error anulando el sobre" });
+  } finally {
+    if (client) client.release();
+  }
+  const diaCerrado = !!apertura?.cerrada;
+  res.json({ ok: true, salidaId: salida.id, diaCerrado });
+  registrarAuditoria(quien, "sobre_anulado_duplicado", "sobre", String(s.id), {
+    local: s.local_origen, monto: Number(s.monto_declarado), fechaSobre: s.fecha_creacion, usuarioSobre: s.usuario_crea, motivo,
+    salidaId: salida.id, diaCerrado, montoCierre: diaCerrado && apertura.monto_cierre !== null ? Number(apertura.monto_cierre) : null,
+  });
 });
 app.post("/api/caja/cerrar-historico", requireAuth, async (req, res) => {
   const { local, fecha, usuario: usuarioAudit } = req.body;

@@ -193,6 +193,12 @@ import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "reac
   }
 
     function fmt(n) { return `$${Number(n).toLocaleString("es-AR")}`; }
+    // Movimiento de caja ANULADO (p. ej. la salida de un sobre duplicado): monto 0 y el original en monto_anulado.
+    // Ya no suma en ningún saldo; en las listas se muestra tachado con el monto original y el motivo.
+    const movAnulado = (m) => m && m.monto_anulado !== null && m.monto_anulado !== undefined;
+    function MotivoAnulacionMov({ m }) {
+      return <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>Anulado{m.anulado_por ? ` por ${m.anulado_por}` : ""}{m.anulado_at ? ` el ${new Date(m.anulado_at).toLocaleDateString("es-AR")}` : ""}: {m.anulado_motivo || "sin motivo"}</div>;
+    }
     function sumar(arr) { return arr.reduce((a, p) => a + p.totalNum, 0); }
 
     function fechaTagArchivo(desde, hasta) {
@@ -1976,6 +1982,7 @@ const [facturaLabel, setFacturaLabel] = useState(null);
       const esBandejaSobres = localSeleccionado === "Sobres";
       const noEsCajaDiaria = esCajaPersistente || esBandejaSobres;   // no computa ventas del día ni estado diario
       const [sobresPend, setSobresPend] = useState({ total: 0, sobres: [] });
+      const [anulacionSobre, setAnulacionSobre] = useState(null);   // { s, preview, motivo, error, cargando } del modal "Anular (duplicado)"
       const [loadingSobres, setLoadingSobres] = useState(false);
       const [seleccionSobres, setSeleccionSobres] = useState([]);      // ids marcados para recepción en lote
       const [cajaDestinoLote, setCajaDestinoLote] = useState("");
@@ -2084,6 +2091,7 @@ const res = await axios.get(`${API}/api/caja/estado/${encodeURIComponent(localSe
         });
         filas.push(["Total ventas", `$${totalVentasPDF.toLocaleString("es-AR")}`]);
         ajustesList.forEach(a => {
+          if (movAnulado(a)) { filas.push([`${Number(a.monto_anulado) >= 0 ? "↑" : "↓"} ${a.concepto} (ANULADO: era $${Math.abs(Number(a.monto_anulado)).toLocaleString("es-AR")})`, "$0"]); return; }
           filas.push([`${Number(a.monto) >= 0 ? "↑" : "↓"} ${a.concepto}`, `$${Math.abs(Number(a.monto)).toLocaleString("es-AR")}`]);
         });
         filas.push(["Saldo esperado (efectivo)", `$${Number(saldoEsp).toLocaleString("es-AR")}`]);
@@ -2187,6 +2195,25 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         } catch (err) { alert("Error recibiendo el sobre: " + (err.response?.data?.error || err.message)); }
         setGuardando(false);
       }
+      // Anular un sobre DUPLICADO: deja sin efecto su salida original en la caja del local (sin movimientos nuevos).
+      async function abrirAnulacionSobre(s) {
+        setAnulacionSobre({ s, preview: null, motivo: "", error: "", cargando: true });
+        try {
+          const res = await axios.get(`${API}/api/sobres/${s.id}/anulacion`);
+          setAnulacionSobre(a => a && { ...a, preview: res.data, cargando: false });
+        } catch (err) { setAnulacionSobre(a => a && { ...a, cargando: false, error: err.response?.data?.error || err.message }); }
+      }
+      async function confirmarAnulacionSobre() {
+        const a = anulacionSobre;
+        if (!a?.motivo.trim()) { setAnulacionSobre({ ...a, error: "El motivo es obligatorio." }); return; }
+        setAnulacionSobre({ ...a, cargando: true, error: "" });
+        try {
+          await axios.post(`${API}/api/sobres/${a.s.id}/anular`, { motivo: a.motivo.trim() });
+          setAnulacionSobre(null);
+          setSeleccionSobres(prev => prev.filter(x => x !== a.s.id));
+          await cargarSobres();
+        } catch (err) { setAnulacionSobre({ ...a, cargando: false, error: err.response?.data?.error || err.message }); }
+      }
       async function rechazarSobre(s) {
         if (!window.confirm(`El sobre de ${fmt(Number(s.monto_declarado))} volverá a ${s.local_origen}. ¿Confirmás el rechazo?`)) return;
         setGuardando(true);
@@ -2258,8 +2285,50 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         const cajasDestino = localesPermitidos.filter(l => l !== "Sobres");   // 5 cajas reales (superadmin)
         const totalSel = lista.filter(s => seleccionSobres.includes(s.id)).reduce((a, s) => a + Number(s.monto_declarado), 0);
         const selStyle = { fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #ddd", background: "#fff" };
+        const an = anulacionSobre, pv = an?.preview;
+        const ddmm = (f) => { const [, m, d] = String(f || "").split("-"); return d ? `${d}/${m}` : f; };
         return (
           <div style={{ maxWidth: 760 }}>
+            {an && (
+              <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+                onClick={() => !an.cargando && setAnulacionSobre(null)}>
+                <div style={{ background: "#fff", borderRadius: 12, padding: 22, width: 420, maxWidth: "100%", boxSizing: "border-box", boxShadow: "0 8px 40px rgba(0,0,0,0.25)" }} onClick={e => e.stopPropagation()}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#333" }}>Anular sobre (duplicado)</div>
+                  <div style={{ fontSize: 12, color: "#888", marginTop: 2, marginBottom: 12 }}>Deja sin efecto la salida original de este sobre en la caja del local. No crea movimientos nuevos.</div>
+                  <div style={{ background: "#f9f9f7", borderRadius: 8, padding: "10px 12px", fontSize: 13, color: "#333", lineHeight: 1.6, marginBottom: 12 }}>
+                    <div><b>Local:</b> {an.s.local_origen}</div>
+                    <div><b>Monto:</b> {fmt(Number(an.s.monto_declarado))}</div>
+                    <div><b>Fecha:</b> {an.s.fecha_creacion}</div>
+                    <div><b>Cargado por:</b> {an.s.usuario_crea || "—"}</div>
+                    {an.s.concepto && <div><b>Concepto:</b> {an.s.concepto}</div>}
+                    {pv?.salida && <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>Salida que se anula: «{pv.salida.concepto}» del {pv.salida.fecha} por {fmt(Math.abs(pv.salida.monto))}</div>}
+                  </div>
+                  {an.cargando && !pv && <div style={{ fontSize: 12, color: "#aaa", marginBottom: 10 }}>Buscando la salida del sobre…</div>}
+                  {pv?.problema && <div style={{ fontSize: 12, color: "#c0392b", background: "#fdecea", borderRadius: 6, padding: "8px 10px", marginBottom: 10 }}>⚠️ {pv.problema} No se puede anular.</div>}
+                  {pv?.salida && pv.diaCerrado && (
+                    <div style={{ fontSize: 12, color: "#856404", background: "#fef9e7", border: "1px solid #f39c12", borderRadius: 6, padding: "8px 10px", marginBottom: 10 }}>
+                      ⚠️ <b>El cierre del {ddmm(pv.salida.fecha)} va a cambiar:</b> ese día ya está cerrado. Al anular, su saldo esperado sube {fmt(Math.abs(pv.salida.monto))} y la diferencia del cierre baja lo mismo{pv.montoCierre !== null ? ` (el efectivo contado, ${fmt(pv.montoCierre)}, no cambia)` : ""}. Queda registrado en la auditoría.
+                    </div>
+                  )}
+                  {pv?.salida && (
+                    <>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Motivo (obligatorio)</div>
+                      <textarea rows={2} style={{ width: "100%", boxSizing: "border-box", fontSize: 13, padding: "8px 10px", borderRadius: 6, border: "1px solid #ddd", fontFamily: "inherit" }}
+                        placeholder="Ej.: el local cargó el mismo sobre dos veces" value={an.motivo} onChange={e => setAnulacionSobre({ ...an, motivo: e.target.value, error: "" })} />
+                    </>
+                  )}
+                  {an.error && <div style={{ fontSize: 12, color: "#c0392b", marginTop: 8 }}>⚠️ {an.error}</div>}
+                  <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                    <button onClick={confirmarAnulacionSobre} disabled={an.cargando || !pv?.salida || !an.motivo.trim()}
+                      style={{ flex: 1, padding: 10, borderRadius: 8, border: "none", fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", background: (an.cargando || !pv?.salida || !an.motivo.trim()) ? "#ccc" : "#c0392b" }}>
+                      {an.cargando && pv ? "Anulando…" : "Anular sobre"}
+                    </button>
+                    <button onClick={() => setAnulacionSobre(null)} disabled={an.cargando && !!pv}
+                      style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", fontSize: 13, color: "#555", cursor: "pointer" }}>Cancelar</button>
+                  </div>
+                </div>
+              </div>
+            )}
             <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: 24, marginBottom: 20 }}>
               <div style={{ fontSize: 12, color: "#888", marginBottom: 6, letterSpacing: 0.5 }}>EN TRÁNSITO · SOBRES PENDIENTES</div>
               <div style={{ fontSize: 34, fontWeight: 700, color: "#7c3aed" }}>{loadingSobres ? "..." : fmt(sobresPend.total || 0)}</div>
@@ -2303,6 +2372,9 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                             style={{ fontSize: 11, padding: "5px 10px", borderRadius: 5, border: "1px solid #7c3aed", background: sobreAjuste === s.id ? "#7c3aed" : "#fff", color: sobreAjuste === s.id ? "#fff" : "#7c3aed", cursor: "pointer" }}>Recibir (ajustar)</button>
                           <button onClick={() => rechazarSobre(s)} disabled={guardando}
                             style={{ fontSize: 11, padding: "5px 10px", borderRadius: 5, border: "1px solid #c0392b", background: "#fff", color: "#c0392b", cursor: "pointer" }}>Rechazar</button>
+                          <button onClick={() => abrirAnulacionSobre(s)} disabled={guardando}
+                            title="Para un sobre cargado por duplicado: deja sin efecto su salida original en la caja del local, sin crear movimientos nuevos"
+                            style={{ fontSize: 11, padding: "5px 10px", borderRadius: 5, border: "1px solid #888", background: "#fff", color: "#555", cursor: "pointer" }}>Anular (duplicado)</button>
                         </div>
                       </div>
                       {sobreAjuste === s.id && (
@@ -2366,7 +2438,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         asc.forEach(m => { acum += Number(m.monto) || 0; saldoDe.set(m, Math.round(acum * 100) / 100); });
         const visibles = new Set(movs);
         const filas = asc.filter(m => visibles.has(m)).map(m => (
-          { "Fecha": m.fecha || "", "Concepto": m.concepto || "", "Tipo": m.tipo || "", "Monto": Number(m.monto) || 0, "Saldo acumulado": saldoDe.get(m) }
+          { "Fecha": m.fecha || "", "Concepto": movAnulado(m) ? `${m.concepto || ""} (ANULADO: era ${Number(m.monto_anulado)}; ${m.anulado_motivo || ""})` : (m.concepto || ""), "Tipo": m.tipo || "", "Monto": Number(m.monto) || 0, "Saldo acumulado": saldoDe.get(m) }
         ));
         if (movBuscar.trim()) filas.push({ "Fecha": "", "Concepto": `Nota: filtrado por "${movBuscar.trim()}". El saldo acumulado es el de la caja completa (incluye movimientos que no se listan).`, "Tipo": "", "Monto": "", "Saldo acumulado": "" });
         exportarExcel(`movimientos_${nombre}.xlsx`, [{ name: "Movimientos", data: filas }]);
@@ -2410,8 +2482,11 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                         </div>
                       )}
                       <div style={{ fontSize: 11, color: "#aaa" }}>{m.fecha}</div>
+                      {movAnulado(m) && <MotivoAnulacionMov m={m} />}
                     </div>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: monto >= 0 ? "#2a7a4b" : "#c0392b", whiteSpace: "nowrap" }}>{monto >= 0 ? "+" : "−"}{fmt(Math.abs(monto))}</span>
+                    {movAnulado(m)
+                      ? <span style={{ fontSize: 14, color: "#999", textDecoration: "line-through", whiteSpace: "nowrap" }}>{Number(m.monto_anulado) >= 0 ? "+" : "−"}{fmt(Math.abs(m.monto_anulado))}</span>
+                      : <span style={{ fontSize: 14, fontWeight: 600, color: monto >= 0 ? "#2a7a4b" : "#c0392b", whiteSpace: "nowrap" }}>{monto >= 0 ? "+" : "−"}{fmt(Math.abs(monto))}</span>}
                   </div>
                 );
               })}
@@ -2556,7 +2631,15 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}><span style={{ fontSize: 13, color: "#666" }}>Monto inicial</span><span style={{ fontSize: 13, fontWeight: 500 }}>{fmt(montoInicial)}</span></div>
                   {localSeleccionado !== "Administración" && <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}><span style={{ fontSize: 13, color: "#666" }}>Ventas efectivo</span><span style={{ fontSize: 13, fontWeight: 500 }}>{fmt(totalEfectivo)}</span></div>}
-                  {ajustes.map((a, i) => (
+                  {ajustes.map((a, i) => movAnulado(a) ? (
+                    <div key={i} style={{ padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ fontSize: 12, color: "#999", textDecoration: "line-through" }}>{Number(a.monto_anulado) >= 0 ? "↑" : "↓"} {a.concepto}</span>
+                        <span style={{ fontSize: 12, color: "#999", textDecoration: "line-through" }}>{fmt(Math.abs(a.monto_anulado))}</span>
+                      </div>
+                      <MotivoAnulacionMov m={a} />
+                    </div>
+                  ) : (
                     <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #f5f5f5" }}>
                       <span style={{ fontSize: 12, color: Number(a.monto) >= 0 ? "#F68B32" : "#c0392b" }}>{Number(a.monto) >= 0 ? "↑" : "↓"} {a.concepto}</span>
                       <span style={{ fontSize: 12, fontWeight: 500, color: Number(a.monto) >= 0 ? "#F68B32" : "#c0392b" }}>{fmt(Math.abs(a.monto))}</span>
@@ -2650,7 +2733,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                             return { "Fecha": a.fecha, "Monto inicial": Number(a.monto_inicial), "Total ajustes": totalAjustesH, "Saldo esperado": saldoEsperadoH, "Monto cierre": a.monto_cierre !== null ? Number(a.monto_cierre) : "", "Diferencia": diferencia !== null ? diferencia : "", "Estado": a.cerrada ? "Cerrada" : "Sin cerrar" };
                           });
                           const movimientosDetalle = [];
-                          histFiltrado.forEach(h => { h.movimientos.forEach(m => { movimientosDetalle.push({ "Fecha": h.apertura.fecha, "Hora": new Date(m.created_at).toLocaleTimeString("es-AR"), "Tipo": m.tipo, "Concepto": m.concepto, "Monto": Number(m.monto) }); }); });
+                          histFiltrado.forEach(h => { h.movimientos.forEach(m => { movimientosDetalle.push({ "Fecha": h.apertura.fecha, "Hora": new Date(m.created_at).toLocaleTimeString("es-AR"), "Tipo": m.tipo, "Concepto": movAnulado(m) ? `${m.concepto} (ANULADO: era ${Number(m.monto_anulado)}; ${m.anulado_motivo || ""})` : m.concepto, "Monto": Number(m.monto) }); }); });
                           exportarExcel(`caja_${localSeleccionado}_${filtroHistorial || "todas"}.xlsx`, [{ name: "Resumen por día", data: resumen }, { name: "Movimientos detalle", data: movimientosDetalle }]);
                         }}>📊 Excel</button>
                         <button style={btnExportar("#c0392b")} onClick={() => {
@@ -2733,7 +2816,15 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                               </button>
                             )}
                                 <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Movimientos</div>
-                                {movs.map((m, i) => (
+                                {movs.map((m, i) => movAnulado(m) ? (
+                                  <div key={i} style={{ padding: "5px 0", borderBottom: "1px solid #f0f0ee", fontSize: 12 }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                      <div><span style={{ color: "#999", textDecoration: "line-through" }}>{m.concepto}</span><span style={{ fontSize: 11, color: "#aaa", marginLeft: 8 }}>{new Date(m.created_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</span></div>
+                                      <span style={{ color: "#999", textDecoration: "line-through" }}>{m.tipo === "salida" ? "-" : "+"}{fmt(Math.abs(m.monto_anulado))}</span>
+                                    </div>
+                                    <MotivoAnulacionMov m={m} />
+                                  </div>
+                                ) : (
                                   <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: "1px solid #f0f0ee", fontSize: 12 }}>
                                     <div><span style={{ color: "#555" }}>{m.concepto}</span><span style={{ fontSize: 11, color: "#aaa", marginLeft: 8 }}>{new Date(m.created_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</span></div>
                                     <span style={{ fontWeight: 600, color: m.tipo === "salida" ? "#c0392b" : "#F68B32" }}>{m.tipo === "salida" ? "-" : "+"}{fmt(Math.abs(m.monto))}</span>
