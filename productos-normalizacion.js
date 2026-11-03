@@ -169,7 +169,7 @@ export function calcularEnvioTN(data) {
 //
 // ⚠️ FECHA DE CORTE = el momento del merge a main (hora de Argentina, formato ISO con -03:00). Se edita acá,
 // justo antes del merge: así ningún pedido que ya esté en preparación cambia de local.
-export const REGLA_LOCAL_TN_DESDE = "2026-11-02T00:00:00-03:00";
+export const REGLA_LOCAL_TN_DESDE = "2026-11-03T09:08:00-03:00";
 
 // TABLA ÚNICA de puntos de retiro → pestaña. Se reconoce por el código de la opción de TN, o por un texto
 // (sin tildes, en minúsculas) en el nombre o la dirección del punto. Gana la primera fila que coincide.
