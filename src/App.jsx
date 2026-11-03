@@ -6,7 +6,7 @@ import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "reac
     import Login from "./Login";
     import Usuarios from "./Usuarios";
     import { getUsuarioGuardado, validarSesion, cerrarSesion, ROL_LABELS, guardarVistaActual, tomarVistaPrevia } from "./auth-utils";
-    import { normalizarProducto, esExcluidoProduccion, esBasuraVenta, claveProducto, SUFIJOS_TAMANO, calcularEnvioTN } from "../productos-normalizacion.js";
+    import { normalizarProducto, esExcluidoProduccion, esBasuraVenta, claveProducto, SUFIJOS_TAMANO, calcularEnvioTN, tabReglaLocalTN } from "../productos-normalizacion.js";
     import { linkWhatsAppAR } from "../Routes/telefonoAR.js";   // link wa.me con la misma normalización de teléfonos que el backend
     import { ZONAS_ENVIO, renglonesDeCarrito, reconstruirRenglones, resumenRenglones, sanitizarRenglones } from "../facturacion-renglones.js";   // renglones con precio del pedido (alta, edición y facturación), compartidos con el backend
 
@@ -72,6 +72,8 @@ import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "reac
     const TN_CODE_AT = "01KQ7TFQPTTZQ7CFFKCKVWEZQV";
 
     function clasificarPedido(p) {
+      const regla = tabReglaLocalTN(p);   // creados desde REGLA_LOCAL_TN_DESDE: envío → delivery-at; retiro → su local
+      if (regla) return regla;
       const ff = p.fulfillments?.[0];
       const tipo = ff?.shipping?.type || "";
       const optionName = (ff?.shipping?.option?.name || "").toLowerCase();
@@ -219,6 +221,8 @@ import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "reac
           `${p.numero}  ${p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"long"}) : "-"}\n`,
           `${(p.franjaDisplay || "").replace(/[–—]/g, "a")}  ${p.zona || ""}\n`,
           "\x1B\x21\x00",
+          // Aviso destacado (la térmica no imprime emoji): pedido sin fecha de entrega.
+          !p.fechaDisplay ? "\x1B\x21\x30SIN FECHA: cargala\n\x1B\x21\x00" : "",
           "--------------------------------\n",
           "\x1B\x21\x08",
           "CLIENTE\n",
@@ -241,7 +245,7 @@ import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "reac
             return `\x1B\x21\x10x${Number(m[2])}\x1B\x21\x00 ${m[1].trim()}\n`;
           }),
           p.nota ? "--------------------------------\n" : "",
-          p.nota ? `\x1B\x21\x08NOTA\n\x1B\x21\x00${p.nota}\n` : "",
+          p.nota ? (!p.fechaDisplay ? `\x1B\x21\x08NOTA DEL CLIENTE\n\x1B\x21\x18${p.nota}\x1B\x21\x00\n` : `\x1B\x21\x08NOTA\n\x1B\x21\x00${p.nota}\n`) : "",
           "--------------------------------\n",
           `Medio de pago: ${p.medioPago}\n`,
           "\x1B\x21\x10",
@@ -9433,6 +9437,8 @@ setPedidosDatosOverride(datosInit);
         // Solo el reporte fusionado pide también los no finalizados (Por vender).
         const paramsRep = { desde, hasta };
         if (vista === "reporteFusionado") paramsRep.incluirActivos = 1;
+        // Finalizados → Anulados: también los anulados sin fecha de entrega o con fecha futura (no entran por rango).
+        if (vista === "finalizados") paramsRep.anuladosFueraDeRango = 1;
         // Dashboard ejecutivo y Reporte de ventas consumen el endpoint admin-only; el resto
         // (reservas/productos/finalizados/fusionado) va por el general (requireAuth).
         const endpointRep = (vista === "dashboard" || vista === "reporteVentas") ? "/api/reportes/ventas-admin" : "/api/reportes/pedidos";
@@ -9921,6 +9927,7 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                             {p.esManual && <span style={{ ...s.cobrarBadge, background: "#7c3aed" }}>MANUAL</span>}
                             {productosOverride[String(p.id)] && <span style={{ ...s.cobrarBadge, background: "#7c3aed" }}>EDITADO</span>}
                             {p.esFacturaA && <span style={{ ...s.cobrarBadge, background: "#009ee3" }}>FACTURA A</span>}
+                            {!p.fechaDisplay && <span style={{ ...s.cobrarBadge, background: "#c0392b" }} title="El pedido no trae fecha de entrega: cargala en Fecha de entrega">📅 SIN FECHA: cargala</span>}
                           </span>
                           <span style={{ ...s.cel, flex: 1, color: "#555" }}>{p.telefono}</span>
                           <span style={{ ...s.cel, flex: 2 }}>{p.direccion}</span>
@@ -9939,6 +9946,12 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
                           </button>
                           <span style={s.chevron}>{abierto ? "▲" : "▼"}</span>
                         </div>
+                        {/* Sin fecha de entrega: la nota del cliente suele traer el día/horario ("antes de las 15 hs", "el sábado"). */}
+                        {!p.fechaDisplay && p.nota && (
+                          <div style={{ margin: "0 12px 8px", padding: "6px 10px", background: "#fff4e5", border: "1px solid #f0c98a", borderRadius: 6, fontSize: 12, color: "#8a5a00" }}>
+                            📝 <strong>Nota del cliente:</strong> {p.nota}
+                          </div>
+                        )}
                         {abierto && (
                           <div style={s.detalle}>
                             {mostrarRevisarPago && (
@@ -10359,6 +10372,7 @@ let numeroAsignado = "";
             <div class="linea"></div>
             <div class="fila" style="font-size:15px;"><span><b>${p.numero}</b></span><span>${p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"long"}) : "-"}</span></div>
             <div class="fila" style="font-size:15px;"><span>${p.franjaDisplay}</span><span>${p.zona || ""}</span></div>
+            ${!p.fechaDisplay ? `<div class="cobrar">📅 SIN FECHA: cargala</div>` : ""}
             <div class="linea"></div>
             <div class="label">Cliente</div><div class="valor">${p.cliente}</div><div class="valor">${p.telefono}</div>
             <div class="label">Direccion</div><div class="valor">${p.direccion}${p.barrio ? ", "+p.barrio : ""}</div>
@@ -10372,7 +10386,7 @@ let numeroAsignado = "";
                 : "font-weight:bold;font-size:14px;border:1px solid #000;padding:0 4px;border-radius:3px;min-width:20px;text-align:center;";
               return '<div style="display:flex;align-items:flex-start;gap:5px;margin:2px 0;"><span style="' + chip + '">x' + cant + '</span><span>' + m[1].trim() + '</span></div>';
             }).join("")}
-            ${p.nota ? `<div class="linea"></div><div class="label">Nota</div><div style="font-style:italic;">${p.nota}</div>` : ""}
+            ${p.nota ? (!p.fechaDisplay ? `<div class="linea"></div><div class="label">Nota del cliente</div><div style="font-weight:bold;font-size:14px;border:2px solid #000;padding:4px;">${p.nota}</div>` : `<div class="linea"></div><div class="label">Nota</div><div style="font-style:italic;">${p.nota}</div>`) : ""}
             <div class="linea"></div>
             <div class="fila"><span class="label">Medio de pago</span><span>${p.medioPago}</span></div>
             <div class="total">${p.total}</div>
@@ -10425,6 +10439,7 @@ let numeroAsignado = "";
             <div class="linea"></div>
             <div class="fila" style="font-size:15px;"><span><b>${p.numero}</b></span><span>${p.fechaDisplay ? new Date(p.fechaDisplay+"T12:00:00").toLocaleDateString("es-AR",{day:"numeric",month:"long"}) : "-"}</span></div>
             <div class="fila" style="font-size:15px;"><span>${p.franjaDisplay}</span><span>${p.zona || ""}</span></div>
+            ${!p.fechaDisplay ? `<div class="cobrar">📅 SIN FECHA: cargala</div>` : ""}
             <div class="linea"></div>
             <div class="label">Cliente</div><div class="valor">${p.cliente}</div><div class="valor">${p.telefono}</div>
             <div class="label">Direccion</div><div class="valor">${p.direccion}${p.barrio ? ", "+p.barrio : ""}</div>
@@ -10438,7 +10453,7 @@ let numeroAsignado = "";
                 : "font-weight:bold;font-size:14px;border:1px solid #000;padding:0 4px;border-radius:3px;min-width:20px;text-align:center;";
               return '<div style="display:flex;align-items:flex-start;gap:5px;margin:2px 0;"><span style="' + chip + '">x' + cant + '</span><span>' + m[1].trim() + '</span></div>';
             }).join("")}
-            ${p.nota ? `<div class="linea"></div><div class="label">Nota</div><div style="font-style:italic;">${p.nota}</div>` : ""}
+            ${p.nota ? (!p.fechaDisplay ? `<div class="linea"></div><div class="label">Nota del cliente</div><div style="font-weight:bold;font-size:14px;border:2px solid #000;padding:4px;">${p.nota}</div>` : `<div class="linea"></div><div class="label">Nota</div><div style="font-style:italic;">${p.nota}</div>`) : ""}
             <div class="linea"></div>
             <div class="fila"><span class="label">Medio de pago</span><span>${p.medioPago}</span></div>
             <div class="total">${p.total}</div>
@@ -11940,7 +11955,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                   <div key={p.id} style={{ ...s.fila, ...(expandido === p.id ? s.filaAbierta : {}), ...(expandido !== p.id && esCorp ? { background: "#ede9fe" } : {}) }}>
                     <div style={{ ...s.filaTop, ...(expandido === p.id && esCorp ? { background: "#ede9fe" } : {}) }} onClick={() => toggleExpandido(p.id)}>
                       <span style={{ ...s.cel, flex: 0.6 }}><span style={s.numero}>{p.numero}</span></span>
-                      <span style={{ ...s.cel, flex: 1.2 }}>{p.cliente}{p.esManual && <span style={{ ...s.cobrarBadge, background: "#7c3aed", marginLeft: 6 }}>MANUAL</span>}</span>
+                      <span style={{ ...s.cel, flex: 1.2 }}>{p.cliente}{p.esManual && <span style={{ ...s.cobrarBadge, background: "#7c3aed", marginLeft: 6 }}>MANUAL</span>}{!p.fechaDisplay && <span style={{ ...s.cobrarBadge, background: "#c0392b" }}>📅 SIN FECHA</span>}</span>
                       <span style={{ ...s.cel, flex: 1, color: "#555" }}>{p.telefono}</span>
                       <span style={{ ...s.cel, flex: 1.5 }}>{p.direccion}</span>
                       <span style={{ ...s.cel, flex: 1 }}><ProductosChips productos={p.productos} /></span>

@@ -153,3 +153,68 @@ export function calcularEnvioTN(data) {
   const envio = num(data.total) - sumaProductos + num(data.discount) + num(data.discount_gateway);
   return envio > 0 ? Math.round(envio) : 0;
 }
+
+// ─── LOCAL DE LOS PEDIDOS DE TIENDA NUBE ───────────────────────────────────
+// COMPARTIDO por front (clasificarPedido) y backend (clasificarPedidoBackend).
+//
+// Regla para pedidos de TN CREADOS desde REGLA_LOCAL_TN_DESDE (los anteriores conservan su local, para
+// no mover los reportes por local ya cerrados). Solo importa si es delivery o retiro, y dónde retira:
+//   - DELIVERY (cualquier opción de envío) → delivery-at. Delivery sale SIEMPRE de Álvarez Thomas.
+//     Un pedido con envío y retiro mezclados cuenta como delivery.
+//   - RETIRO → el local del punto de retiro que ELIGIÓ el cliente, según PUNTOS_DE_RETIRO (código, nombre
+//     o dirección del punto, en la opción de envío / pickup_details). Si no se reconoce → retiro-at.
+//     NUNCA se usa assigned_location (es de dónde sale el stock, y eso lo decide TN internamente).
+// Que TN haya partido el pedido en varios envíos (fulfillments) no cambia nada.
+// El tab_manual que cargue el operador sigue mandando (lo aplica quien llama). Los manuales no pasan por acá.
+//
+// ⚠️ FECHA DE CORTE = el momento del merge a main (hora de Argentina, formato ISO con -03:00). Se edita acá,
+// justo antes del merge: así ningún pedido que ya esté en preparación cambia de local.
+export const REGLA_LOCAL_TN_DESDE = "2026-11-02T00:00:00-03:00";
+
+// TABLA ÚNICA de puntos de retiro → pestaña. Se reconoce por el código de la opción de TN, o por un texto
+// (sin tildes, en minúsculas) en el nombre o la dirección del punto. Gana la primera fila que coincide.
+//
+// PARA SUMAR UN TERCER LOCAL (ej. "Retiro en Palermo" → retiro-pa), sin cambiar delivery (sigue en A. Thomas):
+//   1. Esta tabla: una fila { tab: "retiro-pa", codigos: [<código de la opción de TN>], textos: ["palermo", <calle y número>] }.
+//   2. Pestañas y local: el tab "retiro-pa" en TABS (src/App.jsx) y "Palermo" en localLabel (App.jsx) y
+//      localLabelBackend (server.js), que es lo que usan panel, cocina, comandas, tandas, reportes y stock.
+//   3. Comandas en lote y cocina: filtran por p.local === localLabel(tab), así que andan solas con el paso 2.
+//   4. Caja: la caja "Palermo" (y su "Fondo Fijo Palermo") en CAJAS_TRANSFERIBLES (server.js) y en las listas
+//      de cajas del front (cajas por rol, gastos, tesorería, pagos, adelantos, RRHH_LOCALES); rol de usuario del local.
+//   5. Stock: INSUMO_LOCALES (server.js), STOCK_LOCALES (App.jsx) y los filtros "A. Thomas / French / Ambos"
+//      de reportes y stock (server.js y App.jsx).
+//   6. Facturación: credenciales y punto de venta de TusFacturas del local (getTFCredentials y TF_ENV en server.js).
+//   7. Textos: dirección del local en los mails (DIRECCION_* en server.js, Routes/mp.js), en LOCALES_RETIRO de la
+//      cotización (App.jsx) y en el bot de WhatsApp (Routes/botWhatsapp.js, Routes/zonaCobertura.js); punto en el mapa.
+export const PUNTOS_DE_RETIRO = [
+  { tab: "retiro-at", local: "A. Thomas", codigos: ["01KQ7TFQPTTZQ7CFFKCKVWEZQV"], textos: ["villa ortuzar", "alvarez thomas"] },
+  { tab: "retiro-fr", local: "French",    codigos: ["01KQ7S2Z0799JKAT5A1VTH12EQ"], textos: ["recoleta", "french 2615"] },
+];
+const TAB_RETIRO_SI_NO_SE_RECONOCE = "retiro-at";
+
+const sinTildes = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+const esRetiroTN = (ff) => {
+  const tipo = ff?.shipping?.type || "";
+  const nombre = (ff?.shipping?.option?.name || "").toLowerCase();
+  return tipo === "pickup" || nombre.includes("retiro") || nombre.includes("pickup") || nombre.includes("local");
+};
+// Fila de PUNTOS_DE_RETIRO del punto que eligió el cliente en un envío, o null si no se reconoce.
+// Solo mira la opción de envío y pickup_details (código, nombre, dirección); assigned_location NO.
+export function puntoDeRetiroTN(ff) {
+  const op = ff?.shipping?.option || {}, pd = ff?.shipping?.pickup_details || {};
+  const porCodigo = PUNTOS_DE_RETIRO.find((p) => op.code && p.codigos.includes(op.code));
+  if (porCodigo) return porCodigo;
+  const texto = sinTildes(`${op.name || ""} ${pd.name || ""} ${typeof pd.address === "string" ? pd.address : JSON.stringify(pd.address || "")}`);
+  return PUNTOS_DE_RETIRO.find((p) => p.textos.some((t) => texto.includes(t))) || null;
+}
+
+// → "delivery-at" | pestaña de retiro si aplica la regla; null si el pedido es anterior al corte (o no trae
+// created_at / envíos), y entonces se clasifica como siempre.
+export function tabReglaLocalTN(data) {
+  const envios = Array.isArray(data?.fulfillments) ? data.fulfillments : [];
+  const creado = Date.parse(data?.created_at);
+  if (!envios.length || !Number.isFinite(creado) || creado < Date.parse(REGLA_LOCAL_TN_DESDE)) return null;
+  if (!envios.every(esRetiroTN)) return "delivery-at";   // algún envío a domicilio → delivery (Álvarez Thomas)
+  for (const ff of envios) { const punto = puntoDeRetiroTN(ff); if (punto) return punto.tab; }
+  return TAB_RETIRO_SI_NO_SE_RECONOCE;
+}

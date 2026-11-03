@@ -17,7 +17,7 @@ import { iniciarRetencionWhatsApp } from "./whatsappRetencion.js";
 import { cotizadorRouter, clienteKeyDe } from "./Routes/cotizador.js";
 import { regalosRouter } from "./Routes/regalos.js";
 import { createRequire } from "module";
-import { normalizarProducto, calcularEnvioTN, esExcluidoProduccion, esBasuraVenta, claveProducto } from "./productos-normalizacion.js"; // clave canónica + costo de envío TN + filtros de producción, compartidos con el front
+import { normalizarProducto, calcularEnvioTN, esExcluidoProduccion, esBasuraVenta, claveProducto, tabReglaLocalTN } from "./productos-normalizacion.js"; // clave canónica + costo de envío TN + filtros de producción, compartidos con el front
 import { sanitizarRenglones, resumenRenglones, conciliar, reconstruirRenglones, renglonesDeTN, lineasCrudasTN, detalleTusFacturas, totalFacturado, renglonUnico } from "./facturacion-renglones.js"; // renglones del pedido para facturar, compartidos con el front
 import { getProductosTN } from "./Routes/tnCatalogo.js";
 const requireCJS = createRequire(import.meta.url); // server.js es ESM; require solo para el JSON de polígonos
@@ -837,6 +837,8 @@ const TN_CODE_FRENCH = "01KQ7S2Z0799JKAT5A1VTH12EQ";
 const TN_CODE_AT = "01KQ7TFQPTTZQ7CFFKCKVWEZQV";
 
 function clasificarPedidoBackend(p) {
+  const regla = tabReglaLocalTN(p);   // creados desde REGLA_LOCAL_TN_DESDE: envío → delivery-at; retiro → su local
+  if (regla) return regla;
   const ff = p.fulfillments?.[0];
   const tipo = ff?.shipping?.type || "";
   const optionName = (ff?.shipping?.option?.name || "").toLowerCase();
@@ -1131,6 +1133,14 @@ async function handlerReportePedidos(req, res) {
   // Con incluirActivos=1 también devuelve los no finalizados (Por empaquetar/Listo/
   // En camino) con su estado vivo, para el reporte fusionado.
   const incluirActivos = req.query.incluirActivos === "1" || req.query.incluirActivos === "true";
+  // OPT-IN de Finalizados → Anulados: un anulado SIN fecha de entrega (p. ej. pedido de TN sin turno en owner_note)
+  // quedaba afuera de cualquier rango, y uno con fecha FUTURA (anulado antes del día) no aparecía hasta ese día.
+  // Con anuladosFueraDeRango=1 entran igual: los sin fecha siempre; los de fecha futura si el rango llega a hoy.
+  // Sin el parámetro (reportes, dashboard, ventas) el filtro es el mismo de siempre.
+  const anuladosFuera = req.query.anuladosFueraDeRango === "1";
+  const hoyAR = fechaArgentinaISO();
+  const fueraDeRango = (fila) => !fila.fechaDisplay || fila.fechaDisplay < desde || fila.fechaDisplay > hasta;
+  const anuladoQueVaIgual = (fila) => anuladosFuera && fila.estado === "Anulado" && (!fila.fechaDisplay || (fila.fechaDisplay > hasta && hasta >= hoyAR));
   try {
     // Estados (incluye overrides de datos) — keyed por id (texto)
     const estadosRes = await pool.query("SELECT * FROM pedidos_estados");
@@ -1157,7 +1167,7 @@ async function handlerReportePedidos(req, res) {
       const p = row.data;
       const fila = filaPedidoTN(p, estadosMap[String(p.id)] || {}, overridesMap[String(p.id)]);
       if (!incluirActivos && fila.estado !== "Entregado" && fila.estado !== "Anulado") continue;
-      if (!fila.fechaDisplay || fila.fechaDisplay < desde || fila.fechaDisplay > hasta) continue;
+      if (fueraDeRango(fila) && !anuladoQueVaIgual(fila)) continue;
       resultado.push(fila);
     }
 
@@ -1166,7 +1176,7 @@ async function handlerReportePedidos(req, res) {
     for (const r of manualesRes.rows) {
       const fila = filaPedidoManual(r, estadosMap[r.id] || {}, overridesMap[r.id]);
       if (!incluirActivos && fila.estado !== "Entregado" && fila.estado !== "Anulado") continue;
-      if (!fila.fechaDisplay || fila.fechaDisplay < desde || fila.fechaDisplay > hasta) continue;
+      if (fueraDeRango(fila) && !anuladoQueVaIgual(fila)) continue;
       resultado.push(fila);
     }
 
