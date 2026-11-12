@@ -7431,6 +7431,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [loading, setLoading] = useState(true);
       const [filtroEstado, setFiltroEstado] = useState("");
       const [filtroProveedor, setFiltroProveedor] = useState("");
+      const [filtroCategoria, setFiltroCategoria] = useState("");   // "" | id | "sin"
+      const [editCategoria, setEditCategoria] = useState(null);     // id de la factura con el select de categoría abierto
       const [busqueda, setBusqueda] = useState("");
       const [modal, setModal] = useState(null);          // null | "nuevo" | "editar"
       const [modoCarga, setModoCarga] = useState("suelta"); // "orden" | "suelta"
@@ -7469,6 +7471,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           const params = {};
           if (filtroEstado) params.estado_pago = filtroEstado;
           if (filtroProveedor) params.proveedor = filtroProveedor;
+          if (filtroCategoria) params.categoria = filtroCategoria;
           if (busqueda.trim()) params.q = busqueda.trim();
           const res = await axios.get(`${API}/api/compras/facturas`, { params });
           setFacturas(res.data);
@@ -7487,7 +7490,17 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       }
       useEffect(() => { cargarCombos(); }, []);
       useEffect(() => { axios.get(`${API}/api/tesoreria/cuentas-activas`).then(r => setCuentasPago(r.data)).catch(() => {}); }, []);
-      useEffect(() => { const t = setTimeout(cargar, busqueda ? 300 : 0); return () => clearTimeout(t); }, [filtroEstado, filtroProveedor, busqueda]);
+      useEffect(() => { const t = setTimeout(cargar, busqueda ? 300 : 0); return () => clearTimeout(t); }, [filtroEstado, filtroProveedor, filtroCategoria, busqueda]);
+      // Clasificar desde el listado (cualquier estado, también pagadas): solo cambia la categoría. La fila se actualiza en el lugar.
+      async function cambiarCategoria(fac, v) {
+        setEditCategoria(null);
+        if (!v || String(fac.categoria_gasto_id || "") === v) return;
+        try {
+          const r = await axios.patch(`${API}/api/compras/facturas/${fac.id}/categoria`, { categoria_gasto_id: Number(v), usuario: usuario.nombre_completo });
+          setFacturas(fs => fs.map(f => f.id === fac.id ? { ...f, categoria_gasto_id: r.data.categoria_gasto_id, categoria_nombre: r.data.categoria_nombre } : f));
+          mostrarMensaje(`Categoría: ${r.data.categoria_nombre}`);
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error guardando la categoría", "error"); }
+      }
       // Facturas del proveedor elegido, solo cuando el modal está abierto y la clase es NC/ND
       // (para el select "factura asociada"). Se excluyen NC/ND de la lista (se asocia a una FACTURA).
       useEffect(() => {
@@ -7503,6 +7516,12 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       function cambiarProveedor(v) {
         if (form.factura_asociada_id) mostrarMensaje("Cambiaste el proveedor: la factura asociada se quitó (era del proveedor anterior).", "error");
         setForm(f => ({ ...f, proveedor_id: v, factura_asociada_id: "" }));
+      }
+      // NC/ND: al elegir la factura asociada, si todavía no hay categoría se precarga la de esa factura (editable).
+      function elegirAsociada(v) {
+        const fa = facturasProv.find(f => String(f.id) === String(v));
+        const catFa = fa?.categoria_gasto_id && categorias.some(c => c.id === fa.categoria_gasto_id) ? String(fa.categoria_gasto_id) : "";
+        setForm(f => ({ ...f, factura_asociada_id: v, categoria_gasto_id: f.categoria_gasto_id || catFa }));
       }
 
       // Cada mensaje cancela el borrado del anterior (si no, un timer viejo borra antes de tiempo el mensaje nuevo, ej. un 409).
@@ -7523,7 +7542,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       function abrirDesdeOrden() { setForm({ ...FC_FORM_VACIO, fecha: hoyStr, fecha_contable: hoyStr }); setModoCarga("orden"); setEditandoId(null); setCopiaDe(null); setModal("nuevo"); }
       function elegirOrden(ordenId) {
         const o = ordenesAprob.find(x => String(x.id) === String(ordenId));
-        setForm(f => ({ ...f, orden_compra_id: ordenId, proveedor_id: o ? String(o.proveedor_id) : "", categoria_gasto_id: o ? String(o.categoria_gasto_id) : "" }));
+        setForm(f => ({ ...f, orden_compra_id: ordenId, proveedor_id: o ? String(o.proveedor_id) : "", categoria_gasto_id: o?.categoria_gasto_id ? String(o.categoria_gasto_id) : "" }));
       }
       // Form precargado con un comprobante existente (lo usan Editar y Duplicar).
       function formDesdeFactura(fac) {
@@ -7554,7 +7573,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
         const base = formDesdeFactura(fac);
         const avisos = [];
         if (!proveedores.some(p => String(p.id) === base.proveedor_id)) { avisos.push("el proveedor ya no está activo, elegí otro"); base.proveedor_id = ""; }
-        if (!categorias.some(c => String(c.id) === base.categoria_gasto_id)) { avisos.push("la categoría ya no está activa, elegí otra"); base.categoria_gasto_id = ""; }
+        if (base.categoria_gasto_id && !categorias.some(c => String(c.id) === base.categoria_gasto_id)) { avisos.push("la categoría ya no está activa, elegí otra"); base.categoria_gasto_id = ""; }
         setForm({ ...base, numero_comprobante: "", cae: "", fecha: hoyStr, fecha_contable: sugerirFC(hoyStr), factura_asociada_id: "", orden_compra_id: "" });
         setModoCarga("suelta"); setEditandoId(null);
         setCopiaDe(`${fac.tipo_comprobante} ${fac.punto_venta ? `${fac.punto_venta}-` : ""}${fac.numero_comprobante}`);
@@ -7566,13 +7585,15 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
       async function guardar() {
         if (!form.proveedor_id) { mostrarMensaje("Elegí un proveedor", "error"); return; }
-        if (!form.categoria_gasto_id) { mostrarMensaje("Elegí una categoría", "error"); return; }
+        // Categoría obligatoria: vacía solo si se puede heredar (orden / factura asociada); si no hay de dónde, el backend da 400.
+        if (!form.categoria_gasto_id && !form.orden_compra_id && !(form.clase !== "Factura" && form.factura_asociada_id)) { mostrarMensaje("Elegí una categoría de gasto", "error"); return; }
         if (!form.numero_comprobante.trim()) { mostrarMensaje("El número de comprobante es obligatorio", "error"); return; }
         if (!(num(form.total) > 0)) { mostrarMensaje("El total debe ser mayor a 0", "error"); return; }
         if (!cuadra) { mostrarMensaje(`El total no coincide: cargado ${money(form.total)}, calculado ${money(totalCalc)}`, "error"); return; }
         setGuardando(true);
         const payload = {
-          proveedor_id: Number(form.proveedor_id), categoria_gasto_id: Number(form.categoria_gasto_id),
+          // Categoría vacía → el backend la hereda de la orden o de la factura asociada.
+          proveedor_id: Number(form.proveedor_id), categoria_gasto_id: form.categoria_gasto_id ? Number(form.categoria_gasto_id) : null,
           orden_compra_id: modoCarga === "orden" && form.orden_compra_id ? Number(form.orden_compra_id) : null,
           tipo_comprobante: `${form.clase} ${form.letra}`,   // ej "Nota de Crédito A"
           factura_asociada_id: form.clase !== "Factura" && form.factura_asociada_id ? Number(form.factura_asociada_id) : null,
@@ -7664,6 +7685,12 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               <option value="">Todos</option>
               {proveedores.map(p => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
             </select>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#555" }}>Categoría:</span>
+            <select style={filtroSel} value={filtroCategoria} onChange={e => setFiltroCategoria(e.target.value)}>
+              <option value="">Todas</option>
+              {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              <option value="sin">Sin categoría</option>
+            </select>
             {busqueda && <button style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid #c0392b", background: "#fff", color: "#c0392b", cursor: "pointer" }} onClick={() => setBusqueda("")}>✕</button>}
           </div>
 
@@ -7685,9 +7712,24 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                           {clB && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: clB.bg, color: clB.c }}>{clB.t}</span>}
                           <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: badge.bg, color: badge.color }}>{badge.label}</span>
                           {fac.orden_compra_id && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 10, background: "#ede9fe", color: "#7c3aed" }}>Orden #{fac.orden_compra_id}</span>}
+                          {editCategoria === fac.id ? (
+                            <select autoFocus style={{ fontSize: 11, padding: "2px 6px", borderRadius: 6, border: "1px solid #ddd" }} value={String(fac.categoria_gasto_id || "")}
+                              onChange={e => cambiarCategoria(fac, e.target.value)} onBlur={() => setEditCategoria(null)}>
+                              {/* "Sin categoría" solo como estado actual de una vieja: no se puede volver a NULL. */}
+                              {!fac.categoria_gasto_id && <option value="" disabled>Sin categoría</option>}
+                              {/* La actual aunque ya no esté activa, para que el select la muestre. */}
+                              {fac.categoria_gasto_id && !categorias.some(c => c.id === fac.categoria_gasto_id) && <option value={fac.categoria_gasto_id} disabled>{fac.categoria_nombre}</option>}
+                              {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                            </select>
+                          ) : (
+                            <button title="Cambiar la categoría de gasto" onClick={() => setEditCategoria(fac.id)}
+                              style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 10, cursor: "pointer", border: fac.categoria_nombre ? "1px solid #e5e7eb" : "1px dashed #b45309", background: fac.categoria_nombre ? "#f9fafb" : "#fef3c7", color: fac.categoria_nombre ? "#555" : "#b45309" }}>
+                              {fac.categoria_nombre || "Sin categoría"} ✎
+                            </button>
+                          )}
                         </div>
                         <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
-                          {fac.tipo_comprobante} {fac.punto_venta ? `${fac.punto_venta}-` : ""}{fac.numero_comprobante} · {fac.fecha}{fac.fecha_contable && fac.fecha_contable !== fac.fecha ? ` · contab. ${fac.fecha_contable}` : ""} · {fac.categoria_nombre || "sin categoría"}{fac.proveedor_cuit ? ` · CUIT ${fac.proveedor_cuit}` : ""}
+                          {fac.tipo_comprobante} {fac.punto_venta ? `${fac.punto_venta}-` : ""}{fac.numero_comprobante} · {fac.fecha}{fac.fecha_contable && fac.fecha_contable !== fac.fecha ? ` · contab. ${fac.fecha_contable}` : ""}{fac.proveedor_cuit ? ` · CUIT ${fac.proveedor_cuit}` : ""}
                         </div>
                         <div style={{ fontSize: 12, color: "#444", marginTop: 3 }}>
                           Neto {money(fac.neto_gravado)} · IVA {money(fac.iva)}
@@ -7744,9 +7786,13 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                 </label>
                 <label style={lbl}>Categoría de gasto *
                   <select style={inputStyle} value={form.categoria_gasto_id} onChange={e => setCampo("categoria_gasto_id", e.target.value)}>
-                    <option value="">— Elegí categoría —</option>
+                    {/* Vacía no se elige: "Sin categoría" solo se ve al editar una vieja con NULL. */}
+                    <option value="" disabled>{modal === "editar" ? "Sin categoría" : "— Elegí categoría —"}</option>
                     {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                   </select>
+                  {!form.categoria_gasto_id && (form.orden_compra_id || (form.clase !== "Factura" && form.factura_asociada_id)) && (
+                    <span style={{ display: "block", marginTop: 4, fontSize: 11, color: "#888", fontWeight: 400 }}>Sin elegir: se toma la de {form.orden_compra_id ? "la orden" : "la factura asociada"}.</span>
+                  )}
                 </label>
 
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8 }}>
@@ -7763,7 +7809,7 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
                 </div>
                 {form.clase !== "Factura" && (
                   <label style={lbl}>Factura asociada (opcional)
-                    <select style={inputStyle} value={form.factura_asociada_id} onChange={e => setCampo("factura_asociada_id", e.target.value)}>
+                    <select style={inputStyle} value={form.factura_asociada_id} onChange={e => elegirAsociada(e.target.value)}>
                       <option value="">— Sin asociar —</option>
                       {facturasProv.map(f => <option key={f.id} value={f.id}>{f.tipo_comprobante} {f.punto_venta ? `${f.punto_venta}-` : ""}{f.numero_comprobante} · {money(f.total)}</option>)}
                     </select>
@@ -8314,6 +8360,8 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [hasta, setHasta] = useState(hoyStr);
       const [proveedorFiltro, setProveedorFiltro] = useState("");
       const [proveedores, setProveedores] = useState([]);
+      const [categoriaFiltro, setCategoriaFiltro] = useState("");   // "" | id | "sin"
+      const [categorias, setCategorias] = useState([]);
       const [data, setData] = useState(null);   // { columnas, filas, totales }
       const [loading, setLoading] = useState(false);
       const [error, setError] = useState("");
@@ -8326,12 +8374,13 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
 
       useEffect(() => {
         axios.get(`${API}/api/compras/proveedores`).then(r => setProveedores(r.data)).catch(() => {});
+        axios.get(`${API}/api/compras/categorias`).then(r => setCategorias(r.data)).catch(() => {});
       }, []);
 
       async function generar() {
         setLoading(true); setError(""); setData(null);
         try {
-          const res = await axios.get(`${API}/api/contable/libro-compras`, { params: { desde, hasta, proveedor: proveedorFiltro || undefined } });
+          const res = await axios.get(`${API}/api/contable/libro-compras`, { params: { desde, hasta, proveedor: proveedorFiltro || undefined, categoria: categoriaFiltro || undefined } });
           setData(res.data);
         } catch (err) { setError(err.response?.data?.error || err.message); }
         setLoading(false);
@@ -8384,6 +8433,13 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               <select value={proveedorFiltro} onChange={e => setProveedorFiltro(e.target.value)} style={inputStyle}>
                 <option value="">Todos</option>
                 {proveedores.map(p => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
+              </select>
+            </label>
+            <label style={{ fontSize: 12, color: "#555" }}>Categoría<br />
+              <select value={categoriaFiltro} onChange={e => setCategoriaFiltro(e.target.value)} style={inputStyle}>
+                <option value="">Todas</option>
+                {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                <option value="sin">Sin categoría</option>
               </select>
             </label>
             <button onClick={generar} disabled={loading || !desde || !hasta}

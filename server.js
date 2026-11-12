@@ -395,6 +395,8 @@ async function crearEsquema(pool) {
   // Fecha de contabilización (imputación al libro IVA). El libro filtra por esta; la cuenta corriente/pagos usan `fecha`.
   await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS fecha_contable TEXT;`);
   await pool.query(`UPDATE facturas_compra SET fecha_contable = fecha WHERE fecha_contable IS NULL;`);
+  // Categoría de gasto por comprobante (opcional: NULL = "Sin categoría"). Ya está en el CREATE; esto cubre bases viejas.
+  await pool.query(`ALTER TABLE facturas_compra ADD COLUMN IF NOT EXISTS categoria_gasto_id INTEGER REFERENCES categorias_gasto(id);`);
   // Pagos de compras SIN factura (pago a cuenta / anticipo a proveedor). Hoy solo filas 'a_cuenta': el pago de
   // factura sigue en facturas_compra (fecha_pago/medio_pago/caja_origen). 'factura' + factura_id quedan para cuando
   // se migren los pagos viejos (imputación / pago parcial, cambio aparte). caja_*_id sin FK, como gastos_comunes.
@@ -2548,6 +2550,27 @@ function chequearCuadreFactura(f) {
   return { ok: Math.abs(calculado - n(f.total)) <= 1, calculado: Math.round(calculado * 100) / 100 };
 }
 
+// Categoría de gasto de un comprobante de compra (obligatoria). Elegida → tiene que existir y estar activa. Vacía → se
+// hereda: de la orden si viene de una; si no, de la factura asociada (NC/ND); si no hay de dónde, error.
+// NULL ("Sin categoría") solo queda en comprobantes viejos; nunca se guarda desde acá. Devuelve { id } o { error } (400).
+async function categoriaFacturaCompra(exec, valor, { ordenId = null, asociadaId = null } = {}) {
+  if (valor !== undefined && valor !== null && String(valor).trim() !== "") {
+    const id = Number(valor);
+    if (!Number.isInteger(id) || id <= 0) return { error: "Categoría de gasto inválida." };
+    const cat = await exec.query("SELECT id FROM categorias_gasto WHERE id = $1 AND activo = true", [id]);
+    return cat.rows.length ? { id } : { error: "Categoría de gasto inválida." };
+  }
+  if (ordenId) {
+    const o = await exec.query("SELECT categoria_gasto_id FROM ordenes_compra WHERE id = $1", [ordenId]);
+    if (o.rows[0]?.categoria_gasto_id) return { id: o.rows[0].categoria_gasto_id };
+  }
+  if (asociadaId) {
+    const fa = await exec.query("SELECT categoria_gasto_id FROM facturas_compra WHERE id = $1", [asociadaId]);
+    if (fa.rows[0]?.categoria_gasto_id) return { id: fa.rows[0].categoria_gasto_id };
+  }
+  return { error: "Elegí una categoría de gasto." };
+}
+
 // Valida campos fiscales comunes (crear/editar). Devuelve string de error o null.
 function validarFacturaCompra(b) {
   if (!b.tipo_comprobante || !String(b.tipo_comprobante).trim()) return "El tipo de comprobante es obligatorio.";
@@ -2566,7 +2589,7 @@ function validarFacturaCompra(b) {
 }
 
 app.get("/api/compras/facturas", requireAdmin, async (req, res) => {
-  const { estado_pago, proveedor, q } = req.query;
+  const { estado_pago, proveedor, q, categoria } = req.query;
   try {
     const params = [];
     // pago_id / pago_cuenta: el pago ACTIVO de la factura (para anularlo y mostrar "desde <cuenta>").
@@ -2581,6 +2604,9 @@ app.get("/api/compras/facturas", requireAdmin, async (req, res) => {
                WHERE 1=1`;
     if (estado_pago) { params.push(estado_pago); sql += ` AND fc.estado_pago = $${params.length}`; }
     if (proveedor) { params.push(proveedor); sql += ` AND fc.proveedor_id = $${params.length}`; }
+    // categoria: id, o "sin" = sin categoría (para clasificar las que quedaron sin).
+    if (categoria === "sin") sql += " AND fc.categoria_gasto_id IS NULL";
+    else if (categoria) { params.push(Number(categoria) || 0); sql += ` AND fc.categoria_gasto_id = $${params.length}`; }
     // Búsqueda abierta: nº de comprobante (con/sin punto de venta ni guiones), razón social o CUIT.
     if (q && q.trim()) {
       const qLower = `%${q.trim().toLowerCase()}%`;
@@ -2622,11 +2648,9 @@ app.post("/api/compras/facturas", requireAdmin, async (req, res) => {
   if (errValidacion) return res.status(400).json({ error: errValidacion });
   let client;
   try {
-    // Proveedor y categoría activos (+ snapshot de datos del proveedor).
+    // Proveedor activo (+ snapshot de datos del proveedor).
     const prov = await pool.query("SELECT id, cuit, razon_social FROM proveedores WHERE id = $1 AND activo = true", [b.proveedor_id]);
     if (prov.rows.length === 0) return res.status(400).json({ error: "Proveedor inválido." });
-    const cat = await pool.query("SELECT id FROM categorias_gasto WHERE id = $1 AND activo = true", [b.categoria_gasto_id]);
-    if (cat.rows.length === 0) return res.status(400).json({ error: "Categoría de gasto inválida." });
     const snapCuit = prov.rows[0].cuit || null;
     const snapRazon = prov.rows[0].razon_social || null;
 
@@ -2640,6 +2664,10 @@ app.post("/api/compras/facturas", requireAdmin, async (req, res) => {
       if (fa.rows.length === 0) return res.status(400).json({ error: "La factura asociada no existe o no es del mismo proveedor." });
       facturaAsociadaId = Number(b.factura_asociada_id);
     }
+
+    // Categoría (obligatoria): la elegida, o heredada de la orden / de la factura asociada.
+    const cat = await categoriaFacturaCompra(pool, b.categoria_gasto_id, { ordenId: b.orden_compra_id || null, asociadaId: facturaAsociadaId });
+    if (cat.error) return res.status(400).json({ error: cat.error });
 
     // Multi-alícuota: netos/IVA por alícuota (positivos). Espejo: neto_gravado/iva = suma (compat
     // con código viejo). alicuota_iva = la de mayor neto (informativo; ya no es la fuente de verdad).
@@ -2657,7 +2685,7 @@ app.post("/api/compras/facturas", requireAdmin, async (req, res) => {
       neto_105, iva_105, neto_21, iva_21, neto_27, iva_27,
       percep_iva, percep_iibb_bsas, percep_iibb_caba, neto_no_gravado, exentas, otros_tributos, total, usuario_crea, factura_asociada_id)`;
     const vals = [
-      b.proveedor_id, b.categoria_gasto_id, b.orden_compra_id || null, snapCuit, snapRazon,
+      b.proveedor_id, cat.id, b.orden_compra_id || null, snapCuit, snapRazon,
       String(b.tipo_comprobante).trim(), b.punto_venta?.trim() || null, String(b.numero_comprobante).trim(),
       b.cae?.trim() || null, b.fecha, fcCalc.fechaContable, alicDom, netoGravado, ivaTotal,
       n105, i105, n21, i21, n27, i27,
@@ -2726,11 +2754,6 @@ app.patch("/api/compras/facturas/:id", requireAdmin, async (req, res) => {
     const antes = act.rows[0];
     if (antes.estado_pago !== "pendiente") { await client.query("ROLLBACK"); return res.status(403).json({ error: `No se puede editar un comprobante ${antes.estado_pago}.` }); }
 
-    // Categoría (obligatoria, activa).
-    const catId = b.categoria_gasto_id ? Number(b.categoria_gasto_id) : antes.categoria_gasto_id;
-    const cat = await client.query("SELECT id FROM categorias_gasto WHERE id = $1 AND activo = true", [catId]);
-    if (cat.rows.length === 0) throw { _http: 400, msg: "Categoría de gasto inválida." };
-
     // Proveedor: si cambia, se valida activo y se actualiza el snapshot. Un comprobante de una orden no cambia de proveedor.
     const provId = b.proveedor_id ? Number(b.proveedor_id) : antes.proveedor_id;
     const cambiaProveedor = provId !== antes.proveedor_id;
@@ -2760,6 +2783,13 @@ app.patch("/api/compras/facturas/:id", requireAdmin, async (req, res) => {
     } else if (esFacturaNueva && antes.factura_asociada_id) {
       avisos.push("Al pasar a Factura se quitó la factura asociada.");
     }
+
+    // Categoría (obligatoria): si la clave no viene se toma la que tenía (y se revalida activa, como antes); si viene
+    // vacía se hereda (orden / factura asociada); si no hay de dónde, 400.
+    const cat = await categoriaFacturaCompra(client, tiene("categoria_gasto_id") ? b.categoria_gasto_id : antes.categoria_gasto_id,
+      { ordenId: antes.orden_compra_id, asociadaId });
+    if (cat.error) throw { _http: 400, msg: cat.error };
+    const catId = cat.id;
 
     // Espejo neto_gravado / iva / alicuota_iva recalculado desde las columnas por alícuota.
     const n105 = Number(b.neto_105) || 0, i105 = Number(b.iva_105) || 0,
@@ -2807,6 +2837,26 @@ app.patch("/api/compras/facturas/:id", requireAdmin, async (req, res) => {
     res.status(500).json({ error: "Error guardando el comprobante" });
   } finally {
     if (client) client.release();
+  }
+});
+
+// Cambia SOLO la categoría de gasto (clasificación interna, no fiscal): vale en cualquier estado, también pagadas.
+// Siempre a una categoría activa (de NULL a una, o de una a otra): no se puede volver a "Sin categoría" ni se hereda.
+app.patch("/api/compras/facturas/:id/categoria", requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const valor = req.body?.categoria_gasto_id;
+  try {
+    const act = await pool.query("SELECT categoria_gasto_id FROM facturas_compra WHERE id = $1", [id]);
+    if (act.rows.length === 0) return res.status(404).json({ error: "Comprobante no encontrado." });
+    const cat = await categoriaFacturaCompra(pool, valor);
+    if (cat.error) return res.status(400).json({ error: cat.error });
+    await pool.query("UPDATE facturas_compra SET categoria_gasto_id = $1 WHERE id = $2", [cat.id, id]);
+    const nom = (await pool.query("SELECT nombre FROM categorias_gasto WHERE id = $1", [cat.id])).rows[0]?.nombre;
+    res.json({ ok: true, categoria_gasto_id: cat.id, categoria_nombre: nom || null });
+    registrarAuditoria(req.user?.nombre_completo || req.body?.usuario, "factura_compra_categoria", "factura_compra", id, { antes: act.rows[0].categoria_gasto_id, despues: cat.id });
+  } catch (err) {
+    console.error("Error PATCH /api/compras/facturas/:id/categoria:", err.message);
+    res.status(500).json({ error: "Error guardando la categoría" });
   }
 });
 
@@ -6149,18 +6199,23 @@ const LIBRO_COMPRAS_COLUMNAS = [
   "FECHA ", "TIPO", "FACTURA ", "CUIT ", "PROVEEDOR ", "NETO ",
   "PERCEP. IVA", "PERCEP. IIBB BSAS", "PERCEP. IIBB CABA",
   "NETO NO GRAVADO ", "OP. EXENTAS", "OTROS TRIBUTOS ", "TOTAL IVA ", "IMP. TOTAL ",
+  "CATEGORIA",   // 15: uso interno (no es columna fiscal); va al final para no mover las 14 de AFIP
 ];
 
 app.get("/api/contable/libro-compras", requireAuth, async (req, res) => {
   if (req.user?.rol !== "superadmin") return res.status(403).json({ error: "Solo superadmin puede ver el libro de compras." });
-  const { desde, hasta, proveedor } = req.query;
+  const { desde, hasta, proveedor, categoria } = req.query;
   if (!desde || !hasta) return res.status(400).json({ error: "Faltan las fechas desde/hasta." });
   try {
     // El libro se imputa por fecha_contable (no por la fecha de la factura). Fallback a fecha por compat.
     const params = [desde, hasta];
-    let sql = "SELECT * FROM facturas_compra WHERE estado_pago <> 'anulada' AND COALESCE(fecha_contable, fecha) >= $1 AND COALESCE(fecha_contable, fecha) <= $2";
-    if (proveedor) { params.push(proveedor); sql += ` AND proveedor_id = $${params.length}`; }
-    sql += " ORDER BY COALESCE(fecha_contable, fecha) ASC, id ASC";
+    let sql = `SELECT fc.*, c.nombre AS categoria_nombre FROM facturas_compra fc LEFT JOIN categorias_gasto c ON c.id = fc.categoria_gasto_id
+      WHERE fc.estado_pago <> 'anulada' AND COALESCE(fc.fecha_contable, fc.fecha) >= $1 AND COALESCE(fc.fecha_contable, fc.fecha) <= $2`;
+    if (proveedor) { params.push(proveedor); sql += ` AND fc.proveedor_id = $${params.length}`; }
+    // categoria: id, o "sin" = sin categoría. Los totales salen de las filas filtradas.
+    if (categoria === "sin") sql += " AND fc.categoria_gasto_id IS NULL";
+    else if (categoria) { params.push(Number(categoria) || 0); sql += ` AND fc.categoria_gasto_id = $${params.length}`; }
+    sql += " ORDER BY COALESCE(fc.fecha_contable, fc.fecha) ASC, fc.id ASC";
     const { rows } = await pool.query(sql, params);
     const filas = [];
     const tot = { neto: 0, percepIva: 0, percepBsas: 0, percepCaba: 0, noGravado: 0, exentas: 0, otros: 0, totalIva: 0, impTotal: 0 };
@@ -6191,6 +6246,7 @@ app.get("/api/contable/libro-compras", requireAuth, async (req, res) => {
         "OTROS TRIBUTOS ": otros,
         "TOTAL IVA ": iva,
         "IMP. TOTAL ": total,
+        "CATEGORIA": f.categoria_nombre || "Sin categoría",
       });
     }
     const r2 = (n) => Math.round(n * 100) / 100;
