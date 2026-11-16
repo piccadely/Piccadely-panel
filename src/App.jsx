@@ -4853,14 +4853,15 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       useEffect(() => { cargarCategorias(); }, []);
       useEffect(() => { cargar(); }, [fLocal, fCategoria, q]);
 
-      async function abrirHistorial(ins) {
-        setHist({ insumo: ins, movs: [], loading: true });
+      async function abrirHistorial(ins, tipo = "") {
+        setHist({ insumo: ins, movs: [], loading: true, tipo });
         try {
           const params = { insumo_id: ins.id };
           if (fLocal) params.local = fLocal;
+          if (tipo) params.tipo = tipo;
           const r = await axios.get(`${API}/api/insumos/movimientos`, { params });
-          setHist({ insumo: ins, movs: r.data, loading: false });
-        } catch (err) { setHist({ insumo: ins, movs: [], loading: false }); mostrarMensaje("Error cargando el historial", "error"); }
+          setHist({ insumo: ins, movs: r.data, loading: false, tipo });
+        } catch (err) { setHist({ insumo: ins, movs: [], loading: false, tipo }); mostrarMensaje("Error cargando el historial", "error"); }
       }
 
       function exportar() {
@@ -4938,17 +4939,23 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
               <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 640, maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                   <div style={{ fontSize: 15, fontWeight: 700, color: "#333" }}>Historial · {hist.insumo.nombre}{fLocal ? ` · ${fLocal}` : ""}</div>
-                  <button style={{ fontSize: 12, padding: "6px 12px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={() => setHist(null)}>Cerrar</button>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <select aria-label="Filtrar por tipo" style={{ fontSize: 12, padding: "5px 8px", borderRadius: 8, border: "1px solid #ddd" }} value={hist.tipo || ""} onChange={e => abrirHistorial(hist.insumo, e.target.value)}>
+                      <option value="">Todos los tipos</option>
+                      {Object.entries(STOCK_TIPO_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                    <button style={{ fontSize: 12, padding: "6px 12px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }} onClick={() => setHist(null)}>Cerrar</button>
+                  </div>
                 </div>
                 {hist.loading ? <div style={{ color: "#aaa", fontSize: 13 }}>Cargando…</div>
-                  : hist.movs.length === 0 ? <div style={{ color: "#aaa", fontSize: 13 }}>Sin movimientos.</div>
+                  : hist.movs.length === 0 ? <div style={{ color: "#aaa", fontSize: 13 }}>Sin movimientos{hist.tipo ? " de ese tipo" : ""}.</div>
                   : hist.movs.map(m => (
                     <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, padding: "5px 0", borderBottom: "1px solid #f5f5f5" }}>
                       <span style={{ color: "#666", width: 90 }}>{m.fecha}</span>
                       <span style={{ width: 80, color: "#555" }}>{STOCK_TIPO_LABEL[m.tipo] || m.tipo}</span>
                       <span style={{ width: 70, color: "#888" }}>{m.local}</span>
                       <span style={{ width: 110, textAlign: "right", fontWeight: 600, color: Number(m.cantidad) < 0 ? "#c0392b" : "#1d8a4e" }}>{Number(m.cantidad) > 0 ? "+" : ""}{fmtStock(m.cantidad, m.unidad)}</span>
-                      <span style={{ flex: 1, color: "#999" }}>{m.nota || ""}</span>
+                      <span style={{ flex: 1, color: "#999" }}>{m.nota || ""}{m.tipo === "consumo" && m.pedido_ref && <span title="Id del pedido" style={{ marginLeft: 6, fontSize: 10, color: "#777", background: "#f3f3f3", borderRadius: 4, padding: "1px 5px" }}>pedido {m.pedido_ref}</span>}</span>
                     </div>
                   ))}
               </div>
@@ -5200,9 +5207,31 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
       const [editandoId, setEditandoId] = useState(null);
       const [form, setForm] = useState(INSUMO_FORM_VACIO);
       const [guardando, setGuardando] = useState(false);
+      const [configLocales, setConfigLocales] = useState(null);   // descuento automático por recetas (Fase 2b), por local
+      const [cambiandoLocal, setCambiandoLocal] = useState(null);
 
       function mostrarMensaje(texto, tipo = "ok") { setMensaje({ texto, tipo }); setTimeout(() => setMensaje(null), 3500); }
       const setCampo = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+      async function cargarConfigLocales() {
+        try { const r = await axios.get(`${API}/api/insumos/config-local`); setConfigLocales(r.data); }
+        catch (err) { setConfigLocales([]); mostrarMensaje(err.response?.data?.error || "Error cargando el descuento automático", "error"); }
+      }
+      useEffect(() => { cargarConfigLocales(); }, []);
+      async function cambiarDescuento(c) {
+        const activar = !c.descuento_activo;
+        const pregunta = activar
+          ? `¿Activar el descuento automático en ${c.local}?\n\nDesde ahora, cada pedido de ${c.local} que pase a En camino o Entregado descuenta sus insumos según la receta. Si se anula o se reabre, se devuelven.`
+          : `¿Desactivar el descuento automático en ${c.local}?\n\nLos pedidos que salgan desde ahora no van a descontar insumos. Lo ya descontado queda como está.`;
+        if (!window.confirm(pregunta)) return;
+        setCambiandoLocal(c.local);
+        try {
+          await axios.put(`${API}/api/insumos/config-local`, { local: c.local, descuento_activo: activar, usuario: usuario.nombre_completo });
+          await cargarConfigLocales();
+          mostrarMensaje(activar ? `Descuento automático activado en ${c.local}` : `Descuento automático desactivado en ${c.local}`);
+        } catch (err) { mostrarMensaje(err.response?.data?.error || "Error guardando", "error"); }
+        setCambiandoLocal(null);
+      }
 
       async function cargar() {
         setLoading(true);
@@ -5265,6 +5294,26 @@ const ventasLocal = cajaFinalizados.filter(p => p.local === localSeleccionado &&
           </div>
 
           {mensaje && <div style={{ background: mensaje.tipo === "error" ? "#fdecea" : "#eafaf1", border: `1px solid ${mensaje.tipo === "error" ? "#f5c6cb" : "#a3e4c4"}`, color: mensaje.tipo === "error" ? "#c0392b" : "#2a7a4b", borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 16 }}>{mensaje.texto}</div>}
+
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#333" }}>⚙️ Descuento automático</div>
+            <div style={{ fontSize: 12, color: "#888", margin: "2px 0 10px" }}>Al pasar un pedido a En camino o Entregado se descuentan sus insumos según la receta. Si se anula o se reabre, se devuelven.</div>
+            {configLocales === null ? <div style={{ fontSize: 13, color: "#aaa" }}>Cargando…</div>
+              : configLocales.map(c => (
+                <div key={c.local} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0", borderTop: "1px solid #f5f5f5", flexWrap: "wrap" }}>
+                  <button type="button" role="switch" aria-checked={c.descuento_activo} aria-label={`Descuento automático en ${c.local}`} disabled={cambiandoLocal === c.local} onClick={() => cambiarDescuento(c)}
+                    style={{ width: 40, height: 22, borderRadius: 999, border: "none", padding: 0, position: "relative", flex: "none", cursor: cambiandoLocal === c.local ? "default" : "pointer", background: c.descuento_activo ? "#1d8a4e" : "#ccc", opacity: cambiandoLocal === c.local ? 0.5 : 1, transition: "background .15s" }}>
+                    <span style={{ position: "absolute", top: 3, left: c.descuento_activo ? 21 : 3, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+                  </button>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#333", minWidth: 80 }}>{c.local}</div>
+                  <div style={{ fontSize: 12, color: c.descuento_activo ? "#1d8a4e" : "#999" }}>
+                    {c.descuento_activo
+                      ? `Activo desde ${c.activo_desde ? new Date(c.activo_desde).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}${c.actualizado_por ? ` · ${c.actualizado_por}` : ""}`
+                      : "Apagado"}
+                  </div>
+                </div>
+              ))}
+          </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
             <input style={{ fontSize: 13, padding: "6px 10px", borderRadius: 8, border: "1px solid #ddd", flex: "1 1 220px" }} placeholder="Buscar por nombre o código…" value={q} onChange={e => setQ(e.target.value)} />

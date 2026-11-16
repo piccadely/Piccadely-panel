@@ -668,6 +668,19 @@ async function crearEsquema(pool) {
     desperdicio_pct NUMERIC NOT NULL DEFAULT 8,
     CHECK ((insumo_id IS NULL) <> (subreceta_id IS NULL))
   );`);
+  // STOCK Fase 2b: descuento automático de insumos por recetas al despachar (independiente del de cocina).
+  // pedido_ref = id del pedido de los movimientos 'consumo'; insumos_descontado = flag propio de idempotencia;
+  // insumos_config_local = interruptor por local y desde cuándo rige.
+  await pool.query(`ALTER TABLE insumos_movimientos ADD COLUMN IF NOT EXISTS pedido_ref TEXT;`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS insumos_movimientos_pedido_ref_idx ON insumos_movimientos (pedido_ref);`);
+  await pool.query(`ALTER TABLE pedidos_estados ADD COLUMN IF NOT EXISTS insumos_descontado BOOLEAN NOT NULL DEFAULT FALSE;`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS insumos_config_local (
+    local TEXT PRIMARY KEY,
+    descuento_activo BOOLEAN NOT NULL DEFAULT FALSE,
+    activo_desde TIMESTAMPTZ,
+    actualizado_por TEXT,
+    updated_at TIMESTAMPTZ DEFAULT now()
+  );`);
   // WhatsApp Cloud API (Meta): conversaciones por cliente + mensajes (entrantes/salientes) + statuses.
   // wa_id = número normalizado a formato AR canónico 549XXXXXXXXXX (clave única: un cliente = una conversación).
   // telefono_envio = el wa_id tal cual lo manda Meta (se responde a ese, sin reformatear).
@@ -1547,6 +1560,9 @@ if (mailAnularPedido && !silencioso) enviarMailAnulacion(mailAnularPedido).catch
     // Hook de stock: al "salir" el pedido (En camino / Entregado) se descuenta del
     // stock del local (idempotente vía stock_descontado). No bloquea la respuesta.
     if (estado === "En camino" || estado === "Entregado") descontarStockDePedidoTx(id).catch(err => console.error("stock descuento falló:", err));
+    // Insumos por receta (Fase 2b, independiente del de cocina): descuenta al despachar; si vuelve atrás o se anula, devuelve.
+    if (estado === "En camino" || estado === "Entregado") descontarInsumosDePedidoTx(id).catch(err => console.error("insumos descuento falló:", err));
+    else if (estado) devolverInsumosDePedidoTx(id).catch(err => console.error("insumos devolución falló:", err));
 
     // Auditoria (no bloquea la respuesta)
     if (estado && estado !== prevData.estado) registrarAuditoria(usuarioAudit, "cambio_estado", "pedido", id, { anterior: prevData.estado || "Por empaquetar", nuevo: estado });
@@ -1674,12 +1690,14 @@ app.patch("/api/tandas/:id", requireAuth, async (req, res) => {
         // Hook de stock: cada pedido de la tanda "sale" -> descontar (idempotente).
         const despachados = await pool.query("SELECT id FROM pedidos_estados WHERE tanda_id=$1", [id]);
         for (const row of despachados.rows) descontarStockDePedidoTx(row.id).catch(err => console.error("stock descuento falló:", err));
+        for (const row of despachados.rows) descontarInsumosDePedidoTx(row.id).catch(err => console.error("insumos descuento falló:", err));
       } else if (estado === "entregada") {
         await pool.query("UPDATE pedidos_estados SET estado='Entregado', updated_at=NOW() WHERE tanda_id=$1", [id]);
         // Hook de stock: cubre el salto directo armada -> entregada (sin en_reparto).
         // Si ya pasó por en_reparto, el claim idempotente lo frena (no descuenta doble).
         const entregados = await pool.query("SELECT id FROM pedidos_estados WHERE tanda_id=$1", [id]);
         for (const row of entregados.rows) descontarStockDePedidoTx(row.id).catch(err => console.error("stock descuento falló:", err));
+        for (const row of entregados.rows) descontarInsumosDePedidoTx(row.id).catch(err => console.error("insumos descuento falló:", err));
       } else if (estado === "cancelada") {
         // Deshacer: liberar los pedidos (vuelven al pool), sin tocar su estado
         await pool.query("UPDATE pedidos_estados SET tanda_id=NULL, updated_at=NOW() WHERE tanda_id=$1", [id]);
@@ -4620,12 +4638,14 @@ app.post("/api/insumos/recuento", stockCarga, async (req, res) => {
 
 // --- Historial de movimientos ---
 app.get("/api/insumos/movimientos", stockVer, async (req, res) => {
-  const { insumo_id, local, desde, hasta } = req.query;
+  const { insumo_id, local, desde, hasta, tipo, pedido_ref } = req.query;
   try {
     const params = [];
     let sql = "SELECT m.*, i.nombre AS insumo_nombre, i.unidad FROM insumos_movimientos m JOIN insumos i ON i.id = m.insumo_id WHERE 1=1";
     if (insumo_id) { params.push(insumo_id); sql += ` AND m.insumo_id = $${params.length}`; }
     if (local) { params.push(local); sql += ` AND m.local = $${params.length}`; }
+    if (tipo) { params.push(tipo); sql += ` AND m.tipo = $${params.length}`; }
+    if (pedido_ref) { params.push(String(pedido_ref)); sql += ` AND m.pedido_ref = $${params.length}`; }
     if (desde) { params.push(desde); sql += ` AND m.fecha >= $${params.length}`; }
     if (hasta) { params.push(hasta); sql += ` AND m.fecha <= $${params.length}`; }
     sql += " ORDER BY m.fecha DESC, m.id DESC";
@@ -4638,11 +4658,11 @@ app.get("/api/insumos/movimientos", stockVer, async (req, res) => {
 // SIN descuento automático de stock (Fase 2b). Ver = gestión; escribir = admin/superadmin.
 // Demanda { nombre normalizado → cantidad } × recetas (productos, combos, módulos) → insumos. COMPARTIDO por
 // Productos necesarios y Productos utilizados. Vínculo por clave guardada y, de respaldo, por el nombre re-normalizado.
-async function explotarDemandaInsumos(demanda) {
-  const idx = await cargarRecetasIndex();
-  const insIdx = await cargarInsumosIndex();
+async function explotarDemandaInsumos(demanda, exec = pool) {   // exec: pool, o el client de una transacción (Fase 2b)
+  const idx = await cargarRecetasIndex(exec);
+  const insIdx = await cargarInsumosIndex(exec);
   const recetaPorClave = {};
-  const rp = await pool.query("SELECT rp.producto_clave, rp.producto_nombre, rp.receta_id FROM receta_productos rp JOIN recetas r ON r.id = rp.receta_id WHERE r.activo = true ORDER BY rp.id");
+  const rp = await exec.query("SELECT rp.producto_clave, rp.producto_nombre, rp.receta_id FROM receta_productos rp JOIN recetas r ON r.id = rp.receta_id WHERE r.activo = true ORDER BY rp.id");
   // También por el nombre re-normalizado (vínculos con clave vieja, previa a un alias); la clave guardada manda.
   for (const x of rp.rows) { const k = claveVinculo(x.producto_nombre); if (!(k in recetaPorClave)) recetaPorClave[k] = x.receta_id; }
   for (const x of rp.rows) recetaPorClave[x.producto_clave] = x.receta_id;
@@ -4650,14 +4670,15 @@ async function explotarDemandaInsumos(demanda) {
   const porInsumo = {};   // insumo_id -> cantidad base
   const sinReceta = [];
   const avisosSet = {};
+  const avisosPorProducto = [];   // los mismos avisos, con el producto que los generó (Fase 2b: auditoría de insumos sin peso)
   for (const [nombre, qty] of Object.entries(demanda)) {
     const recetaId = recetaPorClave[claveProducto(nombre)];
     if (!recetaId) { sinReceta.push({ producto: nombre, cantidad: qty }); continue; }
     const exp = explotarReceta(recetaId, idx, insIdx);
     for (const [iid, base] of Object.entries(exp.insumos)) porInsumo[iid] = (porInsumo[iid] || 0) + base * qty;
-    for (const a of exp.avisos) avisosSet[a.detalle] = a;
+    for (const a of exp.avisos) { avisosSet[a.detalle] = a; avisosPorProducto.push({ ...a, producto: nombre, cantidad: qty }); }
   }
-  return { porInsumo, sinReceta, avisos: Object.values(avisosSet), insIdx };
+  return { porInsumo, sinReceta, avisos: Object.values(avisosSet), avisosPorProducto, insIdx };
 }
 // Stock actual por insumo (suma de movimientos), de un local o de ambos (localFiltro null).
 async function stockPorInsumo(localFiltro) {
@@ -4707,7 +4728,7 @@ function explotarReceta(recetaId, recetasById, insumosById, depth = 0, seen = ne
       let gramos;
       if (l.modo === "unidades") {
         const peso = l.peso_g != null ? Number(l.peso_g) : (ins.peso_unidad_g != null ? Number(ins.peso_unidad_g) : null);
-        if (peso == null) { out.avisos.push({ tipo: "falta_peso", insumo: ins.nombre, detalle: `Falta peso por unidad de "${ins.nombre}" (en "${receta.nombre}")` }); continue; }
+        if (peso == null) { out.avisos.push({ tipo: "falta_peso", insumo: ins.nombre, insumo_id: ins.id, receta: receta.nombre, detalle: `Falta peso por unidad de "${ins.nombre}" (en "${receta.nombre}")` }); continue; }
         gramos = cant * peso * desp;
       } else {
         gramos = cant * desp;
@@ -5196,6 +5217,210 @@ app.get("/api/insumos/utilizados", stockVer, async (req, res) => {
     sinReceta.sort((a, b) => b.cantidad - a.cantidad);
     res.json({ dias, pedidos, productos, items, sin_receta: sinReceta, avisos });
   } catch (err) { console.error("Error /api/insumos/utilizados:", err.message); res.status(500).json({ error: err.message }); }
+});
+
+// ─── STOCK DE INSUMOS — Fase 2b: descuento automático por recetas al despachar ──────────────────────────────
+// INDEPENDIENTE del descuento de cocina (stock_lotes / stock_descontado): se dispara en los mismos puntos (En camino o
+// Entregado, manual o por tanda) pero con su propio flag (pedidos_estados.insumos_descontado) y sus propias tablas.
+// - Solo descuenta si el local del pedido tiene insumos_config_local.descuento_activo y ya rige (activo_desde <= now()).
+// - Por pedido: productos × recetas (explotarDemandaInsumos: anidadas + desperdicio) → UN movimiento 'consumo' negativo
+//   por insumo, con pedido_ref. Productos sin receta: auditoría 'insumos_sin_receta'; insumo en unidades sin peso por
+//   unidad (no se puede pasar a gramos, no se descuenta): auditoría 'insumos_sin_peso'. Ninguno de los dos frena nada.
+// - Disparadores (todos los cambios de pedidos_estados.estado): POST /api/estados/:id (cambio manual, anulación masiva,
+//   reabrir finalizado, importador, alta) y PATCH /api/tandas/:id (en_reparto → En camino, entregada → Entregado).
+//   Deshacer tanda / sacar de tanda / alta manual (estado inicial) no cambian el estado: no disparan nada.
+// - Devolución: si el pedido descontado se anula o vuelve a Por empaquetar / Listo, se revierte EXACTO lo neto de su
+//   pedido_ref (movimientos positivos) y el flag vuelve a false; si se despacha de nuevo, descuenta de nuevo.
+// - Los claims chequean el estado ACTUAL del pedido: si dos disparos corren desordenados (despacho y reapertura casi
+//   juntos), el resultado final siempre coincide con el último estado.
+// - Best-effort: los ...Tx nunca propagan el error al despacho.
+const ESTADOS_DESPACHADO = ["En camino", "Entregado"];
+const redondearInsumo = (x) => Math.round(Number(x) * 1000) / 1000;
+
+// N° visible del pedido (TN: number; manual: numero); si no hay, el id.
+async function numeroDePedido(id, exec = pool) {
+  const tn = await exec.query("SELECT data->>'number' AS numero FROM pedidos_tn WHERE id::text = $1", [String(id)]);
+  if (tn.rows[0]?.numero) return tn.rows[0].numero;
+  const man = await exec.query("SELECT numero FROM pedidos_manuales WHERE id = $1", [String(id)]);
+  return man.rows[0]?.numero || String(id);
+}
+
+// Qué consume un pedido: misma fuente de productos que cocina (productosStringDePedido: override > TN > manual) y mismo
+// parseo/filtros que Productos utilizados (normalizarProducto; sin envíos, medios de pago ni cupones).
+async function consumoInsumosDePedido(pedidoId, exec = pool) {
+  const id = String(pedidoId);
+  const demanda = {};
+  for (const item of String(await productosStringDePedido(id, exec)).split(", ")) {
+    const m = item.match(/^(.+) x(\d+)$/);
+    if (!m) continue;
+    const nombre = normalizarProducto(m[1].trim());
+    if (esExcluidoProduccion(nombre) || esBasuraVenta(nombre)) continue;
+    demanda[nombre] = (demanda[nombre] || 0) + Number(m[2]);
+  }
+  const { porInsumo, sinReceta, avisos, avisosPorProducto, insIdx } = await explotarDemandaInsumos(demanda, exec);
+  const items = Object.entries(porInsumo)
+    .map(([iid, cant]) => ({ insumo_id: Number(iid), nombre: insIdx[iid]?.nombre || `#${iid}`, unidad: insIdx[iid]?.unidad || "g", cantidad: redondearInsumo(cant) }))
+    .filter((x) => x.cantidad > 0)
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+  // Insumo en unidades sin peso por unidad (ni en la línea ni en el insumo): ese insumo NO se descuenta. Uno por producto+insumo.
+  const sinPeso = [], vistos = new Set();
+  for (const a of avisosPorProducto) {
+    if (a.tipo !== "falta_peso") continue;
+    const k = `${a.producto}|${a.insumo_id}`;
+    if (vistos.has(k)) continue;
+    vistos.add(k);
+    sinPeso.push({ producto: a.producto, cantidad: a.cantidad, insumo: a.insumo, insumo_id: a.insumo_id, receta: a.receta });
+  }
+  return { items, sinReceta, sinPeso, avisos };
+}
+
+// ¿El local descuenta insumos ahora? (interruptor prendido y ya pasó activo_desde)
+async function descuentoInsumosVigente(local, exec = pool) {
+  const r = await exec.query(
+    "SELECT descuento_activo, activo_desde, (descuento_activo AND (activo_desde IS NULL OR activo_desde <= now())) AS vigente FROM insumos_config_local WHERE local = $1",
+    [local]
+  );
+  return { descuento_activo: !!r.rows[0]?.descuento_activo, activo_desde: r.rows[0]?.activo_desde || null, vigente: !!r.rows[0]?.vigente };
+}
+
+// Descuento de un pedido despachado. Corre dentro de la transacción del client (usar descontarInsumosDePedidoTx desde
+// las rutas). Devuelve { resultado, ... } para logs y tests.
+async function descontarInsumosDePedido(client, pedidoId) {
+  const id = String(pedidoId);
+  const local = await localDePedido(id, client);   // mismo criterio que el panel: tab_manual o clasificación TN
+  if (!INSUMO_LOCALES.includes(local)) return { resultado: "sin_local", local };
+  if (!(await descuentoInsumosVigente(local, client)).vigente) return { resultado: "local_inactivo", local };
+  // Claim atómico (row-lock): sigue despachado y todavía no se descontó. Si no, no-op.
+  const claim = await client.query(
+    "UPDATE pedidos_estados SET insumos_descontado = true WHERE id = $1 AND insumos_descontado = false AND estado = ANY($2::text[]) RETURNING id",
+    [id, ESTADOS_DESPACHADO]
+  );
+  if (claim.rowCount === 0) return { resultado: "no_corresponde", local };
+
+  const numero = await numeroDePedido(id, client);
+  const { items, sinReceta, sinPeso } = await consumoInsumosDePedido(id, client);
+  const fecha = fechaArgentinaISO();
+  for (const it of items) {
+    await client.query(
+      "INSERT INTO insumos_movimientos (insumo_id, local, tipo, cantidad, fecha, nota, usuario, pedido_ref) VALUES ($1,$2,'consumo',$3,$4,$5,'Sistema',$6)",
+      [it.insumo_id, local, -it.cantidad, fecha, `Pedido #${numero}`, id]
+    );
+  }
+  for (const s of sinReceta) {
+    await client.query(
+      "INSERT INTO auditoria (usuario, accion, entidad_tipo, entidad_id, detalle) VALUES ('Sistema','insumos_sin_receta','pedido',$1,$2)",
+      [id, JSON.stringify({ producto: s.producto, cantidad: s.cantidad, local, numero })]
+    );
+  }
+  for (const s of sinPeso) {
+    await client.query(
+      "INSERT INTO auditoria (usuario, accion, entidad_tipo, entidad_id, detalle) VALUES ('Sistema','insumos_sin_peso','pedido',$1,$2)",
+      [id, JSON.stringify({ insumo: s.insumo, insumo_id: s.insumo_id, producto: s.producto, cantidad: s.cantidad, receta: s.receta, local, numero })]
+    );
+  }
+  return { resultado: "descontado", local, numero, items, sinReceta, sinPeso };
+}
+
+// Devolución de un pedido descontado que se anuló o se reabrió: revierte lo neto de su pedido_ref, por insumo y local.
+async function devolverInsumosDePedido(client, pedidoId) {
+  const id = String(pedidoId);
+  const claim = await client.query(
+    "UPDATE pedidos_estados SET insumos_descontado = false WHERE id = $1 AND insumos_descontado = true AND NOT (COALESCE(estado, 'Por empaquetar') = ANY($2::text[])) RETURNING id",
+    [id, ESTADOS_DESPACHADO]
+  );
+  if (claim.rowCount === 0) return { resultado: "no_corresponde" };
+  const netos = await client.query(
+    "SELECT insumo_id, local, SUM(cantidad) AS neto FROM insumos_movimientos WHERE tipo = 'consumo' AND pedido_ref = $1 GROUP BY insumo_id, local HAVING SUM(cantidad) <> 0 ORDER BY insumo_id",
+    [id]
+  );
+  const numero = await numeroDePedido(id, client);
+  const fecha = fechaArgentinaISO();
+  for (const n of netos.rows) {
+    await client.query(
+      "INSERT INTO insumos_movimientos (insumo_id, local, tipo, cantidad, fecha, nota, usuario, pedido_ref) VALUES ($1,$2,'consumo',$3,$4,$5,'Sistema',$6)",
+      [n.insumo_id, n.local, -Number(n.neto), fecha, `Devolución pedido #${numero}`, id]
+    );
+  }
+  return { resultado: "devuelto", numero, movimientos: netos.rows.length };
+}
+
+// Envoltorio transaccional best-effort (mismo patrón que descontarStockDePedidoTx): connect() dentro del try,
+// ROLLBACK si falla, release en finally. Nunca propaga el error: el despacho sigue.
+async function insumosPedidoTx(fn, pedidoId, etiqueta) {
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const r = await fn(client, String(pedidoId));
+    await client.query("COMMIT");
+    return r;
+  } catch (e) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    console.error(`Hook insumos (${etiqueta}) pedido ${pedidoId}:`, e.message);
+    return null;
+  } finally {
+    if (client) client.release();
+  }
+}
+function descontarInsumosDePedidoTx(pedidoId) { return insumosPedidoTx(descontarInsumosDePedido, pedidoId, "descuento"); }
+function devolverInsumosDePedidoTx(pedidoId) { return insumosPedidoTx(devolverInsumosDePedido, pedidoId, "devolución"); }
+
+// Interruptor por local (solo admin). Al activar, activo_desde = ahora salvo que se mande otra fecha.
+app.get("/api/insumos/config-local", requireAdmin, async (req, res) => {
+  try {
+    const r = await pool.query("SELECT * FROM insumos_config_local");
+    const por = {}; for (const x of r.rows) por[x.local] = x;
+    res.json(INSUMO_LOCALES.map((local) => {
+      const c = por[local] || {};
+      return { local, descuento_activo: !!c.descuento_activo, activo_desde: c.activo_desde || null, actualizado_por: c.actualizado_por || null, updated_at: c.updated_at || null };
+    }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.put("/api/insumos/config-local", requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  if (!INSUMO_LOCALES.includes(b.local)) return res.status(400).json({ error: "Local inválido." });
+  if (typeof b.descuento_activo !== "boolean") return res.status(400).json({ error: "Falta descuento_activo (true/false)." });
+  let desde = null;
+  if (b.descuento_activo && b.activo_desde != null && b.activo_desde !== "") {
+    if (Number.isNaN(Date.parse(b.activo_desde))) return res.status(400).json({ error: "Fecha de activación inválida." });
+    desde = new Date(b.activo_desde).toISOString();
+  }
+  const quien = req.user?.nombre_completo || b.usuario || null;
+  try {
+    // Activar: activo_desde = la fecha mandada o now(). Desactivar: se apaga y queda la última fecha como historial.
+    const r = await pool.query(
+      `INSERT INTO insumos_config_local (local, descuento_activo, activo_desde, actualizado_por, updated_at)
+       VALUES ($1, $2, CASE WHEN $2 THEN COALESCE($3::timestamptz, now()) END, $4, now())
+       ON CONFLICT (local) DO UPDATE SET
+         descuento_activo = EXCLUDED.descuento_activo,
+         activo_desde = CASE WHEN EXCLUDED.descuento_activo THEN COALESCE($3::timestamptz, now()) ELSE insumos_config_local.activo_desde END,
+         actualizado_por = EXCLUDED.actualizado_por, updated_at = now()
+       RETURNING *`,
+      [b.local, b.descuento_activo, desde, quien]
+    );
+    const c = r.rows[0];
+    res.json({ ok: true, local: c.local, descuento_activo: c.descuento_activo, activo_desde: c.activo_desde, actualizado_por: c.actualizado_por, updated_at: c.updated_at });
+    registrarAuditoria(quien, b.descuento_activo ? "insumos_descuento_activar" : "insumos_descuento_desactivar", "local", b.local, { activo_desde: c.activo_desde });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Simulación: qué descontaría este pedido (no escribe nada).
+app.get("/api/insumos/consumo-pedido/:id", stockVer, async (req, res) => {
+  const id = String(req.params.id);
+  try {
+    const local = await localDePedido(id);
+    if (local === null) return res.status(404).json({ error: "Pedido no encontrado." });
+    const est = await pool.query("SELECT estado, insumos_descontado FROM pedidos_estados WHERE id = $1", [id]);
+    const config = INSUMO_LOCALES.includes(local) ? await descuentoInsumosVigente(local) : { descuento_activo: false, activo_desde: null, vigente: false };
+    const { items, sinReceta, sinPeso, avisos } = await consumoInsumosDePedido(id);
+    const mov = await pool.query("SELECT insumo_id, SUM(cantidad) AS neto FROM insumos_movimientos WHERE tipo = 'consumo' AND pedido_ref = $1 GROUP BY insumo_id HAVING SUM(cantidad) <> 0", [id]);
+    res.json({
+      pedido: id, numero: await numeroDePedido(id), local, estado: est.rows[0]?.estado || "Por empaquetar",
+      insumos_descontado: !!est.rows[0]?.insumos_descontado, config,
+      items, sin_receta: sinReceta, sin_peso: sinPeso, avisos,
+      descontado_neto: mov.rows.map((m) => ({ insumo_id: m.insumo_id, cantidad: Number(m.neto) })),
+    });
+  } catch (err) { console.error("Error /api/insumos/consumo-pedido:", err.message); res.status(500).json({ error: err.message }); }
 });
 
 // ─── MAPA DE PEDIDOS ───────────────────────────────────────────────────
