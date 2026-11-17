@@ -5721,10 +5721,9 @@
     },
     {
      "codigo": 208,
-     "modo": "unidades",
-     "cantidad": 3,
-     "peso_g": 80.0,
-     "desperdicio_pct": 8.0
+     "modo": "gramos",
+     "cantidad": 32,
+     "desperdicio_pct": 8
     },
     {
      "codigo": 212,
@@ -5791,10 +5790,9 @@
     },
     {
      "codigo": 211,
-     "modo": "unidades",
-     "cantidad": 1,
-     "peso_g": 80.0,
-     "desperdicio_pct": 8.0
+     "modo": "gramos",
+     "cantidad": 32,
+     "desperdicio_pct": 8
     },
     {
      "codigo": 212,
@@ -6201,7 +6199,7 @@
    ]
   },
   {
-   "nombre": "Sandwich #1",
+   "nombre": "Sandwich Lomazo",
    "origen": "Sandwich",
    "lineas": [
     {
@@ -6250,7 +6248,7 @@
    "modulos": []
   },
   {
-   "nombre": "Sandwich #2",
+   "nombre": "Sandwich Gourmet",
    "origen": "Sandwich",
    "lineas": [
     {

@@ -575,6 +575,18 @@
   {
    "producto": "Comilona Juntadely Piccan 24",
    "receta": "Comilona Juntadely Piccan 24"
+  },
+  {
+   "producto": "el lomazo",
+   "receta": "Sandwich Lomazo"
+  },
+  {
+   "producto": "lomazo",
+   "receta": "Sandwich Lomazo"
+  },
+  {
+   "producto": "sandwich el gourmet ahumado",
+   "receta": "Sandwich Gourmet"
   }
  ]
 }
