@@ -1,5 +1,7 @@
 {
-  "rewrites": [
-    { "source": "/", "has": [{ "type": "host", "value": "cotizador.piccadely.com" }], "destination": "/cotizador.html" }
+  "routes": [
+    { "src": "/", "has": [{ "type": "host", "value": "cotizador.piccadely.com" }], "dest": "/cotizador.html" },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
