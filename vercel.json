@@ -1,0 +1,5 @@
+{
+  "rewrites": [
+    { "source": "/", "has": [{ "type": "host", "value": "cotizador.piccadely.com" }], "destination": "/cotizador.html" }
+  ]
+}
