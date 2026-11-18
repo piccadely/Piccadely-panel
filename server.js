@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import axios from "axios";
+import fs from "fs";
 import pg from "pg";
 import crypto from "crypto";
 import PDFDocument from "pdfkit";
@@ -6730,102 +6731,62 @@ app.post("/api/admin/webhooks/setup", requireAdmin, async (req, res) => {
 });
 
 // ─── AGENTE IA ─────────────────────────────────────────────────────────────
-const SYSTEM_AGENTE = `Sos el asistente de ayuda del Panel de Piccadely, una empresa de delivery de picadas en Buenos Aires.
-Respondés preguntas del equipo (encargados, call center, repartidores) sobre cómo usar el panel.
-Respondés siempre en español argentino, de forma clara, simple y amigable.
-Si la pregunta no tiene que ver con el panel, decís que solo podés ayudar con el panel.
+// El conocimiento sale de docs/manual_panel.md (se lee UNA vez al arrancar). Toda feature que cambie una pantalla,
+// botón o flujo actualiza ese manual en el mismo commit (regla en CLAUDE.md). Si falta el archivo, el server
+// arranca igual y el agente responde que no lo tiene en el manual.
+const REGLAS_AGENTE = `Sos el asistente de ayuda del Panel de Piccadely (empresa de delivery de picadas en Buenos Aires). Respondés preguntas del equipo sobre CÓMO USAR EL PANEL.
 
-CONOCIMIENTO DEL PANEL:
+REGLAS:
+- Respondé en español rioplatense, con voseo ("hacé", "tocá", "fijate"), claro y paso a paso: pasos numerados con los nombres de menús, pestañas, botones y campos tal como figuran en el manual.
+- Tu única fuente es el MANUAL DEL PANEL de abajo. Si lo que te preguntan no está en el manual, decí "No lo tengo en el manual, consultalo con un admin." No inventes pantallas, botones, campos ni pasos.
+- Al final del system prompt está el ROL y el LOCAL del usuario que pregunta (vienen de su sesión). Si pregunta por algo que su rol no ve o no puede hacer según el manual, explicale qué rol lo hace (por ejemplo "eso lo hace un superadmin") y NO le des el paso a paso.
+- Solo sabés cómo se usa el panel. No tenés acceso a datos de pedidos, clientes, stock, caja ni plata: si te piden un dato puntual (un pedido, un saldo, un cliente), decí que no lo podés ver y explicá dónde lo encuentra en el panel, si su rol lo ve.
+- Si la pregunta no tiene que ver con el panel, decí que solo podés ayudar con el uso del panel.
+- Respuestas cortas: lo justo para hacer la tarea, sin repetir la pregunta.`;
 
-ACCESO:
-- El panel se abre en el navegador con la URL que da el encargado.
-- Hay tres roles: admin (ve todo), a_thomas (solo A. Thomas), french (solo French).
-- Si olvidás la contraseña, el encargado la resetea.
+let MANUAL_PANEL = "";
+try {
+  MANUAL_PANEL = fs.readFileSync(new URL("./docs/manual_panel.md", import.meta.url), "utf8");
+} catch (err) {
+  console.warn("⚠️ Agente IA: no se pudo leer docs/manual_panel.md (" + err.message + "). Arranca sin manual: va a responder que no lo tiene en el manual.");
+}
+// Bloque fijo (reglas + manual): es el prefijo cacheado, igual para todos los usuarios.
+const SYSTEM_AGENTE = `${REGLAS_AGENTE}\n\n=== MANUAL DEL PANEL ===\n${MANUAL_PANEL || "(El manual no está disponible en este momento.)"}`;
 
-PESTAÑAS PRINCIPALES:
-- Retiro A. Thomas: clientes que retiran en Álvarez Thomas 1558.
-- Retiro French: clientes que retiran en French 2615.
-- Delivery A. Thomas: pedidos con envío desde A. Thomas.
-- Delivery French: pedidos con envío desde French.
-- Nuevo pedido: para cargar pedidos manuales (por teléfono o WhatsApp).
-
-PEDIDOS AUTOMÁTICOS DE TIENDA NUBE:
-- Entran solos cada 30 segundos, no hay que hacer nada.
-- Si entra un pedido nuevo suena un beep y el título muestra 🔔.
-
-ESTADOS DE UN PEDIDO (en orden):
-1. Por empaquetar → 2. Listo → 3. En camino → 4. Entregado
-- Para avanzar: expandí el pedido y hacé click en el botón → (nombre del próximo estado).
-- Entregado pasa automáticamente a la sección Finalizados.
-- Anulado: cancela el pedido. Si tiene factura, primero hay que anular la factura.
-
-COLORES DE ALERTA:
-- Fila roja clara: el horario de entrega ya pasó.
-- Fila roja oscura: más de 2 horas de demora. Urgente.
-
-EDITAR DATOS DE UN PEDIDO:
-- Click en el pedido para expandir → editá el campo → click afuera para guardar.
-- Se guarda automáticamente, sin botón de guardar.
-- Campos editables: cliente, teléfono, dirección, barrio, zona, email, medio de pago, nota.
-
-CARGAR PEDIDO MANUAL (call center):
-1. Pestaña ➕ Nuevo pedido.
-2. Completar datos del cliente y dirección.
-3. Elegir fecha, horario, medio de pago y sección.
-4. Agregar productos del catálogo o "Producto variable" si no está.
-5. Click en ✅ Crear pedido.
-
-IMPRIMIR COMANDA:
-- Expandí el pedido → click en 🖨️ Imprimir comanda.
-- Se imprime directo en la térmica sin diálogos.
-- Si se abre una ventana del navegador, apretá Ctrl+P.
-
-LINK DE PAGO MERCADO PAGO:
-- Expandí el pedido → 💳 Enviar link de pago.
-- Si tiene email, el link se genera y se envía automáticamente.
-- Si no tiene email, el sistema pide que lo ingreses.
-- Cuando el cliente paga, el estado se actualiza solo a "Pagado".
-- También podés copiar el link con 📋 y mandarlo por WhatsApp.
-
-FACTURACIÓN:
-- Expandí el pedido → 🧾 Facturar.
-- Factura B para consumidores finales, Factura A si el cliente tiene CUIT.
-- Si hay CUIT cargado, el sistema sugiere Factura A automáticamente.
-- Para anular: 🧾 Facturar → Anular factura (emite nota de crédito).
-- PDV 17 para A. Thomas, PDV 18 para French.
-
-CAJA (encargados):
-- Menú ☰ → 💰 Caja.
-- Abrir caja: al inicio del día, ingresar el efectivo disponible.
-- Ajuste: para registrar ingresos o egresos durante el día.
-- Cierre Z: al final del día, contar el efectivo y registrar. El sistema calcula la diferencia.
-- El historial se puede exportar en Excel o PDF.
-
-REPORTES (encargados, menú ☰):
-- Pedidos finalizados: historial de entregados y anulados.
-- Reporte de ventas: ventas filtradas por fecha, medio de pago o repartidor.
-- Productos vendidos: ranking de los más pedidos.
-- Análisis de producción: cuánto preparar para una fecha específica.
-
-MOVER UN PEDIDO DE SECCIÓN:
-- Expandí el pedido → Operaciones → Mover a sección → elegí la nueva sección.
-
-CAMBIAR REPARTIDOR:
-- Expandí el pedido → Operaciones → desplegable Repartidor.
-
-COBRAR EN ENTREGA:
-- Expandí el pedido → tildá "Cobrar en entrega" → aparece el badge COBRAR en la lista.`;
+const ROL_AGENTE = {
+  superadmin: "superadmin",
+  admin: "admin",
+  encargado: "encargado",
+  solo_lectura: "solo lectura (puede ver, no modificar)",
+  crm: "comercial (crm)",
+  a_thomas: "operario de sucursal A. Thomas",
+  french: "operario de sucursal French",
+};
+const LOCAL_AGENTE = { a_thomas: "A. Thomas", french: "French" };
 
 app.post("/api/agente", requireAuth, async (req, res) => {
-  const { messages } = req.body;
+  const { messages } = req.body || {};
   if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: "messages requerido" });
   if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: "ANTHROPIC_API_KEY no configurada" });
+  // Solo turnos user/assistant de texto, los últimos 10, y que arranque con una pregunta del usuario.
+  const historial = messages
+    .filter(m => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string" && m.content.trim())
+    .map(m => ({ role: m.role, content: m.content.slice(0, 4000) }))
+    .slice(-10);
+  while (historial.length && historial[0].role !== "user") historial.shift();
+  if (!historial.length) return res.status(400).json({ error: "messages requerido" });
+  // Rol y local SIEMPRE de la sesión (token), nunca del body.
+  const rol = req.user?.rol || "";
+  const contexto = `USUARIO QUE PREGUNTA: rol ${ROL_AGENTE[rol] || rol || "desconocido"}; local ${LOCAL_AGENTE[rol] || "todos los locales (no está atado a una sucursal)"}${req.user?.modoLectura ? "; está en la sesión de emergencia (solo lectura, sin menú)" : ""}.`;
   try {
     const resp = await axios.post("https://api.anthropic.com/v1/messages", {
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 600,
-      system: SYSTEM_AGENTE,
-      messages: messages.slice(-10),
+      max_tokens: 1000,
+      system: [
+        { type: "text", text: SYSTEM_AGENTE, cache_control: { type: "ephemeral" } },   // reglas + manual: prefijo cacheado
+        { type: "text", text: contexto },                                               // varía por usuario: después del corte
+      ],
+      messages: historial,
     }, {
       headers: {
         "x-api-key": process.env.ANTHROPIC_API_KEY,
@@ -6833,7 +6794,7 @@ app.post("/api/agente", requireAuth, async (req, res) => {
         "content-type": "application/json",
       }
     });
-    const text = resp.data.content?.[0]?.text || "No pude generar una respuesta.";
+    const text = (resp.data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n").trim() || "No pude generar una respuesta.";
     res.json({ reply: text });
   } catch (err) {
     console.error("Error agente IA:", err.response?.data || err.message);

@@ -11,3 +11,8 @@
 - La preview de Vercel de staging tiene Vercel SSO (redirige a login). Para probar el front de staging sin login: servir la rama `staging` en local (`npx vite`) y abrir la página con `?api=<backend staging>`, por ejemplo `/cotizador.html?tipo=regalos&api=https://piccadely-staging-production.up.railway.app`.
 - Probá siempre en staging antes de mergear a main.
 - Al verificar producción no mandar propuestas ni leads ni usar botones que guarden o envíen.
+
+## Manual del panel
+
+- `docs/manual_panel.md` es el manual de uso del panel y la única fuente de conocimiento del asistente 💬 (`/api/agente` lo lee al arrancar el server).
+- Toda feature que agregue o cambie una pantalla, botón o flujo actualiza `docs/manual_panel.md` en el mismo commit, con los nombres exactos que aparecen en pantalla y quién lo ve. Sin datos sensibles (claves, CUIT/CBU, montos de sueldos, endpoints).

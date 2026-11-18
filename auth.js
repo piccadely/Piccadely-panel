@@ -142,6 +142,7 @@ export function setupAuth(app, pool, mailTransporter) {
     if (payload.rol === "solo_lectura") {
       if (req.method === "GET") return next();
       if (req.method === "POST" && RUTAS_BANDEJA_WA.test(req.path)) return next();
+      if (req.method === "POST" && req.path === "/api/agente") return next();   // el asistente 💬 solo responde, no escribe nada
       return res.status(403).json({ error: "Rol de solo lectura: acción no permitida." });
     }
     if (payload.rol === "crm") {
