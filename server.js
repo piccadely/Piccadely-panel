@@ -2899,7 +2899,7 @@ app.post("/api/compras/facturas/:id/anular", requireAdmin, async (req, res) => {
 // Todo pago de compras queda en pagos_compra: tipo 'factura' (pago TOTAL de una factura) o 'a_cuenta' (sin factura).
 // Origen de la plata: externo (no toca nada), caja (SALIDA con fecha de hoy) o cuenta de tesorería (egreso con la fecha
 // del pago, vía registrarMovimientoCuenta). Nunca caja y cuenta a la vez. Las CAJAS válidas son CAJAS_TRANSFERIBLES
-// (definida más abajo, se accede en request-time); Administración solo superadmin (bloqueaCajaAdmin).
+// (definida más abajo, se accede en request-time); Administración solo superadmin (bloqueaCaja).
 // Lee y valida el origen del body. Si algo no va, ya respondió (400/403) y devuelve null.
 function leerOrigenPago(req, res, cajaOrigen, cuentaId) {
   const caja = cajaOrigen && String(cajaOrigen).trim() !== "" ? String(cajaOrigen).trim() : null;
@@ -2908,7 +2908,7 @@ function leerOrigenPago(req, res, cajaOrigen, cuentaId) {
   if (cuenta !== null && !(Number.isInteger(cuenta) && cuenta > 0)) { res.status(400).json({ error: "Cuenta de origen inválida." }); return null; }
   if (caja) {
     if (!CAJAS_TRANSFERIBLES.includes(caja)) { res.status(400).json({ error: "Caja de origen inválida." }); return null; }
-    if (bloqueaCajaAdmin(req, res, caja)) return null;   // Administración solo superadmin
+    if (bloqueaCaja(req, res, caja)) return null;   // Administración solo superadmin
   }
   return { caja, cuentaId: cuenta };
 }
@@ -3130,7 +3130,7 @@ async function anularPagoCompra(req, res) {
     if (pg.cuenta_id) await anularMovimientoPorOrigen(client, pg.tipo === "factura" ? "pago_factura" : "pago_a_cuenta", pg.id, motivo, quien);
     let movAnulId = null;
     if (pg.caja_origen) {
-      if (bloqueaCajaAdmin(req, res, pg.caja_origen)) { await client.query("ROLLBACK"); return; }
+      if (bloqueaCaja(req, res, pg.caja_origen)) { await client.query("ROLLBACK"); return; }
       const concepto = pg.tipo === "factura"
         ? `Anulación pago factura #${pg.id}: ${pg.razon_social} ${pg.concepto || ""}`.trim()
         : `Anulación pago a cuenta #${pg.id}: ${pg.razon_social} - ${pg.concepto}`;
@@ -3464,7 +3464,7 @@ app.post("/api/ventas/oportunidades", requireAdminOCrm, async (req, res) => {
 });
 
 // ─── GASTOS COMUNES (sin factura de proveedor) — admin + superadmin ─────
-// Reusa el patrón del pago de factura desde caja (salida atómica) + bloqueaCajaAdmin + CAJAS_TRANSFERIBLES.
+// Reusa el patrón del pago de factura desde caja (salida atómica) + bloqueaCaja + CAJAS_TRANSFERIBLES.
 app.get("/api/gastos-comunes/categorias", requireAdmin, async (req, res) => {
   try {
     const r = await pool.query("SELECT * FROM categorias_gasto_comun WHERE activo = true ORDER BY nombre ASC");
@@ -3582,7 +3582,7 @@ app.post("/api/gastos-comunes/:id/anular", requireAdmin, async (req, res) => {
     if (g.estado !== "activo") { await client.query("ROLLBACK"); return res.status(409).json({ error: "El gasto ya está anulado." }); }
     if (g.cuenta_id) await anularMovimientoPorOrigen(client, "gasto_comun", g.id, String(motivo).trim(), usuario);   // conciliado → 409
     if (g.caja_origen) {
-      if (bloqueaCajaAdmin(req, res, g.caja_origen)) { await client.query("ROLLBACK"); return; }
+      if (bloqueaCaja(req, res, g.caja_origen)) { await client.query("ROLLBACK"); return; }
       await client.query(
         "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'entrada',$2,$3,$4)",
         [g.caja_origen, `Anulación gasto #${g.id}: ${g.descripcion}`, Math.abs(Number(g.monto)), fechaArgentinaISO()]
@@ -3852,7 +3852,7 @@ app.post("/api/rrhh/pagos/:id/anular", soloSuperadmin, async (req, res) => {
     if (p.cuenta_id) await anularMovimientoPorOrigen(client, "pago_sueldo", p.id, motivo, quien);
     let movAnulId = null;
     if (p.caja_origen) {
-      if (bloqueaCajaAdmin(req, res, p.caja_origen)) { await client.query("ROLLBACK"); return; }
+      if (bloqueaCaja(req, res, p.caja_origen)) { await client.query("ROLLBACK"); return; }
       const mov = await client.query(
         "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'entrada',$2,$3,$4) RETURNING id",
         [p.caja_origen, `Anulación pago sueldo #${p.id}: ${p.empleado_nombre}`, Math.abs(Number(p.monto)), fechaArgentinaISO()]
@@ -3965,7 +3965,7 @@ app.post("/api/rrhh/novedades/:id/anular", soloSuperadmin, async (req, res) => {
     if (n.cuenta_id) await anularMovimientoPorOrigen(client, esAdicional ? "adicional" : "adelanto", n.id, motivo, quien);
     let movAnulId = null;
     if (n.caja_origen) {
-      if (bloqueaCajaAdmin(req, res, n.caja_origen)) { await client.query("ROLLBACK"); return; }
+      if (bloqueaCaja(req, res, n.caja_origen)) { await client.query("ROLLBACK"); return; }
       const mov = await client.query(
         "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'entrada',$2,$3,$4) RETURNING id",
         [n.caja_origen, esAdicional ? `Anulación pago adicional #${n.id}: ${n.empleado_nombre}` : `Anulación adelanto #${n.id}: ${n.empleado_nombre}`, Math.abs(Number(n.monto)), fechaArgentinaISO()]
@@ -4365,7 +4365,7 @@ app.post("/api/tesoreria/transferencias", soloSuperadmin, async (req, res) => {
   if (!esFechaISO(b.fecha)) return res.status(400).json({ error: "Fecha inválida (formato YYYY-MM-DD)." });
   if (b.modo !== "cuentas") {
     if (!CAJAS_TRANSFERIBLES.includes(b.caja)) return res.status(400).json({ error: "Caja inválida." });
-    if (bloqueaCajaAdmin(req, res, b.caja)) return;   // Administración solo superadmin
+    if (bloqueaCaja(req, res, b.caja)) return;   // Administración solo superadmin
   }
   let client;
   try {
@@ -4429,7 +4429,7 @@ app.post("/api/tesoreria/transferencias/:tid/anular", soloSuperadmin, async (req
     for (const p of patas.filter((x) => x.caja_movimiento_id)) {
       const cm = (await client.query("SELECT id, local, tipo FROM caja_movimientos WHERE id = $1", [p.caja_movimiento_id])).rows[0];
       if (!cm) continue;
-      if (bloqueaCajaAdmin(req, res, cm.local)) { await client.query("ROLLBACK"); return; }
+      if (bloqueaCaja(req, res, cm.local)) { await client.query("ROLLBACK"); return; }
       const fueDeposito = cm.tipo === "salida", m = Math.abs(Number(p.monto));
       await client.query(
         "INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,$2,$3,$4,$5)",
@@ -5577,9 +5577,21 @@ app.get("/api/auditoria/:entidadId", requireAuth, async (req, res) => {
 });
 
 // ─── CAJA ──────────────────────────────────────────────────────────────
-// La caja "Administración" es exclusiva de superadmin (los demás locales, sin cambios).
+// Quién puede usar cada caja (validado en el BACKEND, no solo en el front):
+// - Operarios de sucursal (a_thomas / french): solo la caja y el fondo fijo de SU local.
+// - La caja "Administración" es exclusiva de superadmin.
+// - Admin, encargado y superadmin: sin restricción por local.
 // Responde 403 y devuelve true si hay que bloquear la operación.
-function bloqueaCajaAdmin(req, res, local) {
+const CAJAS_DE_OPERARIO = {
+  a_thomas: ["A. Thomas", "Fondo Fijo A. Thomas"],
+  french: ["French", "Fondo Fijo French"],
+};
+function bloqueaCaja(req, res, local) {
+  const propias = CAJAS_DE_OPERARIO[req.user?.rol];
+  if (propias && !propias.includes(String(local))) {
+    res.status(403).json({ error: `Tu usuario solo puede usar la caja y el fondo fijo de ${propias[0]}.` });
+    return true;
+  }
   if (String(local) === "Administración" && req.user?.rol !== "superadmin") {
     res.status(403).json({ error: "La caja Administración es solo para superadmin." });
     return true;
@@ -5588,7 +5600,7 @@ function bloqueaCajaAdmin(req, res, local) {
 }
 app.post("/api/caja/apertura", requireAuth, async (req, res) => {
   const { local, fecha, montoInicial, usuario: usuarioAudit } = req.body;
-  if (bloqueaCajaAdmin(req, res, local)) return;
+  if (bloqueaCaja(req, res, local)) return;
   try {
     const existe = await pool.query("SELECT id FROM caja_aperturas WHERE local=$1 AND fecha=$2", [local, fecha]);
     if (existe.rows.length > 0) return res.json({ ok: true, yaExiste: true });
@@ -5600,7 +5612,7 @@ app.post("/api/caja/apertura", requireAuth, async (req, res) => {
 });
 app.post("/api/caja/reabrir", requireAuth, async (req, res) => {
   const { local, fecha, montoInicial, usuario: usuarioAudit } = req.body;
-  if (bloqueaCajaAdmin(req, res, local)) return;
+  if (bloqueaCaja(req, res, local)) return;
   try {
     const existe = await pool.query("SELECT id FROM caja_aperturas WHERE local=$1 AND fecha=$2", [local, fecha]);
     if (existe.rows.length === 0) {
@@ -5616,7 +5628,7 @@ app.post("/api/caja/reabrir", requireAuth, async (req, res) => {
 
 app.get("/api/caja/estado/:local/:fecha", requireAuth, async (req, res) => {
   const { local, fecha } = req.params;
-  if (bloqueaCajaAdmin(req, res, local)) return;
+  if (bloqueaCaja(req, res, local)) return;
   try {
     const apertura = await pool.query("SELECT * FROM caja_aperturas WHERE local=$1 AND fecha=$2", [local, fecha]);
     const movimientos = await pool.query("SELECT * FROM caja_movimientos WHERE local=$1 AND fecha=$2 ORDER BY created_at ASC", [local, fecha]);
@@ -5626,7 +5638,7 @@ app.get("/api/caja/estado/:local/:fecha", requireAuth, async (req, res) => {
 
 app.post("/api/caja/ajuste", requireAuth, async (req, res) => {
   const { local, fecha, tipo, concepto, monto, usuario: usuarioAudit } = req.body;
-  if (bloqueaCajaAdmin(req, res, local)) return;
+  if (bloqueaCaja(req, res, local)) return;
   try {
     await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,$2,$3,$4,$5)", [local, tipo, concepto, monto, fecha]);
     res.json({ ok: true });
@@ -5640,7 +5652,7 @@ const conceptoDeSalidaSobre = (concepto) => (concepto ? `Sobre a bandeja: ${conc
 // La recepción/rechazo (Parte B) la hace el superadmin. La entrada a Administración YA NO ocurre acá.
 app.post("/api/caja/sobre", requireAuth, async (req, res) => {
   const { localOrigen, monto, concepto, usuario: usuarioAudit } = req.body;
-  if (bloqueaCajaAdmin(req, res, localOrigen)) return;   // no se envía un sobre DESDE la caja Administración
+  if (bloqueaCaja(req, res, localOrigen)) return;   // no se envía un sobre DESDE la caja Administración
   const montoAbs = Math.abs(Number(monto));
   if (!Number.isFinite(montoAbs) || montoAbs <= 0) return res.status(400).json({ error: "Monto inválido" });
   const conceptoTxt = (concepto && String(concepto).trim()) || "";
@@ -5672,7 +5684,7 @@ app.post("/api/caja/sobre", requireAuth, async (req, res) => {
 });
 
 // Bandeja de sobres PENDIENTES (para el superadmin): lista + total en tránsito.
-app.get("/api/sobres/pendientes", requireAuth, async (req, res) => {
+app.get("/api/sobres/pendientes", soloSuperadmin, async (req, res) => {   // solo la pantalla "📍 Sobres" (superadmin)
   try {
     const { rows } = await pool.query(
       "SELECT id, local_origen, monto_declarado, concepto, fecha_creacion, usuario_crea FROM sobres WHERE estado='pendiente' ORDER BY created_at ASC"
@@ -5895,7 +5907,7 @@ app.post("/api/sobres/:id/anular", soloSuperadmin, async (req, res) => {
 });
 app.post("/api/caja/cerrar-historico", requireAuth, async (req, res) => {
   const { local, fecha, usuario: usuarioAudit } = req.body;
-  if (bloqueaCajaAdmin(req, res, local)) return;
+  if (bloqueaCaja(req, res, local)) return;
   try {
     await pool.query("UPDATE caja_aperturas SET cerrada=true, monto_cierre=monto_inicial WHERE local=$1 AND fecha=$2 AND cerrada=false", [local, fecha]);
     res.json({ ok: true });
@@ -5904,7 +5916,7 @@ app.post("/api/caja/cerrar-historico", requireAuth, async (req, res) => {
 });
 app.post("/api/caja/cierre", requireAuth, async (req, res) => {
   const { local, fecha, montoCierre, usuario: usuarioAudit } = req.body;
-  if (bloqueaCajaAdmin(req, res, local)) return;
+  if (bloqueaCaja(req, res, local)) return;
   try {
     await pool.query("UPDATE caja_aperturas SET cerrada=true, monto_cierre=$1 WHERE local=$2 AND fecha=$3", [montoCierre, local, fecha]);
     await pool.query("INSERT INTO caja_movimientos (local, tipo, concepto, monto, fecha) VALUES ($1,'cierre','Cierre Z',$2,$3)", [local, montoCierre, fecha]);
@@ -5917,6 +5929,7 @@ const FONDOS_VALIDOS = ["Fondo Fijo A. Thomas", "Fondo Fijo French"];
 
 app.get("/api/fondo-fijo/:local", requireAuth, async (req, res) => {
   const local = decodeURIComponent(req.params.local);
+  if (bloqueaCaja(req, res, local)) return;
   if (!FONDOS_VALIDOS.includes(local)) return res.status(400).json({ error: "Fondo inválido" });
   try {
     const movs = await pool.query(
@@ -5931,6 +5944,7 @@ app.get("/api/fondo-fijo/:local", requireAuth, async (req, res) => {
 });
 app.post("/api/fondo-fijo/movimiento", requireAuth, async (req, res) => {
   const { local, tipo, concepto, monto, fecha, usuario: usuarioAudit } = req.body;
+  if (bloqueaCaja(req, res, local)) return;
   try {
     if (!FONDOS_VALIDOS.includes(local) || !["entrada", "salida"].includes(tipo) || !monto) {
       return res.status(400).json({ error: "Datos inválidos" });
@@ -5950,7 +5964,7 @@ app.post("/api/fondo-fijo/movimiento", requireAuth, async (req, res) => {
 
 app.get("/api/caja/historial/:local", requireAuth, async (req, res) => {
   const { local } = req.params;
-  if (bloqueaCajaAdmin(req, res, decodeURIComponent(local))) return;
+  if (bloqueaCaja(req, res, decodeURIComponent(local))) return;
   try {
     const aperturas = await pool.query("SELECT * FROM caja_aperturas WHERE local=$1 ORDER BY fecha DESC LIMIT 30", [decodeURIComponent(local)]);
     const resultado = [];
@@ -5965,7 +5979,7 @@ app.get("/api/caja/historial/:local", requireAuth, async (req, res) => {
 // Caja "Administración" PERSISTENTE (saldo acumulado, como el Fondo Fijo): suma entrada/salida
 // de TODOS sus movimientos, sin filtrar por fecha. Excluye apertura/cierre. Solo superadmin.
 app.get("/api/caja/administracion", requireAuth, async (req, res) => {
-  if (bloqueaCajaAdmin(req, res, "Administración")) return;
+  if (bloqueaCaja(req, res, "Administración")) return;
   try {
     const movs = await pool.query(
       "SELECT * FROM caja_movimientos WHERE local='Administración' AND tipo IN ('entrada','salida') ORDER BY created_at DESC"
@@ -6004,7 +6018,7 @@ app.patch("/api/caja/movimiento/:id/concepto", requireAuth, async (req, res) => 
     const r = await pool.query("SELECT id, local, concepto FROM caja_movimientos WHERE id=$1", [req.params.id]);
     const m = r.rows[0];
     if (!m) return res.status(404).json({ error: "Movimiento no encontrado." });
-    if (bloqueaCajaAdmin(req, res, m.local)) return;   // Administración solo superadmin
+    if (bloqueaCaja(req, res, m.local)) return;   // Administración solo superadmin
     if (esConceptoAutogenerado(m.concepto)) return res.status(403).json({ error: "No se puede editar el concepto de un movimiento automático." });
     await pool.query("UPDATE caja_movimientos SET concepto=$1 WHERE id=$2", [String(concepto).trim(), req.params.id]);
     res.json({ ok: true });
