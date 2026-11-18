@@ -1439,11 +1439,15 @@ const [facturaLabel, setFacturaLabel] = useState(null);
               nota: f.nota, esManual: true, estado: "Por empaquetar", repartidor: "Sin asignar",
               areaManual: f.areaManual,   // override de área del reporte de zonas (o null = sin asignar)
             };
-            await axios.post(`${API}/api/pedidos-manuales`, { ...nuevoPedido, usuario: usuario.nombre_completo });
-            await axios.post(`${API}/api/estados/${id}`, { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: f.fecha, franjaManual: f.franja, cobrar: esEfectivo });
+            const estadoInicial = { estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: f.fecha, franjaManual: f.franja, cobrar: esEfectivo };
+            // El alta guarda pedido + estado inicial en una sola transacción: cuenta como creado SOLO si volvió ok con número.
+            const resp = await axios.post(`${API}/api/pedidos-manuales`, { ...nuevoPedido, estadoInicial, usuario: usuario.nombre_completo });
+            if (!resp.data?.ok || !resp.data?.numero) throw new Error("el servidor no devolvió el número del pedido");
             ok++;
+            // Igual que antes (redundante con el estado inicial del alta): si falla, el pedido YA está creado.
+            await axios.post(`${API}/api/estados/${id}`, estadoInicial).catch(console.error);
           } catch (err) {
-            fallaron.push(`${f.cliente}: ${err.message}`);
+            fallaron.push(`${f.cliente}: ${err.response?.data?.error || err.message}`);
           }
           setProgreso(Math.round(((i + 1) / validas.length) * 100));
         }
@@ -9412,7 +9416,10 @@ const [facturasMap, setFacturasMap] = useState({});
       const [descuentoRetiro, setDescuentoRetiro] = useState(false);   // alta manual: toggle 10% OFF Retiro (descuento DERIVADO, no ítem del carrito).
       const [envioZona, setEnvioZona] = useState("");                  // alta manual: zona de envío elegida ("" = sin envío).
       const [cotizacion, setCotizacion] = useState(null);              // alta manual: mini-modal "Crear cotización" ({ validaHasta, error, generando }) o null.
-      const [pedidoCreado, setPedidoCreado] = useState(false);
+      const [pedidoCreado, setPedidoCreado] = useState(false);   // false o el número del pedido recién creado (ej. "#M123")
+      const [creandoPedido, setCreandoPedido] = useState(false);
+      const creandoPedidoRef = useRef(false);   // guarda contra doble click antes de que React re-renderice el botón
+      const [errorAlta, setErrorAlta] = useState("");
       // Autocompletar cliente por email (solo alta manual): datos del último pedido de ese mail.
       const [clienteSugerido, setClienteSugerido] = useState(null);
       const [buscandoCliente, setBuscandoCliente] = useState(false);
@@ -10490,7 +10497,8 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
       const textoPedidos = n => `${n} ${Number(n) === 1 ? "pedido" : "pedidos"}`;
 
       async function crearPedido() {
-        if (!form.cliente || carrito.length === 0) return;
+        if (!form.cliente || carrito.length === 0 || creandoPedidoRef.current) return;
+        creandoPedidoRef.current = true;
         const id = `manual-${Date.now()}`;
         const lineasProductos = carrito.map(i => `${i.nombre} x${i.cantidad}`);
         if (descuentoMontoRetiro > 0) lineasProductos.push("Descuento 10% Retiro x1");
@@ -10509,18 +10517,28 @@ const estaVencido = horaInicio && ahora >= horaInicio && fechaPedido === HOY && 
           nota: form.nota, esManual: true, esCorporativo: form.esCorporativo, estado: "Por empaquetar", repartidor: "Sin asignar",
           areaManual: areaManual ? Number(areaManual) : null,   // override de área del reporte de zonas (o null = sin asignar)
         };
-let numeroAsignado = "";
         const estadoInicial ={ estado: "Por empaquetar", repartidor: "Sin asignar", tabManual: null, fechaManual: form.fecha, franjaManual: (form.franjaInicio && form.franjaFin) ? `${form.franjaInicio} – ${form.franjaFin}` : "", cobrar: form.cobrar };
+        // Éxito SOLO si el server respondió ok con el número del pedido. Si no: error visible y el formulario queda
+        // como está (no se pierde lo cargado); el server no guarda nada si falla, así que reintentar no duplica.
+        setCreandoPedido(true); setErrorAlta(""); setPedidoCreado(false);
+        let numeroAsignado = "";
         try {
           const respManual = await axios.post(`${API}/api/pedidos-manuales`, { ...nuevoPedido, estadoInicial });
-          numeroAsignado = respManual.data?.numero || "";
-        } catch (e) { console.error(e); }
+          numeroAsignado = respManual.data?.ok ? String(respManual.data.numero || "") : "";
+          if (!numeroAsignado) throw new Error("El servidor no devolvió el número del pedido.");
+        } catch (e) {
+          console.error(e);
+          setErrorAlta(e.response?.data?.error || (e.response ? `Error ${e.response.status} del servidor.` : e.message === "Network Error" ? "Sin conexión con el servidor." : e.message));
+          setCreandoPedido(false); creandoPedidoRef.current = false;
+          return;
+        }
         nuevoPedido.numero = numeroAsignado;
         if (!esCrm) await axios.post(`${API}/api/estados/${id}`, estadoInicial).catch(console.error);   // el crm no cambia estados: ya viajó en el alta
         setPedidosManuales(prev => [...prev, nuevoPedido]);
         setPedidosLocales(prev => ({ ...prev, [id]: estadoInicial }));
-        setCarrito([]); setForm(FORM_INICIAL); setAreaManual(""); setDescuentoRetiro(false); setEnvioZona(""); setClienteSugerido(null); setClientesTel([]); ultimaBusquedaTel.current = ""; setPedidoCreado(true);
-        setTimeout(() => setPedidoCreado(false), 3000);
+        setCarrito([]); setForm(FORM_INICIAL); setAreaManual(""); setDescuentoRetiro(false); setEnvioZona(""); setClienteSugerido(null); setClientesTel([]); ultimaBusquedaTel.current = ""; setPedidoCreado(numeroAsignado);
+        setCreandoPedido(false); creandoPedidoRef.current = false;
+        setTimeout(() => setPedidoCreado(false), 4000);
       }
 
       // Cotización en PDF del carrito del alta: NO crea el pedido ni guarda nada (se arma en el navegador).
@@ -12298,7 +12316,13 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
               <div>
                 {pedidoCreado && (
                   <div style={{ background: "#eaf3de", border: "1px solid #F68B32", borderRadius: 8, padding: "12px 16px", marginBottom: 16, color: "#27500a", fontWeight: 600, fontSize: 13 }}>
-                    ✅ Pedido creado correctamente
+                    ✅ Pedido {pedidoCreado} creado correctamente
+                  </div>
+                )}
+                {errorAlta && (
+                  <div role="alert" style={{ background: "#fdecea", border: "1px solid #f5c6cb", borderRadius: 8, padding: "12px 16px", marginBottom: 16, color: "#c0392b", fontWeight: 600, fontSize: 13, display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+                    <span>⚠️ El pedido NO se creó: {errorAlta} Lo que cargaste sigue en el formulario: revisalo y tocá "✅ Crear pedido" de nuevo.</span>
+                    <button onClick={() => setErrorAlta("")} aria-label="Cerrar aviso" style={{ background: "none", border: "none", color: "#c0392b", cursor: "pointer", fontSize: 14 }}>✕</button>
                   </div>
                 )}
                 <div style={s.formCard}>
@@ -12475,7 +12499,7 @@ exportarPDF(`pedidos_${tabFin}_${tagFin}.pdf`, tabFin === "entregados" ? "Pedido
                     + Agregar variable
                   </button>
                 </div>
-                <button style={{ ...s.btnCrear, opacity: (!form.cliente || carrito.length === 0) ? 0.4 : 1, marginTop: 12 }} disabled={!form.cliente || carrito.length === 0} onClick={crearPedido}>✅ Crear pedido</button>
+                <button style={{ ...s.btnCrear, opacity: (!form.cliente || carrito.length === 0 || creandoPedido) ? 0.4 : 1, marginTop: 12 }} disabled={!form.cliente || carrito.length === 0 || creandoPedido} onClick={crearPedido}>{creandoPedido ? "Creando pedido…" : "✅ Crear pedido"}</button>
                 <button style={{ ...s.btnCrear, marginTop: 8, background: "#fff", color: "#F68B32", border: "1.5px solid #F68B32" }}
                   onClick={() => setCotizacion({ validaHasta: restarDias(fechaArgentina(), -7), empresa: "", error: "", generando: false })}>📄 Crear cotización</button>
                 {cotizacion && (

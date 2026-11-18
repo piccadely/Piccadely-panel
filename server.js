@@ -2220,10 +2220,15 @@ function lineasParaGuardar(lineas, totalNum, pedidoId) {
 
 app.post("/api/pedidos-manuales", requireAuth, async (req, res) => {
   const p = req.body;
+  // Todo en UNA transacción: si algo falla responde 500 y NO queda nada guardado (el front lo informa y el reintento
+  // no duplica el pedido). El número de la secuencia se consume igual: un hueco en la numeración no importa.
+  let client;
   try {
-    const seqRes = await pool.query("SELECT nextval('pedidos_manuales_seq') AS n");
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const seqRes = await client.query("SELECT nextval('pedidos_manuales_seq') AS n");
     const numero = `#M${seqRes.rows[0].n}`;
-    await pool.query(`
+    await client.query(`
       INSERT INTO pedidos_manuales (id, numero, cliente, telefono, email, direccion, entre_calles, barrio, zona, fecha, franja, productos, total_num, total, pago, medio_pago, cobrar, tab_actual, local, nota, es_corporativo, lineas)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
     `, [p.id, numero, p.cliente, p.telefono, p.email || "", p.direccion, p.entreCalles, p.barrio, p.zona, p.fecha, p.franja, p.productos, p.totalNum, p.total, p.pago, p.medioPago, p.cobrar, p.tabActual, p.local, p.nota, !!p.esCorporativo, lineasParaGuardar(p.lineas, p.totalNum, p.id)]);
@@ -2231,7 +2236,7 @@ app.post("/api/pedidos-manuales", requireAuth, async (req, res) => {
     // sola columna (no toca estado/repartidor/overrides). Solo si vino un valor válido 1-10.
     const areaManual = sanitizarAreaManual(p.areaManual);
     if (areaManual != null) {
-      await pool.query(
+      await client.query(
         `INSERT INTO pedidos_estados (id, area_manual, updated_at)
          VALUES ($1, $2, NOW())
          ON CONFLICT (id) DO UPDATE SET area_manual = EXCLUDED.area_manual, updated_at = NOW()`,
@@ -2242,21 +2247,30 @@ app.post("/api/pedidos-manuales", requireAuth, async (req, res) => {
     // POST /api/estados/:id. Viene acá para que el rol comercial (crm), que no puede cambiar estados, cargue pedidos completos.
     const ei = p.estadoInicial;
     if (ei && typeof ei === "object") {
-      await pool.query(
+      await client.query(
         `INSERT INTO pedidos_estados (id, estado, repartidor, fecha_manual, franja_manual, cobrar, updated_at)
          VALUES ($1, 'Por empaquetar', 'Sin asignar', $2, $3, $4, NOW())
          ON CONFLICT (id) DO UPDATE SET
+           estado = COALESCE(pedidos_estados.estado, EXCLUDED.estado),
+           repartidor = COALESCE(pedidos_estados.repartidor, EXCLUDED.repartidor),
            fecha_manual = COALESCE(NULLIF(EXCLUDED.fecha_manual,''), pedidos_estados.fecha_manual),
            franja_manual = COALESCE(NULLIF(EXCLUDED.franja_manual,''), pedidos_estados.franja_manual),
            cobrar = EXCLUDED.cobrar, updated_at = NOW()`,
         [p.id, ei.fechaManual || null, ei.franjaManual || null, !!ei.cobrar]
       );
     }
+    await client.query("COMMIT");
     const pedidoConNumero = { ...p, numero };
     if (p.email && p.email.trim()) enviarMailConfirmacion(pedidoConNumero).catch(console.error);
     res.json({ ok: true, numero });
     registrarAuditoria(req.user?.nombre_completo || "Sistema", "creacion_manual", "pedido", p.id, { numero, cliente: p.cliente });   // de la SESIÓN, nunca del body
-  } catch (err) { res.status(500).json({ error: "Error guardando pedido manual" }); }
+  } catch (err) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    console.error("Error /api/pedidos-manuales:", err.message);
+    res.status(500).json({ error: "No se pudo guardar el pedido (no quedó cargado). Reintentá." });
+  } finally {
+    if (client) client.release();
+  }
 });
 
 // ─── REPARTIDORES ──────────────────────────────────────────────────────

@@ -168,15 +168,15 @@ Pestaña "➕ Nuevo pedido" (todos menos solo lectura; el comercial también).
    - "Agregar envío": elegí la zona de envío con su precio (uno solo por pedido).
    - "🏷️ 10% OFF Retiro": descuento del 10% sobre los productos (sin el envío).
    - "+ Producto variable": para algo que no está en el catálogo: "Nombre del producto", "Precio", "Cant" → "+ Agregar variable". Un precio negativo funciona como descuento.
-5. Tocá "✅ Crear pedido" (se habilita con nombre y al menos un producto). Sale "✅ Pedido creado correctamente" y el pedido aparece con número "#M…" en la pestaña elegida, con etiqueta "MANUAL".
+5. Tocá "✅ Crear pedido" (se habilita con nombre y al menos un producto; mientras guarda dice "Creando pedido…"). Sale "✅ Pedido #M… creado correctamente" y el pedido aparece en la pestaña elegida, con etiqueta "MANUAL".
+- Si no se pudo guardar, sale en rojo "⚠️ El pedido NO se creó: …" y lo que cargaste queda en el formulario: revisalo y tocá "✅ Crear pedido" de nuevo (no se duplica: si dio error, no quedó nada guardado).
 - "📄 Crear cotización": arma un PDF con lo cargado ("Válida hasta", "Empresa (opcional)" → "Descargar PDF"). No crea el pedido.
-- Si creaste un pedido y no aparece con número o desaparece al refrescar, no se guardó: volvé a cargarlo.
 
 ### Editar productos de un pedido
 Tarjeta del pedido → "✏️ Editar productos" → agregá del catálogo o producto variable, ajustá cantidades → "✅ Guardar cambios". El pedido queda "EDITADO" y el nuevo total se usa para el link de pago y la factura. Si el pedido ya estaba facturado, la factura no cambia: anulala con nota de crédito y volvé a facturar.
 
 ### Importar pedidos (admin)
-☰ → "📥 Importar pedidos" → subí la plantilla .xlsx de Piccadely (solapa «Pedidos») → revisá la vista previa (las filas en rojo no se importan: "falta cliente", "sucursal inválida", "falta producto", "precio inválido", "falta fecha", "fecha inválida") → "✓ Confirmar e importar N". Solo acepta las sucursales "Delivery A. Thomas" y "Delivery French", un producto por fila.
+☰ → "📥 Importar pedidos" → subí la plantilla .xlsx de Piccadely (solapa «Pedidos») → revisá la vista previa (las filas en rojo no se importan: "falta cliente", "sucursal inválida", "falta producto", "precio inválido", "falta fecha", "fecha inválida") → "✓ Confirmar e importar N". Solo acepta las sucursales "Delivery A. Thomas" y "Delivery French", un producto por fila. Al terminar dice cuántos se crearon y lista los que "No se pudieron crear" con el motivo: esos no quedaron cargados (volvé a importar solo esas filas).
 
 ---
 
@@ -513,7 +513,7 @@ Pedidos
 - "Quiero volver de Listo a Por empaquetar": no se puede desde el panel.
 - "Borré la fecha o el horario y volvió": vaciar no borra; poné otro valor.
 - "Cambié un dato y al recargar volvió" (rol Solo lectura): ese rol no puede guardar cambios.
-- "Creé un pedido y no tiene número / desapareció": no se guardó; volvé a cargarlo.
+- "⚠️ El pedido NO se creó: …" al cargar un pedido: no se guardó nada; lo cargado sigue en el formulario, reintentá con "✅ Crear pedido". Si dice "Sin conexión con el servidor.", revisá internet.
 - "La fila está roja": ya pasó la hora de inicio de la franja (o falta menos de 1 h) y no salió, o el pago de Tienda Nube no está aprobado ("⚠️ REVISAR PAGO").
 - "Dice ● NUEVO un pedido viejo": nunca se imprimió su comanda.
 - "No imprime / no aparece la ventana": abrí QZ Tray o habilitá las ventanas emergentes (pop-ups) del navegador.
